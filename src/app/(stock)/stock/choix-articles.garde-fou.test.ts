@@ -23,7 +23,6 @@ const RACINES_SCANNEES = [path.join(RACINE, "src/app/(stock)"), path.join(RACINE
 const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
   "src/app/(stock)/stock/entree/entree-client.tsx": { n: 2, raison: "domaine du nouvel article (Nourriture / Boisson / Autre) + <datalist> des fournisseurs : champ où l'on TAPE déjà (un nom nouveau crée le fournisseur)" },
   "src/app/(stock)/stock/restaurant/restaurant-client.tsx": { n: 1, raison: "<datalist> des catégories du restaurant : champ où l'on tape déjà" },
-  "src/app/(stock)/stock/reconciliation/page.tsx": { n: 1, raison: "filtre de domaine" },
   "src/app/(stock)/stock/journalier/import-classeur.tsx": { n: 1, raison: "« créer » ou « c'est telle fiche » parmi les 1 à 3 fiches proches déjà repérées" },
   "src/app/(stock)/stock/journalier/import-commande.tsx": { n: 1, raison: "6 propositions au plus (articles déjà rapprochés du classeur), pas le catalogue" },
   "src/app/(stock)/stock/journalier/menu-fiches-conso.tsx": { n: 1, raison: "jour de la fiche (7 jours)" },

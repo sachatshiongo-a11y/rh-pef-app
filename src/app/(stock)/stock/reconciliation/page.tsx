@@ -4,8 +4,8 @@ import { ReconciliationForm } from "./reconciliation-client";
 import { ImportInventaireClient } from "../imports/import-client";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
-import { TelechargerLien } from "@/components/telecharger-lien";
-import { ChampTaillePage } from "@/components/pagination";
+import { FichesVierges } from "./fiches-vierges";
+import { lireDomaine } from "@/components/stock/pilules-domaine";
 import { lirePagination } from "@/lib/pagination";
 
 type SP = { domaine?: string; page?: string; par?: string };
@@ -15,14 +15,21 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const { page, par } = lirePagination(sp);
-  const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
+  const domaine = lireDomaine(sp.domaine); // domaine de départ (pilules) ; l'écran change de domaine sans recharger
 
-  const where: Prisma.ArticleStockWhereInput = { actif: true, ...(domaine ? { domaine } : {}) };
+  // TOUS les articles actifs, tous domaines : l'écran masque ceux des autres domaines au lieu de les recharger,
+  // pour que le comptage déjà tapé ne soit jamais perdu en changeant de pilule.
+  const where: Prisma.ArticleStockWhereInput = { actif: true };
   const articles = await prisma.articleStock.findMany({
     where, orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
     include: { stock: true, categorie: { select: { nom: true } } },
   });
-  const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0 }));
+  const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0, domaine: a.domaine }));
+  const nombres = {
+    NOURRITURE: rows.filter((r) => r.domaine === "NOURRITURE").length,
+    BOISSON: rows.filter((r) => r.domaine === "BOISSON").length,
+    AUTRE: rows.filter((r) => r.domaine === "AUTRE").length,
+  };
 
   // Trois derniers comptages appliqués — l'historique complet vit dans Archives.
   const [comptages, enAttente] = await Promise.all([
@@ -34,51 +41,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     }),
   ]);
 
-  // Fiche de comptage Excel téléchargeable : génération instantanée (pas de PDF serveur react-pdf,
-  // qui saturait Render sur des centaines d'articles).
-  const ficheHref = (dom: string) => `/stock/reconciliation/fiche/excel?domaine=${dom}`;
-
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Réconciliation d&apos;inventaire</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Saisissez les quantités physiques comptées : les écarts avec le stock théorique génèrent un
-            ajustement et le stock est mis au réel. Filtrez pour compter par lot.
-            {!estDirection && " Un comptage avec écart est soumis à la Direction : le stock n'est ajusté qu'après sa validation."}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <TelechargerLien href={ficheHref("NOURRITURE")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</TelechargerLien>
-          <TelechargerLien href={ficheHref("BOISSON")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</TelechargerLien>
-          <TelechargerLien href={ficheHref("AUTRE")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</TelechargerLien>
-        </div>
+      <div>
+        <h1 className="text-xl font-semibold sm:text-2xl">Réconciliation d&apos;inventaire</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Saisissez les quantités physiques comptées : les écarts avec le stock théorique génèrent un
+          ajustement et le stock est mis au réel. Choisissez un domaine pour compter par lot : les quantités tapées sont conservées d&apos;un domaine à l&apos;autre.
+          {!estDirection && " Un comptage avec écart est soumis à la Direction : le stock n'est ajusté qu'après sa validation."}
+        </p>
       </div>
 
-      <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Domaine :</span>
-        <select name="domaine" defaultValue={domaine ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
-          <option value="">Tous domaines</option>
-          <option value="NOURRITURE">Nourriture</option>
-          <option value="BOISSON">Boisson</option>
-          <option value="AUTRE">Autre</option>
-        </select>
-        <ChampTaillePage />
-        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Charger</button>
-      </form>
-
-      {/* Deux façons de mettre le stock au réel : saisie manuelle ci-dessous, ou import du classeur Excel. */}
-      {estDirection && (
-        <details className="group rounded-lg border">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-            <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
-            📥 Importer un comptage depuis le classeur Excel d&apos;inventaire
-            <span className="font-normal text-muted-foreground">— aperçu avant écriture, annulable depuis Imports</span>
-          </summary>
-          <div className="border-t p-3"><ImportInventaireClient /></div>
-        </details>
-      )}
+      <FichesVierges nombres={nombres} />
 
       {enAttente.length > 0 && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -92,7 +66,19 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </div>
       )}
 
-      <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} pageInit={page} parInit={par} />
+      <ReconciliationForm articles={rows} domaineInit={domaine} estDirection={estDirection} pageInit={page} parInit={par} />
+
+      {/* Autre façon de mettre le stock au réel (saisie manuelle ci-dessus, ou import du classeur Excel) : repliée et discrète. */}
+      {estDirection && (
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+            Importer un comptage depuis le classeur Excel d&apos;inventaire
+            <span className="text-xs">— aperçu avant écriture, annulable depuis Imports</span>
+          </summary>
+          <div className="mt-2 rounded-lg border p-3"><ImportInventaireClient /></div>
+        </details>
+      )}
 
       {comptages.length > 0 && (
         <div>

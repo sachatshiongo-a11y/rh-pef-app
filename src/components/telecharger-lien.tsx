@@ -257,7 +257,7 @@ export function TelechargerLien({
   }
 
   return (
-    <a href={href} onClick={onClick} className={className} title={title} aria-busy={busy}>
+    <a href={href} onClick={onClick} className={className} title={title} aria-busy={busy} data-telechargement="">
       {children}
     </a>
   );

@@ -95,6 +95,9 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
  */
 export function usePagination({ total, pageInit = 1, parInit = PAR_DEFAUT, cleFiltre, synchroUrl = true }: { total: number; pageInit?: number; parInit?: ParPage; cleFiltre: string; synchroUrl?: boolean }) {
   const [etat, setEtat] = useState({ page: pageInit, par: parInit, cle: cleFiltre });
+  // Le filtre a changé : on RETOMBE sur la page 1 pour de bon (état dérivé, réglé pendant le rendu). Sans cela la page
+  // d'avant revenait dès que l'on retrouvait le filtre d'origine (page 3 → autre domaine → domaine d'origine : page 3).
+  if (etat.cle !== cleFiltre) setEtat({ page: 1, par: etat.par, cle: cleFiltre });
   const pageVoulue = etat.cle === cleFiltre ? etat.page : 1;
   const f: FenetrePage = fenetrePage(total, pageVoulue, etat.par);
 
