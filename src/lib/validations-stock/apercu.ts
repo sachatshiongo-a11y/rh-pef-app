@@ -13,6 +13,7 @@ import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
 import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
+import { CHAMPS_CONTENANCE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
 
 /** Restes dans la devise de la facture (`devise`, absente = USD). */
 export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean; devise?: DeviseFacture };
@@ -140,14 +141,16 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const ids = charge.lignes.map((l) => l.articleId);
       const [stocks, existants] = await Promise.all([
         prisma.stock.findMany({ where: { articleId: { in: ids } }, select: { articleId: true, quantite: true } }),
-        prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+        prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, ...CHAMPS_CONTENANCE } }),
       ]);
       const actuel = new Map(stocks.map((x) => [x.articleId, new Decimal(x.quantite.toString())]));
       const vivants = new Set(existants.map((a) => a.id));
+      // Nom AFFICHÉ : la désignation figée dans la demande, complétée de la contenance de l'article (s'il existe encore).
+      const libelle = libelleDemande(existants);
       const signe = charge.type === "ENTREE" ? 1 : -1;
       // Depuis le 2026-10-07 le demandeur saisit en direct : il a peut-être ressaisi ce même mouvement.
       const depuis = await prisma.mouvementStock.findMany({ where: { articleId: { in: ids }, type: charge.type, createdAt: { gt: d.createdAt }, factureId: null }, select: { articleId: true }, distinct: ["articleId"] });
-      const saisisDepuis = charge.lignes.filter((l) => depuis.some((x) => x.articleId === l.articleId)).map((l) => l.designation);
+      const saisisDepuis = charge.lignes.filter((l) => depuis.some((x) => x.articleId === l.articleId)).map((l) => libelle(l.articleId, l.designation));
       base.mouvement = {
         type: charge.type, origine: charge.origine, date: charge.date, saisisDepuis,
         lignes: charge.lignes.map((l) => {
@@ -155,7 +158,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           const a = actuel.get(l.articleId) ?? new Decimal(0);
           const q = new Decimal(l.quantite);
           return {
-            articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite,
+            articleId: l.articleId, designation: libelle(l.articleId, l.designation), unite: l.unite, quantite: l.quantite,
             actuel: a.toString(), apres: a.plus(q.times(signe)).toString(),
             valeur: l.prixUnitaireUSD === null ? null : q.times(signe).times(new Decimal(l.prixUnitaireUSD)).toNumber(),
           };
@@ -166,11 +169,12 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const ids = ecarts.map((l) => l.articleId);
       const [stocks, existants, depuis] = await Promise.all([
         prisma.stock.findMany({ where: { articleId: { in: ids } }, select: { articleId: true, quantite: true } }),
-        prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+        prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, ...CHAMPS_CONTENANCE } }),
         mouvementsDepuis(prisma, ids, d.createdAt),
       ]);
       const actuel = new Map(stocks.map((s) => [s.articleId, new Decimal(s.quantite.toString())]));
       const vivants = new Set(existants.map((a) => a.id));
+      const libelle = libelleDemande(existants);
       let valeurTotale: number | null = 0;
       const lignes: ApercuLigneComptage[] = ecarts.map((l) => {
         const ecart = new Decimal(l.physique).minus(new Decimal(l.theorique));
@@ -182,8 +186,8 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           return { ...l, ecart: ecart.toString(), valeur, actuel: a.toString(), final: null, etat: "conflit" as const, raison: "article supprimé ou fusionné" };
         }
         const e = etatLigneAValider(l, a, depuis.get(l.articleId)!);
-        if (e.etat === "conflit") base.alertes.push(`« ${l.designation} » : ${e.raison} — à recompter.`);
-        return { ...l, ecart: ecart.toString(), valeur, actuel: a.toString(), final: e.etat === "conflit" ? null : e.final.toString(), etat: e.etat, raison: e.etat === "conflit" ? e.raison : null };
+        if (e.etat === "conflit") base.alertes.push(`« ${libelle(l.articleId, l.designation)} » : ${e.raison} — à recompter.`);
+        return { ...l, designation: libelle(l.articleId, l.designation), ecart: ecart.toString(), valeur, actuel: a.toString(), final: e.etat === "conflit" ? null : e.final.toString(), etat: e.etat, raison: e.etat === "conflit" ? e.raison : null };
       });
       base.comptage = { origine: charge.origine, nbLignes: charge.lignes.length, valeurTotale, lignes };
     } else if ("articles" in charge) {
@@ -209,7 +213,8 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
             stockMinimum: dec(art.stock?.stockMinimum) ?? "0", seuilUrgent: dec(art.stock?.seuilUrgent) ?? "0", quantite: dec(art.stock?.quantite) ?? "0",
           } : null;
           return {
-            id: a.id, designation: a.designation,
+            // Nom affiché (contenance comprise) ; les valeurs « avant → après » restent les vraies.
+            id: a.id, designation: art ? libelleArticle({ designation: a.designation, contenance: art.contenance, contenanceUnite: art.contenanceUnite }) : a.designation,
             changements: a.changements.map((c) => {
               let actuel: string | null = null;
               if (valeurs && !valeursEgales(c.champ, valeurs[c.champ], c.avant)) {
@@ -245,4 +250,10 @@ export async function demandeSurCible(cle: string) {
   if (!c) return null;
   const [a] = await apercusDemandes({ id: c.demandeId, statut: "EN_ATTENTE" }, { detail: true });
   return a ?? null;
+}
+
+/** Libellé d'une ligne de demande : sa désignation figée + la contenance de l'article encore au catalogue. */
+function libelleDemande(articles: { id: string; contenance: { toString(): string } | null; contenanceUnite: string | null }[]) {
+  const parId = new Map(articles.map((a) => [a.id, a]));
+  return (articleId: string, designation: string) => libelleLigneArticle({ designation, article: parId.get(articleId) ?? null });
 }
