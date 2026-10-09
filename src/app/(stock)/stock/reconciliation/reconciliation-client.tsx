@@ -14,8 +14,9 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { PARAM_PAGE, tranche, type ParPage } from "@/lib/pagination";
 import { norm } from "@/lib/filtre-inventaire";
 import { DOMAINES_PILULES, PilulesDomaine, type DomaineCle } from "@/components/stock/pilules-domaine";
+import { libelleArticle } from "@/lib/libelle-article";
 
-type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number; domaine?: string };
+type Art = { id: string; code: string | null; designation: string; contenance?: string | null; contenanceUnite?: string | null; categorie: string; theorique: number; domaine?: string };
 type TriCol = "code" | "designation" | "categorie" | "theorique";
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
@@ -58,13 +59,13 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache, onSais
     <>
       <tr hidden={cache || undefined} className={`even:bg-muted/25 hover:bg-accent/40 ${horsTol ? "bg-red-50/50" : ""}`}>
         <td className="text-center tabular-nums text-muted-foreground">{a.code ?? ""}</td>
-        <td className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></td>
+        <td className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{libelleArticle(a)}</Link></td>
         <td className="text-muted-foreground">{montrerCat ? a.categorie : ""}</td>
         <td className="text-right tabular-nums text-muted-foreground">{qte(a.theorique)}</td>
         <td className="text-right">
           <input type="hidden" name="recon_articleId" value={a.id} />
           <CelluleNombre name="recon_physique" ligne={a.id} col={0} groupe={montrerCat ? undefined : a.categorie} quantite valeur={num} onEnregistrer={setNum}
-            placeholder="0" className={`${inp} w-24 text-right`} aria-label={`Quantité physique — ${a.designation}`} />
+            placeholder="0" className={`${inp} w-24 text-right`} aria-label={`Quantité physique — ${libelleArticle(a)}`} />
         </td>
         <td className={`text-right font-medium tabular-nums ${couleurEcart}`}>
           {ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}
@@ -132,7 +133,7 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
   const dansDomaine = useMemo(() => (domaine ? articles.filter((a) => a.domaine === domaine) : articles), [articles, domaine]);
   const visibles = useMemo(() => {
     const nq = norm(q.trim());
-    return nq ? dansDomaine.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : dansDomaine;
+    return nq ? dansDomaine.filter((a) => norm(a.designation).includes(nq) || norm(libelleArticle(a)).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : dansDomaine;
   }, [dansDomaine, q]);
   const idsVisibles = useMemo(() => new Set(visibles.map((a) => a.id)), [visibles]);
   // TOUTES les lignes (tous domaines) restent montées (triées) ; le domaine, la recherche et la page ne font que masquer.
@@ -195,7 +196,7 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
     if (ids.some((id, i) => phys[i] !== "" && domaineDe.get(id) !== domaine)) fd.delete("domaine");
     const manquantes = explicationsManquantes(fd);
     if (manquantes.length > 0) {
-      const noms = manquantes.map((a) => `${a.designation}${libelleDomaine(a.domaine) ? ` (${libelleDomaine(a.domaine)})` : ""}`).join(", ");
+      const noms = manquantes.map((a) => `${libelleArticle(a)}${libelleDomaine(a.domaine) ? ` (${libelleDomaine(a.domaine)})` : ""}`).join(", ");
       setMsg({ ok: false, texte: `Écart supérieur à ${SEUIL_TOLERANCE_PCT} % : une explication est requise pour : ${noms}.`, versId: manquantes[0].id });
       return;
     }

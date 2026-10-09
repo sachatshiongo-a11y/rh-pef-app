@@ -1,8 +1,12 @@
 import { DOMAINE_LABEL } from "@/lib/stock";
+import { libelleArticle } from "@/lib/libelle-article";
 
 type ArtFiche = {
   domaine: string;
   designation: string;
+  /** Contenance enregistrée (Decimal Prisma) : la fiche imprime le libellé (`libelleArticle`). */
+  contenance?: { toString(): string } | null;
+  contenanceUnite?: string | null;
   unite: string | null;
   categorie: { nom: string } | null;
   fournisseur: { nom: string } | null;
@@ -37,7 +41,7 @@ export function lignesFicheComptage(articles: ArtFiche[], filtreDomaine: boolean
       sectionRows.push(lignes.length);
       lignes.push([cat, "", "", "", "", ""]);
     }
-    lignes.push([a.designation, a.fournisseur?.nom ?? "", a.unite ?? "", a.stock ? Number(a.stock.quantite) : 0, "", ""]);
+    lignes.push([libelleArticle(a), a.fournisseur?.nom ?? "", a.unite ?? "", a.stock ? Number(a.stock.quantite) : 0, "", ""]);
   }
 
   return { lignes, sectionRows };

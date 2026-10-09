@@ -7,6 +7,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { FichesVierges } from "./fiches-vierges";
 import { lireDomaine } from "@/components/stock/pilules-domaine";
 import { lirePagination } from "@/lib/pagination";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 type SP = { domaine?: string; page?: string; par?: string };
 
@@ -24,7 +25,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     where, orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
     include: { stock: true, categorie: { select: { nom: true } } },
   });
-  const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0, domaine: a.domaine }));
+  const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, ...contenancePourClient(a), categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0, domaine: a.domaine }));
   const nombres = {
     NOURRITURE: rows.filter((r) => r.domaine === "NOURRITURE").length,
     BOISSON: rows.filter((r) => r.domaine === "BOISSON").length,
