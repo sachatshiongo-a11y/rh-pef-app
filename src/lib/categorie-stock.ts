@@ -6,9 +6,10 @@
 // voit que l'égalité exacte à la lettre près. Ce module PUR rapproche donc aussi la casse, les accents,
 // les espaces, le pluriel (« Tomate »/« Tomates ») et l'ordre des mots, avec EXACTEMENT la règle de
 // l'anti-doublon d'article (`memeDesignation` pour le même nom, `articlesProches` pour le proche).
-// Différence assumée avec l'article : ici le proche est REFUSÉ (pas de « Créer quand même ») — une
-// catégorie est un mot de classement, deux mots presque identiques ne servent qu'à éparpiller les
-// articles. Les catégories ARCHIVÉES comptent : on réactive, on ne recrée pas.
+// Deux niveaux, comme « Ajouter un article » : le nom IDENTIQUE à la casse, aux accents et aux espaces
+// près (`exact`) est refusé sans recours ; le nom seulement PROCHE (« Tomate »/« Tomates », « Jus »/« Jus de
+// fruits ») est signalé, et la Direction peut confirmer (« Créer quand même » / « Renommer quand même »,
+// drapeau `quandMeme`). Les catégories ARCHIVÉES comptent : on réactive, on ne recrée pas.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { articlesProches } from "@/lib/article-proche";
@@ -18,10 +19,10 @@ import { DOMAINE_LABEL } from "@/lib/stock";
 /**
  * Seuil de ressemblance d'une CATÉGORIE : plus haut que celui des articles (0,65). Le calcul d'article
  * rend des scores par paliers : 0,9 pour un pluriel, une lettre d'écart, un mot ajouté ou l'ordre des mots
- * (« Tomate »/« Tomates », « Huile palme »/« Huile de palme ») et 0,8 dès que DEUX noms partagent un mot et
- * en changent un autre (« Boissons chaudes »/« Boissons froides », « Viande rouge »/« Viande blanche »).
- * Ces dernières sont des catégories sœurs légitimes, et un refus sans « Créer quand même » ne doit pas les
- * bloquer : 0,85 garde le premier palier (refusé) et laisse passer le second.
+ * (« Tomate »/« Tomates », « Jus »/« Jus de fruits ») et 0,8 dès que DEUX noms partagent un mot et en
+ * changent un autre (« Boissons chaudes »/« Boissons froides », « Viande rouge »/« Viande blanche »).
+ * Ces dernières sont des catégories sœurs presque toujours voulues : 0,85 les laisse passer sans question,
+ * le premier palier est signalé (avec confirmation possible).
  */
 export const SEUIL_CATEGORIE_PROCHE = 0.85;
 
@@ -51,12 +52,18 @@ export function doublonDeCategorie<T extends CategorieNommee>(
   return proche ? { categorie: proche.article.c, exact: false } : null;
 }
 
-/** Le refus affiché : nomme la catégorie existante, son domaine, et dit quoi faire si elle est archivée. */
+/**
+ * Le message affiché : nomme la catégorie existante, son domaine, et dit quoi faire si elle est archivée.
+ * Exact : refus sec. Proche : avertissement, la confirmation reste possible.
+ */
 export function messageDoublonCategorie(nom: string, d: { categorie: CategorieNommee; exact: boolean }): string {
   const domaine = DOMAINE_LABEL[d.categorie.domaine] ?? d.categorie.domaine;
   const exist = `« ${d.categorie.nom} » (${domaine})`;
   const sortie = d.categorie.actif ? "Utilisez-la plutôt." : "Elle est archivée : réactivez-la plutôt.";
   return d.exact
     ? `La catégorie ${exist} existe déjà. ${sortie} Rien n'a été enregistré.`
-    : `« ${nom} » ressemble trop à la catégorie ${exist}. ${sortie} Rien n'a été enregistré.`;
+    : `« ${nom} » ressemble à la catégorie ${exist}. ${sortie} Si les deux sont voulues, confirmez. Rien n'a été enregistré.`;
 }
+
+/** Réponse d'une création / d'un renommage qui tombe sur une catégorie existante (l'écran propose de confirmer si `confirmable`). */
+export type DoublonCategorie = { doublon: true; categorie: CategorieNommee; confirmable: boolean; message: string };

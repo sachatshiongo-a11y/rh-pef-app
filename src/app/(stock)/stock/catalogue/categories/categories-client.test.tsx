@@ -106,6 +106,27 @@ describe("Direction : actions groupées et gestes par ligne", () => {
     expect(ligne("n3").querySelector<HTMLSelectElement>("select")!.disabled).toBe(false);
   });
 
+  it("nom proche : avertissement + « Créer quand même » qui renvoie le drapeau ; doublon certain : refus sec sans bouton", async () => {
+    const existante = { id: "n1", nom: "Épicerie", domaine: "NOURRITURE", actif: true };
+    M.creerCategorie.mockResolvedValueOnce({ doublon: true, categorie: existante, confirmable: true, message: "« Epicerie sèche » ressemble à la catégorie « Épicerie » (Nourriture)." });
+    monter(true);
+    clic(bouton(conteneur, "+ Nouvelle catégorie"));
+    const form = conteneur.querySelector("form")!;
+    (form.querySelector('input[name="nom"]') as HTMLInputElement).value = "Epicerie sèche";
+    await act(async () => { form.requestSubmit(); });
+    expect(conteneur.querySelector("[data-choix-categorie]")!.textContent).toContain("ressemble à la catégorie « Épicerie »");
+    expect((M.creerCategorie.mock.calls[0][0] as FormData).get("quandMeme")).toBeNull();
+    await act(async () => { bouton(conteneur, "Créer quand même").click(); });
+    expect((M.creerCategorie.mock.calls[1][0] as FormData).get("quandMeme")).toBe("1");
+    expect(conteneur.querySelector("[data-choix-categorie]")).toBeNull();
+
+    M.modifierCategorie.mockResolvedValueOnce({ doublon: true, categorie: existante, confirmable: false, message: "La catégorie « Épicerie » (Nourriture) existe déjà." });
+    clic(bouton(ligne("n3"), "Modifier"));
+    await act(async () => { ligne("n3").querySelector("form")!.requestSubmit(); });
+    expect(conteneur.querySelector('[role="alert"]')!.textContent).toContain("existe déjà");
+    expect(conteneur.querySelector("[data-choix-categorie]")).toBeNull();
+  });
+
   it("le refus du serveur s'affiche tel quel", async () => {
     M.creerCategorie.mockResolvedValueOnce({ erreur: "La catégorie « Tomates » (Nourriture) existe déjà. Utilisez-la plutôt." });
     monter(true);

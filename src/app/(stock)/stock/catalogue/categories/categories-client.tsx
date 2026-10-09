@@ -7,7 +7,7 @@ import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { EtatVide } from "@/components/etat-vide";
 import { PilulesDomaine, type DomaineCle } from "@/components/stock/pilules-domaine";
 import { DOMAINE_LABEL } from "@/lib/stock";
-import { NOM_CATEGORIE_MAX } from "@/lib/categorie-stock";
+import { NOM_CATEGORIE_MAX, type DoublonCategorie } from "@/lib/categorie-stock";
 
 export type CategorieRow = { id: string; nom: string; domaine: string; actif: boolean; nbArticles: number };
 
@@ -30,10 +30,26 @@ export function CategoriesClient({ categories, estDirection }: { categories: Cat
   const [enEdition, setEnEdition] = useState<string | null>(null);
   const { sel, toggle, clear, setAll } = useBulkSelection();
 
+  // Nom proche d'une catégorie existante : avertissement + « Créer / Renommer quand même » (même encadré ambre que l'ajout d'article).
+  const [proche, setProche] = useState<{ message: string; libelle: string; refaire: () => void } | null>(null);
+
   const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
+    setProche(null);
     startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
   };
+  /** Création / renommage : doublon certain = refus ; nom proche = avertissement qui renvoie la saisie avec `quandMeme`. */
+  const soumettre = (appel: (fd: FormData) => Promise<unknown>, fd: FormData, libelle: string, apres: () => void) => run(async () => {
+    const r = await appel(fd);
+    if (estErreur(r)) return r;
+    if (r && typeof r === "object" && "doublon" in r) {
+      const d = r as DoublonCategorie;
+      if (d.confirmable) setProche({ message: d.message, libelle, refaire: () => { fd.set("quandMeme", "1"); soumettre(appel, fd, libelle, apres); } });
+      else setErreur(d.message);
+      return;
+    }
+    apres();
+  });
 
   const comptes = useMemo(() => ({
     TOUS: categories.length,
@@ -72,17 +88,26 @@ export function CategoriesClient({ categories, estDirection }: { categories: Cat
         )}
       </div>
 
+      {proche && (
+        <div role="group" aria-label="Nom proche d'une catégorie existante" data-choix-categorie className="space-y-1 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+          <p className="font-medium">{proche.message}</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" data-quand-meme disabled={isPending} onClick={proche.refaire} className="rounded-md border border-dashed border-amber-500 px-2 py-0.5 text-xs font-medium hover:bg-amber-100 disabled:opacity-50">{proche.libelle}</button>
+            <button type="button" onClick={() => setProche(null)} className="rounded-md border border-amber-400 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-accent">Annuler</button>
+          </div>
+        </div>
+      )}
       {erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       {!estDirection && <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">Consultation — seule la Direction peut créer, renommer, ordonner, archiver ou supprimer une catégorie.</p>}
 
       {ajout && estDirection && (
-        <form action={(fd) => run(async () => { const r = await creerCategorie(fd); if (!estErreur(r)) setAjout(false); return r; })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
+        <form onSubmit={(e) => { e.preventDefault(); soumettre(creerCategorie, new FormData(e.currentTarget), "Créer quand même", () => setAjout(false)); }} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
           <input name="nom" placeholder="Nom de la catégorie *" required maxLength={NOM_CATEGORIE_MAX} aria-label="Nom de la nouvelle catégorie" className={`${cellCls} col-span-2`} />
           <select name="domaine" defaultValue={domaine || "NOURRITURE"} aria-label="Domaine de la nouvelle catégorie" className={cellCls}>
             {DOMAINES.map((d) => <option key={d} value={d}>{DOMAINE_LABEL[d]}</option>)}
           </select>
           <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50">Créer la catégorie</button>
-          <p className="col-span-2 text-xs text-muted-foreground md:col-span-4">Un nom déjà pris dans le même domaine (même à une majuscule, un accent ou un pluriel près) est refusé : la catégorie existante est nommée.</p>
+          <p className="col-span-2 text-xs text-muted-foreground md:col-span-4">Un nom déjà pris dans le même domaine (à une majuscule, un accent ou un espace près) est refusé ; un nom seulement proche (pluriel, mot en plus) est signalé, vous pouvez le créer quand même.</p>
         </form>
       )}
 
@@ -108,7 +133,7 @@ export function CategoriesClient({ categories, estDirection }: { categories: Cat
                     {enEdition === c.id && estDirection ? (
                       <EditionLigne c={c} pending={isPending}
                         onAnnuler={() => setEnEdition(null)}
-                        onEnregistrer={(fd) => run(async () => { const r = await modifierCategorie(c.id, fd); if (!estErreur(r)) setEnEdition(null); return r; })} />
+                        onEnregistrer={(fd) => soumettre((f) => modifierCategorie(c.id, f), fd, "Renommer quand même", () => setEnEdition(null))} />
                     ) : (
                       <>
                         <div className="min-w-0 flex-1">
@@ -141,11 +166,11 @@ export function CategoriesClient({ categories, estDirection }: { categories: Cat
   );
 }
 
-/** Renommer et, si la catégorie est vide, changer de domaine : le domaine d'un article ne change jamais par ici. */
+/** (onSubmit et non `action` : un refus ou un avertissement garde la saisie à l'écran.) Renommer et, si la catégorie est vide, changer de domaine : le domaine d'un article ne change jamais par ici. */
 function EditionLigne({ c, pending, onAnnuler, onEnregistrer }: { c: CategorieRow; pending: boolean; onAnnuler: () => void; onEnregistrer: (fd: FormData) => void }) {
   const vide = c.nbArticles === 0;
   return (
-    <form action={onEnregistrer} className="grid min-w-0 flex-1 grid-cols-2 items-end gap-2 md:grid-cols-[1fr_12rem_auto]">
+    <form onSubmit={(e) => { e.preventDefault(); onEnregistrer(new FormData(e.currentTarget)); }} className="grid min-w-0 flex-1 grid-cols-2 items-end gap-2 md:grid-cols-[1fr_12rem_auto]">
       <label className="col-span-2 flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground md:col-span-1">Nom
         <input name="nom" defaultValue={c.nom} required maxLength={NOM_CATEGORIE_MAX} autoFocus className={cellCls} />
       </label>

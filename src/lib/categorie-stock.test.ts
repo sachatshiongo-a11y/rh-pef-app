@@ -32,7 +32,7 @@ describe("doublonDeCategorie", () => {
 
 describe("messageDoublonCategorie", () => {
   it("nomme la catégorie existante et son domaine ; dit de réactiver une archivée", () => {
-    expect(messageDoublonCategorie("Tomate", { categorie: LISTE[0], exact: false })).toBe("« Tomate » ressemble trop à la catégorie « Tomates » (Nourriture). Utilisez-la plutôt. Rien n'a été enregistré.");
+    expect(messageDoublonCategorie("Tomate", { categorie: LISTE[0], exact: false })).toBe("« Tomate » ressemble à la catégorie « Tomates » (Nourriture). Utilisez-la plutôt. Si les deux sont voulues, confirmez. Rien n'a été enregistré.");
     expect(messageDoublonCategorie("surgeles", { categorie: LISTE[2], exact: true })).toContain("réactivez-la plutôt");
   });
 });

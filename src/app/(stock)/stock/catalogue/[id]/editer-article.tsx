@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { modifierArticle } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { ChoixArticleProche, type CandidatProche } from "@/components/stock/choix-article-proche";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
@@ -112,11 +113,15 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
   };
   const catsPour = categories.filter((c) => c.domaine === domaine || (domaine === a.domaine && c.id === a.categorieId));
 
+  // Anti-doublon au renommage (même encadré que « Ajouter un article ») : la saisie reste dans le formulaire.
+  const [doublon, setDoublon] = useState<{ fd: FormData; nom: string; candidats: CandidatProche[]; creationPossible: boolean } | null>(null);
   const enregistrer = (fd: FormData) => {
     setErreur(null);
+    setDoublon(null);
     start(async () => {
       const r = await modifierArticle(a.id, fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (r && "doublon" in r) { setDoublon({ fd, nom: String(fd.get("designation") ?? ""), candidats: r.candidats, creationPossible: r.creationPossible }); return; }
       if (r && "message" in r) setInfo(r.message);
       setOuvert(false);
     });
@@ -132,9 +137,17 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
     );
   }
 
+  // onSubmit et non `action` : une action de formulaire React vide les champs libres après l'envoi, et un refus (doublon) doit garder la saisie.
   return (
-    <form action={enregistrer} onKeyDown={empecherEnvoiParEntree} className="w-full rounded-xl border bg-muted/20 p-4">
+    <form onSubmit={(e) => { e.preventDefault(); enregistrer(new FormData(e.currentTarget)); }} onKeyDown={empecherEnvoiParEntree} className="w-full rounded-xl border bg-muted/20 p-4">
       {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {doublon && (
+        <div className="mb-3">
+          <ChoixArticleProche nom={doublon.nom} candidats={doublon.candidats} creationPossible={doublon.creationPossible} desactive={isPending}
+            hrefUtiliser={(c) => `/stock/catalogue/${c.id}`} libelleCreer="Renommer quand même" avant="de renommer"
+            onCreer={() => { const fd = doublon.fd; fd.set("renommerQuandMeme", "1"); enregistrer(fd); }} />
+        </div>
+      )}
       <ZoneTableur>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Désignation *

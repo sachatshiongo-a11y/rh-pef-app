@@ -186,3 +186,32 @@ describe("fiche article — bouton Modifier", () => {
     expect([fd.get("contenance"), fd.get("contenanceUnite")]).toEqual(["75", "cl"]);
   });
 });
+
+describe("fiche article — anti-doublon au renommage (deux niveaux, comme « Ajouter un article »)", () => {
+  const proche = { doublon: true, creationPossible: true, message: "…", candidats: [{ id: "a2", designation: "Farines" }] };
+
+  it("nom proche : avertissement avec « Renommer quand même » ; la saisie reste, le clic renvoie le drapeau", async () => {
+    appels.modifier.mockResolvedValueOnce(proche);
+    monter();
+    await cliquer(bouton("Modifier"));
+    taperTexte(champ<HTMLInputElement>('input[name="designation"]'), "Farine fine");
+    await cliquer(bouton("Enregistrer"));
+    expect(appels.modifier.mock.calls[0][1].get("renommerQuandMeme")).toBeNull();
+    expect(conteneur.querySelector("[data-choix-article]")!.textContent).toContain("choisissez avant de renommer");
+    expect(champ<HTMLInputElement>('input[name="designation"]').value).toBe("Farine fine"); // saisie gardée
+    await cliquer(bouton("Renommer quand même"));
+    expect(appels.modifier.mock.calls[1][1].get("renommerQuandMeme")).toBe("1");
+    expect(conteneur.querySelector("form")).toBeNull(); // enregistré
+  });
+
+  it("doublon certain : refus sec, aucun bouton « Renommer quand même », lien vers l'article existant", async () => {
+    appels.modifier.mockResolvedValueOnce({ ...proche, creationPossible: false });
+    monter();
+    await cliquer(bouton("Modifier"));
+    await cliquer(bouton("Enregistrer"));
+    const encadre = conteneur.querySelector("[data-choix-article]")!;
+    expect(encadre.textContent).toContain("existe déjà au catalogue");
+    expect([...conteneur.querySelectorAll("button")].some((b) => b.textContent === "Renommer quand même")).toBe(false);
+    expect(encadre.querySelector<HTMLAnchorElement>("a[data-utiliser]")!.getAttribute("href")).toBe("/stock/catalogue/a2");
+  });
+});

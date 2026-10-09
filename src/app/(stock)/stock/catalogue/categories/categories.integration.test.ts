@@ -34,9 +34,12 @@ let prisma: PrismaClient;
 let fermer: () => Promise<void>;
 const U = { dir: { id: "", role: "ADMIN", nom: "Sacha", accesStock: false }, resp: { id: "", role: "STOCK", nom: "Jean", accesStock: false } };
 const en = (u: keyof typeof U) => { A.user = { ...U[u] }; };
-const erreurDe = (r: unknown) => (r && typeof r === "object" && "erreur" in r ? String((r as { erreur: string }).erreur) : null);
+// Refus lisible : une erreur, ou le message d'un doublon (certain ou proche). null = accepté.
+const erreurDe = (r: unknown) => (r && typeof r === "object" && "erreur" in r ? String((r as { erreur: string }).erreur) : r && typeof r === "object" && "doublon" in r ? String((r as unknown as { message: string }).message) : null);
+/** Un nom proche est signalé et peut être confirmé ; un doublon certain ne l'est pas. */
+const confirmable = (r: unknown) => (r && typeof r === "object" && "doublon" in r ? (r as unknown as { confirmable: boolean }).confirmable : null);
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.append(k, v); return f; };
-const creer = (nom: string, domaine = "NOURRITURE") => CAT.creerCategorie(fd({ nom, domaine }));
+const creer = (nom: string, domaine = "NOURRITURE", quandMeme = false) => CAT.creerCategorie(fd({ nom, domaine, ...(quandMeme ? { quandMeme: "1" } : {}) }));
 const noms = async (domaine?: "NOURRITURE" | "BOISSON" | "AUTRE") =>
   (await prisma.categorieStock.findMany({ where: domaine ? { domaine } : {}, orderBy: [{ ordre: "asc" }, { nom: "asc" }] })).map((c) => c.nom);
 const cat = (nom: string, domaine: "NOURRITURE" | "BOISSON" | "AUTRE" = "NOURRITURE", extra: { actif?: boolean; ordre?: number } = {}) =>
@@ -85,22 +88,34 @@ describe("créer une catégorie", () => {
     ["Tomates", "même nom"],
     ["tomates", "casse"],
     ["  TOMATES  ", "espaces et casse"],
-    ["Tomate", "singulier / pluriel"],
     ["Tomatés", "accent"],
-  ])("refuse « %s » (%s) quand « Tomates » existe dans le même domaine — et nomme l'existante", async (saisi) => {
+  ])("doublon CERTAIN « %s » (%s) : refus sec, l'existante « Tomates » est nommée, même avec « quand même »", async (saisi) => {
     await cat("Tomates");
-    const msg = erreurDe(await creer(saisi));
-    expect(msg).toContain("« Tomates »");
-    expect(msg).toContain("Nourriture");
-    expect(msg).toContain("Rien n'a été enregistré");
+    for (const quandMeme of [false, true]) {
+      const r = await creer(saisi, "NOURRITURE", quandMeme);
+      expect(confirmable(r)).toBe(false);
+      const msg = erreurDe(r);
+      expect(msg).toContain("« Tomates »");
+      expect(msg).toContain("Nourriture");
+      expect(msg).toContain("Rien n'a été enregistré");
+    }
     expect(await noms()).toEqual(["Tomates"]);
   });
 
-  it("refuse aussi l'ordre des mots (« Huile palme » / « Huile de palme ») et le pluriel simple « Choux »/« Chou »", async () => {
-    await cat("Huile de palme");
-    await cat("Choux");
-    expect(erreurDe(await creer("Huile palme"))).toContain("« Huile de palme »");
-    expect(erreurDe(await creer("Chou"))).toContain("« Choux »");
+  it.each([
+    ["Tomate", "Tomates"],
+    ["Huile palme", "Huile de palme"],
+    ["Chou", "Choux"],
+    ["Jus", "Jus de fruits"],
+    ["Épicerie sèche", "Épicerie"],
+  ])("nom PROCHE « %s » de « %s » : refusé sans drapeau (avec l'existante nommée), accepté une fois confirmé", async (saisi, existante) => {
+    await cat(existante);
+    const r = await creer(saisi);
+    expect(confirmable(r)).toBe(true);
+    expect(erreurDe(r)).toContain(`« ${existante} »`);
+    expect(await noms()).toEqual([existante]); // rien n'a été créé
+    expect(erreurDe(await creer(saisi, "NOURRITURE", true))).toBeNull(); // « Créer quand même »
+    expect((await noms()).sort()).toEqual([existante, saisi].sort());
   });
 
   it("accepte le même nom dans un AUTRE domaine, et un nom vraiment différent", async () => {
@@ -116,7 +131,9 @@ describe("créer une catégorie", () => {
 
   it("une catégorie ARCHIVÉE compte : le refus dit de la réactiver", async () => {
     await cat("Surgelés", "NOURRITURE", { actif: false });
-    const msg = erreurDe(await creer("surgeles"));
+    const r = await creer("surgeles");
+    expect(confirmable(r)).toBe(false);
+    const msg = erreurDe(r);
     expect(msg).toContain("« Surgelés »");
     expect(msg).toContain("archivée");
     expect(msg).toContain("réactivez");
@@ -138,12 +155,26 @@ describe("renommer", () => {
     expect([j.ancienneValeur, j.nouvelleValeur]).toEqual(["boissons chaudes", "Boissons chaudes"]);
   });
 
-  it("refuse un nom identique ou proche d'une AUTRE catégorie du domaine (pluriel compris), en la nommant", async () => {
+  it("doublon CERTAIN d'une AUTRE catégorie du domaine : refus sec (même confirmé), l'existante est nommée", async () => {
     await cat("Tomates");
     const c = await cat("Légumes");
-    const msg = erreurDe(await CAT.modifierCategorie(c.id, fd({ nom: "Tomate" })));
-    expect(msg).toContain("« Tomates »");
+    for (const extra of [{} as Record<string, string>, { quandMeme: "1" }]) {
+      const r = await CAT.modifierCategorie(c.id, fd({ nom: "TOMATES", ...extra }));
+      expect(confirmable(r)).toBe(false);
+      expect(erreurDe(r)).toContain("« Tomates »");
+    }
     expect((await prisma.categorieStock.findUniqueOrThrow({ where: { id: c.id } })).nom).toBe("Légumes");
+  });
+
+  it("nom PROCHE : « Renommer » sans drapeau est refusé et signalé, avec « Renommer quand même » il passe", async () => {
+    await cat("Tomates");
+    const c = await cat("Légumes");
+    const r = await CAT.modifierCategorie(c.id, fd({ nom: "Tomate" }));
+    expect(confirmable(r)).toBe(true);
+    expect(erreurDe(r)).toContain("« Tomates »");
+    expect((await prisma.categorieStock.findUniqueOrThrow({ where: { id: c.id } })).nom).toBe("Légumes");
+    expect(erreurDe(await CAT.modifierCategorie(c.id, fd({ nom: "Tomate", quandMeme: "1" })))).toBeNull();
+    expect((await prisma.categorieStock.findUniqueOrThrow({ where: { id: c.id } })).nom).toBe("Tomate");
   });
 
   it("ne touche ni aux articles ni à leur domaine", async () => {
@@ -169,7 +200,9 @@ describe("changer le domaine d'une catégorie", () => {
   it("accepté quand elle est vide, avec l'anti-doublon du NOUVEAU domaine", async () => {
     await cat("Jus", "BOISSON");
     const c = await cat("Jus");
-    expect(erreurDe(await CAT.modifierCategorie(c.id, fd({ nom: "Jus", domaine: "BOISSON" })))).toContain("« Jus » (Boissons)");
+    const r = await CAT.modifierCategorie(c.id, fd({ nom: "Jus", domaine: "BOISSON", quandMeme: "1" }));
+    expect(confirmable(r)).toBe(false); // le doublon certain du nouveau domaine n'est jamais confirmable
+    expect(erreurDe(r)).toContain("« Jus » (Boissons)");
     const d = await cat("Sirops");
     expect(erreurDe(await CAT.modifierCategorie(d.id, fd({ nom: "Sirops", domaine: "BOISSON" })))).toBeNull();
     expect((await prisma.categorieStock.findUniqueOrThrow({ where: { id: d.id } })).domaine).toBe("BOISSON");

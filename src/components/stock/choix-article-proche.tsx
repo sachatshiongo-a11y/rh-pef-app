@@ -9,7 +9,7 @@ import { libelleArticle } from "@/lib/libelle-article";
 
 export type CandidatProche = { id: string; designation: string; unite?: string | null; actif?: boolean; contenance?: string | null; contenanceUnite?: string | null };
 
-export function ChoixArticleProche({ nom, candidats, creationPossible, onUtiliser, hrefUtiliser, onCreer, libelleCreer = "Créer quand même un nouvel article", desactive = false }: {
+export function ChoixArticleProche({ nom, candidats, creationPossible, onUtiliser, hrefUtiliser, onCreer, libelleCreer = "Créer quand même un nouvel article", avant = "de créer", desactive = false }: {
   /** Le nom tapé (ou lu dans le fichier). */
   nom: string;
   candidats: readonly CandidatProche[];
@@ -20,6 +20,8 @@ export function ChoixArticleProche({ nom, candidats, creationPossible, onUtilise
   hrefUtiliser?: (c: CandidatProche) => string;
   onCreer?: () => void;
   libelleCreer?: string;
+  /** Fin de « choisissez avant … » : « de créer » (ajout), « de renommer » (fiche article). */
+  avant?: string;
   desactive?: boolean;
 }) {
   const btn = "rounded-md border border-amber-400 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-accent";
@@ -28,7 +30,7 @@ export function ChoixArticleProche({ nom, candidats, creationPossible, onUtilise
     <div role="group" aria-label={`Article proche — ${nom}`} data-choix-article className="space-y-1 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
       <p className="font-medium">
         {creationPossible
-          ? `${candidats.length > 1 ? "Ces articles ressemblent" : "Cet article ressemble"} à « ${nom.trim()} » : choisissez avant de créer.`
+          ? `${candidats.length > 1 ? "Ces articles ressemblent" : "Cet article ressemble"} à « ${nom.trim()} » : choisissez avant ${avant}.`
           : `« ${nom.trim()} » existe déjà au catalogue : utilisez l'article existant${candidats.some((c) => c.actif === false) ? " (réactivez-le s'il est inactif)" : ""}.`}
       </p>
       <div className="flex flex-wrap gap-1.5">

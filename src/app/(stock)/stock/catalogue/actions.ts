@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, exigerCategorieActive, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, type DoublonRenommage, doublonDeRenommage, exigerCategorieActive, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
@@ -36,7 +36,8 @@ export type PropositionEnvoyee = { proposition: boolean; message: string };
 
 async function proposer(user: Acteur, libelle: string, patchs: { id: string; patch: PatchArticle }[]): Promise<PropositionEnvoyee> {
   // Renommage proposé : même anti-doublon que la modification directe, refusé DÈS LA PROPOSITION (la validation le revérifie).
-  for (const p of patchs) await exigerDesignationLibre(prisma, p.id, p.patch);
+  // (un nom proche a déjà été confirmé par la personne dans `modifierArticle` ; seul le doublon certain bloque ici.)
+  for (const p of patchs) await exigerDesignationLibre(prisma, p.id, p.patch, { procheAutorise: true });
   const r = await proposerModifications(user, libelle, patchs);
   revalidatePath("/stock/catalogue", "layout");
   revalidatePath("/stock/a-valider");
@@ -138,12 +139,18 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
  * Modifie un ou plusieurs champs d'un article (et ses seuils/stock). Direction : écrit tout de
  * suite. Autre compte : propose (voir `PropositionEnvoyee`) — rien ne change avant validation.
  */
-export const modifierArticle = actionLisible(async (id: string, formData: FormData): Promise<PropositionEnvoyee | void> => {
+export const modifierArticle = actionLisible(async (id: string, formData: FormData): Promise<PropositionEnvoyee | DoublonRenommage | void> => {
   const user = await garde();
   // Lecture ET validation (contenance…) avant toute écriture comme avant toute proposition.
   const patch = lirePatchArticle(formData);
+  // ANTI-DOUBLON AU RENOMMAGE (2026-10-10), à deux niveaux comme « Ajouter un article » : doublon certain =
+  // refus sec ; nom proche = avertissement, et « Renommer quand même » renvoie la saisie avec ce drapeau.
+  // Même contrôle pour la Direction (écriture directe) et pour la proposition d'un autre rôle.
+  const renommerQuandMeme = String(formData.get("renommerQuandMeme") ?? "") === "1";
+  const doublon = await doublonDeRenommage(prisma, id, patch);
+  if (doublon && (!doublon.creationPossible || !renommerQuandMeme)) return doublon;
   if (!estDirection(user)) return proposer(user, "Modification de l'article", [{ id, patch }]);
-  await prisma.$transaction((tx) => appliquerPatchArticleTx(tx, id, patch));
+  await prisma.$transaction((tx) => appliquerPatchArticleTx(tx, id, patch, { renommerQuandMeme }));
   await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath(`/stock/catalogue/${id}`); // la fiche article se modifie aussi depuis elle-même

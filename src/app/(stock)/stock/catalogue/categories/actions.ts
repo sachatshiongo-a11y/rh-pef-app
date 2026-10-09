@@ -9,7 +9,7 @@ import { journaliser } from "@/lib/audit";
 import { estDirection } from "@/lib/validations-stock/demandes";
 import { DOMAINE_LABEL } from "@/lib/stock";
 import { cleArticleExacte } from "@/lib/achats-doublons";
-import { doublonDeCategorie, messageDoublonCategorie, nomCategorieNet, NOM_CATEGORIE_MAX } from "@/lib/categorie-stock";
+import { doublonDeCategorie, messageDoublonCategorie, nomCategorieNet, NOM_CATEGORIE_MAX, type DoublonCategorie } from "@/lib/categorie-stock";
 
 // Catégories du stock (Inventaire → « Catégories »). Créer, renommer, réordonner, archiver, changer de
 // domaine et supprimer sont des gestes de la DIRECTION : les autres rôles lisent la liste, sans plus.
@@ -51,12 +51,20 @@ async function verrouillerDomaine(tx: Prisma.TransactionClient, domaine: string)
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`categorie-stock:${domaine}`}))::text AS verrou`;
 }
 
-/** Refus lisible si un autre nom du domaine est identique ou presque (catégories archivées comprises). */
-async function exigerNomLibre(tx: Prisma.TransactionClient, nom: string, domaine: string, exclureId?: string) {
+/**
+ * Contrôle du nom, à deux niveaux comme « Ajouter un article » : le nom IDENTIQUE d'une autre catégorie du
+ * domaine (archivées comprises) est refusé sans recours ; un nom seulement PROCHE l'est aussi, sauf si la
+ * personne a confirmé (`quandMeme`). Rend la réponse à renvoyer à l'écran, ou null quand le nom est accepté.
+ */
+async function controlerNom(tx: Prisma.TransactionClient, nom: string, domaine: string, quandMeme: boolean, exclureId?: string): Promise<DoublonCategorie | null> {
   const toutes = await tx.categorieStock.findMany({ select: { id: true, nom: true, domaine: true, actif: true } });
   const d = doublonDeCategorie(nom, domaine, toutes, exclureId);
-  if (d) throw new Error(messageDoublonCategorie(nom, d));
+  if (!d || (!d.exact && quandMeme)) return null;
+  return { doublon: true, categorie: d.categorie, confirmable: !d.exact, message: messageDoublonCategorie(nom, d) };
 }
+
+/** Drapeau « Créer quand même » / « Renommer quand même » renvoyé par l'écran après l'avertissement. */
+const confirme = (formData: FormData) => String(formData.get("quandMeme") ?? "") === "1";
 
 /** Une violation de l'unicité (domaine, nom) qui aurait échappé au contrôle : dite en français, jamais en SQL. */
 function enFrancais(e: unknown, nom: string): never {
@@ -67,16 +75,18 @@ function enFrancais(e: unknown, nom: string): never {
 }
 
 /** Crée une catégorie (nom + domaine), à la fin de la liste de son domaine. */
-export const creerCategorie = actionLisible(async (formData: FormData) => {
+export const creerCategorie = actionLisible(async (formData: FormData): Promise<DoublonCategorie | void> => {
   const user = await garde("Créer une catégorie");
   const nom = lireNom(formData.get("nom"));
   const domaine = lireDomaine(formData.get("domaine"));
   const cat = await prisma.$transaction(async (tx) => {
     await verrouillerDomaine(tx, domaine);
-    await exigerNomLibre(tx, nom, domaine);
+    const doublon = await controlerNom(tx, nom, domaine, confirme(formData));
+    if (doublon) return doublon;
     const fin = await tx.categorieStock.aggregate({ where: { domaine }, _max: { ordre: true } });
     return tx.categorieStock.create({ data: { nom, domaine, ordre: (fin._max.ordre ?? 0) + 1 } });
   }).catch((e) => enFrancais(e, nom));
+  if ("doublon" in cat) return cat;
   await journaliser(prisma, { entite: "CategorieStock", entiteId: cat.id, champ: "creation", nouvelleValeur: `${nom} (${DOMAINE_LABEL[domaine]})`, userId: user.id });
   revalider();
 });
@@ -87,7 +97,7 @@ export const creerCategorie = actionLisible(async (formData: FormData) => {
  * Le DOMAINE ne change que si la catégorie n'a AUCUN article (archivés compris) : on ne déplace jamais
  * le domaine d'un article par ce biais.
  */
-export const modifierCategorie = actionLisible(async (id: string, formData: FormData) => {
+export const modifierCategorie = actionLisible(async (id: string, formData: FormData): Promise<DoublonCategorie | void> => {
   const user = await garde("Modifier une catégorie");
   const nom = lireNom(formData.get("nom"));
   const domaineSaisi = formData.has("domaine") ? lireDomaine(formData.get("domaine")) : null;
@@ -96,7 +106,7 @@ export const modifierCategorie = actionLisible(async (id: string, formData: Form
   const domaine = domaineSaisi ?? (avant.domaine as Domaine);
   const changeDomaine = domaine !== avant.domaine;
   if (nom === avant.nom && !changeDomaine) return; // rien à écrire
-  await prisma.$transaction(async (tx) => {
+  const doublon = await prisma.$transaction(async (tx) => {
     // Les deux domaines concernés, toujours dans le même ordre, pour ne pas se croiser avec un autre geste.
     for (const d of [...new Set([avant.domaine, domaine])].sort()) await verrouillerDomaine(tx, d);
     if (changeDomaine) {
@@ -105,9 +115,12 @@ export const modifierCategorie = actionLisible(async (id: string, formData: Form
         throw new Error(`« ${avant.nom} » contient ${n} article${n > 1 ? "s" : ""} : déplacez d'abord ${n > 1 ? "ses articles" : "son article"} vers une autre catégorie, puis changez son domaine.`);
       }
     }
-    await exigerNomLibre(tx, nom, domaine, id);
+    const d = await controlerNom(tx, nom, domaine, confirme(formData), id);
+    if (d) return d;
     await tx.categorieStock.update({ where: { id }, data: { nom, ...(changeDomaine ? { domaine } : {}) } });
+    return null;
   }).catch((e) => enFrancais(e, nom));
+  if (doublon) return doublon;
   if (nom !== avant.nom) await journaliser(prisma, { entite: "CategorieStock", entiteId: id, champ: "nom", ancienneValeur: avant.nom, nouvelleValeur: nom, userId: user.id });
   if (changeDomaine) await journaliser(prisma, { entite: "CategorieStock", entiteId: id, champ: "domaine", ancienneValeur: DOMAINE_LABEL[avant.domaine], nouvelleValeur: DOMAINE_LABEL[domaine], userId: user.id });
   revalider();

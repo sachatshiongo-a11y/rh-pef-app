@@ -506,7 +506,8 @@ async function executerModifArticleTx(tx: Tx, decideur: Acteur, c: ChargeArticle
     // Prix dans une devise que l'article n'a plus (la Direction l'a changée depuis) : demande périmée.
     try { harmoniserPrix(etats.get(a.id)!.valeurs.devisePrix === "CDF" ? "CDF" : "USD", patchDesChangements(a.changements)); }
     catch (e) { throw new ConflitDemande(`« ${a.designation} » — ${e instanceof Error ? e.message : "prix incohérent avec la devise de l'article"}`); }
-    await appliquerPatchArticleTx(tx, a.id, patchDesChangements(a.changements));
+    // Approbation : seul un doublon CERTAIN apparu depuis la proposition bloque ; un nom proche, la Direction le voit et tranche.
+    await appliquerPatchArticleTx(tx, a.id, patchDesChangements(a.changements), { renommerQuandMeme: true });
     await journaliser(tx, { entite: "ArticleStock", entiteId: a.id, champ: "modification (proposition validée)", nouvelleValeur: a.changements.map((ch) => `${CHAMPS_ARTICLE[ch.champ].libelle} : ${ch.avantLibelle} → ${ch.apresLibelle}`).join(" ; ").slice(0, 900), userId: decideur.id });
   }
 }
