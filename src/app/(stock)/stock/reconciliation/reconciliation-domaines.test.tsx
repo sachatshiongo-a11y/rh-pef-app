@@ -36,7 +36,7 @@ function monter(props: Record<string, unknown> = {}, articles: unknown = ARTICLE
   act(() => racine.render(createElement(ReconciliationForm, { articles, ...props } as never)));
 }
 beforeEach(() => { window.history.replaceState(null, "", "/stock/reconciliation"); appliquer.mockClear(); });
-afterEach(() => { act(() => racine.unmount()); conteneur.remove(); });
+afterEach(() => { act(() => racine.unmount()); conteneur.remove(); vi.unstubAllGlobals(); });
 
 function taper(el: HTMLInputElement, texte: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -125,6 +125,7 @@ describe("Réconciliation — pilules de domaine", () => {
   });
 
   it("Réinitialiser remet le comptage à zéro, domaine et recherche gardés", async () => {
+    vi.stubGlobal("confirm", () => true); // la confirmation est testée dans reconciliation-garde-fous
     monter({ estDirection: true });
     await compter("Tomate", "9");
     choisir("Nourriture");

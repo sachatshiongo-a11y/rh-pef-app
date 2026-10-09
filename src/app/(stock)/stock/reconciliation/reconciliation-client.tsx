@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, memo, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
+import { ecartDeComptage } from "@/lib/comptage-tolerance";
+import { useGardeDepart } from "@/components/use-garde-depart";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
 import { Pagination, usePagination } from "@/components/pagination";
 import { PARAM_PAGE, tranche, type ParPage } from "@/lib/pagination";
 import { norm } from "@/lib/filtre-inventaire";
-import { PilulesDomaine, type DomaineCle } from "@/components/stock/pilules-domaine";
+import { DOMAINES_PILULES, PilulesDomaine, type DomaineCle } from "@/components/stock/pilules-domaine";
 
 type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number; domaine?: string };
 type TriCol = "code" | "designation" | "categorie" | "theorique";
@@ -47,9 +49,10 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache, onSais
   const [expl, setExpl] = useState("");
   // Le parent compte les quantités tapées (barre du bas) : elles survivent à un changement de domaine ou de page.
   useEffect(() => { onSaisie(a.id, num !== null); }, [a.id, num, onSaisie]);
-  const ecart = num !== null ? num - a.theorique : null;
-  const pct = ecart === null ? null : a.theorique !== 0 ? (ecart / Math.abs(a.theorique)) * 100 : ecart !== 0 ? 100 : 0;
-  const horsTol = ecart !== null && Math.abs(ecart) > 0.0001 && (a.theorique === 0 ? num !== 0 : Math.abs(pct!) > SEUIL_TOLERANCE_PCT);
+  const calc = num !== null ? ecartDeComptage(a.theorique, num) : null;
+  const ecart = calc?.ecart ?? null;
+  const pct = calc?.pct ?? null;
+  const horsTol = calc?.horsTol ?? false;
   const couleurEcart = ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700";
   return (
     <>
@@ -70,7 +73,7 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache, onSais
       </tr>
       {horsTol && (
         <tr hidden={cache || undefined}><td colSpan={6} className="!pt-0">
-          <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required={!cache} placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
+          <input name="recon_explication" data-explication={a.id} value={expl} onChange={(e) => setExpl(e.target.value)} required={!cache} placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
         </td></tr>
       )}
     </>
@@ -79,7 +82,11 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache, onSais
 
 export function ReconciliationForm({ articles, domaineInit = "", estDirection = false, pageInit = 1, parInit = 50 }: { articles: Art[]; domaineInit?: DomaineCle | ""; estDirection?: boolean; pageInit?: number; parInit?: ParPage }) {
   const [isPending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
+  // `versId` : message d'une explication manquante — le bouton « Aller à la ligne » mène à la première ligne en cause.
+  const [msg, setMsg] = useState<{ ok: boolean; texte: string; versId?: string } | null>(null);
+  // Ligne à rejoindre (« Aller à la ligne »), en attente que le filtre et la page soient appliqués ; `demandeAller` force un rendu.
+  const cible = useRef<string | null>(null);
+  const [demandeAller, setDemandeAller] = useState(0);
   const [cle, setCle] = useState(0);
   const [q, setQ] = useState("");
   const [domaine, setDomaine] = useState<DomaineCle | "">(domaineInit);
@@ -97,7 +104,14 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
   const nbSaisisHorsDomaine = domaine ? [...saisis].filter((id) => domaineDe.get(id) !== domaine).length : 0;
   const viderSaisis = () => setSaisis(new Set());
 
-  const reinitialiser = () => { setMsg(null); viderSaisis(); setCle((c) => c + 1); };
+  // Le comptage tapé est le travail de plusieurs heures : on ne l'efface pas sur un clic sans demander (Direction seule).
+  const reinitialiser = () => {
+    if (nbSaisis > 0 && !window.confirm(`Effacer ${nbSaisis > 1 ? `les ${nbSaisis} quantités comptées` : "la quantité comptée"} (tous domaines) ?`)) return;
+    setMsg(null); viderSaisis(); setCle((c) => c + 1);
+  };
+  // Le nom d'un article est un lien vers sa fiche (jamais un nouvel onglet en application installée) : quitter l'écran
+  // avec des quantités tapées est confirmé, et la fermeture de l'onglet est retenue.
+  useGardeDepart(nbSaisis > 0, `${nbSaisis > 1 ? `${nbSaisis} quantités comptées ne sont pas encore envoyées` : "Une quantité comptée n'est pas encore envoyée"} : en quittant cet écran, elles seront perdues. Quitter quand même ?`);
   const trierPar = (col: TriCol) => setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
   // Changer de domaine ne recharge rien : on masque les lignes des autres domaines (le comptage tapé reste) et on
   // réécrit `?domaine=` dans l'adresse affichée ; la page repart à 1 (usePagination, via `cleFiltre`).
@@ -144,6 +158,34 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
     return res;
   }, [ordonnees, idsPage, tri]);
 
+  // Ligne dont l'explication manque, vue DEPUIS LE FORMULAIRE : le navigateur ne peut pas valider un champ masqué
+  // (domaine, recherche ou page d'à côté), et le serveur refuserait seulement après coup, sans dire où aller.
+  const explicationsManquantes = (fd: FormData) => {
+    const ids = fd.getAll("recon_articleId").map(String);
+    const phys = fd.getAll("recon_physique").map((v) => String(v).trim());
+    const expl = fd.getAll("recon_explication").map((v) => String(v).trim());
+    const parId = new Map(articles.map((a) => [a.id, a]));
+    const manquantes: Art[] = [];
+    ids.forEach((id, i) => {
+      const a = parId.get(id);
+      const p = Number(phys[i].replace(",", "."));
+      if (a && phys[i] !== "" && Number.isFinite(p) && ecartDeComptage(a.theorique, p).horsTol && !expl[i]) manquantes.push(a);
+    });
+    return manquantes;
+  };
+  const libelleDomaine = (d?: string) => DOMAINES_PILULES.find((x) => x.cle === d)?.label;
+
+  // Aller à une ligne : on règle d'abord le filtre (domaine, recherche), puis — une fois la liste recalculée, voir
+  // l'effet plus bas — la page, puis le focus sur son champ d'explication.
+  const allerALaLigne = (id: string) => {
+    const a = articles.find((x) => x.id === id);
+    if (!a) return;
+    if (domaine && a.domaine !== domaine) choisirDomaine((a.domaine as DomaineCle | undefined) ?? "");
+    setQ("");
+    cible.current = id;
+    setDemandeAller((n) => n + 1);
+  };
+
   const submit = (fd: FormData) => {
     setMsg(null);
     // Le champ `domaine` ne désigne la fiche archivée que si TOUT ce qui est compté appartient au domaine affiché :
@@ -151,6 +193,12 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
     const ids = fd.getAll("recon_articleId").map(String);
     const phys = fd.getAll("recon_physique").map((v) => String(v).trim());
     if (ids.some((id, i) => phys[i] !== "" && domaineDe.get(id) !== domaine)) fd.delete("domaine");
+    const manquantes = explicationsManquantes(fd);
+    if (manquantes.length > 0) {
+      const noms = manquantes.map((a) => `${a.designation}${libelleDomaine(a.domaine) ? ` (${libelleDomaine(a.domaine)})` : ""}`).join(", ");
+      setMsg({ ok: false, texte: `Écart supérieur à ${SEUIL_TOLERANCE_PCT} % : une explication est requise pour : ${noms}.`, versId: manquantes[0].id });
+      return;
+    }
     startTransition(async () => {
       const r = await appliquerComptage(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
@@ -164,10 +212,25 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
       setCle((c) => c + 1);
     });
   };
+  // Après un « Aller à la ligne » : une fois le filtre appliqué, la page de la ligne, puis le focus sur son explication.
+  useEffect(() => {
+    const id = cible.current;
+    if (!id) return;
+    if (!idsPage.has(id)) {
+      const rang = visiblesOrdonnees.findIndex((a) => a.id === id);
+      if (rang < 0) { cible.current = null; return; }
+      pagination.aller(pagination.par === "tout" ? 1 : Math.floor(rang / pagination.par) + 1, pagination.par);
+      return; // l'effet repasse quand la page a changé
+    }
+    cible.current = null;
+    const champ = document.querySelector<HTMLInputElement>(`input[data-explication="${CSS.escape(id)}"]`);
+    champ?.focus();
+    champ?.scrollIntoView?.({ block: "center" });
+  }, [demandeAller, idsPage, visiblesOrdonnees, pagination]);
   const libelleEnvoi = estDirection ? "Appliquer le comptage" : "Soumettre le comptage";
 
   return (
-    <form key={cle} action={submit} className="space-y-3">
+    <form key={cle} onSubmit={(e) => { e.preventDefault(); submit(new FormData(e.currentTarget)); }} className="space-y-3">
       {domaine && <input type="hidden" name="domaine" value={domaine} />}
 
       <PilulesDomaine className="w-fit max-w-full" actif={domaine} comptes={comptes} pilule={(d, p) => (
@@ -212,7 +275,12 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
       {/* Barre du bas : collée au bas de la zone qui défile (la coquille réserve la place de la barre de navigation),
           donc visible pendant toute la saisie. Pas de backdrop-filter ni de fond translucide (piège PWA iOS). */}
       <div data-barre-comptage="" className="sticky bottom-0 z-20 -mx-4 space-y-2 border-t bg-background px-4 pb-2 pt-2 lg:-mx-8 lg:px-8">
-        {msg && <p role="status" className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
+        {msg && (
+          <p role="status" className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
+            {msg.texte}
+            {msg.versId && <> <button type="button" onClick={() => allerALaLigne(msg.versId!)} className="min-h-11 rounded-md border border-destructive/40 px-2 font-medium underline lg:min-h-0">Aller à la ligne</button></>}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} min-w-0 basis-full sm:basis-auto sm:min-w-64 sm:flex-1`} />
           <p data-compte-saisis="" aria-live="polite" className="min-w-0 flex-1 text-xs text-muted-foreground sm:flex-none">
