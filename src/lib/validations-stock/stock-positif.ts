@@ -28,12 +28,17 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { verrouillerStocks } from "./comptage";
 import { formaterNombre } from "@/lib/montant";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 type Tx = Prisma.TransactionClient;
 type Quantite = Prisma.Decimal | number | string;
 
 /** Un article qu'une écriture ferait passer sous 0 (quantités en texte décimal exact). */
-export type Manque = { articleId: string; designation: string; unite: string | null; disponible: string; demande: string };
+export type Manque = {
+  articleId: string; designation: string; unite: string | null; disponible: string; demande: string;
+  /** Nom AFFICHÉ dans le refus (`libelleArticle` : contenance comprise) ; la désignation brute sert aux articles proches. */
+  libelle?: string;
+};
 
 /** Refus « stock insuffisant » : porte les articles fautifs (l'écran Mouvements propose des articles proches). */
 export class StockInsuffisant extends Error {
@@ -52,8 +57,8 @@ const accorde = (mot: string, n: string) => (Math.abs(Number(n)) >= 2 && /é$/.t
 /** « Riz : 5 kg disponibles, 6 kg demandés » ; un stock déjà négatif est dit tel quel. */
 export function ligneManque(m: Manque, verbe = "demandé"): string {
   const demande = `${avecUnite(m.demande, m.unite)} ${accorde(verbe, m.demande)}`;
-  if (Number(m.disponible) < 0) return `${m.designation} : stock déjà négatif (${avecUnite(m.disponible, m.unite)}), ${demande} — faites d'abord corriger son stock (comptage)`;
-  return `${m.designation} : ${avecUnite(m.disponible, m.unite)} disponible${Math.abs(Number(m.disponible)) >= 2 ? "s" : ""}, ${demande}`;
+  if (Number(m.disponible) < 0) return `${m.libelle ?? m.designation} : stock déjà négatif (${avecUnite(m.disponible, m.unite)}), ${demande} — faites d'abord corriger son stock (comptage)`;
+  return `${m.libelle ?? m.designation} : ${avecUnite(m.disponible, m.unite)} disponible${Math.abs(Number(m.disponible)) >= 2 ? "s" : ""}, ${demande}`;
 }
 
 export function messageManques(manques: Manque[], verbe = "demandé"): string {
@@ -80,10 +85,11 @@ export async function variationsStockTx(tx: Tx, variations: { articleId: string;
   if (baisses.length > 0) {
     const fautifs = baisses.filter((id) => (actuel.get(id) ?? new Prisma.Decimal(0)).plus(total.get(id)!).isNegative());
     if (fautifs.length > 0) {
-      const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: fautifs } }, select: { id: true, designation: true, unite: true } })).map((a) => [a.id, a]));
+      const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: fautifs } }, select: { id: true, ...CHAMPS_LIBELLE, unite: true } })).map((a) => [a.id, a]));
       throw new StockInsuffisant(fautifs.map((id) => ({
         articleId: id,
         designation: arts.get(id)?.designation ?? "Article inconnu",
+        ...(arts.get(id) ? { libelle: libelleArticle(arts.get(id)!) } : {}),
         unite: arts.get(id)?.unite ?? null,
         disponible: (actuel.get(id) ?? new Prisma.Decimal(0)).toString(),
         demande: total.get(id)!.negated().toString(),
@@ -131,8 +137,8 @@ export async function poserStocksTx(tx: Tx, lignes: { articleId: string; quantit
   // en conflit garde son stock actuel : un négatif existant n'est ni inventé ni réécrit autrement).
   const negatifs = ids.filter((id) => parId.get(id)!.isNegative() && !parId.get(id)!.isZero() && !actuels.get(id)?.equals(parId.get(id)!));
   if (negatifs.length > 0) {
-    const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: negatifs } }, select: { id: true, designation: true, unite: true } })).map((a) => [a.id, a]));
-    throw new Error(`Quantité négative refusée (${quoi}) — un stock ne passe jamais sous 0 : ${negatifs.map((id) => `${arts.get(id)?.designation ?? "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).join(", ")}. Rien n'a été enregistré.`);
+    const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: negatifs } }, select: { id: true, ...CHAMPS_LIBELLE, unite: true } })).map((a) => [a.id, a]));
+    throw new Error(`Quantité négative refusée (${quoi}) — un stock ne passe jamais sous 0 : ${negatifs.map((id) => `${arts.has(id) ? libelleArticle(arts.get(id)!) : "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).join(", ")}. Rien n'a été enregistré.`);
   }
   const maj = ids.filter((id) => existants.has(id));
   if (maj.length > 0) {

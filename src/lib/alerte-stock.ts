@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { envoyerEmail } from "@/lib/email";
 import { niveauAlerte, ALERTE_LABEL, type NiveauAlerte } from "@/lib/stock";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 /** Niveaux d'alerte actuels des articles donnés (à appeler AVANT une opération pour comparer). */
 export async function niveauxActuels(articleIds: string[]): Promise<Map<string, NiveauAlerte>> {
@@ -21,7 +22,7 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
   if (articleIds.length === 0) return;
   const stocks = await prisma.stock.findMany({
     where: { articleId: { in: articleIds } },
-    include: { article: { select: { designation: true } } },
+    include: { article: { select: CHAMPS_LIBELLE } },
   });
   const nouvelles: { designation: string; niveau: NiveauAlerte }[] = [];
   for (const s of stocks) {
@@ -29,7 +30,7 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
     const av = avant.get(s.articleId) ?? "OK";
     // Nouvelle alerte = on tombe en URGENT/APPRO alors qu'on n'y était pas (ou on s'aggrave vers URGENT).
     if ((apres === "URGENT" && av !== "URGENT") || (apres === "APPRO" && av === "OK")) {
-      nouvelles.push({ designation: s.article.designation, niveau: apres });
+      nouvelles.push({ designation: libelleArticle(s.article), niveau: apres }); // nom affiché (contenance comprise)
     }
   }
   if (nouvelles.length === 0) return;

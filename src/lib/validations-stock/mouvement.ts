@@ -23,6 +23,7 @@ import { notifierGesteStock, type AuteurGeste } from "./geste-notifie";
 import { cleMouvement } from "./charge";
 import { MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
 import { rattacherAutomatiquement, type CompteRenduAuto } from "@/lib/rattachement-auto";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 type Tx = Prisma.TransactionClient;
 
@@ -111,7 +112,7 @@ export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSa
   await exigerPeriodeOuverte(m.date);
   const ids = m.lignes.map((l) => l.articleId);
   // Articles vérifiés DÈS LA SAISIE : un id forgé ne crée pas une ligne de stock.
-  const arts = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, unite: true } });
+  const arts = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, ...CHAMPS_LIBELLE, unite: true } });
   const parId = new Map(arts.map((a) => [a.id, a]));
   if (ids.some((id) => !parId.has(id))) throw new Error("Article introuvable : rechargez la page.");
   // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
@@ -120,12 +121,12 @@ export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSa
   let demandesEnAttente: string[] = [];
   try {
     const prises = await prisma.cibleDemandeStock.findMany({ where: { cle: { in: [...new Set(ids)].map(cleMouvement) } }, select: { cle: true } });
-    demandesEnAttente = [...new Set(prises.map((p) => parId.get(p.cle.slice(cleMouvement("").length))?.designation).filter((d): d is string => !!d))];
+    demandesEnAttente = [...new Set(prises.map((p) => parId.get(p.cle.slice(cleMouvement("").length))).filter((a) => !!a).map((a) => libelleArticle(a!)))];
   } catch (e) { console.error("[stock] lecture des anciennes demandes en échec :", e); }
   try { await apresMouvements(m, niveauxAvant); } catch (e) { console.error("[stock] alertes après mouvement en échec :", e); }
   await notifierGesteStock(user, {
     genre: "MOUVEMENT", type: m.type, categorieSortie: m.categorieSortie, origine: m.origine, date: m.date, demandesEnAttente,
-    lignes: m.lignes.map((l) => ({ articleId: l.articleId, designation: parId.get(l.articleId)!.designation, unite: parId.get(l.articleId)!.unite, quantite: l.quantite })),
+    lignes: m.lignes.map((l) => ({ articleId: l.articleId, designation: libelleArticle(parId.get(l.articleId)!), unite: parId.get(l.articleId)!.unite, quantite: l.quantite })),
   });
   // Rattachement AUTOMATIQUE au stock du restaurant (2026-10-08) : APRÈS la transaction de la sortie,
   // jamais bloquant — la sortie est écrite quoi qu'il arrive (la fonction ne lève pas ; double garde).

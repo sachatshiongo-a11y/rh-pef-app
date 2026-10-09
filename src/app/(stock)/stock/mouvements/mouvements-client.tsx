@@ -17,6 +17,7 @@ import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { MESSAGE_MOTIF_SORTIE } from "@/lib/motif-sortie";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { similairesEnStock } from "@/lib/article-proche";
+import { contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -27,7 +28,7 @@ export { AVERTISSEMENT_LIVRAISON };
  * Article proposé dans une ligne. `quantite` : stock disponible (unité de l'article), lu par la page —
  * absent = inconnu de l'écran (le serveur tranche) ; `domaine` sert aux articles proches proposés.
  */
-type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite?: string | null; domaine?: string; quantite?: number; actif?: boolean };
+type Art = { id: string; designation: string; contenance?: string | null; contenanceUnite?: string | null; nomCourt?: string | null; code?: string | null; unite?: string | null; domaine?: string; quantite?: number; actif?: boolean };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
 // Version sérialisable d'un mouvement (Decimal/Date convertis) — passée du serveur au client.
@@ -291,7 +292,7 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
  * restaurant ou du catalogue non renseignée, unités incompatibles, à répartir).
  */
 function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; articles: Art[]; conseils: Record<string, ConseilLivraison> }) {
-  const noms = new Map(articles.map((a) => [a.id, a.designation]));
+  const noms = new Map(articles.map((a) => [a.id, libelleArticle(a)]));
   const concernes = [...new Set(ids)].flatMap((id) => (conseils[id] ? [{ id, nom: noms.get(id) ?? id, ...conseils[id]! }] : []));
   if (concernes.length === 0) return null;
   return (
@@ -310,7 +311,7 @@ function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; ar
 }
 
 /** Un article proposé à la place d'un article sans stock suffisant (« Utiliser … »). */
-type Proche = { id: string; designation: string; unite: string | null; disponible: number };
+type Proche = { id: string; designation: string; contenance?: string | null; contenanceUnite?: string | null; unite: string | null; disponible: number };
 type LigneSaisie = { articleId: string; quantite: string };
 const LIGNES_VIDES = (): LigneSaisie[] => [{ articleId: "", quantite: "" }, { articleId: "", quantite: "" }, { articleId: "", quantite: "" }];
 /** Millièmes (Decimal(14,3)) : comparaisons exactes, 0,1 + 0,2 = 0,3. */
@@ -379,7 +380,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
     const a = parId.get(id);
     if (!a?.domaine) return [];
     const catalogue = articles.flatMap((x) => (x.domaine && typeof x.quantite === "number" ? [{ ...x, domaine: x.domaine, quantite: x.quantite }] : []));
-    return similairesEnStock({ id: a.id, designation: a.designation, domaine: a.domaine }, catalogue).map((p) => ({ id: p.id, designation: p.designation, unite: p.unite ?? null, disponible: p.quantite }));
+    return similairesEnStock({ id: a.id, designation: a.designation, domaine: a.domaine }, catalogue).map((p) => ({ id: p.id, designation: p.designation, ...contenancePourClient(p), unite: p.unite ?? null, disponible: p.quantite }));
   };
 
   // Motif OBLIGATOIRE pour toute sortie (décision du 2026-10-07), pour tous les comptes : refus à
@@ -490,7 +491,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
                       <button key={p.id} type="button" data-utiliser={p.id}
                         onClick={() => { majLigne(i, { articleId: p.id }); setRefus((m) => { const n = new Map(m); n.delete(l.articleId); return n; }); setMsg(null); }}
                         className="rounded-md border bg-background px-2 py-0.5 font-medium hover:bg-accent">
-                        Utiliser « {p.designation} » ({qteUnite(p.disponible, p.unite)})
+                        Utiliser « {libelleArticle(p)} » ({qteUnite(p.disponible, p.unite)})
                       </button>
                     ))}
                   </div>

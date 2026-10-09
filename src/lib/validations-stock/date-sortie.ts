@@ -30,6 +30,7 @@ import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements, type MvtSelection } 
 import { MESSAGE_SORTIES_SEULES, datePureDe, jjmm, jjmmaaaa, jourISO, lireNouvelleDateSortie, natureNonSortie, nomsBornes } from "@/lib/date-sortie";
 import { cleComptage } from "./charge";
 import { notifierGesteStock, type AuteurGeste, type SortieRedatee } from "./geste-notifie";
+import { libelleArticle } from "@/lib/libelle-article";
 
 type Tx = Prisma.TransactionClient;
 
@@ -37,7 +38,7 @@ export type ResultatDateSorties = { n: number; deja: number; date: string; avert
 
 const RIEN = "Date non changée : rien n'a été modifié.";
 const periodeDe = (b: { annee: number; mois: number }) => `${String(b.mois).padStart(2, "0")}/${b.annee}`;
-const sortieNommee = (m: MvtSelection) => `${m.article.designation} du ${jjmm(m.date)}`;
+const sortieNommee = (m: MvtSelection) => `${libelleArticle(m.article)} du ${jjmm(m.date)}`;
 
 /**
  * Contrôles et écriture, DANS la transaction. Renvoie les sorties réellement redatées (pour la
@@ -52,7 +53,7 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
   // 1. Seules les sorties.
   const autres = res.mvs.filter((m) => m.type !== "SORTIE");
   if (autres.length > 0) {
-    return { erreur: `${MESSAGE_SORTIES_SEULES} À décocher : ${nomsBornes(autres.map((m) => `${m.article.designation} du ${jjmm(m.date)} (${natureNonSortie(m)})`))}.` };
+    return { erreur: `${MESSAGE_SORTIES_SEULES} À décocher : ${nomsBornes(autres.map((m) => `${libelleArticle(m.article)} du ${jjmm(m.date)} (${natureNonSortie(m)})`))}.` };
   }
 
   // 2. Verrous : les lignes de stock des articles (un comptage les verrouille aussi : aucun ne s'écrit
@@ -145,7 +146,7 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
   })));
   return {
     changees: aChanger.map((m) => ({
-      articleId: m.articleId, designation: m.article.designation, unite: m.article.unite, quantite: Number(m.quantite),
+      articleId: m.articleId, designation: libelleArticle(m.article), unite: m.article.unite, quantite: Number(m.quantite),
       ancienne: m.date, categorieSortie: m.categorieSortie,
     })),
     deja,

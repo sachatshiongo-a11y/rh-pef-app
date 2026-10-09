@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
+import { CHAMPS_LIBELLE } from "@/lib/libelle-article";
 
 // Sélection d'une action groupée de l'écran Mouvements : les id cochés, ou TOUT le filtre (décision du
 // 2026-09-29). Une seule résolution pour toutes les actions groupées (suppression, motif, date) : si
@@ -10,7 +11,7 @@ import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneM
 export const SELECT_SELECTION = {
   id: true, type: true, date: true, articleId: true, quantite: true, categorieSortie: true, raisonSortie: true, origine: true,
   factureId: true, receptionId: true,
-  article: { select: { designation: true, unite: true } },
+  article: { select: { ...CHAMPS_LIBELLE, unite: true } }, // libellé des messages (contenance comprise)
 } satisfies Prisma.MouvementStockSelect;
 export type MvtSelection = Prisma.MouvementStockGetPayload<{ select: typeof SELECT_SELECTION }>;
 export type SelectionResolue = { mvs: MvtSelection[]; nbDemandes: number } | { erreur: string; nouveauNombre?: number };

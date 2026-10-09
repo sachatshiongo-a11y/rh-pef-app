@@ -32,6 +32,7 @@ import { avantApres } from "@/lib/date-sortie";
 
 export type AuteurGeste = { id: string; nom: string; role: Role };
 
+/** `designation` : le nom AFFICHÉ de l'article dans la notification (`libelleArticle`, contenance comprise). */
 export type LigneGeste = { articleId: string; designation: string; unite: string | null; quantite: number };
 
 /** Une sortie dont la date a été changée (date d'origine, motif inchangé). */

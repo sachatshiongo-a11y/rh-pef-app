@@ -12,9 +12,10 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { estStock } from "@/lib/espaces";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
+import { CHAMPS_LIBELLE, contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 
 const mvtInclude = {
-  article: { select: { designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
+  article: { select: { ...CHAMPS_LIBELLE, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
   facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
   reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
   fournisseur: { select: { id: true, nom: true } }, // achat direct de la Liste d'achat
@@ -37,7 +38,7 @@ const versLite = (m: Mvt, taux: number | null): MvtLite => {
   return {
     id: m.id,
     articleId: m.articleId,
-    designation: m.article.designation,
+    designation: libelleArticle(m.article), // nom affiché (contenance comprise)
     dateISO: new Date(m.date).toISOString().slice(0, 10),
     origine: m.origine,
     type: m.type,
@@ -89,10 +90,10 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     if (c) conseilsLivraison[a.id] = c;
   }
   const nbTotal = nbSortiesFiltre + nbEntreesFiltre;
-  const designation = articleId
-    ? articles.find((a) => a.id === articleId)?.designation
-      ?? (await prisma.articleStock.findUnique({ where: { id: articleId }, select: { designation: true } }))?.designation
+  const articleFiltre = articleId
+    ? articles.find((a) => a.id === articleId) ?? (await prisma.articleStock.findUnique({ where: { id: articleId }, select: CHAMPS_LIBELLE }))
     : null;
+  const designation = articleFiltre ? libelleArticle(articleFiltre) : null;
   const libelle = libelleFiltre(filtre, designation);
   const taux = await tauxDuJour();
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map((m) => versLite(m, taux));
@@ -125,7 +126,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       </form>
 
       {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
-      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       {nbTotal > PLAFOND && <BandeauPlafond affiches={mouvements.length} total={nbTotal} estDirection={estDirection} />}
 

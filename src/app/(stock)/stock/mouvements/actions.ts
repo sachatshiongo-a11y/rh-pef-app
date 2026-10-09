@@ -16,6 +16,7 @@ import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements } from "@/lib/selecti
 import { appliquerChangementDateSorties } from "@/lib/validations-stock/date-sortie";
 import { StockInsuffisant, variationsStockTx } from "@/lib/validations-stock/stock-positif";
 import { similairesEnStock } from "@/lib/article-proche";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 
 /**
@@ -60,7 +61,7 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
 /** Un article d'une sortie refusée faute de stock, et les articles proches qui en ont (« Utiliser … »). */
 export type ArticleInsuffisant = {
   articleId: string; designation: string; unite: string | null; disponible: number; demande: number;
-  proches: { id: string; designation: string; unite: string | null; disponible: number }[];
+  proches: { id: string; designation: string; contenance?: string; contenanceUnite?: string; unite: string | null; disponible: number }[];
 };
 /** Refus d'une sortie : le message (lisible tel quel) et, par article fautif, ses remplaçants possibles. */
 export type RefusStock = { erreur: string; insuffisants: ArticleInsuffisant[] };
@@ -69,8 +70,8 @@ async function refusAvecProches(e: StockInsuffisant): Promise<RefusStock> {
   const catalogue = (await prisma.articleStock.findMany({
     where: { actif: true },
     orderBy: { designation: "asc" },
-    select: { id: true, designation: true, domaine: true, unite: true, actif: true, stock: { select: { quantite: true } } },
-  })).map((a) => ({ id: a.id, designation: a.designation, domaine: a.domaine, unite: a.unite, actif: a.actif, quantite: Number(a.stock?.quantite ?? 0) }));
+    select: { id: true, designation: true, contenance: true, contenanceUnite: true, domaine: true, unite: true, actif: true, stock: { select: { quantite: true } } },
+  })).map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), domaine: a.domaine, unite: a.unite, actif: a.actif, quantite: Number(a.stock?.quantite ?? 0) }));
   const parId = new Map(catalogue.map((a) => [a.id, a]));
   return {
     erreur: e.message,
@@ -78,7 +79,7 @@ async function refusAvecProches(e: StockInsuffisant): Promise<RefusStock> {
       const art = parId.get(m.articleId) ?? { id: m.articleId, designation: m.designation, domaine: "", unite: m.unite };
       return {
         articleId: m.articleId, designation: m.designation, unite: m.unite, disponible: Number(m.disponible), demande: Number(m.demande),
-        proches: similairesEnStock(art, catalogue).map((p) => ({ id: p.id, designation: p.designation, unite: p.unite, disponible: p.quantite })),
+        proches: similairesEnStock(art, catalogue).map((p) => ({ id: p.id, designation: p.designation, ...contenancePourClient(p), unite: p.unite, disponible: p.quantite })),
       };
     }),
   };
