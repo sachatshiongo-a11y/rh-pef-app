@@ -264,7 +264,7 @@ describe("actions groupées", () => {
 
   it("Refuser sur une ligne : la même fenêtre, puis `refuserConge(id, motif)`", async () => {
     monter("ADMIN");
-    act(() => { [...tableau().querySelectorAll('[data-conge="a1"] button')].find((b) => /Refuser/.test(b.textContent ?? ""))!.click(); });
+    act(() => { [...tableau().querySelectorAll<HTMLButtonElement>('[data-conge="a1"] button')].find((b) => /Refuser/.test(b.textContent ?? ""))!.click(); });
     const dialogue = document.querySelector<HTMLElement>("[data-dialogue-refus]")!;
     expect(dialogue.textContent).toContain("Demande de Aimée Mutita");
     const zone = dialogue.querySelector("textarea")!;
