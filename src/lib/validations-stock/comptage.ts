@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { poserStocksTx } from "./stock-positif";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -97,18 +98,8 @@ export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Dom
       data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, date: jourCivilKinshasa(new Date()), creeParId: userId })),
     });
   }
-  const existants = new Set((await tx.stock.findMany({ where: { articleId: { in: lignes.map((l) => l.articleId) } }, select: { articleId: true } })).map((x) => x.articleId));
-  const maj = lignes.filter((l) => existants.has(l.articleId));
-  if (maj.length > 0) {
-    await tx.$executeRaw`
-      UPDATE "stock"."Stock" AS s SET "quantite" = v.q, "updatedAt" = now()
-      FROM (VALUES ${Prisma.join(maj.map((l) => Prisma.sql`(${l.articleId}, ${l.stockFinal}::decimal)`))}) AS v("articleId", q)
-      WHERE s."articleId" = v."articleId"`;
-  }
-  const manquants = lignes.filter((l) => !existants.has(l.articleId));
-  if (manquants.length > 0) {
-    await tx.stock.createMany({ data: manquants.map((l) => ({ articleId: l.articleId, quantite: l.stockFinal })) });
-  }
+  // Stock posé au compté par la porte unique (stock-positif.ts) : écriture groupée, jamais sous 0.
+  await poserStocksTx(tx, lignes.map((l) => ({ articleId: l.articleId, quantite: l.stockFinal })), { quoi: "La quantité comptée" });
   return { session: s, nbEcarts, nbHorsTol };
 }
 

@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, lireDevisePrix, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
-import { texteDecimal } from "@/lib/validations-stock/charge";
+import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -13,6 +13,10 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { poserStocksTx, variationsStockTx } from "@/lib/validations-stock/stock-positif";
+import { catalogueCandidats } from "@/lib/achats-liste-serveur";
+import { decisionArticle } from "@/lib/article-proche";
+import { cleArticleExacte, memeDesignation, type ArticleCandidat } from "@/lib/achats-doublons";
 
 
 async function garde() {
@@ -45,8 +49,16 @@ async function proposer(user: Acteur, libelle: string, patchs: { id: string; pat
 
 const MESSAGE_DIRECTION_SEULE = (quoi: string) => `${quoi} est réservé à la Direction.`;
 
-/** Crée un article dans l'inventaire (+ sa ligne de stock). */
-export const creerArticle = actionLisible(async (formData: FormData) => {
+/**
+ * Réponse de « Ajouter un article » quand le catalogue a déjà un article de ce nom ou d'un nom PROCHE
+ * (anti-doublon, même règle que la Liste d'achat — lib/article-proche.ts) : RIEN n'est créé ; l'écran
+ * montre les articles et demande « Utiliser … » ou « Créer quand même un nouvel article »
+ * (`creationPossible` faux quand le nom exact existe déjà : un second serait un doublon certain).
+ */
+export type DoublonCreation = { doublon: true; candidats: ArticleCandidat[]; creationPossible: boolean; message: string };
+
+/** Crée un article dans l'inventaire (+ sa ligne de stock). Anti-doublon : voir `DoublonCreation`. */
+export const creerArticle = actionLisible(async (formData: FormData): Promise<DoublonCreation | void> => {
   const user = await garde();
   const designation = String(formData.get("designation") ?? "").trim();
   const domaineRaw = String(formData.get("domaine") ?? "");
@@ -54,6 +66,7 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
   const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" || domaineRaw === "AUTRE" ? domaineRaw : "NOURRITURE";
   const categorieId = String(formData.get("categorieId") ?? "").trim() || null;
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+  const creerQuandMeme = String(formData.get("creerQuandMeme") ?? "") === "1";
 
   // Le stock initial d'un nouvel article est une quantité posée hors flux : hors Direction, il
   // entre par la Liste d'achat (entrée) ou par un comptage, pas par la création.
@@ -61,32 +74,55 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
   if (quantiteInitiale !== 0 && !estDirection(user)) {
     throw new Error("Le stock initial se saisit par une entrée (Liste d'achat) ou un comptage : créez l'article avec un stock vide, ou demandez à la Direction.");
   }
+  if (quantiteInitiale < 0) throw new Error("Le stock initial ne peut pas être négatif : un stock ne passe jamais sous 0.");
 
   // Prix de référence dans SA devise (2026-10-08) : « devisePrix » absent = dollars, comme avant.
   const devisePrix = formData.has("devisePrix") ? lireDevisePrix(formData.get("devisePrix")) : "USD";
   const prix = decSaisiOptionnel(formData.get(devisePrix === "CDF" ? "prixUnitaireCDF" : "prixUnitaireUSD"), "prix unitaire");
-  const art = await prisma.articleStock.create({
-    data: {
-      designation,
-      domaine,
-      code: String(formData.get("code") ?? "").trim() || null,
-      unite: String(formData.get("unite") ?? "").trim() || null,
-      categorieId,
-      fournisseurId,
-      devisePrix,
-      prixUnitaireUSD: devisePrix === "USD" ? prix : null,
-      prixUnitaireCDF: devisePrix === "CDF" ? prix : null,
-      uniteParCarton: decSaisiOptionnel(formData.get("uniteParCarton"), "unités par carton"),
-      stock: {
-        create: {
-          quantite: quantiteInitiale,
-          stockMinimum: decSaisiOptionnel(formData.get("stockMinimum"), "stock minimum") ?? 0,
-          seuilUrgent: decSaisiOptionnel(formData.get("seuilUrgent"), "seuil urgent") ?? 0,
+
+  // ANTI-DOUBLON (2026-10-09) — même règle que la Liste d'achat : nom EXACT déjà au catalogue (même
+  // inactif) → refus, l'article existant est montré ; noms PROCHES (actifs) → choix explicite.
+  const doublon = (candidats: ArticleCandidat[], creationPossible: boolean): DoublonCreation => ({
+    doublon: true, candidats, creationPossible,
+    message: creationPossible
+      ? `« ${designation} » ressemble à un article déjà au catalogue : utilisez-le, ou créez quand même un nouvel article. Rien n'a été créé.`
+      : `« ${designation} » existe déjà au catalogue sous ce nom : utilisez-le (réactivez-le s'il est inactif). Rien n'a été créé.`,
+  });
+  const d = decisionArticle(designation, await catalogueCandidats());
+  if (d.type === "auto") return doublon([d.article], false);
+  if (d.type === "choix" && (!d.creationPossible || !creerQuandMeme)) return doublon(d.candidats, d.creationPossible);
+
+  const art = await prisma.$transaction(async (tx) => {
+    // Deux créations simultanées du même nom : verrou sur la clé du nom, puis relecture (comme la Liste d'achat).
+    const cle = cleArticleExacte(designation) || designation;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`article:${cle}`}))::text AS verrou`;
+    const meme = (await tx.articleStock.findMany({ select: { id: true, designation: true } })).find((a) => memeDesignation(designation, a.designation));
+    if (meme) throw new Error(`« ${meme.designation} » vient d'être créé : rechargez la page et utilisez-le. Rien n'a été créé.`);
+    const cree = await tx.articleStock.create({
+      data: {
+        designation,
+        domaine,
+        code: String(formData.get("code") ?? "").trim() || null,
+        unite: String(formData.get("unite") ?? "").trim() || null,
+        categorieId,
+        fournisseurId,
+        devisePrix,
+        prixUnitaireUSD: devisePrix === "USD" ? prix : null,
+        prixUnitaireCDF: devisePrix === "CDF" ? prix : null,
+        uniteParCarton: decSaisiOptionnel(formData.get("uniteParCarton"), "unités par carton"),
+        stock: {
+          create: {
+            quantite: 0, // le stock initial passe par la porte unique, ci-dessous
+            stockMinimum: decSaisiOptionnel(formData.get("stockMinimum"), "stock minimum") ?? 0,
+            seuilUrgent: decSaisiOptionnel(formData.get("seuilUrgent"), "seuil urgent") ?? 0,
+          },
         },
       },
-    },
+    });
+    if (quantiteInitiale !== 0) await poserStocksTx(tx, [{ articleId: cree.id, quantite: quantiteInitiale }], { quoi: "Le stock initial" });
+    return cree;
   });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation, userId: user.id });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation + (d.type === "choix" ? ` (créé quand même, proche de ${d.candidats.map((c) => `« ${c.designation} »`).join(", ")})` : ""), userId: user.id });
   // Création hors Direction : permise (un article nouveau n'est pas une modification), mais SIGNALÉE
   // sur la cloche de l'espace Stock.
   if (!estDirection(user)) await signalerCreationArticle(art.id, designation, user.nom);
@@ -143,7 +179,9 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       // se retrouver sur l'article conservé : elles restent DEUX consommations distinctes, leurs
       // quantités s'additionnent au coût — on ne fusionne pas des lignes de recette à l'aveugle.
       await tx.ingredientFiche.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
-      if (l.stock) await tx.stock.update({ where: { articleId: keep.id }, data: { quantite: { increment: Number(l.stock.quantite) } } });
+      // Stock du doublon cumulé par la porte unique : un doublon NÉGATIF qui ferait passer l'article
+      // conservé sous 0 refuse la fusion (nommé) — corriger d'abord son stock (comptage ou mise à 0).
+      if (l.stock && !l.stock.quantite.isZero()) await variationsStockTx(tx, [{ articleId: keep.id, delta: l.stock.quantite }], { verbe: "à retirer (stock négatif du doublon)" });
       await tx.articleStock.delete({ where: { id: l.id } });
     }
   });
@@ -204,6 +242,66 @@ export const definirFournisseurEnMasse = actionLisible(async (articleIds: string
 });
 
 /**
+ * Change le DOMAINE (Nourriture / Boissons / Autre) de plusieurs articles — demande de Sacha du
+ * 2026-10-09. Direction : écrit tout de suite ; autre compte : PROPOSITION (avant → après), comme toute
+ * modification d'article. Ni stock ni mouvement ne change : seul le classement de l'article bouge.
+ *
+ * Une catégorie vit dans un domaine. `categorie` dit quoi faire de celle des articles déplacés :
+ *  - "" (par défaut) : la catégorie DU MÊME NOM dans le nouveau domaine si elle existe, sinon « à classer » ;
+ *  - "A_CLASSER" : « à classer » pour tous ;
+ *  - un id : cette catégorie, qui doit appartenir au nouveau domaine.
+ * Le compte rendu dit combien d'articles ont gardé leur catégorie (par son nom) et lesquels sont à classer.
+ */
+export const changerDomaineEnMasse = actionLisible(async (articleIds: string[], domaineSaisi: string, categorie = ""): Promise<PropositionEnvoyee | { proposition: false; message: string }> => {
+  const user = await garde();
+  const domaine = lireDomaine(domaineSaisi);
+  const ids = [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
+  if (ids.length === 0) throw new Error("Aucun article sélectionné.");
+  const [arts, cats] = await Promise.all([
+    prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, domaine: true, categorieId: true, categorie: { select: { nom: true } } } }),
+    prisma.categorieStock.findMany({ select: { id: true, nom: true, domaine: true } }),
+  ]);
+  if (arts.length !== ids.length) throw new Error("Article introuvable : rechargez la page.");
+  const choisie = categorie && categorie !== "A_CLASSER" ? cats.find((c) => c.id === categorie) : null;
+  if (categorie && categorie !== "A_CLASSER" && (!choisie || choisie.domaine !== domaine)) throw new Error("La catégorie choisie n'appartient pas au nouveau domaine : rechargez la page et choisissez-en une du nouveau domaine, ou « à classer ».");
+  const memeNom = (nom: string) => cats.find((c) => c.domaine === domaine && c.nom.trim().toLowerCase() === nom.trim().toLowerCase()) ?? null;
+
+  const aDeplacer = arts.filter((a) => a.domaine !== domaine);
+  const libelle = libelleValeur("domaine", domaine);
+  if (aDeplacer.length === 0) return { proposition: false, message: `Rien à changer : ${arts.length > 1 ? "ces articles sont" : "cet article est"} déjà en ${libelle}.` };
+  const reprises: string[] = [];
+  const aClasser: string[] = [];
+  const patchs = aDeplacer.map((a) => {
+    const patch: PatchArticle = { domaine };
+    if (choisie) patch.categorieId = choisie.id;
+    else if (a.categorieId) {
+      const m = categorie === "A_CLASSER" ? null : memeNom(a.categorie?.nom ?? "");
+      patch.categorieId = m?.id ?? null;
+      if (m) reprises.push(a.designation); else aClasser.push(a.designation);
+    }
+    return { id: a.id, patch };
+  });
+  const detail = [
+    reprises.length ? `${reprises.length} garde(nt) une catégorie du même nom` : "",
+    aClasser.length ? `${aClasser.length} remis « à classer » (catégorie absente en ${libelle}) : ${aClasser.slice(0, 8).map((d) => `« ${d} »`).join(", ")}${aClasser.length > 8 ? "…" : ""}` : "",
+    choisie ? `catégorie « ${choisie.nom} »` : "",
+  ].filter(Boolean).join(" ; ");
+
+  if (!estDirection(user)) {
+    const r = await proposer(user, `Domaine → ${libelle}`, patchs);
+    return { ...r, message: r.message + (r.proposition && detail ? ` (${detail}.)` : "") };
+  }
+  await prisma.$transaction(async (tx) => { for (const p of patchs) await appliquerPatchArticleTx(tx, p.id, p.patch); }, { timeout: 60000 });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${patchs.length} articles`, champ: "domaine (masse)", nouvelleValeur: `${libelle}${detail ? ` — ${detail}` : ""}`.slice(0, 900), userId: user.id });
+  revalidatePath("/stock/catalogue", "layout");
+  revalidatePath("/stock/reconciliation");
+  revalidatePath("/stock/journalier");
+  revalidatePath("/stock");
+  const deja = arts.length - aDeplacer.length;
+  return { proposition: false, message: `${aDeplacer.length} article(s) passé(s) en ${libelle}${deja ? ` (${deja} déjà dans ce domaine)` : ""}${detail ? ` ; ${detail}` : ""}. Ni stock ni mouvement n'a changé.` };
+});
+
+/**
  * Corrige les stocks négatifs des articles donnés en les remettant à 0. Un stock négatif traduit
  * plus de sorties que d'entrées enregistrées : on le comble par un mouvement d'ENTRÉE d'ajustement
  * (traçable), daté du jour, plutôt qu'en écrasant silencieusement la quantité.
@@ -223,8 +321,8 @@ export const corrigerStocksNegatifs = actionLisible(async (articleIds: string[])
     for (const s of stocks) {
       const manque = -Number(s.quantite); // quantité positive à réinjecter pour revenir à 0
       await tx.mouvementStock.create({ data: { articleId: s.articleId, type: "ENTREE", quantite: manque, origine: "Correction stock négatif (mise à 0)", date, creeParId: user.id } });
-      await tx.stock.update({ where: { articleId: s.articleId }, data: { quantite: 0 } });
     }
+    await poserStocksTx(tx, stocks.map((s) => ({ articleId: s.articleId, quantite: 0 }))); // porte unique
   }, { timeout: 60000 });
   await journaliser(prisma, { entite: "Stock", entiteId: `${stocks.length} articles`, champ: "correction stock négatif", nouvelleValeur: "remis à 0 (ajustement)", userId: user.id });
   revalidatePath("/stock/catalogue");

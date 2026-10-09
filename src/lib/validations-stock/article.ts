@@ -8,10 +8,11 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { lireContenanceSaisie } from "@/lib/fiches/conversion";
+import { poserStocksTx } from "./stock-positif";
 import type { DevisePrix } from "@/lib/prix-article";
 import {
-  CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, libelleValeur, texteDecimal, valeursEgales,
-  type ChampArticle, type Changement, type Valeur,
+  CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, estDomaineArticle, libelleValeur, texteDecimal, valeursEgales,
+  type ChampArticle, type Changement, type DomaineArticle, type Valeur,
 } from "./charge";
 
 type Tx = Prisma.TransactionClient;
@@ -32,6 +33,7 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   if (formData.has("code")) p.code = texte("code");
   if (formData.has("designation")) p.designation = String(formData.get("designation")).trim();
   if (formData.has("nomCourt")) p.nomCourt = texte("nomCourt");
+  if (formData.has("domaine")) p.domaine = lireDomaine(formData.get("domaine"));
   // Prix de référence : sa devise (« USD » / « CDF »), puis le prix dans cette devise. Un champ de
   // prix seul (case de l'Inventaire) garde la devise de l'article — `harmoniserPrix` le vérifie.
   if (formData.has("devisePrix")) p.devisePrix = lireDevisePrix(formData.get("devisePrix"));
@@ -68,6 +70,8 @@ const PLAFONDS: Partial<Record<ChampArticle, { max: number; libelle: string }>> 
   quantite: { max: 1e11, libelle: "La quantité" },
 };
 function exigerBornes(p: PatchArticle) {
+  // Un stock ne passe jamais sous 0 (2026-10-09) : refus dès la saisie, avant toute proposition.
+  if (typeof p.quantite === "string" && Number(p.quantite) < 0) throw new Error(`La quantité en stock ne peut pas être négative (${p.quantite.replace(".", ",")}) : un stock ne passe jamais sous 0.`);
   for (const [champ, b] of Object.entries(PLAFONDS) as [ChampArticle, { max: number; libelle: string }][]) {
     const v = p[champ];
     if (typeof v === "string" && Math.abs(Number(v)) >= b.max) throw new Error(`${b.libelle} est hors limites (${v.replace(".", ",")}) : vérifiez la saisie.`);
@@ -82,6 +86,32 @@ export function lireDevisePrix(v: FormDataEntryValue | null): DevisePrix {
   if (d === "USD" || d === "$") return "USD";
   if (d === "CDF" || d === "FC") return "CDF";
   throw new Error("Devise du prix inconnue : choisissez $ ou FC.");
+}
+
+/** « NOURRITURE » / « BOISSON » / « AUTRE » ; toute autre valeur est refusée (jamais un domaine deviné). */
+export function lireDomaine(v: FormDataEntryValue | null): DomaineArticle {
+  const d = String(v ?? "").trim().toUpperCase();
+  if (estDomaineArticle(d)) return d;
+  throw new Error("Domaine inconnu : choisissez Nourriture, Boissons ou Autre.");
+}
+
+/**
+ * Domaine changé (2026-10-09) : la catégorie de l'article doit appartenir au NOUVEAU domaine (une
+ * catégorie vit dans un domaine). Si celle d'aujourd'hui n'existe que dans l'ancien, le patch doit en
+ * choisir une du nouveau, ou « à classer » (null) — refus lisible sinon, rien n'est écrit. Seul un
+ * patch qui CHANGE le domaine est contrôlé : une catégorie déjà incohérente (import ancien) ne bloque
+ * pas une retouche de prix.
+ */
+export async function exigerCategorieDuDomaine(tx: Pick<Tx, "articleStock" | "categorieStock">, id: string, patch: PatchArticle) {
+  if (!("domaine" in patch)) return;
+  const art = await tx.articleStock.findUnique({ where: { id }, select: { designation: true, domaine: true, categorieId: true, categorie: { select: { nom: true } } } });
+  if (!art || art.domaine === patch.domaine) return;
+  const categorieId = "categorieId" in patch ? (patch.categorieId as string | null) : art.categorieId;
+  if (!categorieId) return;
+  const cat = await tx.categorieStock.findUnique({ where: { id: categorieId }, select: { nom: true, domaine: true } });
+  if (cat && cat.domaine === patch.domaine) return;
+  const nouveau = libelleValeur("domaine", patch.domaine ?? null);
+  throw new Error(`« ${art.designation} » passe en ${nouveau} : sa catégorie « ${cat?.nom ?? art.categorie?.nom ?? "?"} » n'existe pas dans ce domaine. Choisissez une catégorie du domaine ${nouveau}, ou « à classer ». Rien n'a été modifié.`);
 }
 
 const PRIX_DE: Record<DevisePrix, "prixUnitaireUSD" | "prixUnitaireCDF"> = { USD: "prixUnitaireUSD", CDF: "prixUnitaireCDF" };
@@ -116,27 +146,32 @@ export function harmoniserPrix(deviseActuelle: DevisePrix, patch: PatchArticle):
 export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: PatchArticle) {
   // Prix : cohérent avec la devise de l'article, relue ICI (geste direct comme proposition validée).
   let patch = patchSaisi;
+  await exigerCategorieDuDomaine(tx, id, patch); // domaine changé : catégorie du nouveau domaine, ou « à classer »
   if ("devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch) {
     const cur = await tx.articleStock.findUniqueOrThrow({ where: { id }, select: { devisePrix: true } });
     patch = harmoniserPrix(cur.devisePrix, patch);
   }
   const data: Prisma.ArticleStockUpdateInput = {};
   const stock: Prisma.StockUpdateInput = {};
+  let quantite: string | null = null;
   for (const champ of champsDe(patch)) {
     const v = patch[champ] ?? null;
     if (champ === "categorieId") data.categorie = v ? { connect: { id: String(v) } } : { disconnect: true };
     else if (champ === "fournisseurId") data.fournisseur = v ? { connect: { id: String(v) } } : { disconnect: true };
+    else if (champ === "quantite") quantite = String(v ?? "0");
     else if (CHAMPS_ARTICLE[champ].porte === "stock") (stock as Record<string, unknown>)[champ] = v ?? "0";
     else (data as Record<string, unknown>)[champ] = v;
   }
   if (Object.keys(data).length > 0) await tx.articleStock.update({ where: { id }, data });
+  // Quantité saisie sur la fiche : posée par la porte unique (stock-positif.ts), jamais négative.
+  if (quantite !== null) await poserStocksTx(tx, [{ articleId: id, quantite }], { quoi: "La quantité en stock" });
   if (Object.keys(stock).length > 0) {
     await tx.stock.upsert({
       where: { articleId: id },
       update: stock,
       create: {
         articleId: id,
-        quantite: (patch.quantite as string | null | undefined) ?? "0",
+        quantite: 0, // la quantité ne s'écrit que par la porte unique, ci-dessus
         stockMinimum: (patch.stockMinimum as string | null | undefined) ?? "0",
         seuilUrgent: (patch.seuilUrgent as string | null | undefined) ?? "0",
       },
@@ -168,7 +203,7 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
     categorieNom: a.categorie?.nom ?? null,
     fournisseurNom: a.fournisseur?.nom ?? null,
     valeurs: {
-      code: a.code, designation: a.designation, nomCourt: a.nomCourt, unite: a.unite,
+      code: a.code, designation: a.designation, nomCourt: a.nomCourt, domaine: a.domaine, unite: a.unite,
       contenance: dec(a.contenance), contenanceUnite: a.contenanceUnite,
       devisePrix: a.devisePrix, prixUnitaireUSD: dec(a.prixUnitaireUSD), prixUnitaireCDF: dec(a.prixUnitaireCDF), uniteParCarton: dec(a.uniteParCarton),
       categorieId: a.categorieId, fournisseurId: a.fournisseurId,

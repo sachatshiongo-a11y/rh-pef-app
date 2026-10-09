@@ -20,6 +20,7 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
+import { entrerEnStockTx, variationsStockTx } from "@/lib/validations-stock/stock-positif";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -375,11 +376,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
               : l.total > 0 ? { devise: "CDF" as const, montantOrigine: l.total, tauxChangeUtilise: tauxFC, montantUSD: l.total / tauxFC! } : {}),
           },
         });
-        await tx.stock.upsert({
-          where: { articleId: l.articleId },
-          update: { quantite: { increment: l.quantite } },
-          create: { articleId: l.articleId, quantite: l.quantite },
-        });
+        await entrerEnStockTx(tx, [{ articleId: l.articleId, quantite: l.quantite }]); // porte unique (stock-positif.ts)
       }
     }
     return f;
@@ -410,10 +407,9 @@ export const supprimerFacture = actionLisible(async (id: string) => {
   });
   await prisma.$transaction(async (tx) => {
     // Reprise du stock entré par cette facture, avant suppression (les mouvements passeront à factureId=null).
-    for (const m of f.mouvements) {
-      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: Number(m.quantite) } } });
-      await tx.mouvementStock.delete({ where: { id: m.id } });
-    }
+    // Porte unique : reprendre une entrée déjà consommée ferait passer le stock sous 0 → refus nommé.
+    await variationsStockTx(tx, f.mouvements.map((m) => ({ articleId: m.articleId, delta: m.quantite.negated() })), { verbe: "à reprendre" });
+    for (const m of f.mouvements) await tx.mouvementStock.delete({ where: { id: m.id } });
     await tx.factureFournisseur.delete({ where: { id } });
   });
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.devise === "CDF" ? `${f.montantCDF} CDF` : f.montantUSD}`, userId: user.id });
@@ -576,12 +572,9 @@ export const supprimerFacturesEnLot = actionLisible(async (ids: string[]) => {
   if (uniq.length === 0) return;
   const facs = await prisma.factureFournisseur.findMany({ where: { id: { in: uniq } }, include: { mouvements: { where: { type: "ENTREE" } } } });
   await prisma.$transaction(async (tx) => {
-    for (const f of facs) {
-      for (const m of f.mouvements) {
-        await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: Number(m.quantite) } } });
-        await tx.mouvementStock.delete({ where: { id: m.id } });
-      }
-    }
+    // Porte unique, tout le lot d'un coup : une reprise qui ferait passer un article sous 0 refuse tout.
+    await variationsStockTx(tx, facs.flatMap((f) => f.mouvements.map((m) => ({ articleId: m.articleId, delta: m.quantite.negated() }))), { verbe: "à reprendre" });
+    for (const f of facs) for (const m of f.mouvements) await tx.mouvementStock.delete({ where: { id: m.id } });
     await tx.factureFournisseur.deleteMany({ where: { id: { in: uniq } } });
   });
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "suppression", nouvelleValeur: `${facs.length} facture(s) supprimée(s)`, userId: user.id });

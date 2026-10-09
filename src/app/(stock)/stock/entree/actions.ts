@@ -1,6 +1,7 @@
 "use server";
 
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
+import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisi } from "@/lib/nombre";
@@ -278,11 +279,7 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
           dlc: l.dlc ? new Date(`${l.dlc}T00:00:00.000Z`) : null,
         },
       });
-      await tx.stock.upsert({
-        where: { articleId },
-        update: { quantite: { increment: l.quantite } },
-        create: { articleId, quantite: l.quantite },
-      });
+      await entrerEnStockTx(tx, [{ articleId, quantite: l.quantite }]); // porte unique (stock-positif.ts)
     }
   });
 

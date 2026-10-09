@@ -40,7 +40,7 @@ import {
   aUnEcart, apresComptage, calculerLignes, ecrireComptageTx, etatLigneAValider, exigerExplications, mouvementsDepuis,
   niveauxDe, verrouillerStocks, type CompteSaisi, type Domaine,
 } from "./comptage";
-import { appliquerPatchArticleTx, changementsDe, harmoniserPrix, lireArticlesTx, nomsReferencesTx, patchDesChangements, type PatchArticle } from "./article";
+import { appliquerPatchArticleTx, changementsDe, exigerCategorieDuDomaine, harmoniserPrix, lireArticlesTx, nomsReferencesTx, patchDesChangements, type PatchArticle } from "./article";
 
 type Tx = Prisma.TransactionClient;
 
@@ -406,6 +406,8 @@ export async function proposerModifications(auteur: Acteur, libelle: string, pat
     const etats = await lireArticlesTx(tx, ids);
     const manquant = ids.find((id) => !etats.has(id));
     if (manquant) throw new Error("Article introuvable : rechargez la page.");
+    // Domaine changé : catégorie du nouveau domaine, ou « à classer » — refus dès la proposition.
+    for (const p of patchs) await exigerCategorieDuDomaine(tx, p.id, p.patch);
     const noms = await nomsReferencesTx(tx);
 
     // Propositions déjà en attente sur ces articles : celles d'un AUTRE compte bloquent ; celles du

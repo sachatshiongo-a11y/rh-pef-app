@@ -8,6 +8,8 @@ import { niveauxActuels, notifierNouvellesAlertes } from "./alerte-stock";
 import { parserMouvementsCsv, type MouvementCsv } from "./import-mouvements-csv";
 import { repererDejaPresents, traceJumeau, ACTION_DEJA_PRESENT } from "./doublons-imports";
 import { categorieSortieImport } from "./motif-sorties-import";
+import { verrouillerStocks } from "./validations-stock/comptage";
+import { variationsStockTx } from "./validations-stock/stock-positif";
 
 // Import de mouvements de stock (entrées/sorties) depuis un CSV, avec aperçu et journal réversible.
 // Chaque ligne applique son effet sur le stock (ENTREE +, SORTIE −) ; l'annulation restaure le stock.
@@ -181,31 +183,30 @@ export async function appliquerMouvements(
     // RÉELLEMENT touché : un article dont tout était déjà présent ne bouge pas, et son stock ne
     // doit pas être « restauré » à l'annulation (il a pu être corrigé entre-temps).
     const articleIds = [...new Set(nouveaux.map((c) => c.articleId))];
-    const stocks = await tx.stock.findMany({ where: { articleId: { in: articleIds } }, select: { articleId: true, quantite: true } });
+    const stocks = await verrouillerStocks(tx, articleIds); // verrouillés avant la photo : la porte relira la même valeur
     const avant = new Map(stocks.map((s) => [s.articleId, s.quantite.toString()]));
     for (const articleId of articleIds) {
       ops.push({ batchId: batch.id, entite: "Stock", entiteId: articleId, action: "UPDATE", avant: { quantite: avant.get(articleId) ?? null } });
     }
 
     // Crée les mouvements nouveaux et cumule l'effet net par article (les ignorés ne comptent pas).
-    const net = new Map<string, number>();
     for (const c of nouveaux) {
       const mv = await tx.mouvementStock.create({
         data: { articleId: c.articleId, type: c.type, quantite: c.quantite, date: dateDe(c.date), origine: libelle, creeParId: userId, categorieSortie: categorieSortieImport(c.type, sortiesLivraisonRestaurant) },
       });
       ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: mv.id, action: "CREATE", avant: Prisma.DbNull });
-      net.set(c.articleId, (net.get(c.articleId) ?? 0) + (c.type === "ENTREE" ? c.quantite : -c.quantite));
     }
     // Les ignorés sont tracés : ils nomment le jumeau qui porte leur historique.
     for (const { candidat: c, jumeauId } of dejaPresents) {
       ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: jumeauId, action: ACTION_DEJA_PRESENT, avant: traceJumeau(jumeauId, c) });
     }
 
-    // Applique l'effet net sur le stock (crée la ligne si absente).
-    for (const articleId of articleIds) {
-      const delta = net.get(articleId) ?? 0;
-      await tx.stock.upsert({ where: { articleId }, update: { quantite: { increment: delta } }, create: { articleId, quantite: delta } });
-    }
+    // Applique l'effet net sur le stock par la porte unique (crée la ligne si absente) : un article
+    // que le fichier ferait passer sous 0 refuse tout l'import, nommé avec son stock disponible.
+    // Décimal exact : 0,1 + 0,2 de sorties font bien 0,3.
+    const netExact = new Map<string, Prisma.Decimal>();
+    for (const c of nouveaux) netExact.set(c.articleId, (netExact.get(c.articleId) ?? new Prisma.Decimal(0)).plus(c.type === "ENTREE" ? c.quantite : -c.quantite));
+    await variationsStockTx(tx, articleIds.map((articleId) => ({ articleId, delta: netExact.get(articleId) ?? 0 })));
 
     await tx.importOperation.createMany({ data: ops });
     return { batchId: batch.id, resume: resumeApplique };

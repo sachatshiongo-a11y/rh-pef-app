@@ -14,6 +14,8 @@ import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
 import type { SelectionMouvements } from "@/lib/filtre-mouvements";
 import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements } from "@/lib/selection-mouvements";
 import { appliquerChangementDateSorties } from "@/lib/validations-stock/date-sortie";
+import { StockInsuffisant, variationsStockTx } from "@/lib/validations-stock/stock-positif";
+import { similairesEnStock } from "@/lib/article-proche";
 
 
 /**
@@ -24,11 +26,20 @@ import { appliquerChangementDateSorties } from "@/lib/validations-stock/date-sor
  * quel que soit le motif, est écrite tout de suite pour tout compte Stock ; la Direction est
  * NOTIFIÉE du geste d'un autre compte (lib/validations-stock/mouvement.ts → appliquerMouvementManuel).
  */
-export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: false; message: string }> => {
+export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: false; message: string } | RefusStock> => {
   const user = await verifySession();
   requireModule(user, "stock");
   const m = lireMouvementSaisi(formData);
-  const { demandesEnAttente, rattachementResto } = await appliquerMouvementManuel(user, m);
+  let resultat: Awaited<ReturnType<typeof appliquerMouvementManuel>>;
+  try {
+    resultat = await appliquerMouvementManuel(user, m);
+  } catch (e) {
+    // Stock insuffisant (un stock ne passe jamais sous 0) : rien n'est écrit ; l'écran nomme chaque
+    // article fautif avec son stock disponible et PROPOSE des articles proches qui en ont.
+    if (e instanceof StockInsuffisant) return refusAvecProches(e);
+    throw e;
+  }
+  const { demandesEnAttente, rattachementResto } = resultat;
   await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
@@ -46,6 +57,33 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
   return { demande: false, message: fait + avertissement };
 });
 
+/** Un article d'une sortie refusée faute de stock, et les articles proches qui en ont (« Utiliser … »). */
+export type ArticleInsuffisant = {
+  articleId: string; designation: string; unite: string | null; disponible: number; demande: number;
+  proches: { id: string; designation: string; unite: string | null; disponible: number }[];
+};
+/** Refus d'une sortie : le message (lisible tel quel) et, par article fautif, ses remplaçants possibles. */
+export type RefusStock = { erreur: string; insuffisants: ArticleInsuffisant[] };
+
+async function refusAvecProches(e: StockInsuffisant): Promise<RefusStock> {
+  const catalogue = (await prisma.articleStock.findMany({
+    where: { actif: true },
+    orderBy: { designation: "asc" },
+    select: { id: true, designation: true, domaine: true, unite: true, actif: true, stock: { select: { quantite: true } } },
+  })).map((a) => ({ id: a.id, designation: a.designation, domaine: a.domaine, unite: a.unite, actif: a.actif, quantite: Number(a.stock?.quantite ?? 0) }));
+  const parId = new Map(catalogue.map((a) => [a.id, a]));
+  return {
+    erreur: e.message,
+    insuffisants: e.manques.map((m) => {
+      const art = parId.get(m.articleId) ?? { id: m.articleId, designation: m.designation, domaine: "", unite: m.unite };
+      return {
+        articleId: m.articleId, designation: m.designation, unite: m.unite, disponible: Number(m.disponible), demande: Number(m.demande),
+        proches: similairesEnStock(art, catalogue).map((p) => ({ id: p.id, designation: p.designation, unite: p.unite, disponible: p.quantite })),
+      };
+    }),
+  };
+}
+
 /**
  * Supprime un mouvement de stock et ANNULE son effet sur l'inventaire :
  * une ENTRÉE supprimée décrémente le stock, une SORTIE l'incrémente.
@@ -60,11 +98,9 @@ export const supprimerMouvement = actionLisible(async (id: string) => {
   await exigerPeriodeOuverte(new Date(m.date));
   const q = Number(m.quantite);
   await prisma.$transaction(async (tx) => {
-    if (m.type === "ENTREE") {
-      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: q } } });
-    } else if (m.type === "SORTIE") {
-      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { increment: q } } });
-    }
+    // Par la porte unique : supprimer une ENTRÉE déjà consommée ferait passer le stock sous 0 → refus.
+    if (m.type === "ENTREE") await variationsStockTx(tx, [{ articleId: m.articleId, delta: m.quantite.negated() }], { verbe: "à reprendre" });
+    else if (m.type === "SORTIE") await variationsStockTx(tx, [{ articleId: m.articleId, delta: m.quantite }]);
     await tx.mouvementStock.delete({ where: { id } });
   });
 
@@ -97,9 +133,8 @@ export const supprimerMouvementsEnLot = actionLisible(async (selection: Selectio
       const d = deltas.get(m.articleId) ?? new Prisma.Decimal(0);
       deltas.set(m.articleId, m.type === "ENTREE" ? d.minus(m.quantite) : d.plus(m.quantite));
     }
-    for (const [articleId, delta] of deltas) {
-      if (!delta.isZero()) await tx.stock.updateMany({ where: { articleId }, data: { quantite: { increment: delta } } });
-    }
+    // Porte unique : une entrée supprimée qui ferait passer un article sous 0 refuse tout le lot.
+    await variationsStockTx(tx, [...deltas].map(([articleId, delta]) => ({ articleId, delta })), { verbe: "à reprendre" });
     await tx.mouvementStock.deleteMany({ where: { id: { in: mvs.map((m) => m.id) } } });
     await journaliserPlusieurs(tx, mvs.map((m) => ({
       entite: "MouvementStock", entiteId: m.id, champ: "suppression", ancienneValeur: `${m.type} ${Number(m.quantite)} (${m.origine ?? ""})`, userId: user.id,

@@ -100,3 +100,21 @@ export function prochesDansListe(designations: readonly string[], creera: (i: nu
   });
   return res;
 }
+
+/**
+ * « Proposer un article similaire » (Sacha, 2026-10-09) : quand une sortie est refusée faute de stock,
+ * les articles du MÊME DOMAINE, actifs, QUI ONT DU STOCK, et qui ressemblent à l'article refusé —
+ * même règle de ressemblance que l'anti-doublon (`articlesProches`), plus les articles de nom
+ * EXACTEMENT identique (un doublon au catalogue est le premier remplaçant). Toujours PROPOSÉS : l'écran
+ * demande « Utiliser … », jamais de remplacement automatique.
+ */
+export function similairesEnStock<T extends { id: string; designation: string; domaine: string; quantite: number; actif?: boolean }>(
+  article: { id: string; designation: string; domaine: string },
+  catalogue: readonly T[],
+  { max = MAX_PROCHES }: { max?: number } = {},
+): T[] {
+  const candidats = catalogue.filter((a) => a.id !== article.id && a.domaine === article.domaine && a.actif !== false && a.quantite > 0);
+  const exacts = candidats.filter((a) => memeDesignation(article.designation, a.designation));
+  const proches = articlesProches(article.designation, candidats, { max }).map((p) => p.article);
+  return [...exacts, ...proches].slice(0, max);
+}

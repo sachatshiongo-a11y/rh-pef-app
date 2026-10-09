@@ -104,6 +104,8 @@ export const CHAMPS_ARTICLE = {
   code: { libelle: "Code", sorte: "texte", porte: "article" },
   designation: { libelle: "Désignation", sorte: "texte", porte: "article" },
   nomCourt: { libelle: "Nom court", sorte: "texte", porte: "article" },
+  // Domaine (Nourriture / Boissons / Autre) — modifiable depuis le 2026-10-09 (demande de Sacha).
+  domaine: { libelle: "Domaine", sorte: "texte", porte: "article" },
   unite: { libelle: "Unité", sorte: "texte", porte: "article" },
   contenance: { libelle: "Contenance", sorte: "decimal", porte: "article" },
   contenanceUnite: { libelle: "Unité de contenance", sorte: "texte", porte: "article" },
@@ -143,6 +145,12 @@ export type ChargeMouvement = {
 
 export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement;
 
+/** Domaines d'un article (enum `DomaineStock`) et leur libellé — jamais une autre valeur. */
+export const DOMAINES_ARTICLE = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
+export type DomaineArticle = (typeof DOMAINES_ARTICLE)[number];
+export const estDomaineArticle = (x: unknown): x is DomaineArticle => typeof x === "string" && (DOMAINES_ARTICLE as readonly string[]).includes(x);
+const LIBELLE_DOMAINE: Record<string, string> = { NOURRITURE: "Nourriture", BOISSON: "Boissons", AUTRE: "Autre" };
+
 /** Égalité de deux valeurs d'un champ : décimales comparées exactement (« 2.50 » = « 2.5 »). */
 export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolean {
   if (a === null || b === null) return a === b;
@@ -156,6 +164,7 @@ export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolea
 export function libelleValeur(champ: ChampArticle, v: Valeur): string {
   if (v === null || v === "") return "—";
   if (champ === "devisePrix") return v === "CDF" ? "francs (FC)" : v === "USD" ? "dollars ($)" : String(v);
+  if (champ === "domaine") return LIBELLE_DOMAINE[String(v)] ?? String(v);
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") return v ? "Oui" : "Non";
   if (sorte === "decimal") {
@@ -242,6 +251,8 @@ function lireComptage(o: Record<string, unknown>): ChargeComptage {
 function lireValeur(champ: ChampArticle, x: unknown, quoi: string): Valeur {
   // La devise d'un prix n'a que deux valeurs (jamais nulle) : une autre ne s'exécute jamais.
   if (champ === "devisePrix" && x !== "USD" && x !== "CDF") throw new ChargeIllisible(quoi);
+  // Le domaine n'a que trois valeurs (jamais nul) : une autre ne s'exécute jamais.
+  if (champ === "domaine" && !estDomaineArticle(x)) throw new ChargeIllisible(quoi);
   if (x === null) return null;
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") { if (typeof x !== "boolean") throw new ChargeIllisible(quoi); return x; }

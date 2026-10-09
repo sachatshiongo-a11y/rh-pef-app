@@ -12,7 +12,7 @@ import "server-only";
 // MOUVEMENT_MANUEL n'est créée ; celles déjà en attente restent décidables (demandes.ts).
 
 import type { Prisma } from "@prisma/client";
-import { verrouillerStocks } from "./comptage";
+import { entrerEnStockTx, sortirDuStockTx } from "./stock-positif";
 import { decSaisi } from "@/lib/nombre";
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
@@ -77,20 +77,18 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   return { type, date, categorieSortie, raisonSortie, origine, retourRestaurant, lignes };
 }
 
-/** Écrit les mouvements et met le stock à jour (ENTRÉE incrémente, SORTIE décrémente). */
+/** Écrit les mouvements et met le stock à jour (ENTRÉE incrémente, SORTIE décrémente — jamais sous 0). */
 export async function ecrireMouvementsTx(tx: Tx, userId: string, m: MouvementSaisi) {
   // Défense en profondeur : aucune SORTIE sans motif, d'où qu'elle vienne (geste direct ou demande).
   exigerMotifSortie(m.type, m.categorieSortie);
   if (m.categorieSortie === "PERTE" && !m.raisonSortie?.trim()) throw new Error(MESSAGE_RAISON_PERTE);
-  // Lignes de stock verrouillées d'abord, dans un ordre fixe : pas d'interblocage avec un comptage.
-  await verrouillerStocks(tx, [...new Set(m.lignes.map((l) => l.articleId))]);
+  // Stock d'abord, par la porte unique (stock-positif.ts) : lignes verrouillées dans un ordre fixe
+  // (pas d'interblocage avec un comptage), et une SORTIE qui ferait passer un article sous 0 est
+  // refusée — tout ou rien, articles fautifs nommés (StockInsuffisant). Rien n'est écrit avant.
+  if (m.type === "SORTIE") await sortirDuStockTx(tx, m.lignes);
+  else await entrerEnStockTx(tx, m.lignes);
   for (const l of m.lignes) {
     await tx.mouvementStock.create({ data: { articleId: l.articleId, type: m.type, quantite: l.quantite, origine: m.origine, date: m.date, categorieSortie: m.categorieSortie, raisonSortie: m.raisonSortie, creeParId: userId } });
-    await tx.stock.upsert({
-      where: { articleId: l.articleId },
-      update: { quantite: m.type === "ENTREE" ? { increment: l.quantite } : { decrement: l.quantite } },
-      create: { articleId: l.articleId, quantite: m.type === "ENTREE" ? l.quantite : -l.quantite },
-    });
   }
 }
 

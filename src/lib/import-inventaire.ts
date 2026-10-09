@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { repererDejaPresents, refusAnnulationHistoriquePorte, traceJumeau, ACTION_DEJA_PRESENT } from "./doublons-imports";
 import { categorieSortieImport } from "./motif-sorties-import";
 import { journaliser } from "./audit";
+import { poserStocksTx } from "./validations-stock/stock-positif";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Import d'inventaire depuis le classeur Excel (feuilles « Nourriture », « Boissons »,
@@ -219,12 +220,10 @@ export async function appliquerInventaire(
         // (2026-10-08) garde ce prix — la devise de saisie fait foi, l'import ne la renverse pas.
         await tx.articleStock.update({ where: { id: articleId }, data: { ...(a.prix != null && cur.devisePrix !== "CDF" ? { prixUnitaireUSD: a.prix } : {}), ...(a.unite ? { unite: a.unite } : {}) } });
       }
-      // Stock final (photo instant T)
-      await tx.stock.upsert({
-        where: { articleId },
-        update: { quantite: a.stockFinal, ...(a.stockMin != null ? { stockMinimum: a.stockMin } : {}) },
-        create: { articleId, quantite: a.stockFinal, stockMinimum: a.stockMin ?? 0, seuilUrgent: 0 },
-      });
+      // Stock final (photo instant T) : posé par la porte unique (stock-positif.ts) — un stock final
+      // négatif dans le classeur est refusé, l'article nommé ; rien n'est écrit.
+      await poserStocksTx(tx, [{ articleId, quantite: a.stockFinal }], { quoi: "Le stock final du classeur" });
+      if (a.stockMin != null) await tx.stock.update({ where: { articleId }, data: { stockMinimum: a.stockMin } });
     }
 
     // Journal détaillé (mouvements datés). Garde-fou : un mouvement qui a déjà un jumeau exact en
@@ -329,7 +328,9 @@ export async function annulerImport(batchId: string, userId?: string): Promise<v
         const restaurerPrix = "prixUnitaireUSD" in av && art?.devisePrix !== "CDF";
         await tx.articleStock.update({ where: { id: o.entiteId }, data: { ...(restaurerPrix ? { prixUnitaireUSD: av.prixUnitaireUSD != null ? new Prisma.Decimal(av.prixUnitaireUSD) : null } : {}), unite: av.unite } });
       }
-      else if (o.entite === "Stock") await tx.stock.updateMany({ where: { articleId: o.entiteId }, data: { quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 } });
+      // Remise à la valeur d'avant l'import, par la porte unique : une valeur d'avant négative n'est
+      // pas réécrite (refus nommé, rien n'est annulé) — sauf si c'est déjà la valeur en base.
+      else if (o.entite === "Stock" && (await tx.stock.count({ where: { articleId: o.entiteId } })) > 0) await poserStocksTx(tx, [{ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 }], { quoi: "Le stock d'avant l'import" });
     }
     await tx.importBatch.update({ where: { id: batchId }, data: { statut: "ANNULE", annuleeAt: new Date() } });
     if (userId) {

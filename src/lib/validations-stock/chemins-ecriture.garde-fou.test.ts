@@ -39,12 +39,15 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "lib/validations-stock/article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un patch d'article : geste direct de la Direction ou proposition validée." },
   "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour tout compte Stock et notifiées à la Direction (décision du 2026-10-07) ; validation des ANCIENNES demandes MOUVEMENT_MANUEL encore en attente." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
+  "lib/validations-stock/stock-positif.ts": { sort: "COEUR_PARTAGE", pourquoi: "Porte unique des quantités en stock (jamais sous 0) : n'écrit que pour les chemins classés ici, qui l'appellent." },
 };
 
-// Union PLATE de deux détections indépendantes (ne pas « simplifier » en une seule) : l'appel Prisma
-// et le SQL brut. L'une ne voit pas l'autre.
+// Union PLATE de trois détections indépendantes (ne pas « simplifier » en une seule) : l'appel Prisma,
+// le SQL brut, et l'appel de la porte des quantités (stock-positif.ts, 2026-10-09) — un fichier qui
+// ne fait plus que l'appeler écrit toujours le stock. L'une ne voit pas les autres.
 const ECRIT_PRISMA = /\b(?:articleStock|stock)\.(?:update|updateMany|upsert|create|createMany|delete|deleteMany)\s*\(/;
 const ECRIT_SQL = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."(?:Stock|ArticleStock)"/i;
+const APPEL_PORTE = /\b(?:variationsStockTx|sortirDuStockTx|entrerEnStockTx|poserStocksTx)\s*\(/;
 
 function fichiers(dir: string): string[] {
   const out: string[] = [];
@@ -56,7 +59,7 @@ function fichiers(dir: string): string[] {
   return out;
 }
 const rel = (p: string) => path.relative(SRC, p).split(path.sep).join("/");
-const ecrivains = () => fichiers(SRC).filter((p) => { const s = fs.readFileSync(p, "utf8"); return ECRIT_PRISMA.test(s) || ECRIT_SQL.test(s); }).map(rel).sort();
+const ecrivains = () => fichiers(SRC).filter((p) => { const s = fs.readFileSync(p, "utf8"); return ECRIT_PRISMA.test(s) || ECRIT_SQL.test(s) || APPEL_PORTE.test(s); }).map(rel).sort();
 
 describe("chemins d'écriture des articles et des stocks", () => {
   it("chaque fichier qui écrit ArticleStock/Stock est classé (aucun oubli)", () => {
@@ -75,6 +78,8 @@ describe("chemins d'écriture des articles et des stocks", () => {
     expect(ECRIT_SQL.test('UPDATE "stock"."Stock" AS s SET')).toBe(true);
     expect(ECRIT_PRISMA.test("prisma.stock.findMany({")).toBe(false);
     expect(ECRIT_SQL.test('SELECT "id" FROM "stock"."Stock" FOR UPDATE')).toBe(false);
+    expect(APPEL_PORTE.test("await sortirDuStockTx(tx, m.lignes);")).toBe(true);
+    expect(APPEL_PORTE.test('import { sortirDuStockTx } from "./stock-positif";')).toBe(false);
   });
 });
 
@@ -109,7 +114,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement", "variationsStockTx", "sortirDuStockTx", "entrerEnStockTx", "poserStocksTx"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {
@@ -364,3 +369,128 @@ describe("réécriture d'un mouvement existant : chemins et champs connus (2026-
     expect(REECRIT_MOUVEMENT_SQL.test('UPDATE "stock"."MouvementStock" SET "date" = $1')).toBe(true);
   });
 });
+
+// ── UN STOCK NE PASSE JAMAIS SOUS 0 (demande de Sacha, 2026-10-09) ─────────────────────────────────
+// « si le stock est de 5, on peut en sortir 5, pas 6. » Toute écriture de `Stock.quantite` passe par
+// la PORTE UNIQUE `lib/validations-stock/stock-positif.ts`, qui verrouille, relit et refuse une baisse
+// sous 0 (ou une quantité posée négative). Hors de la porte, un fichier ne peut écrire de la table
+// Stock que des SEUILS, ou créer une ligne à `quantite: 0`.
+//
+// Union PLATE de quatre détections indépendantes (ne pas « simplifier ») : (1) `decrement` sur le
+// stock, (2) un appel Prisma d'écriture du Stock qui touche `quantite` autrement qu'à 0 littéral,
+// (3) une ligne Stock créée imbriquée dans un article (`stock: { create: { quantite: x } }`), (4) du
+// SQL brut qui écrit "stock"."Stock". Chacune a laissé passer, un jour, une sortie sans garde.
+//
+// Ce qu'il ne couvre PAS : il prouve que les écritures passent par la porte, pas que chaque appelant
+// lui donne le bon signe — les tests d'intégration (stock-positif.integration.test.ts) le vérifient
+// chemin par chemin. Une écriture dont les données sont une VARIABLE (illisible ici) doit être
+// nommée dans EXCEPTIONS_QUANTITE, avec la preuve lue dans la source.
+const PORTE = "lib/validations-stock/stock-positif.ts";
+const ECRIT_STOCK_APPEL = /\bstock\.(?:update|updateMany|upsert|create|createMany)\s*\(/g;
+const IMBRIQUE = /\bstock:\s*\{\s*create:\s*\{[^}]*\bquantite\s*:(?!\s*0\s*[,}\n])/;
+const SQL_STOCK = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."Stock"/i;
+
+/** Fautes « quantité hors porte » d'une source (vide = rien à redire). */
+function fautesQuantite(source: string): string[] {
+  const fautes: string[] = [];
+  if (/\bdecrement\b/.test(source)) fautes.push("decrement hors de la porte");
+  if (SQL_STOCK.test(source)) fautes.push("SQL brut sur \"stock\".\"Stock\"");
+  if (IMBRIQUE.test(source)) fautes.push("ligne Stock imbriquée avec une quantité non nulle");
+  for (const m of source.matchAll(ECRIT_STOCK_APPEL)) {
+    let i = m.index! + m[0].length, prof = 1;
+    while (i < source.length && prof > 0) { if (source[i] === "(") prof++; else if (source[i] === ")") prof--; i++; }
+    const appel = source.slice(m.index!, i);
+    const ligne = appel.split("\n")[0]!.slice(0, 100);
+    if (/\bquantite\s*:(?!\s*0\s*[,}\n])/.test(appel)) fautes.push(`quantité écrite hors porte : ${ligne}`);
+    else if (/\b(?:data|update|create)\s*:\s*(?![{\s]|\w+\.map\()/.test(appel)) fautes.push(`données illisibles (variable) : ${ligne}`);
+  }
+  return fautes;
+}
+
+/** Écritures à données variables, reconnues une à une, avec la preuve que la quantité n'y passe pas. */
+const EXCEPTIONS_QUANTITE: Record<string, { preuve: RegExp; pourquoi: string }> = {
+  "lib/validations-stock/article.ts": { preuve: /else if \(champ === "quantite"\) quantite = String\(v \?\? "0"\);[\s\S]*if \(quantite !== null\) await poserStocksTx\(/, pourquoi: "Le patch d'article écrit les SEUILS par `update: stock` ; la quantité saisie en est retirée et posée par poserStocksTx." },
+};
+
+/** Chemins qui DIMINUENT un stock, et la fonction de la porte que chacun doit appeler. */
+const CHEMINS_DE_BAISSE: Record<string, { fonction: string; appel: string; quoi: string }[]> = {
+  "lib/validations-stock/mouvement.ts": [{ fonction: "ecrireMouvementsTx", appel: "sortirDuStockTx(", quoi: "sortie manuelle (Livraison restaurant, Perte) et validation d'une ancienne demande MOUVEMENT_MANUEL" }],
+  "app/(stock)/stock/mouvements/actions.ts": [
+    { fonction: "supprimerMouvement", appel: "variationsStockTx(", quoi: "suppression d'une entrée (reprise)" },
+    { fonction: "supprimerMouvementsEnLot", appel: "variationsStockTx(", quoi: "suppression groupée" },
+  ],
+  "app/(stock)/stock/factures/actions.ts": [
+    { fonction: "supprimerFacture", appel: "variationsStockTx(", quoi: "suppression d'une facture (reprise de ses entrées)" },
+    { fonction: "supprimerFacturesEnLot", appel: "variationsStockTx(", quoi: "suppression groupée de factures" },
+  ],
+  "lib/import-mouvements.ts": [{ fonction: "appliquerMouvements", appel: "variationsStockTx(", quoi: "import de mouvements (effet net par article)" }],
+  "app/(stock)/stock/catalogue/actions.ts": [{ fonction: "fusionnerArticles", appel: "variationsStockTx(", quoi: "fusion (stock négatif d'un doublon)" }],
+};
+
+describe("un stock ne passe jamais sous 0 (2026-10-09)", () => {
+  it("hors de la porte, aucun fichier n'écrit une quantité en stock", () => {
+    const fautes: string[] = [];
+    for (const p of fichiers(SRC)) {
+      const f = rel(p);
+      if (f === PORTE) continue;
+      const src = fs.readFileSync(p, "utf8");
+      for (const x of fautesQuantite(src)) {
+        const e = EXCEPTIONS_QUANTITE[f];
+        if (e && x.startsWith("données illisibles") && e.preuve.test(src)) continue;
+        fautes.push(`${f} → ${x}`);
+      }
+    }
+    expect(fautes).toEqual([]);
+  });
+  it("chaque chemin qui diminue un stock appelle la porte", () => {
+    const manques: string[] = [];
+    for (const [f, chemins] of Object.entries(CHEMINS_DE_BAISSE)) {
+      const src = fs.readFileSync(path.join(SRC, f), "utf8");
+      for (const c of chemins) {
+        const b = corps(src, c.fonction);
+        if (b === null) manques.push(`${f} → ${c.fonction} introuvable`);
+        else if (!b.includes(c.appel)) manques.push(`${f} → ${c.fonction} (${c.quoi}) n'appelle pas ${c.appel}`);
+      }
+    }
+    expect(manques).toEqual([]);
+  });
+  it("chaque fichier qui appelle la porte est un chemin connu (aucun oubli, aucun périmé)", () => {
+    const appelants = fichiers(SRC).map(rel).filter((f) => f !== PORTE && APPEL_PORTE.test(fs.readFileSync(path.join(SRC, f), "utf8"))).sort();
+    const connus = [...new Set([...Object.keys(CHEMINS_DE_BAISSE), ...APPELANTS_SANS_BAISSE])].sort();
+    expect(appelants).toEqual(connus);
+    expect(appelants.length).toBeGreaterThanOrEqual(9); // plancher anti-silence
+  });
+  it("la porte verrouille, relit et refuse (gardes lues dans sa source)", () => {
+    const src = fs.readFileSync(path.join(SRC, PORTE), "utf8");
+    const v = corps(src, "variationsStockTx") ?? "";
+    expect(v).toMatch(/const stocks = await verrouillerStocks\(tx, ids\);/);
+    expect(v).toMatch(/\.plus\(total\.get\(id\)!\)\.isNegative\(\)/);
+    expect(v).toMatch(/throw new StockInsuffisant\(/);
+    expect(v.indexOf("throw new StockInsuffisant(")).toBeLessThan(v.indexOf("tx.stock.update("));
+    const p = corps(src, "poserStocksTx") ?? "";
+    expect(p).toMatch(/await verrouillerStocks\(tx, ids\)/);
+    expect(p).toMatch(/isNegative\(\)[\s\S]*throw new Error\(/);
+  });
+  it("le détecteur voit les formes historiques (falsification) et laisse passer les seuils (sens inverse)", () => {
+    // Formes réelles d'avant le 2026-10-09 :
+    expect(fautesQuantite("await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: q } } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.upsert({ where: { articleId }, update: { quantite: { increment: delta } }, create: { articleId, quantite: delta } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.update({ where: { articleId: keep.id }, data: { quantite: { increment: Number(l.stock.quantite) } } });")).not.toEqual([]);
+    expect(fautesQuantite('await tx.$executeRaw`UPDATE "stock"."Stock" AS s SET "quantite" = v.q`;')).not.toEqual([]);
+    expect(fautesQuantite("stock: {\n  create: {\n    quantite: quantiteInitiale,\n")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.upsert({ where: { articleId: id }, update: stock, create: { articleId: id, quantite: 0 } });")).not.toEqual([]);
+    // Légitimes :
+    expect(fautesQuantite("await tx.stock.upsert({ where: { articleId }, update: { stockMinimum: s }, create: { articleId, quantite: 0, stockMinimum: s } });")).toEqual([]);
+    expect(fautesQuantite("if (a.stockMin != null) await tx.stock.update({ where: { articleId }, data: { stockMinimum: a.stockMin } });")).toEqual([]);
+    expect(fautesQuantite("stock: {\n  create: {\n    quantite: 0, // porte\n")).toEqual([]);
+    expect(fautesQuantite('const stocks = await prisma.stock.findMany({ where: { quantite: { lt: 0 } } });')).toEqual([]);
+  });
+});
+
+/** Appelants de la porte qui n'en DIMINUENT pas (entrées, quantités posées ≥ 0). */
+const APPELANTS_SANS_BAISSE = [
+  "app/(stock)/stock/entree/actions.ts", // Liste d'achat : entrerEnStockTx
+  "lib/validations-stock/comptage.ts", // comptage : poserStocksTx (jamais négatif)
+  "lib/import-inventaire.ts", // stock final du classeur, annulation d'import : poserStocksTx
+  "lib/validations-stock/article.ts", // quantité saisie sur la fiche : poserStocksTx
+];
