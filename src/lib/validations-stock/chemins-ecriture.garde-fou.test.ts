@@ -387,7 +387,7 @@ describe("réécriture d'un mouvement existant : chemins et champs connus (2026-
 // nommée dans EXCEPTIONS_QUANTITE, avec la preuve lue dans la source.
 const PORTE = "lib/validations-stock/stock-positif.ts";
 const ECRIT_STOCK_APPEL = /\bstock\.(?:update|updateMany|upsert|create|createMany)\s*\(/g;
-const IMBRIQUE = /\bstock:\s*\{\s*create:\s*\{[^}]*\bquantite\s*:(?!\s*0\s*[,}\n])/;
+const IMBRIQUE = /\bstock:\s*\{\s*(?:create|update|upsert|connectOrCreate)\s*:\s*\{[^;]{0,400}?\bquantite\s*:(?!\s*0\s*[,}\n])/;
 const SQL_STOCK = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."Stock"/i;
 
 /** Fautes « quantité hors porte » d'une source (vide = rien à redire). */
@@ -478,6 +478,8 @@ describe("un stock ne passe jamais sous 0 (2026-10-09)", () => {
     expect(fautesQuantite("await tx.stock.update({ where: { articleId: keep.id }, data: { quantite: { increment: Number(l.stock.quantite) } } });")).not.toEqual([]);
     expect(fautesQuantite('await tx.$executeRaw`UPDATE "stock"."Stock" AS s SET "quantite" = v.q`;')).not.toEqual([]);
     expect(fautesQuantite("stock: {\n  create: {\n    quantite: quantiteInitiale,\n")).not.toEqual([]);
+    expect(fautesQuantite("await tx.articleStock.update({ where: { id }, data: { stock: { update: { quantite: { increment: -q } } } } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.update({ where: { articleId }, data: { quantite: { increment: -q } } });")).not.toEqual([]);
     expect(fautesQuantite("await tx.stock.upsert({ where: { articleId: id }, update: stock, create: { articleId: id, quantite: 0 } });")).not.toEqual([]);
     // Légitimes :
     expect(fautesQuantite("await tx.stock.upsert({ where: { articleId }, update: { stockMinimum: s }, create: { articleId, quantite: 0, stockMinimum: s } });")).toEqual([]);
