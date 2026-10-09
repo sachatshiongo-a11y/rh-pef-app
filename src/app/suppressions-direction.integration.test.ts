@@ -390,7 +390,8 @@ async function creerFacture() {
   return (await prisma.factureFournisseur.create({ data: { fournisseurNom: "Grossiste", montantUSD: 100, mois: 9, annee: 2026 } })).id;
 }
 async function creerMouvement() {
-  const a = await prisma.articleStock.create({ data: { designation: unique("Farine"), domaine: "NOURRITURE" } });
+  // Entrée de 5 encore en stock : la reprendre ne fait pas passer le stock sous 0 (règle du 2026-10-09).
+  const a = await prisma.articleStock.create({ data: { designation: unique("Farine"), domaine: "NOURRITURE", stock: { create: { quantite: 5 } } } });
   return (await prisma.mouvementStock.create({ data: { articleId: a.id, type: "ENTREE", quantite: 5, date: new Date("2026-09-15") } })).id;
 }
 async function creerBC() {
