@@ -56,6 +56,7 @@ const POSTES = await import("./(app)/fiches-poste/actions");
 const PARAM = await import("./(app)/parametres/actions");
 const TYPES = await import("./(app)/parametres/typeconge-actions");
 const CAT = await import("./(stock)/stock/catalogue/actions");
+const CATEGORIES = await import("./(stock)/stock/catalogue/categories/actions");
 const FICHES = await import("./(stock)/stock/fiches/actions");
 const PHOTO = await import("./(stock)/stock/fiches/photo-actions");
 const FOUR = await import("./(stock)/stock/fournisseurs/actions");
@@ -259,6 +260,12 @@ const CAS: Cas[] = [
     creer: async () => (await prisma.articleStock.create({ data: { designation: unique("Riz"), domaine: "NOURRITURE" } })).id,
     supprimer: (id) => CAT.supprimerArticle(id),
     existe: async (id) => !!(await prisma.articleStock.findUnique({ where: { id } })),
+  },
+  {
+    nature: "catégorie du stock (vide)",
+    creer: async () => (await prisma.categorieStock.create({ data: { nom: unique("Catégorie"), domaine: "NOURRITURE" } })).id,
+    supprimer: (id) => CATEGORIES.supprimerCategories([id]),
+    existe: async (id) => !!(await prisma.categorieStock.findUnique({ where: { id } })),
   },
   {
     nature: "article fusionné (le doublon est supprimé)",
