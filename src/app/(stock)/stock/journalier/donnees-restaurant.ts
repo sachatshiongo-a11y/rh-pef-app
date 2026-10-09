@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
 import { consommationsSemaine, sortiesParMotif } from "@/lib/journalier-restaurant";
 import type { EntreesStockResto } from "@/lib/stock-restaurant";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 // Données « restaurant » de la Conso. journalière, partagées par l'écran et ses exports PDF / Excel :
 // sorties du dépôt de la semaine (séparées par motif) et entrées du stock théorique du restaurant
@@ -22,14 +23,14 @@ export async function chargerDonneesRestaurant(lundi: Date, domaine: Domaine) {
   const fin = new Date(lundi); fin.setUTCDate(fin.getUTCDate() + 7);
   const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
   const [sorties, entrees] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, select: { articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true } } } }),
+    prisma.mouvementStock.findMany({ where, select: { articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: CHAMPS_LIBELLE } } }),
     chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]!, inclureDesactives: true }),
   ]);
   return {
     jours,
     entrees: entrees as EntreesStockResto,
     sorties: sortiesParMotif(
-      sorties.map((m) => ({ articleId: m.articleId, designation: m.article.designation, date: iso(m.date), quantite: Number(m.quantite), categorieSortie: m.categorieSortie })),
+      sorties.map((m) => ({ articleId: m.articleId, designation: libelleArticle(m.article), date: iso(m.date), quantite: Number(m.quantite), categorieSortie: m.categorieSortie })),
       jours,
     ),
     consoResto: consommationsSemaine(entrees, jours, espaceDuDomaine(domaine)),

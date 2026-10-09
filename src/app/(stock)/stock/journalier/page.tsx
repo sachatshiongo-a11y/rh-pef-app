@@ -18,6 +18,7 @@ import { ImportCommande } from "./import-commande";
 import { chargerVentesSemaine } from "./ventes-data";
 import { ficheCommandeCalee } from "./fiches-data";
 import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 type SP = { semaine?: string; domaine?: string; vue?: string; dimanche?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -133,9 +134,10 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     const articles = await prisma.articleStock.findMany({
       where: { actif: true, ...(domaine ? { domaine } : {}) },
       orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-      select: { id: true, designation: true, categorie: { select: { nom: true } } },
+      select: { id: true, ...CHAMPS_LIBELLE, categorie: { select: { nom: true } } },
     });
-    return articles.map((a) => ({ id: a.id, designation: a.designation, categorie: a.categorie?.nom ?? "À classer" }));
+    // Nom AFFICHÉ (contenance comprise) : la grille et la comparaison ne s'en servent que pour l'affichage et la recherche.
+    return articles.map((a) => ({ id: a.id, designation: libelleArticle(a), categorie: a.categorie?.nom ?? "À classer" }));
   };
   const chargerCommandes = async () => {
     const cmds = await prisma.commandeResto.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { articleId: true, date: true, quantite: true } });

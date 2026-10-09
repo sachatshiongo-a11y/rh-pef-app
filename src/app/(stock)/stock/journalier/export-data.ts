@@ -7,6 +7,7 @@ import {
   consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type EcartExport, type RoleCol,
 } from "@/lib/journalier-restaurant";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -80,7 +81,7 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   const articles = await prisma.articleStock.findMany({
     where: { actif: true, ...(domaine ? { domaine } : {}) },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-    select: { id: true, designation: true, categorie: { select: { nom: true } } },
+    select: { id: true, ...CHAMPS_LIBELLE, categorie: { select: { nom: true } } },
   });
   const cmds = await prisma.commandeResto.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { articleId: true, date: true, quantite: true } });
   const cmdMap: Record<string, number[]> = {};
@@ -107,7 +108,7 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       const cat = a.categorie?.nom ?? "À classer";
       if (cat !== derniereCat) { sectionRows.push(lignes.length); lignes.push([cat]); derniereCat = cat; }
       const j = cmdMap[a.id] ?? Array(7).fill(0);
-      lignes.push([a.designation, ...j.map(nb), nb(j.reduce((x, y) => x + y, 0))]);
+      lignes.push([libelleArticle(a), ...j.map(nb), nb(j.reduce((x, y) => x + y, 0))]);
     }
     const legCmd = LEGUMES.map((l) => ({ nom: l.nom, j: cmdLeg.get(l.nom) ?? Array(7).fill(0) })).filter((x) => x.j.some((v) => v > 0));
     if (legCmd.length) { sectionRows.push(lignes.length); lignes.push(["Légumes frais"]); for (const x of legCmd) lignes.push([x.nom, ...x.j.map(nb), nb(x.j.reduce((a, b) => a + b, 0))]); }
@@ -125,7 +126,7 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   for (const [id, j] of Object.entries(cmdMap)) j.forEach((q, i) => { if (q) commandes[`${id}_${donnees.jours[i]}`] = q; });
   const lignesComp = lignesComparaison({
     jours: donnees.jours,
-    articles: articles.map((a) => ({ id: a.id, designation: a.designation, categorie: a.categorie?.nom ?? "À classer" })),
+    articles: articles.map((a) => ({ id: a.id, designation: libelleArticle(a), categorie: a.categorie?.nom ?? "À classer" })),
     commandes,
     livraisons: donnees.sorties.livraisons,
     consoParArticle: consommationParArticleCatalogue(donnees.entrees, donnees.jours),
