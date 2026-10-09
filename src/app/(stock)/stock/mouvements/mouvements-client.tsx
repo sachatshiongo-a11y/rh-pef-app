@@ -273,16 +273,27 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
 
 export function SupprimerMouvementBtn({ id }: { id: string }) {
   const [isPending, start] = useTransition();
+  const [erreur, setErreur] = useState<string | null>(null);
   return (
-    <button
-      type="button"
-      disabled={isPending}
-      title="Supprimer ce mouvement (annule son effet sur le stock)"
-      onClick={() => { if (confirm("Supprimer ce mouvement ? Son effet sur le stock sera annulé.")) start(async () => { await supprimerMouvement(id); }); }}
-      className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
-    >
-      ✕
-    </button>
+    <span className="inline-flex items-center gap-2">
+      {erreur && <span role="alert" className="text-xs text-destructive">{erreur}</span>}
+      <button
+        type="button"
+        disabled={isPending}
+        title="Supprimer ce mouvement (annule son effet sur le stock)"
+        onClick={() => {
+          if (!confirm("Supprimer ce mouvement ? Son effet sur le stock sera annulé.")) return;
+          setErreur(null);
+          start(async () => {
+            const r = await supprimerMouvement(id);
+            if (estErreur(r)) setErreur(r.erreur);
+          });
+        }}
+        className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+      >
+        ✕
+      </button>
+    </span>
   );
 }
 

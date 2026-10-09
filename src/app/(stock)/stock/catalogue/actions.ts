@@ -15,6 +15,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { poserStocksTx, variationsStockTx } from "@/lib/validations-stock/stock-positif";
+import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import { decisionArticle } from "@/lib/article-proche";
 import { cleArticleExacte, memeDesignation, type ArticleCandidat } from "@/lib/achats-doublons";
@@ -316,22 +317,27 @@ export const corrigerStocksNegatifs = actionLisible(async (articleIds: string[])
   if (!estDirection(user)) throw new Error(MESSAGE_DIRECTION_SEULE("Corriger les stocks négatifs (mise à 0)") + " Faites un comptage dans Réconciliation : il lui sera soumis.");
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return { corriges: 0 };
-  const stocks = await prisma.stock.findMany({ where: { articleId: { in: ids }, quantite: { lt: 0 } } });
-  if (stocks.length === 0) return { corriges: 0 };
   const date = jourCivilKinshasa(new Date()); // jour civil de Kinshasa
-  await exigerPeriodeOuverte(date);
-  await prisma.$transaction(async (tx) => {
+  const nb = await prisma.$transaction(async (tx) => {
+    // Lignes Stock VERROUILLÉES (`FOR UPDATE`, ids triés) AVANT d'être relues : une entrée simultanée
+    // qui relèverait un de ces stocks est attendue, puis relue — elle n'est pas écrasée par la remise à 0.
+    // Seuls les stocks encore négatifs APRÈS le verrou sont corrigés.
+    const stocks = (await verrouillerStocks(tx, ids)).filter((s) => s.quantite.isNegative() && !s.quantite.isZero());
+    if (stocks.length === 0) return 0;
+    await exigerPeriodeOuverte(date); // période close : rien n'est écrit (la transaction est annulée)
     for (const s of stocks) {
-      const manque = -Number(s.quantite); // quantité positive à réinjecter pour revenir à 0
+      const manque = s.quantite.negated(); // quantité positive à réinjecter pour revenir à 0 (décimal exact)
       await tx.mouvementStock.create({ data: { articleId: s.articleId, type: "ENTREE", quantite: manque, origine: "Correction stock négatif (mise à 0)", date, creeParId: user.id } });
     }
     await poserStocksTx(tx, stocks.map((s) => ({ articleId: s.articleId, quantite: 0 }))); // porte unique
+    return stocks.length;
   }, { timeout: 60000 });
-  await journaliser(prisma, { entite: "Stock", entiteId: `${stocks.length} articles`, champ: "correction stock négatif", nouvelleValeur: "remis à 0 (ajustement)", userId: user.id });
+  if (nb === 0) return { corriges: 0 };
+  await journaliser(prisma, { entite: "Stock", entiteId: `${nb} articles`, champ: "correction stock négatif", nouvelleValeur: "remis à 0 (ajustement)", userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
-  return { corriges: stocks.length };
+  return { corriges: nb };
 });
 
 /** Définit le stock minimum (seuil d'alerte de réappro) de plusieurs articles d'un coup. */

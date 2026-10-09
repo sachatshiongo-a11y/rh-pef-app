@@ -39,6 +39,7 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "lib/validations-stock/article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un patch d'article : geste direct de la Direction ou proposition validée." },
   "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour tout compte Stock et notifiées à la Direction (décision du 2026-10-07) ; validation des ANCIENNES demandes MOUVEMENT_MANUEL encore en attente." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
+  "lib/validations-stock/suppression-facture.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur de la suppression de factures (reprise du stock entré, sous verrou) : appelé seulement par factures/actions.ts, supprimerFacture/supprimerFacturesEnLot (Direction seule)." },
   "lib/validations-stock/stock-positif.ts": { sort: "COEUR_PARTAGE", pourquoi: "Porte unique des quantités en stock (jamais sous 0) : n'écrit que pour les chemins classés ici, qui l'appellent." },
 };
 
@@ -91,6 +92,7 @@ const CLASSEMENT_ARGENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "app/(stock)/stock/fournisseurs/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Fusion de fournisseurs : rattache les factures (ni montant ni statut), garde ADMIN." },
   "lib/import-factures.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import du suivi des factures : imports/actions.ts (gardeDirection)." },
   "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Annulation d'un import (supprime les factures importées) : imports/actions.ts (gardeDirection)." },
+  "lib/validations-stock/suppression-facture.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur de la suppression de factures (verrou, reprise du stock, suppression) : appelé seulement par factures/actions.ts, Direction seule." },
   "lib/validations-stock/reglement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur des règlements : geste direct de la Direction ou demande validée." },
 };
 const ECRIT_ARGENT_PRISMA = /\b(?:factureFournisseur|paiement)\.(?:update|updateMany|upsert|create|createMany|delete|deleteMany)\s*\(/;
@@ -428,9 +430,10 @@ const CHEMINS_DE_BAISSE: Record<string, { fonction: string; appel: string; quoi:
     { fonction: "supprimerMouvementsEnLot", appel: "variationsStockTx(", quoi: "suppression groupée" },
   ],
   "app/(stock)/stock/factures/actions.ts": [
-    { fonction: "supprimerFacture", appel: "variationsStockTx(", quoi: "suppression d'une facture (reprise de ses entrées)" },
-    { fonction: "supprimerFacturesEnLot", appel: "variationsStockTx(", quoi: "suppression groupée de factures" },
+    { fonction: "supprimerFacture", appel: "supprimerFacturesTx(", quoi: "suppression d'une facture (reprise de ses entrées, via le cœur verrouillé)" },
+    { fonction: "supprimerFacturesEnLot", appel: "supprimerFacturesTx(", quoi: "suppression groupée de factures (via le cœur verrouillé)" },
   ],
+  "lib/validations-stock/suppression-facture.ts": [{ fonction: "supprimerFacturesTx", appel: "variationsStockTx(", quoi: "reprise du stock entré par des factures supprimées (cœur de supprimerFacture et supprimerFacturesEnLot)" }],
   "lib/import-mouvements.ts": [{ fonction: "appliquerMouvements", appel: "variationsStockTx(", quoi: "import de mouvements (effet net par article)" }],
   "app/(stock)/stock/catalogue/actions.ts": [{ fonction: "fusionnerArticles", appel: "variationsStockTx(", quoi: "fusion (stock négatif d'un doublon)" }],
 };
@@ -479,6 +482,22 @@ describe("un stock ne passe jamais sous 0 (2026-10-09)", () => {
     const p = corps(src, "poserStocksTx") ?? "";
     expect(p).toMatch(/await verrouillerStocks\(tx, ids\)/);
     expect(p).toMatch(/isNegative\(\)[\s\S]*throw new Error\(/);
+  });
+  it("les suppressions qui reprennent un stock VERROUILLENT la ligne avant de la lire (courses du 2026-10-09)", () => {
+    const sansCommentaires = (f: string) => fs.readFileSync(path.join(SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    const mvts = sansCommentaires("app/(stock)/stock/mouvements/actions.ts");
+    for (const fn of ["supprimerMouvement", "supprimerMouvementsEnLot"]) {
+      const b = corps(mvts, fn) ?? "";
+      expect(b, fn).toContain("verrouillerMouvements(");
+      expect(b.indexOf("verrouillerMouvements("), fn).toBeLessThan(b.indexOf("variationsStockTx("));
+    }
+    const fac = corps(sansCommentaires("lib/validations-stock/suppression-facture.ts"), "supprimerFacturesTx") ?? "";
+    expect(fac).toContain("verrouillerFactures(");
+    expect(fac).toContain("verrouillerMouvements(");
+    expect(fac.indexOf("verrouillerMouvements(")).toBeLessThan(fac.indexOf("variationsStockTx("));
+    const cat = corps(sansCommentaires("app/(stock)/stock/catalogue/actions.ts"), "corrigerStocksNegatifs") ?? "";
+    expect(cat).toContain("verrouillerStocks(tx");
+    expect(cat).not.toMatch(/prisma\.stock\.findMany/); // jamais de lecture hors verrou
   });
   it("le détecteur voit les formes historiques (falsification) et laisse passer les seuils (sens inverse)", () => {
     // Formes réelles d'avant le 2026-10-09 :
