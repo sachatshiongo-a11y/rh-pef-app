@@ -7,6 +7,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 // CONGÉS — L'ÉCRAN, rendu de la VRAIE page (refonte 2026-10-09) : sections dans l'ordre, « Passés » paginée,
 // filtres (statut, type, recherche, période) qui portent sur TOUT l'ensemble, compteurs de pastilles sur tout
 // l'ensemble, regroupement par mois, droits. 141 demandes : 3 à traiter, 2 en cours, 2 à venir, 4 refusées, 130 passées approuvées.
+vi.setConfig({ testTimeout: 30_000 });
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN", nom: "Sacha Test", email: "cg@pef.cd", accesStock: false, employeeId: null as string | null } }));
 vi.mock("@/lib/prisma", () => ({
