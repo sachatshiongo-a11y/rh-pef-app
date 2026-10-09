@@ -142,7 +142,9 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
 }
 
 /** Filtres de la liste des congés, conservés dans l'URL de retour d'une décision. */
-export type FiltresListeConges = { statut?: string; type?: string; q?: string; page?: string; par?: string };
+export type FiltresListeConges = {
+  statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; page?: string; par?: string;
+};
 
 /**
  * `approuverConge` pour un `<form action>` (écran Congés). L'erreur revient par la page, dans
@@ -157,10 +159,10 @@ export async function approuverCongeFormulaire(leaveRequestId: string, filtres: 
   if (erreur) redirect(urlRetourConges(filtres, erreur));
 }
 
-/** `/conges?statut=…&type=…&q=…&page=…&par=…&erreurDecision=…` (la page et la taille de page sont gardées aussi) */
+/** `/conges?statut=…&type=…&q=…&quand=…&mois=…&du=…&au=…&groupe=…&page=…&par=…&erreurDecision=…` (tous les filtres de la liste, la page et la taille de page sont gardés) */
 function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
   const p = new URLSearchParams();
-  for (const cle of ["statut", "type", "q", "page", "par"] as const) {
+  for (const cle of ["statut", "type", "q", "quand", "mois", "du", "au", "groupe", "page", "par"] as const) {
     const v = filtres?.[cle];
     if (typeof v === "string" && v !== "") p.set(cle, v.slice(0, 200));
   }
@@ -226,7 +228,12 @@ async function notifierSalarieDecision(employeeId: string, leaveRequestId: strin
 export async function supprimerConge(leaveRequestId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
+  await supprimerUneDemande(leaveRequestId, user.id);
+  revaliderConges();
+}
 
+/** Le corps de la suppression d'UNE demande, commun à l'action unitaire et à l'action groupée (la garde Direction est posée par chacune). */
+async function supprimerUneDemande(leaveRequestId: string, userId: string) {
   const demande = await prisma.leaveRequest.findUnique({
     where: { id: leaveRequestId },
     include: { employee: { select: { nom: true, matricule: true } } },
@@ -246,11 +253,9 @@ export async function supprimerConge(leaveRequestId: string) {
       entiteId: leaveRequestId,
       champ: "suppression",
       ancienneValeur: resume,
-      userId: user.id,
+      userId,
     });
   });
-
-  revaliderConges();
 }
 
 /** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
@@ -343,6 +348,32 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
       });
       await supprimerNotificationsPour(id);
       await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
+  }
+  revaliderConges();
+  return { traitees: n, echecs };
+}
+
+/**
+ * ACTION GROUPÉE : supprime plusieurs demandes (écran Congés, barre d'actions). Réservée à la Direction,
+ * comme l'unitaire — c'est la MÊME suppression (`supprimerUneDemande` : codes de présence retirés, journal
+ * d'audit par demande), répétée demande par demande : l'échec de l'une est nommé et ne bloque pas les autres.
+ */
+export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotConges> {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  let n = 0;
+  const echecs: string[] = [];
+  const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
+  for (const id of [...new Set(ids)]) {
+    const d = demandeParId.get(id);
+    if (!d) continue; // déjà supprimée (autre onglet) : rien à faire
+    try {
+      await supprimerUneDemande(id, user.id);
       n++;
     } catch (e) {
       echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
