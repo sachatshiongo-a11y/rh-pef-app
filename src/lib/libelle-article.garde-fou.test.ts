@@ -3,13 +3,15 @@
 // désignation brute ; et la désignation brute reste la CLÉ (classeurs, anti-doublon, imports, audit).
 //
 // Trois vérifications :
-//  1. RECENSEMENT : dans les écrans, composants et PDF, chaque lecture `.designation` restante est
-//     comptée fichier par fichier, avec sa raison. Une lecture de plus fait échouer le test : il faut
+//  1. RECENSEMENT : dans les écrans (tout src/app), composants et PDF, chaque lecture de la désignation
+//     restante (`a.designation`, `a["designation"]`, `const { designation } = a`) est comptée fichier
+//     par fichier, avec sa raison. Une lecture de plus fait échouer le test : il faut
 //     décider — nom affiché : `libelleArticle` (ou `libelleLigneArticle` pour une ligne de document) ;
 //     clé, import, champ modifiable, nom déjà calculé en amont : la recenser ici avec sa raison ;
-//  2. LECTURES PRISMA : partout dans src/, un `article: { select: { … designation: true … } }` lit
-//     aussi la contenance (ou `CHAMPS_LIBELLE`) — sans elle, le libellé ne peut pas être complet —
-//     sauf exceptions nommées (imports, rapprochements) ;
+//  2. LECTURES PRISMA : partout dans src/, une sélection qui lit la désignation d'un article
+//     (`article: { select: { … } }`, `articleStock: { select: … }`, `articleStock.findMany({ select: … })`,
+//     sous-objets compris) lit aussi la contenance (ou `CHAMPS_LIBELLE`) — sans elle, le libellé ne peut
+//     pas être complet — sauf les fichiers recensés (clés, imports, actions), avec leur nombre ;
 //  3. BRANCHEMENTS : les écrans, PDF, exports et notifications branchés appellent toujours le libellé
 //     (un retour en arrière silencieux fait échouer le test).
 import { describe, it, expect } from "vitest";
@@ -17,9 +19,9 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
 const RACINE = path.resolve(__dirname, "../..");
-const RACINES_AFFICHAGE = ["src/app/(stock)", "src/app/(exploitation)", "src/components", "src/lib/pdf"];
+const RACINES_AFFICHAGE = ["src/app", "src/components", "src/lib/pdf"];
 
-type Raison = "CLE" | "IMPORT" | "AUDIT_ACTION" | "FORMULAIRE" | "AMONT" | "RESTO" | "FIGE" | "LEGUMES" | "VENTES";
+type Raison = "CLE" | "IMPORT" | "AUDIT_ACTION" | "FORMULAIRE" | "AMONT" | "RESTO" | "FIGE" | "LEGUMES" | "VENTES" | "AUTRE_MODELE";
 const RAISONS: Record<Raison, string> = {
   CLE: "clé : rapprochement, tri, recherche, classeur de la Direction, articles proches (anti-doublon)",
   IMPORT: "import (classeur, PDF, CSV) : le nom lu se compare à la désignation brute",
@@ -30,10 +32,12 @@ const RAISONS: Record<Raison, string> = {
   FIGE: "document figé : comptage archivé, ligne libre de bon (sans article), palmarès des lignes de bon",
   LEGUMES: "légumes frais : liste fixe, pas des articles du catalogue",
   VENTES: "plats vendus (fiches), pas des articles du catalogue",
+  AUTRE_MODELE: "une autre « désignation » que celle d'un article (jour férié…)",
 };
 
 /** Lectures `.designation` restantes, par fichier : nombre exact et raison(s). */
 const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
+  "src/app/(app)/parametres/page.tsx": { n: 1, raisons: ["AUTRE_MODELE"] }, // jours fériés
   "src/app/(stock)/stock/_tableau-de-bord/bloc-dlc-proches.tsx": { n: 1, raisons: ["AMONT"] }, // lib/dlc-stock
   "src/app/(stock)/stock/a-valider/detail-demande.tsx": { n: 3, raisons: ["AMONT"] }, // validations-stock/apercu
   "src/app/(stock)/stock/archives/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
@@ -91,11 +95,19 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/lib/pdf/fiche-inventaire-resto.tsx": { n: 2, raisons: ["RESTO"] },
 };
 
-/** Lectures Prisma de la désignation SANS la contenance : seulement là où le nom sert de clé. */
-const SELECTS_SANS_CONTENANCE: Record<string, string> = {
-  "src/lib/import-inventaire.ts": "import d'inventaire : fiches qui utilisent un article à supprimer (message d'import)",
-  "src/lib/rattachement-auto.ts": "rattachement au restaurant : « rattaché à » sert à la règle (homonymes), pas à l'affichage du catalogue",
-  "src/lib/doublons-imports.ts": "doublons d'import : rapprochement des mouvements importés",
+/** Sélections Prisma de la désignation SANS la contenance : seulement là où le nom sert de clé (nombre exact). */
+const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 3, raison: "anti-doublon à la création, messages et journal d'audit (vraie désignation)" },
+  "src/app/(stock)/stock/entree/actions.ts": { n: 1, raison: "anti-doublon de la Liste d'achat, sous verrou" },
+  "src/app/(stock)/stock/factures/actions.ts": { n: 1, raison: "import PDF d'une facture : rapprochement des lignes avec le catalogue" },
+  "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 1, raison: "fiche « Commande journalière » : noms du classeur de la Direction (clé)" },
+  "src/app/(stock)/stock/journalier/import-commande-actions.ts": { n: 2, raison: "import du classeur Commande : rapprochement par nom" },
+  "src/lib/doublons-imports.ts": { n: 1, raison: "doublons d'import : rapprochement des mouvements importés" },
+  "src/lib/import-inventaire.ts": { n: 3, raison: "import d'inventaire : rapprochement et messages d'import" },
+  "src/lib/import-mouvements.ts": { n: 1, raison: "import de mouvements : rapprochement par nom et code" },
+  "src/lib/rattachement-auto.ts": { n: 2, raison: "rattachement au restaurant : la règle (homonymes, « rattaché à ») compare des noms" },
+  "src/lib/validations-stock/article.ts": { n: 1, raison: "modification d'article : message d'erreur et contrôle de domaine" },
+  "src/lib/validations-stock/demandes.ts": { n: 2, raison: "demandes à valider : noms figés dans la demande et contrôle d'unicité de la désignation" },
 };
 
 /** Fichiers branchés sur le libellé : ils doivent l'appeler (écrans, PDF, exports, notifications, recherche). */
@@ -141,12 +153,50 @@ function fichiers(dir: string): string[] {
 const rel = (p: string) => path.relative(RACINE, p).split(path.sep).join("/");
 /** Source sans commentaires (les mots des commentaires ne comptent pas). */
 const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-/** Lectures de la désignation : `x.designation`, `x?.designation`, `x!.designation`. */
-const lecturesDesignation = (src: string) => (sansCommentaires(src).match(/\.designation\b/g) ?? []).length;
-/** Sélections Prisma d'un article qui lisent la désignation sans la contenance. */
-const selectsSansContenance = (src: string) =>
-  (sansCommentaires(src).match(/\b(?:article|articleStock)\s*:\s*\{\s*select\s*:\s*\{[^{}]*\}/g) ?? [])
-    .filter((b) => /\bdesignation\s*:\s*true\b/.test(b) && !/contenance|CHAMPS_LIBELLE/.test(b));
+/** Lectures de la désignation : `x.designation`, `x?.designation`, `x["designation"]`, `const { designation } = x`. */
+const lecturesDesignation = (src: string) =>
+  (sansCommentaires(src).match(/\.designation\b|[\w)\]]\s*\[\s*["'`]designation["'`]\s*\]|\b(?:const|let|var)\s*\{[^}=]*\bdesignation\b[^}=]*\}\s*=/g) ?? []).length;
+/** Le bloc `{ … }` (accolades équilibrées) qui commence à `i`. */
+function bloc(s: string, i: number): string {
+  let n = 0;
+  for (let j = i; j < s.length; j++) {
+    if (s[j] === "{") n++;
+    else if (s[j] === "}" && --n === 0) return s.slice(i, j + 1);
+  }
+  return s.slice(i);
+}
+/** Le premier niveau d'un bloc (sans ses sous-objets) : `{ designation: true, categorie: { … } }` → « designation: true, categorie: ». */
+const premierNiveau = (b: string) => { let n = 0, out = ""; for (const c of b) { if (c === "{") n++; else if (c === "}") n--; else if (n === 1) out += c; } return out; };
+/** Le bloc `select: { … }` de PREMIER niveau d'un objet d'arguments (`{ where, select: { … } }`), ou null. */
+function selectDe(arg: string): string | null {
+  let n = 0;
+  for (let j = 0; j < arg.length; j++) {
+    const c = arg[j];
+    if (c === "{") n++;
+    else if (c === "}") n--;
+    else if (n === 1 && /^select\s*:\s*\{/.test(arg.slice(j, j + 40)) && !/[\w$]/.test(arg[j - 1] ?? "")) return bloc(arg, arg.indexOf("{", j));
+  }
+  return null;
+}
+/** Sélections Prisma d'un article (relation ou modèle) qui lisent la désignation sans la contenance. */
+function selectsSansContenance(src: string): string[] {
+  const s = sansCommentaires(src);
+  const blocs: string[] = [];
+  for (const m of s.matchAll(/\b(?:article|articleStock)\s*:\s*\{\s*select\s*:\s*(?=\{)/g)) blocs.push(bloc(s, m.index! + m[0].length));
+  for (const m of s.matchAll(/\barticleStock\.find(?:Many|Unique|UniqueOrThrow|First|FirstOrThrow)\(\s*(?=\{)/g)) {
+    const sel = selectDe(bloc(s, m.index! + m[0].length));
+    if (sel) blocs.push(sel);
+  }
+  return blocs.map(premierNiveau).filter((haut) => /\bdesignation\s*:\s*true\b/.test(haut) && !/contenance|CHAMPS_LIBELLE/.test(haut));
+}
+/** Variables qui reçoivent un libellé (« const nom = libelleArticle(a) ») : elles ne s'écrivent jamais dans `designation`. */
+function ecritLeLibelle(src: string): boolean {
+  if (!/libelle(?:Article|LigneArticle)\(/.test(src)) return false; // rien à écrire : lecture rapide
+  const s = sansCommentaires(src);
+  if (/data\s*:\s*\{[^}]*designation\s*:\s*libelle(?:Article|LigneArticle)\(/.test(s)) return true;
+  const vars = [...s.matchAll(/\b(?:const|let|var)\s+(\w+)\s*=[^;\n]*\blibelle(?:Article|LigneArticle)\(/g)].map((m) => m[1]!);
+  return vars.some((v) => new RegExp(`data\\s*:\\s*\\{[^}]*\\bdesignation\\s*(?::\\s*${v}\\b|[,}])`).test(s) && (v === "designation" || new RegExp(`designation\\s*:\\s*${v}\\b`).test(s)));
+}
 /** Appelle-t-il le libellé ? */
 const appelleLeLibelle = (src: string) => /\b(?:libelleArticle|libelleLigneArticle|optionsArticles|complementLibelle)\s*\(/.test(sansCommentaires(src));
 
@@ -162,18 +212,17 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     const attendu = Object.fromEntries(Object.entries(RECENSES).map(([f, v]) => [f, v.n]));
     expect(releve, "nom affiché : libelleArticle(a) ; sinon recenser la lecture ici avec sa raison").toEqual(attendu);
     for (const v of Object.values(RECENSES)) for (const r of v.raisons) expect(RAISONS[r]).toBeTruthy();
-  });
+  }, 60_000);
 
-  it("une lecture Prisma de la désignation d'un article lit aussi sa contenance (sauf clés nommées)", () => {
-    const fautifs: string[] = [];
+  it("une sélection Prisma de la désignation d'un article lit aussi sa contenance (sauf clés recensées, nombre exact)", () => {
+    const releve: Record<string, number> = {};
     for (const p of fichiers(path.join(RACINE, "src"))) {
-      const f = rel(p);
-      const blocs = selectsSansContenance(readFileSync(p, "utf8"));
-      if (blocs.length > 0 && !(f in SELECTS_SANS_CONTENANCE)) fautifs.push(`${f} : ${blocs[0]!.replace(/\s+/g, " ").slice(0, 100)}`);
+      const n = selectsSansContenance(readFileSync(p, "utf8")).length;
+      if (n > 0) releve[rel(p)] = n;
     }
-    expect(fautifs, "sélectionner CHAMPS_LIBELLE (designation + contenance) pour afficher le libellé").toEqual([]);
-    for (const f of Object.keys(SELECTS_SANS_CONTENANCE)) expect(selectsSansContenance(lire(f)).length, `${f} : exception devenue inutile`).toBeGreaterThan(0);
-  });
+    const attendu = Object.fromEntries(Object.entries(SELECTS_SANS_CONTENANCE).map(([f, v]) => [f, v.n]));
+    expect(releve, "afficher le nom : sélectionner CHAMPS_LIBELLE (designation + contenance) ; une clé : la recenser ici").toEqual(attendu);
+  }, 60_000);
 
   it("les écrans, PDF, exports, notifications et la recherche branchés appellent toujours le libellé", () => {
     const debranches = BRANCHES.filter((f) => !existsSync(path.join(RACINE, f)) || !appelleLeLibelle(lire(f)));
@@ -191,19 +240,23 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     const actions = sansCommentaires(lire("src/app/(stock)/stock/catalogue/actions.ts"));
     expect(actions).toMatch(/champ: "suppression", ancienneValeur: a\.designation/);
     expect(actions).not.toMatch(/libelleArticle/);
-    // La désignation n'est jamais réécrite avec le libellé (aucune écriture `designation: libelle…`).
-    for (const p of fichiers(path.join(RACINE, "src"))) {
-      const s = sansCommentaires(readFileSync(p, "utf8"));
-      expect(/data\s*:\s*\{[^}]*designation\s*:\s*libelle(?:Article|LigneArticle)\(/.test(s), rel(p)).toBe(false);
-    }
-  });
+    // La désignation n'est jamais réécrite avec le libellé (ni `designation: libelleArticle(…)`, ni par une variable qui le porte).
+    for (const p of fichiers(path.join(RACINE, "src"))) expect(ecritLeLibelle(readFileSync(p, "utf8")), rel(p)).toBe(false);
+  }, 60_000);
 
   it("l'heuristique reconnaît une lecture brute, une sélection sans contenance et un branchement — et elles seules", () => {
     expect(lecturesDesignation("<td>{a.designation}</td>")).toBe(1);
     expect(lecturesDesignation("<td>{a?.designation ?? '—'}</td> {b!.designation}")).toBe(2);
     expect(lecturesDesignation("// a.designation\n/* b.designation */ <td>{libelleArticle(a)}</td>")).toBe(0);
-    expect(lecturesDesignation('orderBy: { designation: "asc" }, select: { designation: true }')).toBe(0);
+    expect(lecturesDesignation('orderBy: { designation: "asc" }, select: { designation: true }, by: ["designation"]')).toBe(0);
+    expect(lecturesDesignation('a["designation"]; const { id, designation } = a;')).toBe(2);
     expect(selectsSansContenance("include: { article: { select: { designation: true, unite: true } } }")).toHaveLength(1);
+    expect(selectsSansContenance("include: { article: { select: { designation: true, categorie: { select: { nom: true } } } } }")).toHaveLength(1);
+    expect(selectsSansContenance("prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true } })")).toHaveLength(1);
+    expect(selectsSansContenance("prisma.articleStock.findMany({ select: { id: true, ...CHAMPS_LIBELLE, categorie: { select: { designation: true } } } })")).toHaveLength(0);
+    expect(ecritLeLibelle("const nom = libelleArticle(a); await tx.articleStock.create({ data: { designation: nom } });")).toBe(true);
+    expect(ecritLeLibelle("const designation = libelleArticle(a); await tx.articleStock.create({ data: { designation, domaine } });")).toBe(true);
+    expect(ecritLeLibelle("const t = libelleArticle(a); await tx.articleStock.create({ data: { designation: d } });")).toBe(false);
     expect(selectsSansContenance("include: { article: { select: { ...CHAMPS_LIBELLE, unite: true } } }")).toHaveLength(0);
     expect(selectsSansContenance("include: { article: { select: { designation: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(0);
     expect(selectsSansContenance("include: { article: { select: { unite: true } } }")).toHaveLength(0);

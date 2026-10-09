@@ -3,8 +3,8 @@ import { formaterMontantFacture } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, DOMAINE_LABEL } from "@/lib/stock";
 import { exigerPageStock } from "@/lib/garde-page";
-import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
-import { contenanceCanonique, contenanceDansNom, contenancesDansNom, sansContenance } from "@/lib/fiches/conversion";
+import { CHAMPS_LIBELLE, chercheurParContenance, libelleArticle } from "@/lib/libelle-article";
+import { normTexte } from "@/lib/texte";
 
 export default async function RecherchePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   await exigerPageStock();
@@ -20,22 +20,23 @@ export default async function RecherchePage({ searchParams }: { searchParams: Pr
   }
 
   const like = { contains: q, mode: "insensitive" as const };
-  // Recherche par CONTENANCE (2026-10-09) : « bacardi 1l » trouve « Bacardi » enregistré 1 l (ou 100 cl…).
-  // Le nom se cherche sans la contenance tapée ; la contenance se compare ensuite, sous sa forme canonique.
-  const contenanceTapee = contenanceCanonique(contenanceDansNom(q));
-  const nomSansContenance = contenanceTapee ? sansContenance(q).replace(/\s+/g, " ").trim() : "";
+  // Recherche par CONTENANCE (2026-10-09) : « bacardi 1l » trouve « Bacardi » enregistré 1 l (ou 100 cl…),
+  // « 1l » seul tous les articles d'un litre. Le tri se fait EN MÉMOIRE (accents ignorés, contenance
+  // canonique) sur tout le catalogue : une base ne compare ni « creme » à « Crème » ni 1 l à 100 cl.
+  const parContenance = chercheurParContenance(q);
   const [articlesTrouves, bons, factures, fournisseurs] = await Promise.all([
     prisma.articleStock.findMany({
-      where: { OR: [{ designation: like }, { code: { contains: q } }, ...(nomSansContenance.length >= 2 ? [{ designation: { contains: nomSansContenance, mode: "insensitive" as const } }] : [])] },
-      orderBy: { designation: "asc" }, take: nomSansContenance ? 200 : 12, select: { id: true, ...CHAMPS_LIBELLE, domaine: true, code: true },
+      where: parContenance ? {} : { OR: [{ designation: like }, { code: { contains: q } }] },
+      orderBy: { designation: "asc" }, ...(parContenance ? {} : { take: 12 }), select: { id: true, ...CHAMPS_LIBELLE, domaine: true, code: true },
     }),
     prisma.bonDeCommande.findMany({ where: { OR: [{ numero: like }, { fournisseur: { nom: like } }] }, orderBy: [{ annee: "desc" }, { sequence: "desc" }], take: 12, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.findMany({ where: { OR: [{ numero: like }, { fournisseurNom: like }, { fournisseur: { nom: like } }] }, orderBy: [{ annee: "desc" }, { mois: "desc" }], take: 12, include: { fournisseur: { select: { nom: true } } } }),
     prisma.fournisseur.findMany({ where: { OR: [{ nom: like }, { contactNom: like }, { ville: like }] }, orderBy: { nom: "asc" }, take: 12, select: { id: true, nom: true, ville: true } }),
   ]);
 
-  const articles = articlesTrouves.filter((a) => !nomSansContenance || a.designation.toLowerCase().includes(q.toLowerCase()) || (a.code ?? "").includes(q)
-    || contenancesDansNom(libelleArticle(a)).some((c) => contenanceCanonique(c) === contenanceTapee)).slice(0, 12);
+  const articles = parContenance
+    ? articlesTrouves.filter((a) => parContenance(a) || normTexte(a.designation).includes(normTexte(q)) || (a.code ?? "").includes(q)).slice(0, 12)
+    : articlesTrouves;
   const total = articles.length + bons.length + factures.length + fournisseurs.length;
 
   return (

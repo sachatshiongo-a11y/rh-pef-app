@@ -225,13 +225,17 @@ export function contenanceDansNom(nom: string): { quantite: Decimal; unite: Unit
  * TOUTES les contenances écrites dans un nom, dans l'ordre (même lecture que `contenanceDansNom`,
  * qui n'en garde que la dernière) : « Pack 6 x 33cl 2L » → [33 cl, 2 l]. Sert à savoir si le nom
  * porte DÉJÀ la contenance enregistrée de l'article (libellé affiché, `lib/libelle-article.ts`).
+ * Une seule différence : un multiplicateur collé (« 6x33cl », « 24X33CL » : un chiffre, « x », la
+ * contenance) se lit ici — sans quoi le libellé ajouterait « 33 cl » à « Heineken 6x33cl ».
  */
 export function contenancesDansNom(nom: string): { quantite: Decimal; unite: UniteContenance }[] {
   const texte = nom.normalize("NFD").replace(/[̀-ͯ]/g, "");
   const out: { quantite: Decimal; unite: UniteContenance }[] = [];
   for (const m of texte.matchAll(CONTENANCE_REGEX)) {
-    const avant = texte[(m.index ?? 0) - 1];
-    if (avant && /[a-z0-9./,]/i.test(avant)) continue;
+    const i = m.index ?? 0;
+    const avant = texte[i - 1];
+    const multiplicateur = !!avant && /x/i.test(avant) && /\d/.test(texte[i - 2] ?? "");
+    if (avant && /[a-z0-9./,]/i.test(avant) && !multiplicateur) continue;
     const quantite = new Decimal(m[1]!.replace(",", "."));
     if (quantite.greaterThan(0)) out.push({ quantite, unite: UNITE_LUE[m[2]!.toLowerCase()]! });
   }

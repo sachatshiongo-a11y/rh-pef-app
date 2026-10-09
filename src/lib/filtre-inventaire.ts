@@ -85,6 +85,9 @@ function correspondContenance(a: ArticleFiltrable, nq: string): boolean {
   const libelle = norm(libelleArticle(a));
   if (libelle.includes(nq)) return true;
   const foin = [libelle, ...formes].join(" | ");
-  const mots = nq.split(/\s+/).filter(Boolean);
-  return mots.every((m) => foin.includes(m));
+  // « 1.5l » tapé avec un point : les écritures compactes sont à la virgule (« 1,5l »).
+  const mots = nq.replace(/(\d)\.(\d)/g, "$1,$2").split(/\s+/).filter(Boolean);
+  // Un mot qui EST une contenance (« 50cl ») se compare entier : « 50cl » n'est pas « 150cl ».
+  const jetons = new Set([...formes, ...libelle.split(/[^\p{L}\p{N},]+/u)]);
+  return mots.every((m) => (/^\d+(?:,\d+)?(?:ml|cl|l|g|kg)$/.test(m) ? jetons.has(m) : foin.includes(m)));
 }

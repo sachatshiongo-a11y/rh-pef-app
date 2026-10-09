@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "decimal.js";
-import { complementLibelle, contenanceEnregistree, formaterContenance, incoherenceContenance, libelleArticle, rechercheContenance } from "./libelle-article";
+import { chercheurParContenance, complementLibelle, contenanceEnregistree, formaterContenance, incoherenceContenance, libelleArticle, rechercheContenance } from "./libelle-article";
 import { filtrerOptions, optionsArticles } from "./recherche-options";
+import { articleDansFiltre, FILTRE_INVENTAIRE_VIDE } from "./filtre-inventaire";
 
 const art = (designation: string, contenance: Decimal.Value | null = null, contenanceUnite: string | null = null) => ({ designation, contenance, contenanceUnite });
 
@@ -17,7 +18,8 @@ describe("libelleArticle : la contenance s'insère dans le nom affiché", () => 
   it("format homogène : nombre à la française, unité en minuscules, espaces de fin retirées", () => {
     expect(libelleArticle(art("Vin rouge", "0.75", "l"))).toBe("Vin rouge 0,75 l");
     expect(libelleArticle(art("Eau ", "1.5", "L"))).toBe("Eau 1,5 l");
-    expect(libelleArticle(art("Sirop", "1000", "ml"))).toBe("Sirop 1 000 ml");
+    expect(libelleArticle(art("Sirop", "1000", "ml"))).toBe("Sirop 1000 ml"); // sans espace des milliers : « 1 000 ml » se relirait « 000 ml »
+    expect(libelleArticle(art("Eau", "1500", "ml"))).toBe("Eau 1500 ml");
     expect(libelleArticle(art("Gin", "70.000", "cl"))).toBe("Gin 70 cl");
     expect(formaterContenance({ quantite: "0.125", unite: "KG" })).toBe("0,125 kg");
   });
@@ -38,6 +40,10 @@ describe("libelleArticle : la contenance s'insère dans le nom affiché", () => 
       expect(libelleArticle(art(nom, "1000", "ml")), nom).toBe(nom);
     }
     expect(libelleArticle(art("Monin Powder 2KG", "2000", "g"))).toBe("Monin Powder 2KG");
+    // Multiplicateur collé : « 6x33cl » porte bien 33 cl (pas de « Heineken 6x33cl 33 cl »).
+    for (const nom of ["Heineken 6x33cl", "Heineken 24X33CL", "Heineken 6 x 33cl"]) expect(libelleArticle(art(nom, "33", "cl")), nom).toBe(nom);
+    // … mais une lettre devant la contenance reste un nom (« Box33cl ») : on ajoute.
+    expect(libelleArticle(art("Box33cl", "33", "cl"))).toBe("Box33cl 33 cl");
     // Plusieurs mentions : il suffit que l'une soit la contenance enregistrée.
     expect(libelleArticle(art("Pack 6 x 33cl", "33", "cl"))).toBe("Pack 6 x 33cl");
   });
@@ -100,3 +106,26 @@ describe("recherche par contenance", () => {
     expect(filtrerOptions(options, "bacardi 70 cl").map((o) => o.id)).toEqual(["b"]);
   });
 });
+
+describe("recherche globale et filtre de l'inventaire par contenance", () => {
+  const CREME = { designation: "Crème fraîche", contenance: "1", contenanceUnite: "l" };
+  const BIERE = { designation: "Bière Primus", contenance: "72", contenanceUnite: "cl" };
+  const CAMPARI = { designation: "Campari-1L" };
+
+  it("accents ignorés, contenance canonique (enregistrée ou écrite dans le nom), « 1l » seul", () => {
+    expect(chercheurParContenance("creme")).toBeNull(); // aucune contenance tapée : recherche ordinaire
+    const crème1l = chercheurParContenance("crème 1000ml")!;
+    expect([CREME, BIERE, CAMPARI].map(crème1l)).toEqual([true, false, false]);
+    expect([CREME, BIERE, CAMPARI].map(chercheurParContenance("CREME 100cl")!)).toEqual([true, false, false]);
+    expect([CREME, BIERE, CAMPARI].map(chercheurParContenance("biere 72 cl")!)).toEqual([false, true, false]);
+    expect([CREME, BIERE, CAMPARI].map(chercheurParContenance("1l")!)).toEqual([true, false, true]);
+    expect([CREME, BIERE, CAMPARI].map(chercheurParContenance("creme 50cl")!)).toEqual([false, false, false]);
+  });
+
+  it("le filtre de l'inventaire lit « 1,5l » comme « 1.5l »", () => {
+    const eau = { designation: "Eau Vitale", contenance: "1.5", contenanceUnite: "l", code: null, niveau: null, prix: null, fournisseurId: null, stockMinimum: "0", unite: "Bouteille", quantite: "0" };
+    for (const q of ["eau 1,5l", "eau 1.5l", "vitale 150cl", "eau 1,5 l"]) expect(articleDansFiltre(eau, { ...FILTRE_INVENTAIRE_VIDE, q }), q).toBe(true);
+    expect(articleDansFiltre(eau, { ...FILTRE_INVENTAIRE_VIDE, q: "eau 50cl" })).toBe(false);
+  });
+});
+

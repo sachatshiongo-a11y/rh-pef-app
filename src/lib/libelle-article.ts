@@ -22,7 +22,8 @@
 // Garde-fou de source : `libelle-article.garde-fou.test.ts`.
 
 import Decimal from "decimal.js";
-import { contenanceCanonique, contenanceDansNom, contenancesDansNom, normaliserUnite, UNITES_CONTENANCE, type UniteContenance } from "@/lib/fiches/conversion";
+import { contenanceCanonique, contenanceDansNom, contenancesDansNom, normaliserUnite, sansContenance, UNITES_CONTENANCE, type UniteContenance } from "@/lib/fiches/conversion";
+import { normTexte } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
 
 /** Ce dont le libellé a besoin : la désignation et la contenance enregistrée (Decimal Prisma, texte ou nombre). */
@@ -47,9 +48,13 @@ export function contenanceEnregistree(a: Pick<ArticleLibelle, "contenance" | "co
   }
 }
 
-/** « 70 cl », « 0,75 l », « 1 000 ml » : nombre à la française (3 décimales au plus), unité en minuscules. */
+/**
+ * « 70 cl », « 0,75 l », « 1500 ml » : virgule décimale (3 décimales au plus), unité en minuscules, SANS
+ * espace des milliers — « 1 500 ml » se relirait « 500 ml » (le « 1 » détaché), dans la recherche comme
+ * dans `contenancesDansNom`.
+ */
 export function formaterContenance(c: { quantite: Decimal.Value; unite: string }): string {
-  return `${formaterNombre(new Decimal(c.quantite).toNumber(), { maximumFractionDigits: 3 })} ${c.unite.toLowerCase()}`;
+  return `${formaterNombre(new Decimal(c.quantite).toNumber(), { maximumFractionDigits: 3, useGrouping: false })} ${c.unite.toLowerCase()}`;
 }
 
 type Analyse = {
@@ -142,4 +147,20 @@ export const CHAMPS_CONTENANCE = { contenance: true, contenanceUnite: true } as 
  */
 export function libelleLigneArticle(l: { designation: string; article?: Pick<ArticleLibelle, "contenance" | "contenanceUnite"> | null }): string {
   return l.article ? libelleArticle({ designation: l.designation, contenance: l.article.contenance, contenanceUnite: l.article.contenanceUnite }) : l.designation;
+}
+
+/**
+ * Recherche d'un article par son nom ET une contenance tapée (« bacardi 1l », « crème 50cl ») : chaque mot
+ * du nom (accents et casse ignorés) se retrouve dans la désignation, et la contenance tapée — comparée
+ * sous forme canonique (1l = 100cl = 1000ml) — est celle du LIBELLÉ (enregistrée, ou écrite dans le nom).
+ * null quand le texte ne nomme aucune contenance (la recherche ordinaire suffit).
+ */
+export function chercheurParContenance(q: string): ((a: ArticleLibelle) => boolean) | null {
+  const cible = contenanceCanonique(contenanceDansNom(q));
+  if (!cible) return null;
+  const mots = normTexte(sansContenance(q)).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return (a) => {
+    const nom = normTexte(a.designation);
+    return mots.every((m) => nom.includes(m)) && contenancesDansNom(libelleArticle(a)).some((c) => contenanceCanonique(c) === cible);
+  };
 }
