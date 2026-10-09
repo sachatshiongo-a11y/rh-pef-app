@@ -14,6 +14,7 @@ import {
 } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
+import { libelleArticle, type ArticleLibelle } from "@/lib/libelle-article";
 
 /**
  * Article du catalogue, réduit à ce dont la fiche a besoin (prix en texte, pleine précision).
@@ -122,14 +123,14 @@ export function vueDepuisSaisie(s: FicheSaisie): FicheVue {
   };
 }
 
-/** Libellé d'une ligne : le nom de l'article, celui de la sous-recette, ou un repère de rang. */
+/** Libellé d'une ligne : le nom AFFICHÉ de l'article (contenance comprise), celui de la sous-recette, ou un repère de rang. */
 export function nomLigne(
   ligne: LigneFiche,
   index: number,
-  articles: Map<string, { designation: string }>,
+  articles: Map<string, ArticleLibelle>,
   fiches: Map<string, { nom: string }>,
 ): string {
-  if (ligne.articleId) return articles.get(ligne.articleId)?.designation ?? "Article supprimé du catalogue";
+  if (ligne.articleId) { const a = articles.get(ligne.articleId); return a ? libelleArticle(a) : "Article supprimé du catalogue"; }
   if (ligne.sousFicheId) return fiches.get(ligne.sousFicheId)?.nom ?? "Sous-recette introuvable";
   return `Ingrédient n°${index + 1}`;
 }

@@ -5,6 +5,7 @@ import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layou
 import { pdfColors } from "./theme";
 import { delaiPaiementLabel } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
+import { libelleLigneArticle } from "@/lib/libelle-article";
 
 registerPdfFonts();
 
@@ -46,7 +47,8 @@ export function BonCommandeDocument({
   fournisseur,
   acheteur,
 }: {
-  bc: BonDeCommande & { lignes: LigneBonDeCommande[] };
+  /** `article` (facultatif) : contenance de l'article lié, ajoutée au libellé de la ligne (`libelleLigneArticle`). */
+  bc: BonDeCommande & { lignes: (LigneBonDeCommande & { article?: { contenance: { toString(): string } | null; contenanceUnite: string | null } | null })[] };
   fournisseur: Fournisseur | null;
   acheteur: ParametresAchat | null;
 }) {
@@ -87,7 +89,7 @@ export function BonCommandeDocument({
           </View>
           {bc.lignes.map((l) => (
             <View key={l.id} style={styles.tr}>
-              <Text style={styles.cDes}>{l.designation}</Text>
+              <Text style={styles.cDes}>{libelleLigneArticle(l)}</Text>
               <Text style={styles.cNum}>{formaterNombre(Number(l.quantite), { maximumFractionDigits: 3 })}</Text>
               <Text style={styles.cNum}>{l.nbCartons ? formaterNombre(Number(l.nbCartons), { maximumFractionDigits: 2 }) : "—"}</Text>
               <Text style={styles.cNum}>{usd(Number(l.prixUnitaireUSD))}</Text>

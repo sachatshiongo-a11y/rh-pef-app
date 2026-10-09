@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { facteurVersArticle, type UniteArticle } from "@/lib/fiches/conversion";
 import { uniteRendementIncoherente } from "@/lib/fiches/cout";
+import { libelleArticle } from "@/lib/libelle-article";
 
 // Disponibilité des plats selon le stock : fonction PURE (ni Prisma, ni React), sœur du moteur de
 // coût (`cout.ts`). Elle répond à « combien de portions puis-je sortir avec ce qui est en stock ? ».
@@ -390,10 +391,10 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, auj
     const portions = s.motif === null && s.total !== null
       ? s.total.times(diviseur).times(besoin.den).div(besoin.num).floor().toNumber()
       : null;
-    if (s.motif !== null) raisons.push({ motif: s.motif, ingredient: art.designation, ...(s.depuis ? { depuis: s.depuis } : {}) });
+    if (s.motif !== null) raisons.push({ motif: s.motif, ingredient: libelleArticle(art), ...(s.depuis ? { depuis: s.depuis } : {}) });
     articles.push({
       articleId,
-      designation: art.designation,
+      designation: libelleArticle(art), // nom affiché (contenance comprise)
       unite: art.unite,
       besoinParPortion: besoin.num.div(besoin.den).div(diviseur).toString(),
       depot: s.depot === null ? null : s.depot.toString(),

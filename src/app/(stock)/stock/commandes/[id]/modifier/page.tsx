@@ -5,13 +5,14 @@ import { formaterPrix, prixProposeEn, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouveauBonForm } from "../../nouveau/nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 export default async function ModifierBonPage({ params }: { params: Promise<{ id: string }> }) {
   await exigerPageStock();
   const { id } = await params;
   const [bc, articles, taux, fournisseurs] = await Promise.all([
     prisma.bonDeCommande.findUnique({ where: { id }, include: { lignes: true } }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);
@@ -21,6 +22,7 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
   const arts = articles.map((a) => ({
     id: a.id,
     designation: a.designation,
+    ...contenancePourClient(a), // libellé du choix d'article (contenance comprise)
     nomCourt: a.nomCourt,
     code: a.code,
     // Un bon de commande est en dollars : un article au prix en FRANCS y est proposé converti au taux

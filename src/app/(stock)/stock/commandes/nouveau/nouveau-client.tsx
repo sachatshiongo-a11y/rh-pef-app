@@ -22,7 +22,7 @@ const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok
 const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 /** `prix` : en dollars (article en francs : converti au taux du jour) ; `prixFC` : « 7 000 FC » si le prix de référence est en francs. */
-type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; prixFC?: string | null; uniteParCarton: string | null };
+type Art = { id: string; designation: string; contenance?: string | null; contenanceUnite?: string | null; nomCourt?: string | null; code?: string | null; prix: string | null; prixFC?: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
 type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string };
 export type BonInitial = {

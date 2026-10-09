@@ -4,6 +4,7 @@ import { formaterPrix, prixProposeEn, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouvelleFactureForm } from "./nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 function delaiEnJours(s: string | null): number | null {
   if (!s) return null;
@@ -17,7 +18,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
   const user = await exigerPageStock();
   const { bc } = await searchParams;
   const [articles, taux, fournisseurs, bons] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
     prisma.bonDeCommande.findMany({
@@ -45,7 +46,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
           const ps = prixSaisi(a);
           const enTexte = (p: number | null) => (p === null ? "" : String(p));
           return {
-            id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite,
+            id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite,
             prix: enTexte(prixProposeEn(a, "USD", taux)), prixCDF: enTexte(prixProposeEn(a, "CDF", taux)),
             prixFC: a.devisePrix === "CDF" && ps ? formaterPrix(Number(ps.montant), "CDF") : null,
             refDevise: ps?.devise ?? null, prixRef: ps ? formaterPrix(Number(ps.montant), ps.devise) : null,

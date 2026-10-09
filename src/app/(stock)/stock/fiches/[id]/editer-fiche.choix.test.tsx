@@ -51,7 +51,7 @@ const ajout = () => champChoix(conteneur, "Article ou sous-recette à ajouter");
 
 describe("fiche technique — choisir la source d'une ligne en tapant", () => {
   it("la ligne existante affiche son article ; aucun <select> de source ne subsiste", () => {
-    expect(ligne().value).toBe("Rhum blanc");
+    expect(ligne().value).toBe("Rhum blanc 70 cl"); // libellé : la contenance s'ajoute au nom (2026-10-09)
     expect(valeurChoisie(ligne())).toBeUndefined(); // pas de champ caché : la ligne est dans l'état de la fiche
     expect(conteneur.querySelectorAll("select[name=source]")).toHaveLength(0);
   });
@@ -68,11 +68,11 @@ describe("fiche technique — choisir la source d'une ligne en tapant", () => {
     const textes = listeOuverte()!.textContent!;
     expect(textes.indexOf("Sous-recettes")).toBeLessThan(textes.indexOf("Articles du stock"));
     expect(textes.indexOf("Articles du stock")).toBeLessThan(textes.indexOf("Autres fiches"));
-    expect(libellesOuverts()).toEqual(["— choisir —", "Sirop de sucre", "Rhum blanc", "Citron vert", "Vieux rhum ambré (inactif)", "Piña colada"]);
+    expect(libellesOuverts()).toEqual(["— choisir —", "Sirop de sucre", "Rhum blanc 70 cl", "Citron vert", "Vieux rhum ambré 70 cl (inactif)", "Piña colada"]);
     await taperChoix(ligne(), "c12");
     expect(libellesOuverts()).toEqual(["Citron vert"]);
     await taperChoix(ligne(), "rhum ambre");
-    expect(libellesOuverts()).toEqual(["Vieux rhum ambré (inactif)"]);
+    expect(libellesOuverts()).toEqual(["Vieux rhum ambré 70 cl (inactif)"]);
   });
 
   it("formulaire d'ajout : une sous-recette tapée part dans `source` sous la forme fiche:<id>", async () => {

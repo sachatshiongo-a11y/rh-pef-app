@@ -27,6 +27,7 @@ import { BlocDisponibilite, CellulePortions, CelluleStock } from "./disponibilit
 import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients, supprimerFiches, supprimerIngredients } from "../actions";
 import { envoyerPhotoFiche, supprimerPhotoFiche } from "../photo-actions";
 import { dejaLeger, reduireImage } from "./reduire-photo";
+import { libelleArticle } from "@/lib/libelle-article";
 
 type AutreFiche = { id: string; nom: string; estSousRecette: boolean };
 
@@ -622,7 +623,7 @@ function LigneIngredient({
             fiche technique — comme les noms de fournisseurs mènent à leur fiche. */}
         {article && (
           <div className="mt-0.5 text-[11px] text-muted-foreground">
-            <Link href={`/stock/catalogue/${article.id}`} className="text-primary hover:underline">{article.designation}</Link>
+            <Link href={`/stock/catalogue/${article.id}`} className="text-primary hover:underline">{libelleArticle(article)}</Link>
             {" · "}{article.prixSaisi?.devise === "CDF" ? `${formaterFC(Number(article.prixSaisi.montant))} (${article.prixUnitaireUSD === null ? "≈ — : taux du jour non défini" : `≈ ${usd(article.prixUnitaireUSD)}`})` : usd(article.prixUnitaireUSD)} / {article.unite || "unité ?"}
             {!article.actif && " · article inactif"}
           </div>

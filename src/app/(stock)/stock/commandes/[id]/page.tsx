@@ -12,6 +12,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { lireRetourFiche } from "@/lib/fiche-fournisseur";
+import { CHAMPS_CONTENANCE, libelleLigneArticle } from "@/lib/libelle-article";
 
 export default async function BonDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ erreur?: string; retour?: string }> }) {
   const user = await exigerPageStock();
@@ -22,7 +23,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
     prisma.bonDeCommande.findUnique({
       where: { id },
       include: {
-        lignes: true,
+        lignes: { include: { article: { select: CHAMPS_CONTENANCE } } }, // contenance de l'article lié : libellé de la ligne
         fournisseur: true,
         receptions: { orderBy: { date: "desc" } },
         factures: { orderBy: { date: "desc" } },
@@ -48,7 +49,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
     ...(f.devise === "CDF" ? { montantTexte: formaterMontantFacture(Number(f.montantCDF), "CDF") } : {}),
   }));
 
-  const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: l.designation, quantite: l.quantite.toString() }));
+  const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: libelleLigneArticle(l), quantite: l.quantite.toString() }));
   const estBrouillon = bc.statut === "BROUILLON";
   const peutExporter = !estBrouillon && bc.statut !== "ANNULE";
   const receptionnable = ["VALIDE", "ENVOYE", "RECU_PARTIEL"].includes(bc.statut) && lignesArticle.length > 0;
@@ -150,7 +151,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
             <tbody>
               {bc.lignes.map((l) => (
                 <tr key={l.id} className="border-b">
-                  <td className="py-1.5">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
+                  <td className="py-1.5">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{libelleLigneArticle(l)}</Link> : l.designation}</td>
                   <td className="py-1.5 text-right">{qte(l.quantite)}</td>
                   <td className="py-1.5 text-right">{l.nbCartons ? qte(l.nbCartons) : "—"}</td>
                   <td className="py-1.5 text-right">{usd(l.prixUnitaireUSD)}</td>

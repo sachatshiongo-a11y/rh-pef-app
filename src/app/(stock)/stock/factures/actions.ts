@@ -24,6 +24,7 @@ import { entrerEnStockTx, variationsStockTx } from "@/lib/validations-stock/stoc
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 
 async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
@@ -303,12 +304,12 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         // OR origine null : les lignes sans origine (historiques) doivent aussi être détectées —
         // « NOT contains » seul les exclurait (sémantique SQL des NULL).
         where: { type: "ENTREE", factureId: null, articleId: { in: artIds }, date: { gte: debut, lte: fin }, OR: [{ origine: null }, { origine: { not: { contains: "Inventaire" } } }] },
-        include: { article: { select: { designation: true } } },
+        include: { article: { select: CHAMPS_LIBELLE } },
         orderBy: { date: "desc" },
         take: 6,
       });
       if (recents.length > 0) {
-        const liste = recents.slice(0, 5).map((m) => `${m.article.designation} (+${Number(m.quantite)} le ${new Date(m.date).toLocaleDateString("fr-FR")}${m.origine ? ` — ${m.origine}` : ""})`).join(" · ");
+        const liste = recents.slice(0, 5).map((m) => `${libelleArticle(m.article)} (+${Number(m.quantite)} le ${new Date(m.date).toLocaleDateString("fr-FR")}${m.origine ? ` — ${m.origine}` : ""})`).join(" · ");
         throw new Error(`DOUBLON_POSSIBLE|Des entrées récentes hors facture existent déjà pour ces articles : ${liste}. Si cette facture correspond à ces achats déjà saisis, le stock serait compté deux fois — décochez « entrer en stock », ou supprimez d'abord ces entrées dans la Liste d'achat / Mouvements. Sinon, confirmez avec le bouton « Enregistrer quand même ».`);
       }
     }

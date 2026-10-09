@@ -131,3 +131,15 @@ export const CHAMPS_LIBELLE = { designation: true, contenance: true, contenanceU
 export function contenancePourClient(a: Pick<ArticleLibelle, "contenance" | "contenanceUnite">): { contenance?: string; contenanceUnite?: string } {
   return a.contenance === null || a.contenance === undefined || !a.contenanceUnite ? {} : { contenance: String(a.contenance), contenanceUnite: a.contenanceUnite };
 }
+
+/** Champs Prisma de la seule contenance (ligne de document qui porte déjà sa désignation figée). */
+export const CHAMPS_CONTENANCE = { contenance: true, contenanceUnite: true } as const;
+
+/**
+ * Libellé d'une LIGNE de document (bon de commande, facture) : sa désignation FIGÉE, complétée de la
+ * contenance de l'article lié (même règle que `libelleArticle`) ; une ligne libre, sans article, garde
+ * son texte. La désignation figée n'est jamais réécrite : ni en base, ni dans les rapprochements.
+ */
+export function libelleLigneArticle(l: { designation: string; article?: Pick<ArticleLibelle, "contenance" | "contenanceUnite"> | null }): string {
+  return l.article ? libelleArticle({ designation: l.designation, contenance: l.article.contenance, contenanceUnite: l.article.contenanceUnite }) : l.designation;
+}

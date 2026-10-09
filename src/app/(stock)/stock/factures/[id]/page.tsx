@@ -16,6 +16,7 @@ import { DecisionDemande } from "../../a-valider/decision-demande";
 import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { formaterMontantFacture, libelleAutreDevise, montantsFacture } from "@/lib/facture-devise";
+import { CHAMPS_CONTENANCE, libelleLigneArticle } from "@/lib/libelle-article";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -29,8 +30,9 @@ export default async function FactureDetailPage({ params, searchParams }: { para
     where: { id },
     include: {
       fournisseur: { select: { nom: true } },
-      lignes: { orderBy: { designation: "asc" } },
-      bonDeCommande: { select: { id: true, numero: true, totalUSD: true, lignes: { orderBy: { designation: "asc" } } } },
+      // Contenance de l'article lié : libellé AFFICHÉ de la ligne (la désignation figée reste la clé du rapprochement).
+      lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } },
+      bonDeCommande: { select: { id: true, numero: true, totalUSD: true, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } },
       paiements: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
     },
   });
@@ -61,17 +63,17 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   const bonsLiables = bonsLiablesRaw.map((b) => ({ id: b.id, numero: b.numero, total: Number(b.totalUSD) }));
 
   // Réconciliation : croise les lignes du BC (commandé) et de la facture (facturé).
-  type L = { designation: string; articleId: string | null; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
+  type L = { designation: string; libelle: string; articleId: string | null; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
   const recon = new Map<string, L>();
   if (bc) for (const l of bc.lignes) {
     const k = cle(l.articleId, l.designation);
-    const e = recon.get(k) ?? { designation: l.designation, articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
+    const e = recon.get(k) ?? { designation: l.designation, libelle: libelleLigneArticle(l), articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
     e.qteBC += Number(l.quantite); e.puBC = Number(l.prixUnitaireUSD); e.totBC += Number(l.totalLigneUSD);
     recon.set(k, e);
   }
   for (const l of facture.lignes) {
     const k = cle(l.articleId, l.designation);
-    const e = recon.get(k) ?? { designation: l.designation, articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
+    const e = recon.get(k) ?? { designation: l.designation, libelle: libelleLigneArticle(l), articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
     e.qteFac += Number(l.quantite); e.puFac = Number(enFC ? l.prixUnitaireCDF : l.prixUnitaireUSD); e.totFac += totalLigne(l);
     recon.set(k, e);
   }
@@ -178,7 +180,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
             <tbody>
               {facture.lignes.map((l) => (
                 <tr key={l.id} className="border-t even:bg-muted/25">
-                  <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
+                  <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{libelleLigneArticle(l)}</Link> : l.designation}</td>
                   <td className="px-3 py-2 text-muted-foreground">{l.unite ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{qte(l.quantite)}</td>
                   <td className="px-3 py-2 text-right">{prixLigne(l)}</td>
@@ -224,7 +226,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                     const eTot = l.totFac - l.totBC;
                     return (
                       <tr key={i} className="border-t even:bg-muted/25">
-                        <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
+                        <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.libelle}</Link> : l.libelle}</td>
                         <td className="px-3 py-2 text-right text-muted-foreground">{l.qteBC ? qte(l.qteBC) : "—"}</td>
                         <td className="px-3 py-2 text-right">{l.qteFac ? qte(l.qteFac) : "—"}</td>
                         <td className={`px-3 py-2 text-right ${eQte ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{eQte ? `${eQte > 0 ? "+" : ""}${qte(eQte)}` : "0"}</td>
@@ -254,7 +256,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                   <ul className="mt-1 list-disc pl-4">
                     {lignesEcartQte.map((l, i) => {
                       const e = l.qteFac - l.qteBC;
-                      return <li key={i}>{l.designation} : commandé {qte(l.qteBC)}, facturé {qte(l.qteFac)} ({e > 0 ? "+" : ""}{qte(e)})</li>;
+                      return <li key={i}>{l.libelle} : commandé {qte(l.qteBC)}, facturé {qte(l.qteFac)} ({e > 0 ? "+" : ""}{qte(e)})</li>;
                     })}
                   </ul>
                   <p className="mt-1 text-[11px]">Une différence de montant n’affecte pas la somme à payer : c’est le montant de la facture qui fait foi.</p>

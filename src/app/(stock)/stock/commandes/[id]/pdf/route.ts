@@ -2,6 +2,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { BonCommandeDocument } from "@/lib/pdf/bon-commande";
+import { CHAMPS_CONTENANCE } from "@/lib/libelle-article";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await exigerEspaceStock();
@@ -10,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const bc = await prisma.bonDeCommande.findUnique({
     where: { id },
-    include: { lignes: true, fournisseur: true },
+    include: { lignes: { include: { article: { select: CHAMPS_CONTENANCE } } }, fournisseur: true },
   });
   if (!bc) return new Response("Bon de commande introuvable", { status: 404 });
   if (bc.statut === "BROUILLON") {

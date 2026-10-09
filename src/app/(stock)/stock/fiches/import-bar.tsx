@@ -336,10 +336,10 @@ function optionsDesFiches(fiches: FicheExistanteBar[]): OptionChoix[] {
 };
 
 /** Libellé d'un article du catalogue dans ce choix : désignation et unité, comme l'ancienne liste. */
-const libelleArticle = (a: ArticleExistant) => `${a.designation} (${a.unite || "unité ?"})`;
+const libelleChoixImport = (a: ArticleExistant) => `${a.designation} (${a.unite || "unité ?"})`;
 /** Articles du catalogue : le choix d'un ingrédient ne se limite plus aux « proches » — on cherche dans tout le catalogue. */
 function optionsDuCatalogue(articles: ArticleExistant[]): OptionChoix[] {
-  return articles.map((a) => ({ id: `art:${a.id}`, libelle: libelleArticle(a), recherche: [a.nomCourt, a.code], groupe: "Catalogue" }));
+  return articles.map((a) => ({ id: `art:${a.id}`, libelle: libelleChoixImport(a), recherche: [a.nomCourt, a.code], groupe: "Catalogue" }));
 }
 
 // ─── Une feuille ─────────────────────────────────────────────────────────────
@@ -458,8 +458,8 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
   // Propres à cette ligne, listés avant le catalogue : l'article choisi, les proches, « Créer », « Ignorer ».
   // « Créer » seulement si aucun article ne porte déjà ce nom (sinon il serait réutilisé).
   const extras = useMemo<OptionChoix[]>(() => [
-    ...(choisi && !suggestions.some((a) => a.id === choisi.id) ? [{ id: `art:${choisi.id}`, libelle: libelleArticle(choisi) }] : []),
-    ...suggestions.map((a) => ({ id: `art:${a.id}`, libelle: libelleArticle(a), groupe: "Proches (à vérifier)" })),
+    ...(choisi && !suggestions.some((a) => a.id === choisi.id) ? [{ id: `art:${choisi.id}`, libelle: libelleChoixImport(choisi) }] : []),
+    ...suggestions.map((a) => ({ id: `art:${a.id}`, libelle: libelleChoixImport(a), groupe: "Proches (à vérifier)" })),
     // Des articles proches existent : créer est un choix explicite « quand même » (anti-doublon, 2026-10-09).
     ...(p.creation && !p.articleId && !p.doute ? [{ id: "creer", libelle: `${suggestions.length > 0 ? "Créer quand même" : "Créer"} l'article « ${p.creation.designation} » (${p.creation.unite})` }] : []),
     { id: "ignorer", libelle: "Ignorer la ligne" },

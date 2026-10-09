@@ -33,7 +33,7 @@ const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
  * ou sans taux. `prixFC` : « 7 000 FC » si le prix de référence est en francs ; `prixRef` : le prix
  * de référence formaté, dans sa devise.
  */
-type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; prixFC?: string | null; prixCDF?: string | null; refDevise?: Devise | null; prixRef?: string | null; unite: string | null };
+type Art = { id: string; designation: string; contenance?: string | null; contenanceUnite?: string | null; nomCourt?: string | null; code?: string | null; prix: string | null; prixFC?: string | null; prixCDF?: string | null; refDevise?: Devise | null; prixRef?: string | null; unite: string | null };
 type Devise = "USD" | "CDF";
 type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
