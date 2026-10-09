@@ -16,6 +16,7 @@ vi.mock("@/lib/export-excel", () => excel);
 
 import { FichesVierges, FICHES_VIERGES, ficheHref } from "./fiches-vierges";
 import { GET } from "./fiche/excel/route";
+import { GET as GET_PDF } from "./fiche/pdf/route";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,11 +32,11 @@ describe("Bloc des fiches vierges", () => {
     const cartes = [...conteneur.querySelectorAll("li")];
     expect(cartes.map((c) => c.querySelector("p")!.textContent)).toEqual(["Fiche Nourriture", "Fiche Boissons", "Fiche Autre"]);
     expect(cartes.map((c) => c.querySelectorAll("p")[1].textContent)).toEqual(["212 articles", "1 article", "0 article"]);
-    expect(cartes.map((c) => c.querySelector("a")!.getAttribute("href"))).toEqual([
-      "/stock/reconciliation/fiche/excel?domaine=NOURRITURE",
-      "/stock/reconciliation/fiche/excel?domaine=BOISSON",
-      "/stock/reconciliation/fiche/excel?domaine=AUTRE",
-    ]);
+    // Deux formats par domaine, PDF puis Excel, même domaine dans les deux.
+    expect(cartes.map((c) => [...c.querySelectorAll("a")].map((a) => a.getAttribute("href")))).toEqual(
+      ["NOURRITURE", "BOISSON", "AUTRE"].map((d) => [`/stock/reconciliation/fiche/pdf?domaine=${d}`, `/stock/reconciliation/fiche/excel?domaine=${d}`]),
+    );
+    expect(cartes.map((c) => [...c.querySelectorAll("a")].map((a) => a.textContent!.split(" — ")[0]))).toEqual([["PDF", "Excel"], ["PDF", "Excel"], ["PDF", "Excel"]]);
   });
 
   it("chaque lien passe par TelechargerLien : un clic ne navigue pas (fetch), le lien reste lisible pour les lecteurs d'écran", async () => {
@@ -52,10 +53,34 @@ describe("Bloc des fiches vierges", () => {
 
   it("les adresses du bloc sont des routes qui existent", () => {
     for (const f of FICHES_VIERGES) {
-      const href = ficheHref(f.domaine);
-      expect(fs.existsSync(path.resolve(__dirname, `.${new URL(href, "http://x").pathname.replace("/stock/reconciliation", "")}/route.ts`))).toBe(true);
+      for (const format of ["pdf", "excel"] as const) {
+        const href = ficheHref(f.domaine, format);
+        expect(fs.existsSync(path.resolve(__dirname, `.${new URL(href, "http://x").pathname.replace("/stock/reconciliation", "")}/route.ts`))).toBe(true);
+      }
     }
   });
+});
+
+describe("Route de la fiche vierge PDF", () => {
+  it("refus de la garde : 403 (mêmes droits que l'Excel), la base n'est pas lue", async () => {
+    garde.exigerEspaceStock.mockResolvedValue({ ok: false, reponse: new Response("Accès refusé.", { status: 403 }) });
+    const r = await GET_PDF(new Request("http://x/stock/reconciliation/fiche/pdf?domaine=BOISSON"));
+    expect(r.status).toBe(403);
+    expect(bdd.findMany).not.toHaveBeenCalled();
+  });
+
+  it("accès Stock : un PDF, nommé et daté, des MÊMES articles que l'Excel", async () => {
+    garde.exigerEspaceStock.mockResolvedValue({ ok: true, user: { id: "u" } });
+    const r = await GET_PDF(new Request("http://x/stock/reconciliation/fiche/pdf?domaine=BOISSON"));
+    expect(r.status).toBe(200);
+    expect(r.headers.get("Content-Type")).toBe("application/pdf");
+    expect(r.headers.get("Content-Disposition")).toMatch(/^attachment; filename="Fiche_comptage_Boisson.*_\d{4}-\d{2}-\d{2}\.pdf"$/);
+    expect(Buffer.from(await r.arrayBuffer()).subarray(0, 5).toString()).toBe("%PDF-");
+    await GET(new Request("http://x/stock/reconciliation/fiche/excel?domaine=BOISSON"));
+    const [pdf, excel] = bdd.findMany.mock.calls as unknown as { where: unknown; orderBy: unknown }[][];
+    expect(pdf[0].where).toEqual({ actif: true, domaine: "BOISSON" });
+    expect(pdf[0]).toEqual(excel[0]);
+  }, 60_000);
 });
 
 describe("Route de la fiche vierge", () => {

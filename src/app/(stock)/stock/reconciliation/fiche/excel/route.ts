@@ -1,9 +1,8 @@
-import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { DOMAINE_LABEL } from "@/lib/stock";
 import { lignesFicheComptage, ENTETE_FICHE } from "../comptage-data";
-import type { Prisma } from "@prisma/client";
+import { chargerArticlesFiche, domaineDeFiche } from "../charger-articles";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 /** Fiche de comptage en Excel téléchargeable (par domaine) — génération instantanée, à imprimer/compter. */
@@ -12,20 +11,8 @@ export async function GET(req: Request) {
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;
-  const dom = sp.get("domaine");
-  const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
-  const q = (sp.get("q") ?? "").trim();
-
-  const where: Prisma.ArticleStockWhereInput = {
-    actif: true,
-    ...(domaine ? { domaine } : {}),
-    ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
-  };
-  const articles = await prisma.articleStock.findMany({
-    where,
-    orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
-    include: { stock: { select: { quantite: true } }, categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } } },
-  });
+  const domaine = domaineDeFiche(sp.get("domaine"));
+  const articles = await chargerArticlesFiche(domaine, (sp.get("q") ?? "").trim());
 
   const { lignes, sectionRows } = lignesFicheComptage(articles, !!domaine);
 
