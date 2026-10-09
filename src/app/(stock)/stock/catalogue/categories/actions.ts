@@ -180,8 +180,12 @@ export const supprimerCategories = actionLisible(async (ids: string[]) => {
     throw new Error(`Suppression refusée : ${liste} — déplacez d'abord les articles vers une autre catégorie (ou archivez la catégorie). Rien n'a été supprimé.`);
   }
   // `articles: { none: {} }` redit la règle au moment d'écrire : un article rattaché entre-temps bloque la suppression.
-  const r = await prisma.categorieStock.deleteMany({ where: { id: { in: cats.map((c) => c.id) }, articles: { none: {} } } });
-  if (r.count !== cats.length) throw new Error("Une catégorie vient de recevoir un article : rechargez la page. Rien n'est garanti supprimé, vérifiez la liste.");
+  // Dans UNE transaction : si l'une des catégories vient de recevoir un article (ou a disparu), le compte ne tombe pas juste
+  // et RIEN n'est supprimé (tout ou rien tenu aussi en cas de course, pas seulement sur l'état lu plus haut).
+  await prisma.$transaction(async (tx) => {
+    const r = await tx.categorieStock.deleteMany({ where: { id: { in: cats.map((c) => c.id) }, articles: { none: {} } } });
+    if (r.count !== cats.length) throw new Error("Une catégorie vient de recevoir un article ou a déjà été supprimée : rechargez la page. Rien n'a été supprimé.");
+  });
   for (const c of cats) await journaliser(prisma, { entite: "CategorieStock", entiteId: c.id, champ: "suppression", ancienneValeur: c.nom, userId: user.id });
   revalider();
 });
