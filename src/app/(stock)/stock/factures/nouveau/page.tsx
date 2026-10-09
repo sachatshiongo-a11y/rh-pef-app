@@ -40,7 +40,18 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
       </div>
       <p className="text-sm text-muted-foreground">Saisissez la facture avec ses articles et quantités. En liant un bon de commande, ses lignes sont pré-remplies pour comparaison.</p>
       <NouvelleFactureForm
-        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, prix: (() => { const p = prixProposeEn(a, "USD", taux); return p === null ? "" : String(p); })(), prixFC: a.devisePrix === "CDF" ? (() => { const ps = prixSaisi(a); return ps ? formaterPrix(Number(ps.montant), "CDF") : null; })() : null }))}
+        articles={articles.map((a) => {
+          // Prix proposé dans CHAQUE devise de facture : exact dans celle du prix de référence, « ≈ » au taux du jour dans l'autre.
+          const ps = prixSaisi(a);
+          const enTexte = (p: number | null) => (p === null ? "" : String(p));
+          return {
+            id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite,
+            prix: enTexte(prixProposeEn(a, "USD", taux)), prixCDF: enTexte(prixProposeEn(a, "CDF", taux)),
+            prixFC: a.devisePrix === "CDF" && ps ? formaterPrix(Number(ps.montant), "CDF") : null,
+            refDevise: ps?.devise ?? null, prixRef: ps ? formaterPrix(Number(ps.montant), ps.devise) : null,
+          };
+        })}
+        taux={taux}
         fournisseurs={fournisseurs.map((f) => ({ id: f.id, nom: f.nom, delaiJours: delaiEnJours(f.delaiPaiement) }))}
         bons={bons.map((b) => ({
           id: b.id, numero: b.numero, fournisseurId: b.fournisseurId,

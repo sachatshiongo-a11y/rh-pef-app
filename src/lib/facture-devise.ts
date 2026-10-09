@@ -94,10 +94,12 @@ export function partsTotal(t: TotalDevises): { devise: DeviseFacture; montant: n
 /**
  * « 1 234,50 $ + 2 800 000 FC » ; une seule devise : son seul montant (« 1 234,50 $ », exactement
  * comme avant les factures en francs) ; rien : `vide` (par défaut « 0,00 $ », l'ancien affichage).
+ * `fmtUSD` : le formateur de dollars de l'écran appelant (pour qu'un total en dollars s'écrive
+ * EXACTEMENT comme avant sur cet écran).
  */
-export function libelleTotal(t: TotalDevises, vide: string = formaterUSD(0)): string {
+export function libelleTotal(t: TotalDevises, vide?: string, fmtUSD: (n: number) => string = formaterUSD): string {
   const p = partsTotal(t);
-  return p.length === 0 ? vide : p.map((x) => formaterMontantFacture(x.montant, x.devise)).join(" + ");
+  return p.length === 0 ? (vide ?? fmtUSD(0)) : p.map((x) => (x.devise === "USD" ? fmtUSD(x.montant) : formaterMontantFacture(x.montant, "CDF"))).join(" + ");
 }
 
 /** Le total compte-t-il des francs ? (l'équivalent unique en dollars est alors approché). */
