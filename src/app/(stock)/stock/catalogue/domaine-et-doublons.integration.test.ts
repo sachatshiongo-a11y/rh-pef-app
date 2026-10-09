@@ -120,6 +120,18 @@ describe("changer le domaine d'un article", () => {
     expect(await etat(jus)).toMatchObject({ domaine: "BOISSON", categorieId: c.jusB });
   });
 
+  it("retouche d'une proposition en attente : domaine proposé avant, catégorie de l'ancien domaine après — refusée", async () => {
+    const c = await cats();
+    const jus = await art("Jus d'orange", "NOURRITURE", c.jusN);
+    en("resp");
+    expect(await changerDomaineEnMasse([jus], "BOISSON", "A_CLASSER")).toMatchObject({ proposition: true });
+    const fd = new FormData(); fd.set("categorieId", c.viandes);
+    expect(erreurDe(await modifierArticle(jus, fd))).toContain("n'existe pas dans ce domaine");
+    const d = await prisma.demandeValidationStock.findFirstOrThrow({ where: { nature: "MODIF_ARTICLE" } });
+    const champs = (d.charge as { articles: { changements: { champ: string; apres: unknown }[] }[] }).articles[0]!.changements.map((x) => [x.champ, x.apres]);
+    expect(champs).toEqual([["domaine", "BOISSON"], ["categorieId", null]]);
+  });
+
   it("non-Direction depuis la fiche : catégorie de l'ancien domaine refusée dès la proposition", async () => {
     const c = await cats();
     const steak = await art("Steak", "NOURRITURE", c.viandes);

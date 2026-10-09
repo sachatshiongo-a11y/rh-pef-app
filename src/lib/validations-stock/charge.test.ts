@@ -80,6 +80,12 @@ describe("etatLigneAValider — l'écart constaté appliqué au stock actuel", (
     expect(e).toMatchObject({ etat: "mouvemente" });
     expect(e.etat === "mouvemente" && e.final.toString()).toBe("12");
   });
+  it("écart reporté qui ferait passer le stock sous 0 : conflit, à recompter (2026-10-09)", () => {
+    const e = etatLigneAValider(l, new Decimal(1), { ...rien, sorties: new Decimal(9) });
+    expect(e).toMatchObject({ etat: "conflit" });
+    expect(e.etat === "conflit" && e.raison).toContain("le ferait passer sous 0 (-1)");
+    expect(etatLigneAValider(l, new Decimal(2), { ...rien, sorties: new Decimal(8) })).toMatchObject({ etat: "mouvemente" }); // 2 − 2 = 0 : accepté
+  });
   it("changement inexpliqué ou autre ajustement : conflit (jamais d'écart compté deux fois)", () => {
     expect(etatLigneAValider(l, new Decimal(11), rien).etat).toBe("conflit");
     expect(etatLigneAValider(l, new Decimal(14), { entrees: new Decimal(3), sorties: new Decimal(0), ajustements: 0, tardifs: 0 }).etat).toBe("conflit");

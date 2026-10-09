@@ -362,7 +362,12 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
   const reinitialiser = () => { setLignes(LIGNES_VIDES()); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setRefus(new Map()); setCle((c) => c + 1); };
-  const majLigne = (i: number, l: Partial<LigneSaisie>) => setLignes((ls) => ls.map((x, j) => (j === i ? { ...x, ...l } : x)));
+  const majLigne = (i: number, l: Partial<LigneSaisie>) => {
+    // Une ligne retouchée n'est plus celle que le serveur a refusée : son cadre de refus s'efface.
+    const avant = lignes[i]?.articleId;
+    if (avant && refus.has(avant)) setRefus((m) => { const n = new Map(m); n.delete(avant); return n; });
+    setLignes((ls) => ls.map((x, j) => (j === i ? { ...x, ...l } : x)));
+  };
 
   // Un stock ne passe jamais sous 0 (2026-10-09) : une SORTIE qui dépasse le stock est signalée sur sa
   // ligne et le bouton reste bloqué ; le serveur revérifie sous verrou.
@@ -453,7 +458,8 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         const a = l.articleId ? parId.get(l.articleId) : undefined;
         const dispo = l.articleId ? stockConnu.get(l.articleId) : undefined;
         const trop = l.articleId ? depasse.get(l.articleId) : undefined;
-        const proches = trop || refus.has(l.articleId) ? prochesDe(l.articleId) : [];
+        const refusee = type === "SORTIE" && refus.has(l.articleId);
+        const proches = trop || refusee ? prochesDe(l.articleId) : [];
         return (
           <div key={i} data-ligne-mouvement={i} className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -467,7 +473,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
                 </span>
               )}
             </div>
-            {(trop || refus.has(l.articleId)) && (
+            {(trop || refusee) && (
               <div role="alert" data-depasse={l.articleId} className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
                 <p className="font-medium">
                   {trop
@@ -476,6 +482,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
                       : `Dépasse le stock : ${qteUnite(trop.disponible, a?.unite)} disponible${Math.abs(trop.disponible) >= 2 ? "s" : ""}, ${qteUnite(trop.demande, a?.unite)} demandé${trop.demande >= 2 ? "s" : ""}${lignes.filter((x) => x.articleId === l.articleId).length > 1 ? " (toutes les lignes de cet article)" : ""}.`
                     : "Stock insuffisant au moment de l'enregistrement (voir le message ci-dessus)."}
                 </p>
+                {trop && <p className="text-[11px] text-muted-foreground">Stock lu à l&apos;ouverture de la page : si une entrée vient d&apos;être enregistrée ailleurs, rechargez la page.</p>}
                 {proches.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-1.5 text-foreground">
                     <span className="text-muted-foreground">Article{proches.length > 1 ? "s" : ""} proche{proches.length > 1 ? "s" : ""} en stock :</span>

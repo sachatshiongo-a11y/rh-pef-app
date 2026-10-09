@@ -447,6 +447,9 @@ export async function proposerModifications(auteur: Acteur, libelle: string, pat
         const nouveau = restants.get(art.id);
         if (!nouveau) continue;
         art.changements = fusionnerChangements(art.changements, nouveau.changements);
+        // Retouche fusionnée : domaine et catégorie relus ENSEMBLE (un domaine proposé avant, une catégorie
+        // de l'ancien domaine proposée après, ne doivent pas faire une proposition invalidable).
+        await exigerCategorieDuDomaine(tx, art.id, patchDesChangements(art.changements));
         if (art.changements.length === 0) vides.push(art.id);
         restants.delete(art.id);
       }

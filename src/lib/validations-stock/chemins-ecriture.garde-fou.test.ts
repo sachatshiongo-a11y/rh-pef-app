@@ -386,9 +386,14 @@ describe("réécriture d'un mouvement existant : chemins et champs connus (2026-
 // chemin par chemin. Une écriture dont les données sont une VARIABLE (illisible ici) doit être
 // nommée dans EXCEPTIONS_QUANTITE, avec la preuve lue dans la source.
 const PORTE = "lib/validations-stock/stock-positif.ts";
-const ECRIT_STOCK_APPEL = /\bstock\.(?:update|updateMany|upsert|create|createMany)\s*\(/g;
+// Appel Prisma d'écriture du Stock, y compris coupé par un retour à la ligne (« tx.stock\n.update(») et
+// par accès indexé (« tx["stock"].update(»).
+const ECRIT_STOCK_APPEL = /(?:\bstock|\[\s*["'`]stock["'`]\s*\])\s*\.\s*(?:update|updateMany|upsert|create|createMany)\s*\(/g;
+// Le délégué Stock mis dans une variable (« const st = tx.stock; st.update(… ») échappe à l'analyse : interdit hors porte.
+const ALIAS_STOCK = /=\s*\w+\s*\.\s*stock\s*[;,\n)]/;
 const IMBRIQUE = /\bstock:\s*\{\s*(?:create|update|upsert|connectOrCreate)\s*:\s*\{[^;]{0,400}?\bquantite\s*:(?!\s*0\s*[,}\n])/;
-const SQL_STOCK = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."Stock"/i;
+// SQL brut sur la table Stock, guillemets ou non, schéma écrit ou interpolé (« ${S}."Stock" ») — mais pas ArticleStock.
+const SQL_STOCK = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+\S*?(?<![A-Za-z])"?Stock"?(?![A-Za-z])/;
 
 /** Fautes « quantité hors porte » d'une source (vide = rien à redire). */
 function fautesQuantite(source: string): string[] {
@@ -396,13 +401,16 @@ function fautesQuantite(source: string): string[] {
   if (/\bdecrement\b/.test(source)) fautes.push("decrement hors de la porte");
   if (SQL_STOCK.test(source)) fautes.push("SQL brut sur \"stock\".\"Stock\"");
   if (IMBRIQUE.test(source)) fautes.push("ligne Stock imbriquée avec une quantité non nulle");
+  if (ALIAS_STOCK.test(source)) fautes.push("délégué Stock mis dans une variable");
   for (const m of source.matchAll(ECRIT_STOCK_APPEL)) {
     let i = m.index! + m[0].length, prof = 1;
     while (i < source.length && prof > 0) { if (source[i] === "(") prof++; else if (source[i] === ")") prof--; i++; }
     const appel = source.slice(m.index!, i);
     const ligne = appel.split("\n")[0]!.slice(0, 100);
     if (/\bquantite\s*:(?!\s*0\s*[,}\n])/.test(appel)) fautes.push(`quantité écrite hors porte : ${ligne}`);
-    else if (/\b(?:data|update|create)\s*:\s*(?![{\s]|\w+\.map\()/.test(appel)) fautes.push(`données illisibles (variable) : ${ligne}`);
+    // Données qu'on ne peut pas lire : une variable (« data: patch »), le raccourci (« { where, data } »),
+    // une décomposition (« ...patch ») ou une clé calculée (« [champ]: v »).
+    else if (/\b(?:data|update|create)\s*:\s*(?![{\s]|\w+\.map\()/.test(appel) || /[{,]\s*(?:data|update|create)\s*[,}]/.test(appel) || /\.\.\./.test(appel) || /[{,]\s*\[[^\]]+\]\s*:/.test(appel)) fautes.push(`données illisibles (variable) : ${ligne}`);
   }
   return fautes;
 }
@@ -445,7 +453,8 @@ describe("un stock ne passe jamais sous 0 (2026-10-09)", () => {
   it("chaque chemin qui diminue un stock appelle la porte", () => {
     const manques: string[] = [];
     for (const [f, chemins] of Object.entries(CHEMINS_DE_BAISSE)) {
-      const src = fs.readFileSync(path.join(SRC, f), "utf8");
+      // Commentaires retirés : un appel cité dans un commentaire ne compte pas.
+      const src = fs.readFileSync(path.join(SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
       for (const c of chemins) {
         const b = corps(src, c.fonction);
         if (b === null) manques.push(`${f} → ${c.fonction} introuvable`);
@@ -481,7 +490,17 @@ describe("un stock ne passe jamais sous 0 (2026-10-09)", () => {
     expect(fautesQuantite("await tx.articleStock.update({ where: { id }, data: { stock: { update: { quantite: { increment: -q } } } } });")).not.toEqual([]);
     expect(fautesQuantite("await tx.stock.update({ where: { articleId }, data: { quantite: { increment: -q } } });")).not.toEqual([]);
     expect(fautesQuantite("await tx.stock.upsert({ where: { articleId: id }, update: stock, create: { articleId: id, quantite: 0 } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.update({ where, data });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.update({ where: { articleId }, data: { ...patch } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.update({ where: { articleId }, data: { [champ]: v } });")).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock\n  .update({ where: { articleId }, data: { quantite: q } });")).not.toEqual([]);
+    expect(fautesQuantite('await tx["stock"].update({ where: { articleId }, data: { quantite: q } });')).not.toEqual([]);
+    expect(fautesQuantite("const st = tx.stock;\nawait st.update({ where: { articleId }, data: { quantite: q } });")).not.toEqual([]);
+    expect(fautesQuantite('await tx.$executeRaw`UPDATE stock."Stock" SET quantite = 0`;')).not.toEqual([]);
+    expect(fautesQuantite('await tx.$executeRaw`UPDATE ${S}."Stock" SET quantite = 0`;')).not.toEqual([]);
+    expect(fautesQuantite("await tx.stock.createMany({ data: lignes.map((l) => ({ ...l })) });")).not.toEqual([]);
     // Légitimes :
+    expect(fautesQuantite('await tx.$executeRaw`UPDATE "stock"."ArticleStock" SET actif = false`;')).toEqual([]);
     expect(fautesQuantite("await tx.stock.upsert({ where: { articleId }, update: { stockMinimum: s }, create: { articleId, quantite: 0, stockMinimum: s } });")).toEqual([]);
     expect(fautesQuantite("if (a.stockMin != null) await tx.stock.update({ where: { articleId }, data: { stockMinimum: a.stockMin } });")).toEqual([]);
     expect(fautesQuantite("stock: {\n  create: {\n    quantite: 0, // porte\n")).toEqual([]);

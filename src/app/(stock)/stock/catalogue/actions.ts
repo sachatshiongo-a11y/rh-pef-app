@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { appliquerPatchArticleTx, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
@@ -168,6 +169,11 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
   if (losers.length === 0) return;
 
   await prisma.$transaction(async (tx) => {
+    // Stock des doublons cumulé en UNE variation (l'ordre des doublons ne compte pas : 3 − 5 + 5 = 3),
+    // par la porte unique : un total qui ferait passer l'article conservé sous 0 refuse la fusion,
+    // nommée — corriger d'abord le stock négatif du doublon (comptage ou mise à 0).
+    const cumul = losers.reduce((t, l) => (l.stock ? t.plus(l.stock.quantite) : t), new Prisma.Decimal(0));
+    if (!cumul.isZero()) await variationsStockTx(tx, [{ articleId: keep.id, delta: cumul }], { verbe: "à retirer (stock négatif des doublons)" });
     for (const l of losers) {
       await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
@@ -179,9 +185,6 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       // se retrouver sur l'article conservé : elles restent DEUX consommations distinctes, leurs
       // quantités s'additionnent au coût — on ne fusionne pas des lignes de recette à l'aveugle.
       await tx.ingredientFiche.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
-      // Stock du doublon cumulé par la porte unique : un doublon NÉGATIF qui ferait passer l'article
-      // conservé sous 0 refuse la fusion (nommé) — corriger d'abord son stock (comptage ou mise à 0).
-      if (l.stock && !l.stock.quantite.isZero()) await variationsStockTx(tx, [{ articleId: keep.id, delta: l.stock.quantite }], { verbe: "à retirer (stock négatif du doublon)" });
       await tx.articleStock.delete({ where: { id: l.id } });
     }
   });

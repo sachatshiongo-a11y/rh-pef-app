@@ -243,6 +243,7 @@ export async function appliquerInventaire(
   const batchId = await prisma.$transaction(async (tx) => {
     const batch = await tx.importBatch.create({ data: { type: "INVENTAIRE", libelle, statut: "APPLIQUE", creeParId: userId } });
     const ops: Prisma.ImportOperationCreateManyInput[] = [];
+    const stocksFinaux: { articleId: string; quantite: number; stockMin: number | null }[] = [];
 
     for (const a of preview.articles) {
       let articleId = a.articleId;
@@ -259,11 +260,13 @@ export async function appliquerInventaire(
         // (2026-10-08) garde ce prix — la devise de saisie fait foi, l'import ne la renverse pas.
         await tx.articleStock.update({ where: { id: articleId }, data: { ...(a.prix != null && cur.devisePrix !== "CDF" ? { prixUnitaireUSD: a.prix } : {}), ...(a.unite ? { unite: a.unite } : {}) } });
       }
-      // Stock final (photo instant T) : posé par la porte unique (stock-positif.ts) — un stock final
-      // négatif dans le classeur est refusé, l'article nommé ; rien n'est écrit.
-      await poserStocksTx(tx, [{ articleId, quantite: a.stockFinal }], { quoi: "stock final du classeur" });
-      if (a.stockMin != null) await tx.stock.update({ where: { articleId }, data: { stockMinimum: a.stockMin } });
+      stocksFinaux.push({ articleId, quantite: a.stockFinal, stockMin: a.stockMin });
     }
+    // Stock final (photo instant T) : posé EN UNE FOIS par la porte unique (stock-positif.ts, écriture
+    // groupée : pas de délai dépassé sur un gros classeur) — un stock final négatif est refusé, TOUS
+    // les articles fautifs nommés ; rien n'est écrit. Puis les seuils, sur des lignes qui existent.
+    await poserStocksTx(tx, stocksFinaux, { quoi: "stock final du classeur" });
+    for (const f of stocksFinaux) if (f.stockMin != null) await tx.stock.update({ where: { articleId: f.articleId }, data: { stockMinimum: f.stockMin } });
 
     // Journal détaillé (mouvements datés). Garde-fou : un mouvement qui a déjà un jumeau exact en
     // base n'est PAS recréé (le stock final, lui, est posé en absolu ci-dessus quoi qu'il arrive).
@@ -301,7 +304,9 @@ export async function appliquerInventaire(
 /** Annule un import : supprime les créations, restaure les mises à jour. Réversible.
  *  `userId` : l'annulation est journalisée à son nom (le 2026-09-28, trois imports ont été
  *  annulés sans que le journal dise par qui). */
-export async function annulerImport(batchId: string, userId?: string): Promise<void> {
+export async function annulerImport(batchId: string, userId?: string): Promise<{ stocksLaisses: string[] }> {
+  const stocksLaisses: string[] = [];
+  const restaurations: { articleId: string; quantite: Prisma.Decimal }[] = [];
   await prisma.$transaction(async (tx) => {
     const batch = await tx.importBatch.findUniqueOrThrow({ where: { id: batchId }, include: { operations: true } });
     if (batch.statut === "ANNULE") throw new Error("Cet import a déjà été annulé.");
@@ -367,9 +372,19 @@ export async function annulerImport(batchId: string, userId?: string): Promise<v
         const restaurerPrix = "prixUnitaireUSD" in av && art?.devisePrix !== "CDF";
         await tx.articleStock.update({ where: { id: o.entiteId }, data: { ...(restaurerPrix ? { prixUnitaireUSD: av.prixUnitaireUSD != null ? new Prisma.Decimal(av.prixUnitaireUSD) : null } : {}), unite: av.unite } });
       }
-      // Remise à la valeur d'avant l'import, par la porte unique : une valeur d'avant négative n'est
-      // pas réécrite (refus nommé, rien n'est annulé) — sauf si c'est déjà la valeur en base.
-      else if (o.entite === "Stock" && (await tx.stock.count({ where: { articleId: o.entiteId } })) > 0) await poserStocksTx(tx, [{ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 }], { quoi: "stock d'avant l'import" });
+      else if (o.entite === "Stock") restaurations.push({ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : new Prisma.Decimal(0) });
+    }
+    // Remise des stocks à leur valeur d'avant l'import, EN UNE FOIS par la porte unique (lignes encore
+    // présentes seulement). Un stock ne passe jamais sous 0 (2026-10-09) : une valeur d'avant NÉGATIVE
+    // n'est pas réécrite — l'article garde son stock actuel, et il est NOMMÉ (journal + compte rendu) ;
+    // le reste de l'annulation se fait.
+    const presents = new Map((await tx.stock.findMany({ where: { articleId: { in: restaurations.map((r) => r.articleId) } }, select: { articleId: true, quantite: true } })).map((x) => [x.articleId, x.quantite]));
+    const aRestaurer = restaurations.filter((r) => presents.has(r.articleId));
+    const negatifs = aRestaurer.filter((r) => r.quantite.isNegative() && !r.quantite.isZero() && !presents.get(r.articleId)!.equals(r.quantite));
+    await poserStocksTx(tx, aRestaurer.filter((r) => !negatifs.includes(r)), { quoi: "stock d'avant l'import" });
+    if (negatifs.length > 0) {
+      const noms = new Map((await tx.articleStock.findMany({ where: { id: { in: negatifs.map((r) => r.articleId) } }, select: { id: true, designation: true } })).map((a) => [a.id, a.designation]));
+      stocksLaisses.push(...negatifs.map((r) => `${noms.get(r.articleId) ?? "Article"} (stock d'avant négatif : ${r.quantite.toString().replace(".", ",")} ; gardé à ${presents.get(r.articleId)!.toString().replace(".", ",")})`));
     }
     await tx.importBatch.update({ where: { id: batchId }, data: { statut: "ANNULE", annuleeAt: new Date() } });
     if (userId) {
@@ -380,11 +395,13 @@ export async function annulerImport(batchId: string, userId?: string): Promise<v
         champ: "annulation d'import",
         nouvelleValeur:
           `Import « ${batch.libelle} » annulé : ${nb("MouvementStock")} mouvement(s) retiré(s), ` +
-          `stock de ${updates.filter((o) => o.entite === "Stock").length} article(s) remis à sa valeur d'avant l'import` +
+          `stock de ${aRestaurer.length - negatifs.length} article(s) remis à sa valeur d'avant l'import` +
+          (stocksLaisses.length ? `, ${stocksLaisses.length} stock(s) laissé(s) tel(s) quel(s) (valeur d'avant négative, jamais réécrite) : ${stocksLaisses.join(", ")}` : "") +
           (nb("AchatLegume") ? `, ${nb("AchatLegume")} achat(s) de légumes retiré(s)` : "") +
           (nb("ArticleStock") ? `, ${nb("ArticleStock")} article(s) créé(s) supprimé(s)` : ""),
         userId,
       });
     }
   }, { timeout: 120000 });
+  return { stocksLaisses };
 }

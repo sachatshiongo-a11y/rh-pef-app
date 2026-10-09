@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
   }),
 }));
 
-const { appliquerInventaire, analyserInventaire } = await import("@/lib/import-inventaire");
+const { appliquerInventaire, analyserInventaire, annulerImport } = await import("@/lib/import-inventaire");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -78,6 +78,22 @@ describe("import d'inventaire — anti-doublon d'article", () => {
 });
 
 describe("import d'inventaire — un stock final négatif est refusé", () => {
+  it("plusieurs négatifs : TOUS nommés d'un coup", async () => {
+    const buf = await classeur([{ code: "904", nom: "Cumin", sinit: -1 }, { code: "905", nom: "Paprika", sinit: 2 }, { code: "906", nom: "Curry", sinit: -0.5 }]);
+    await expect(appliquerInventaire(buf, "Inv", userId)).rejects.toThrow(/Cumin \(-1 Kg\), Curry \(-0,5 Kg\)/);
+  });
+
+  it("annulation : une valeur d'avant NÉGATIVE n'est pas réécrite — stock gardé, article nommé ; le reste est annulé", async () => {
+    const beurre = (await prisma.articleStock.create({ data: { code: "907", designation: "Beurre doux", domaine: "NOURRITURE", stock: { create: { quantite: -3 } } } })).id;
+    const sel = (await prisma.articleStock.create({ data: { code: "908", designation: "Sel fin", domaine: "NOURRITURE", stock: { create: { quantite: 1 } } } })).id;
+    const { batchId } = await appliquerInventaire(await classeur([{ code: "907", nom: "Beurre doux", sinit: 10 }, { code: "908", nom: "Sel fin", sinit: 6 }]), "Inv", userId);
+    const r = await annulerImport(batchId, userId);
+    expect(r.stocksLaisses).toEqual(["Beurre doux (stock d'avant négatif : -3 ; gardé à 10)"]);
+    const q = async (id: string) => Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: id } })).quantite);
+    expect([await q(beurre), await q(sel)]).toEqual([10, 1]);
+    expect((await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } })).statut).toBe("ANNULE");
+  });
+
   it("stock final −2 au classeur : refus nommé, rien n'est importé", async () => {
     const buf = await classeur([{ code: "903", nom: "Poivre noir", sinit: -2 }]);
     await expect(appliquerInventaire(buf, "Inv", userId)).rejects.toThrow("Quantité négative refusée (stock final du classeur) — un stock ne passe jamais sous 0 : Poivre noir (-2 Kg)");

@@ -229,10 +229,26 @@ describe("autres chemins qui diminuent un stock", () => {
     expect(await stockDe(riz)).toBe(5);
   });
 
+  it("supprimer une SORTIE rend la quantité (même sur un article à 0)", async () => {
+    const riz = await article("Riz", 3);
+    await sortie([[riz, "3"]]);
+    const s = await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: riz, type: "SORTIE" } });
+    expect(erreurDe(await supprimerMouvement(s.id))).toBeNull();
+    expect(await stockDe(riz)).toBe(3);
+  });
+
+  it("fusion : l'ordre des doublons ne compte pas (3 − 5 + 5 = 3, accepté)", async () => {
+    const garde = await article("Crème", 3);
+    const neg = await article("Creme", -5);
+    const pos = await article("Crème fraîche", 5);
+    expect(erreurDe(await fusionnerArticles([garde, neg, pos], garde))).toBeNull();
+    expect(await stockDe(garde)).toBe(3);
+  });
+
   it("fusion : un doublon négatif qui ferait passer l'article conservé sous 0 est refusé ; couvert, accepté", async () => {
     const a = await article("Crème", 2);
     const b = await article("Creme", -5);
-    expect(erreurDe(await fusionnerArticles([a, b], a))).toContain("Crème : 2 kg disponibles, 5 kg à retirer (stock négatif du doublon)");
+    expect(erreurDe(await fusionnerArticles([a, b], a))).toContain("Crème : 2 kg disponibles, 5 kg à retirer (stock négatif des doublons)");
     expect(await prisma.articleStock.count()).toBe(2);
     await prisma.stock.update({ where: { articleId: b }, data: { quantite: -2 } });
     expect(erreurDe(await fusionnerArticles([a, b], a))).toBeNull();

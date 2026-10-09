@@ -113,11 +113,12 @@ export const appliquerMouvementsAction = actionLisible(
 );
 
 /** Annule un import (supprime les créations, restaure les mises à jour). */
-export const annulerImportAction = actionLisible(async (batchId: string): Promise<void> => {
+export const annulerImportAction = actionLisible(async (batchId: string): Promise<{ stocksLaisses: string[] }> => {
   const user = await gardeDirection();
-  await annulerImport(batchId, user.id);
+  const r = await annulerImport(batchId, user.id);
   revalidatePath("/stock/imports");
   revalidatePath("/stock/catalogue", "layout");
+  return r; // stocks dont la valeur d'avant était négative : laissés tels quels, nommés
 });
 
 const listeIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);

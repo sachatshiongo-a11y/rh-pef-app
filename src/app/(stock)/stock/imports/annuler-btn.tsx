@@ -12,7 +12,10 @@ export function BoutonAnnulerImport({ batchId, libelle }: { batchId: string; lib
     setErreur(null);
     start(async () => {
       const r = await annulerImportAction(batchId);
-      if (estErreur(r)) setErreur(r.erreur);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      // Un stock ne passe jamais sous 0 : une valeur d'avant négative n'est pas réécrite, l'article est nommé.
+      // Le bouton disparaît avec l'import annulé : le compte rendu s'affiche en boîte de dialogue (et reste au journal).
+      if (r?.stocksLaisses?.length) window.alert(`Import annulé. Stock laissé tel quel (valeur d'avant négative, jamais réécrite) : ${r.stocksLaisses.join(" ; ")}.`);
     });
   };
   return (

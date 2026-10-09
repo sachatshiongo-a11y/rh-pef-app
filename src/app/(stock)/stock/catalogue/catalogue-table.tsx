@@ -401,7 +401,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => { setAjout((v) => !v); setPlus(false); }} className="min-h-11 rounded-md border bg-background px-3 font-medium hover:bg-accent">{ajout ? "Fermer l'ajout" : "+ Ajouter un article"}</button>
+            <button type="button" onClick={() => { setAjout((v) => !v); setDoublon(null); setPlus(false); }} className="min-h-11 rounded-md border bg-background px-3 font-medium hover:bg-accent">{ajout ? "Fermer l'ajout" : "+ Ajouter un article"}</button>
             {actionsPlus}
           </div>
         </div>
@@ -515,7 +515,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       })()}
 
       <div className="flex items-center justify-between max-lg:hidden">
-        <button onClick={() => setAjout((v) => !v)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
+        <button onClick={() => { setAjout((v) => !v); setDoublon(null); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
       </div>
 
       {ajout && (

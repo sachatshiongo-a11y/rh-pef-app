@@ -47,6 +47,8 @@ export function ImportInventaireClient() {
 
   const sansMatch = preview?.articles.filter((a) => a.match === "aucun") ?? [];
   const parNom = preview?.articles.filter((a) => a.match === "nom") ?? [];
+  // Un stock ne passe jamais sous 0 (2026-10-09) : un stock final négatif au classeur est refusé — dit dès l'aperçu, tous nommés.
+  const negatifs = preview?.articles.filter((a) => a.stockFinal < 0) ?? [];
   const aDecider = sansMatch.filter((a) => a.proches?.length);
   const nonDecides = aDecider.filter((a) => { const c = choix[cleArticleImport(a)]; return !(c && (c === "CREER" ? a.creationPossible : a.proches!.some((p) => p.id === c))); });
 
@@ -95,6 +97,13 @@ export function ImportInventaireClient() {
               <ListePaginee items={sansMatch} libelle="articles" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code})</li>} />
             </details>
           )}
+          {negatifs.length > 0 && (
+            <div role="alert" data-stocks-negatifs className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+              <p className="font-medium">{negatifs.length} article(s) ont un stock final négatif dans le classeur : un stock ne passe jamais sous 0, l&apos;import sera refusé. Corrigez le classeur (stock initial, entrées, sorties) puis analysez-le à nouveau.</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">{negatifs.slice(0, 30).map((a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code}) : {String(a.stockFinal).replace(".", ",")}{a.unite ? ` ${a.unite}` : ""}</li>)}</ul>
+              {negatifs.length > 30 && <p className="text-xs">… et {negatifs.length - 30} autre(s).</p>}
+            </div>
+          )}
           {aDecider.length > 0 && (
             <div data-doublons-import className="space-y-2 rounded-md border border-amber-400 bg-amber-50/60 p-2 text-sm">
               <p className="font-medium text-amber-900">{aDecider.length} article(s) à créer ressemblent à un article du catalogue : choisissez pour chacun avant d&apos;appliquer.</p>
@@ -120,7 +129,7 @@ export function ImportInventaireClient() {
           )}
 
           <div className="flex items-center gap-2 pt-1">
-            <button type="button" onClick={appliquer} disabled={isPending || nonDecides.length > 0} title={nonDecides.length > 0 ? `${nonDecides.length} article(s) à décider` : undefined} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
+            <button type="button" onClick={appliquer} disabled={isPending || nonDecides.length > 0 || negatifs.length > 0} title={negatifs.length > 0 ? `${negatifs.length} stock(s) final(aux) négatif(s)` : nonDecides.length > 0 ? `${nonDecides.length} article(s) à décider` : undefined} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
             <button type="button" onClick={() => setPreview(null)} className="text-sm text-muted-foreground underline">Annuler</button>
           </div>
         </div>

@@ -153,7 +153,11 @@ export function etatLigneAValider(l: { theorique: string; physique: string }, ac
   const explique = depuis.entrees.minus(depuis.sorties);
   if (!actuel.minus(t).equals(explique)) return { etat: "conflit", actuel, raison: `le stock a changé sans mouvement qui l'explique (compté sur ${t.toString().replace(".", ",")}, aujourd'hui ${actuel.toString().replace(".", ",")})` };
   if (actuel.equals(t)) return { etat: "inchange", actuel, final: new Decimal(l.physique) };
-  return { etat: "mouvemente", actuel, final: actuel.plus(ecart), entrees: depuis.entrees, sorties: depuis.sorties };
+  const final = actuel.plus(ecart);
+  // Un stock ne passe jamais sous 0 (2026-10-09) : l'écart reporté sur le stock d'aujourd'hui ne peut
+  // pas le rendre négatif — la ligne est à recompter, jamais posée sous 0.
+  if (final.isNegative() && !final.isZero()) return { etat: "conflit", actuel, raison: `l'écart reporté sur le stock d'aujourd'hui le ferait passer sous 0 (${final.toString().replace(".", ",")})` };
+  return { etat: "mouvemente", actuel, final, entrees: depuis.entrees, sorties: depuis.sorties };
 }
 
 /** Mouvements enregistrés APRÈS l'instant `depuis` sur ces articles, agrégés par article. */
