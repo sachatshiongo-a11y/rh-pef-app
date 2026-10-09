@@ -255,7 +255,18 @@ textarea,
 .overflow-y-auto,
 .overflow-auto {
   -webkit-overflow-scrolling: touch;
+}
+.overflow-y-auto,
+.overflow-auto {
   overscroll-behavior: contain;
+}
+/* Un défileur HORIZONTAL (tableau large) ne retient que l'axe X : le geste « page précédente » du
+   trackpad ne part pas quand on arrive au bout du tableau. L'axe Y reste libre — `overflow-x: auto`
+   fait de la boîte un défileur vertical sans rien à défiler, et un `contain` sur Y y emprisonnerait la
+   molette : au-dessus du tableau, la page ne défilerait plus (mesuré sous Chrome, cf.
+   molette.garde-fou.test.ts). */
+.overflow-x-auto {
+  overscroll-behavior-x: contain;
 }
 
 /* Masque la scrollbar horizontale des tableaux (on balaie au doigt) — rendu plus net. */
