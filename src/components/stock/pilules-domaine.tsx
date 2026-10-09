@@ -21,16 +21,20 @@ export const lireDomaine = (v: string | null | undefined): DomaineCle | "" =>
  * le bouton ; il reçoit la classe commune et le contenu. `comptes` (facultatif) ajoute le nombre d'articles
  * de chaque domaine, la clé « » valant pour « Tous ».
  */
-export function PilulesDomaine({ actif, comptes, pilule }: {
+export function PilulesDomaine({ actif, comptes, pilule, className = "" }: {
   actif: DomaineCle | "";
   comptes?: Partial<Record<DomaineCle | "TOUS", number>>;
   pilule: (d: { cle: DomaineCle | ""; label: string }, p: { className: string; children: ReactNode }) => ReactNode;
+  className?: string;
 }) {
   return (
-    <div role="group" aria-label="Domaine" data-pilules-domaine="" className="flex overflow-hidden rounded-md border text-sm">
+    <div role="group" aria-label="Domaine" data-pilules-domaine="" className={`flex overflow-hidden rounded-md border text-sm ${className}`}>
       {DOMAINES_PILULES.map((d) => {
         const n = comptes?.[d.cle || "TOUS"];
-        const contenu = <>{d.label}{n !== undefined && <span className="ml-1 text-xs tabular-nums opacity-70">{n.toLocaleString("fr-FR")}</span>}</>;
+        // Avec un compteur : sous le nom sur téléphone (quatre pilules + chiffres ne tiennent pas sur une ligne), à côté dès `sm`.
+        const contenu = n === undefined ? d.label : (
+          <span className="flex flex-col items-center leading-tight sm:flex-row sm:gap-1">{d.label}<span className="text-xs tabular-nums opacity-70">{n.toLocaleString("fr-FR")}</span></span>
+        );
         return d.cle === actif ? (
           <span key={d.label} aria-current="true" className="bg-primary px-2.5 py-1.5 font-medium text-primary-foreground lg:px-3">{contenu}</span>
         ) : (

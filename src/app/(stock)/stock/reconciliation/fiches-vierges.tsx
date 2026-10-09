@@ -26,13 +26,14 @@ export function FichesVierges({ nombres }: { nombres: Record<DomaineFiche, numbe
     <section aria-labelledby="titre-fiches-vierges" data-fiches-vierges="" className="rounded-xl border bg-card p-3 sm:p-4">
       <h2 id="titre-fiches-vierges" className="text-base font-semibold">Imprimer une fiche de comptage vierge</h2>
       <p className="mt-0.5 text-sm text-muted-foreground">
-        Un classeur Excel par domaine, articles groupés par catégorie, avec les colonnes Physique et Écart à remplir à la main.
+        Un classeur Excel par domaine, colonnes Physique et Écart à remplir à la main.
       </p>
-      <ul className="mt-3 grid gap-2 sm:grid-cols-3">
+      {/* Trois cartes côte à côte, même sur téléphone (empilées elles repoussaient le tableau hors de l'écran). */}
+      <ul className="mt-3 grid grid-cols-3 gap-2">
         {FICHES_VIERGES.map((f) => (
-          <li key={f.domaine} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3">
+          <li key={f.domaine} className="flex flex-col justify-between gap-2 rounded-lg border bg-background p-2.5 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
             <div className="min-w-0">
-              <p className="font-medium">Fiche {f.label}</p>
+              <p className="truncate font-medium"><span className="max-sm:hidden">Fiche </span>{f.label}</p>
               <p className="text-xs tabular-nums text-muted-foreground">{articlesDe(nombres[f.domaine])}</p>
             </div>
             <TelechargerLien

@@ -94,7 +94,7 @@ describe("FormData du comptage", () => {
   });
 
   it("le domaine choisi part dans le champ caché `domaine`", () => {
-    monter({ domaine: "BOISSON", articles: ARTICLES.filter((a) => a.domaine === "BOISSON") });
-    expect(champs()).toMatchObject({ ids: ["a3"], domaine: "BOISSON" });
+    monter({ domaineInit: "BOISSON" });
+    expect(champs()).toMatchObject({ domaine: "BOISSON" });
   });
 });

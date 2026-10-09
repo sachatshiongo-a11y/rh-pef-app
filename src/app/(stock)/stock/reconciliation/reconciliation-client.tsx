@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { appliquerComptage } from "./actions";
@@ -9,12 +9,13 @@ import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
 import { Pagination, usePagination } from "@/components/pagination";
-import { tranche, type ParPage } from "@/lib/pagination";
+import { PARAM_PAGE, tranche, type ParPage } from "@/lib/pagination";
+import { norm } from "@/lib/filtre-inventaire";
+import { PilulesDomaine, type DomaineCle } from "@/components/stock/pilules-domaine";
 
-type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number };
+type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number; domaine?: string };
 type TriCol = "code" | "designation" | "categorie" | "theorique";
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 const valeurTri = (a: Art, col: TriCol): string | number =>
   col === "code" ? (a.code && Number.isFinite(Number(a.code)) ? Number(a.code) : a.code ? Number.MAX_SAFE_INTEGER : Number.POSITIVE_INFINITY) :
@@ -39,10 +40,13 @@ function ThTri({ col, tri, onTri, align, className, children }: {
 // Ligne mémoïsée à état propre : une frappe ne re-rend rien, valider une case ne re-rend que sa
 // ligne. Une ligne écartée par la recherche ou par la PAGE (50 / 100 / Tout, 2026-10-08) est MASQUÉE
 // (attribut hidden), pas démontée : le comptage déjà tapé n'est plus perdu, et il part avec le formulaire.
-// Changer de page ne perd donc rien, et un seul « Appliquer le comptage » envoie les quantités de toutes les pages.
-const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a: Art; montrerCat: boolean; cache: boolean }) {
+// Changer de page ou de DOMAINE (pilules Tous / Nourriture / Boissons / Autre, 2026-10-09) ne perd donc rien,
+// et un seul « Appliquer le comptage » envoie les quantités de toutes les pages et de tous les domaines.
+const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache, onSaisie }: { a: Art; montrerCat: boolean; cache: boolean; onSaisie: (id: string, saisi: boolean) => void }) {
   const [num, setNum] = useState<number | null>(null);
   const [expl, setExpl] = useState("");
+  // Le parent compte les quantités tapées (barre du bas) : elles survivent à un changement de domaine ou de page.
+  useEffect(() => { onSaisie(a.id, num !== null); }, [a.id, num, onSaisie]);
   const ecart = num !== null ? num - a.theorique : null;
   const pct = ecart === null ? null : a.theorique !== 0 ? (ecart / Math.abs(a.theorique)) * 100 : ecart !== 0 ? 100 : 0;
   const horsTol = ecart !== null && Math.abs(ecart) > 0.0001 && (a.theorique === 0 ? num !== 0 : Math.abs(pct!) > SEUIL_TOLERANCE_PCT);
@@ -73,29 +77,59 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a:
   );
 });
 
-export function ReconciliationForm({ articles, domaine, estDirection = false, pageInit = 1, parInit = 50 }: { articles: Art[]; domaine?: string; estDirection?: boolean; pageInit?: number; parInit?: ParPage }) {
+export function ReconciliationForm({ articles, domaineInit = "", estDirection = false, pageInit = 1, parInit = 50 }: { articles: Art[]; domaineInit?: DomaineCle | ""; estDirection?: boolean; pageInit?: number; parInit?: ParPage }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [cle, setCle] = useState(0);
   const [q, setQ] = useState("");
+  const [domaine, setDomaine] = useState<DomaineCle | "">(domaineInit);
   const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null);
-  const reinitialiser = () => { setMsg(null); setCle((c) => c + 1); };
-  const trierPar = (col: TriCol) => setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
+  // Articles dont une quantité est tapée (toutes pages, tous domaines) : la barre du bas les compte.
+  const [saisis, setSaisis] = useState<ReadonlySet<string>>(new Set());
+  const domaineDe = useMemo(() => new Map(articles.map((a) => [a.id, a.domaine ?? ""])), [articles]);
+  const auSaisi = useCallback((id: string, saisi: boolean) => setSaisis((prev) => {
+    if (prev.has(id) === saisi) return prev;
+    const suivant = new Set(prev);
+    if (saisi) suivant.add(id); else suivant.delete(id);
+    return suivant;
+  }), []);
+  const nbSaisis = saisis.size;
+  const nbSaisisHorsDomaine = domaine ? [...saisis].filter((id) => domaineDe.get(id) !== domaine).length : 0;
+  const viderSaisis = () => setSaisis(new Set());
 
+  const reinitialiser = () => { setMsg(null); viderSaisis(); setCle((c) => c + 1); };
+  const trierPar = (col: TriCol) => setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
+  // Changer de domaine ne recharge rien : on masque les lignes des autres domaines (le comptage tapé reste) et on
+  // réécrit `?domaine=` dans l'adresse affichée ; la page repart à 1 (usePagination, via `cleFiltre`).
+  const choisirDomaine = (d: DomaineCle | "") => {
+    setDomaine(d);
+    const u = new URL(window.location.href);
+    if (d) u.searchParams.set("domaine", d); else u.searchParams.delete("domaine");
+    u.searchParams.delete(PARAM_PAGE);
+    window.history.replaceState(null, "", `${u.pathname}${u.searchParams.size ? `?${u.searchParams}` : ""}${u.hash}`);
+  };
+
+  const comptes = useMemo(() => ({
+    TOUS: articles.length,
+    NOURRITURE: articles.filter((a) => a.domaine === "NOURRITURE").length,
+    BOISSON: articles.filter((a) => a.domaine === "BOISSON").length,
+    AUTRE: articles.filter((a) => a.domaine === "AUTRE").length,
+  }), [articles]);
+  const dansDomaine = useMemo(() => (domaine ? articles.filter((a) => a.domaine === domaine) : articles), [articles, domaine]);
   const visibles = useMemo(() => {
     const nq = norm(q.trim());
-    return nq ? articles.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : articles;
-  }, [articles, q]);
+    return nq ? dansDomaine.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : dansDomaine;
+  }, [dansDomaine, q]);
   const idsVisibles = useMemo(() => new Set(visibles.map((a) => a.id)), [visibles]);
-  // TOUTES les lignes restent montées (triées) ; la recherche ne fait que masquer.
+  // TOUTES les lignes (tous domaines) restent montées (triées) ; le domaine, la recherche et la page ne font que masquer.
   const ordonnees = useMemo(() => {
     if (!tri) return articles;
     return [...articles].sort((a, b) => { const x = valeurTri(a, tri.col), y = valeurTri(b, tri.col); return (x < y ? -1 : x > y ? 1 : 0) * tri.dir; });
   }, [articles, tri]);
-  // Pagination : une tranche des lignes que la recherche laisse voir (dans l'ordre affiché). Le compteur,
-  // lui, parle de tout le filtre ; une autre recherche ou un autre tri ramène à la page 1.
+  // Pagination : une tranche des lignes que le domaine et la recherche laissent voir (dans l'ordre affiché). Le compteur,
+  // lui, parle de tout le filtre ; un autre domaine, une autre recherche ou un autre tri ramène à la page 1.
   const visiblesOrdonnees = useMemo(() => ordonnees.filter((a) => idsVisibles.has(a.id)), [ordonnees, idsVisibles]);
-  const pagination = usePagination({ total: visiblesOrdonnees.length, pageInit, parInit, cleFiltre: [q, tri?.col, tri?.dir].join("|") });
+  const pagination = usePagination({ total: visiblesOrdonnees.length, pageInit, parInit, cleFiltre: [domaine, q, tri?.col, tri?.dir].join("|") });
   const { debut, fin } = pagination;
   const idsPage = useMemo(() => new Set(tranche(visiblesOrdonnees, { debut, fin }).map((a) => a.id)), [visiblesOrdonnees, debut, fin]);
   // En-tête de catégorie devant la première ligne AFFICHÉE de chaque catégorie, et en tête de page (sans tri).
@@ -112,6 +146,11 @@ export function ReconciliationForm({ articles, domaine, estDirection = false, pa
 
   const submit = (fd: FormData) => {
     setMsg(null);
+    // Le champ `domaine` ne désigne la fiche archivée que si TOUT ce qui est compté appartient au domaine affiché :
+    // des quantités tapées dans un autre domaine le rendraient faux, on ne l'envoie alors pas (comme « Tous »).
+    const ids = fd.getAll("recon_articleId").map(String);
+    const phys = fd.getAll("recon_physique").map((v) => String(v).trim());
+    if (ids.some((id, i) => phys[i] !== "" && domaineDe.get(id) !== domaine)) fd.delete("domaine");
     startTransition(async () => {
       const r = await appliquerComptage(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
@@ -121,26 +160,23 @@ export function ReconciliationForm({ articles, domaine, estDirection = false, pa
           ? r.nbEcarts > 0 ? "Comptage appliqué : le stock a été ajusté au réel." : "Comptage archivé : aucun écart, le stock était juste."
           : `Comptage envoyé à la Direction (${r.nbEcarts} écart${r.nbEcarts > 1 ? "s" : ""}) : le stock sera ajusté quand elle l'aura validé.`,
       });
+      viderSaisis();
       setCle((c) => c + 1);
     });
   };
+  const libelleEnvoi = estDirection ? "Appliquer le comptage" : "Soumettre le comptage";
 
   return (
     <form key={cle} action={submit} className="space-y-3">
-      {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
       {domaine && <input type="hidden" name="domaine" value={domaine} />}
 
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} w-full sm:w-auto sm:min-w-64 sm:flex-1`} />
-        <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
-        <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
-          {isPending ? "Application…" : estDirection ? "Appliquer le comptage" : "Soumettre le comptage"}
-        </button>
-      </div>
+      <PilulesDomaine className="w-fit max-w-full" actif={domaine} comptes={comptes} pilule={(d, p) => (
+        <button type="button" onClick={() => choisirDomaine(d.cle)} className={p.className}>{p.children}</button>
+      )} />
 
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article (code, nom, catégorie)…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-        <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise</span>
+        <span className="text-xs text-muted-foreground">{visibles.length} / {dansDomaine.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise</span>
       </div>
 
       <ZoneTableur>
@@ -162,7 +198,7 @@ export function ReconciliationForm({ articles, domaine, estDirection = false, pa
                 {enTete && (
                   <tr><td colSpan={6} className="!bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{a.categorie} ({visibles.filter((x) => x.categorie === a.categorie).length})</td></tr>
                 )}
-                <LigneComptage a={a} montrerCat={!!tri} cache={cache} />
+                <LigneComptage a={a} montrerCat={!!tri} cache={cache} onSaisie={auSaisi} />
               </Fragment>
             ))}
             {visibles.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
@@ -171,7 +207,24 @@ export function ReconciliationForm({ articles, domaine, estDirection = false, pa
       </div>
       </ZoneTableur>
       <Pagination total={visiblesOrdonnees.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="articles" />
-      {pagination.nbPages > 1 && <p data-pagination-note="" className="text-xs text-muted-foreground">Les quantités tapées sur toutes les pages sont conservées et envoyées ensemble par « {estDirection ? "Appliquer le comptage" : "Soumettre le comptage"} ».</p>}
+      {pagination.nbPages > 1 && <p data-pagination-note="" className="text-xs text-muted-foreground">Les quantités tapées sur toutes les pages sont conservées et envoyées ensemble par « {libelleEnvoi} ».</p>}
+
+      {/* Barre du bas : collée au bas de la zone qui défile (la coquille réserve la place de la barre de navigation),
+          donc visible pendant toute la saisie. Pas de backdrop-filter ni de fond translucide (piège PWA iOS). */}
+      <div data-barre-comptage="" className="sticky bottom-0 z-20 -mx-4 space-y-2 border-t bg-background px-4 pb-2 pt-2 lg:-mx-8 lg:px-8">
+        {msg && <p role="status" className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} min-w-0 basis-full sm:basis-auto sm:min-w-64 sm:flex-1`} />
+          <p data-compte-saisis="" aria-live="polite" className="min-w-0 flex-1 text-xs text-muted-foreground sm:flex-none">
+            <span className="font-medium tabular-nums text-foreground">{nbSaisis}</span> compté{nbSaisis > 1 ? "s" : ""}
+            {nbSaisisHorsDomaine > 0 && <> (dont {nbSaisisHorsDomaine} hors du domaine affiché)</>}
+          </p>
+          <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
+          <button disabled={isPending} className="min-h-11 rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50 lg:min-h-0">
+            {isPending ? "Application…" : libelleEnvoi}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
