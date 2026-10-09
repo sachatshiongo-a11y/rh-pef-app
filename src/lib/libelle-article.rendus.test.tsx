@@ -54,18 +54,16 @@ describe("Inventaire", () => {
   const base = { code: null, nomCourt: null, surFicheCommande: false, domaine: "BOISSON" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null, quantite: "5", stockMinimum: "1", niveau: "OK" as const, unite: "Bouteille" };
   const monterInventaire = () => monter(h(CatalogueTable, { articles: [{ ...base, ...VODKA }, { ...base, ...CAMPARI }, { ...base, ...COINTREAU }], categories: [{ id: "c1", nom: "Spiritueux", domaine: "BOISSON" }], fournisseurs: [] }));
 
-  it("le nom se modifie tel qu'il est enregistré ; la contenance ajoutée s'affiche à côté, seulement quand elle manque", () => {
+  it("le tableau nomme l'article par son libellé (contenance comprise), en lien vers sa fiche", () => {
     monterInventaire();
-    const ligne = (nom: string) => [...conteneur.querySelectorAll("table tr")].find((tr) => [...tr.querySelectorAll("input")].some((i) => i.value === nom))!;
-    expect(ligne("Absolut Vodka").querySelector("[data-complement-contenance]")?.textContent).toBe("75 cl");
-    expect(ligne("Campari-1L").querySelector("[data-complement-contenance]")).toBeNull();
-    expect(ligne("Cointreau-70cl").querySelector("[data-complement-contenance]")).toBeNull();
+    const liens = [...conteneur.querySelectorAll('table tbody a[href^="/stock/catalogue/"]')].map((a) => [a.getAttribute("href"), a.textContent]);
+    expect(liens).toEqual([["/stock/catalogue/vodka", "Absolut Vodka 75 cl"], ["/stock/catalogue/campari", "Campari-1L"], ["/stock/catalogue/cointreau", "Cointreau-70cl"]]);
   });
 
-  it("la carte du téléphone titre l'article par son libellé", () => {
+  it("la carte du téléphone titre l'article par son libellé, en lien vers sa fiche", () => {
     monterInventaire();
-    const titres = [...conteneur.querySelectorAll("[data-article] button span.block.truncate")].map((s) => s.textContent);
-    expect(titres).toEqual(["Absolut Vodka 75 cl", "Campari-1L", "Cointreau-70cl"]);
+    const titres = [...conteneur.querySelectorAll('[data-article] a[href^="/stock/catalogue/"]:not([aria-label])')].map((a) => [a.getAttribute("href"), a.textContent]);
+    expect(titres).toEqual([["/stock/catalogue/vodka", "Absolut Vodka 75 cl"], ["/stock/catalogue/campari", "Campari-1L"], ["/stock/catalogue/cointreau", "Cointreau-70cl"]]);
   });
 });
 

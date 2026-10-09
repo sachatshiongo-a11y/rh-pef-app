@@ -2,7 +2,8 @@
 //
 // Inventaire sur téléphone (demande de la Direction, 2026-09-29) : chaque article est UNE rangée
 // compacte où le stock (quantité + unité) saute aux yeux, colorée selon le niveau d'alerte ; un appui
-// déplie les champs éditables (même enregistrement qu'avant). L'ordinateur garde son tableau.
+// déplie les détails. Depuis le 2026-10-09 l'Inventaire est en LECTURE : le nom mène à la fiche article,
+// le fournisseur à sa fiche, et rien ne s'y modifie en ligne (tout se modifie depuis la fiche).
 // Ce que ces tests ne voient pas : les hauteurs réelles et le débordement à 375 px (vérifiés à l'œil).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement as h } from "react";
@@ -10,9 +11,8 @@ import { createRoot, type Root } from "react-dom/client";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const modifierArticle = vi.fn(async (..._a: unknown[]) => ({}));
 vi.mock("./actions", () => ({
-  creerArticle: vi.fn(), modifierArticle: (...a: unknown[]) => modifierArticle(...a), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
+  creerArticle: vi.fn(), modifierArticle: vi.fn(), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
   basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
@@ -32,7 +32,6 @@ const ARTICLES: ArticleRow[] = [
 let conteneur: HTMLDivElement;
 let racine: Root;
 beforeEach(() => {
-  modifierArticle.mockClear();
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -100,20 +99,32 @@ describe("rangée compacte — le stock en évidence", () => {
   });
 });
 
-describe("dépliage des champs éditables", () => {
+describe("dépliage des détails (lecture seule)", () => {
   it("replié : aucun champ de saisie dans la rangée", () => {
     expect(rangee("bas").querySelector("input:not([type=checkbox])")).toBeNull();
     expect(bouton("bas").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("un appui déplie les champs, un second les replie", () => {
+  it("un appui déplie les détails en texte simple, un second les replie", () => {
     clic(bouton("bas"));
     expect(bouton("bas").getAttribute("aria-expanded")).toBe("true");
-    expect(rangee("bas").querySelector('[aria-label="Stock minimum — Farine"]')).not.toBeNull();
-    expect(rangee("bas").querySelector('[aria-label="Nom court — Farine"]')).not.toBeNull();
-    expect(rangee("bas").querySelector('a[href="/stock/catalogue/bas"]')).not.toBeNull();
+    const details = rangee("bas").querySelector<HTMLElement>("dl")!;
+    expect(details.textContent).toContain("Farine T55"); // nom court
+    expect(details.textContent).toContain("Farines"); // catégorie
+    expect(rangee("bas").querySelector("input:not([type=checkbox]), select, textarea")).toBeNull();
+    expect(rangee("bas").querySelector('a[aria-label="Fiche article — Farine"][href="/stock/catalogue/bas"]')).not.toBeNull();
     clic(bouton("bas"));
-    expect(rangee("bas").querySelector('[aria-label="Stock minimum — Farine"]')).toBeNull();
+    expect(rangee("bas").querySelector("dl")).toBeNull();
+  });
+
+  it("une valeur absente s'affiche « — », jamais 0 (code, nom court, fournisseur, unités par carton, seuil)", () => {
+    clic(bouton("inconnu"));
+    const valeurs = [...rangee("inconnu").querySelectorAll("dd")].map((d) => d.textContent);
+    expect(valeurs.slice(0, 2)).toEqual(["—", "—"]); // code, nom court
+    expect(valeurs[3]).toBe("—"); // fournisseur
+    expect(valeurs[4]).toBe("—"); // unité
+    expect(valeurs[5]).toBe("—"); // stock min. 0 = pas de seuil
+    expect(valeurs[7]).toBe("—"); // unités par carton
   });
 
   it("un seul article déplié à la fois", () => {
@@ -121,24 +132,6 @@ describe("dépliage des champs éditables", () => {
     clic(bouton("ok"));
     expect(mobile().querySelectorAll('[aria-expanded="true"]').length).toBe(1);
     expect(bouton("ok").getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("enregistre comme avant : au blur, modifierArticle(id, FormData) avec le champ modifié", async () => {
-    clic(bouton("bas"));
-    const champ = rangee("bas").querySelector<HTMLInputElement>('[aria-label="Nom court — Farine"]')!;
-    champ.value = "Farine 25 Kg";
-    await act(async () => { champ.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
-    expect(modifierArticle).toHaveBeenCalledTimes(1);
-    const [id, fd] = modifierArticle.mock.calls[0] as [string, FormData];
-    expect(id).toBe("bas");
-    expect(fd.get("nomCourt")).toBe("Farine 25 Kg");
-  });
-
-  it("n'enregistre rien si la valeur n'a pas changé", async () => {
-    clic(bouton("bas"));
-    const champ = rangee("bas").querySelector<HTMLInputElement>('[aria-label="Nom court — Farine"]')!;
-    await act(async () => { champ.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
-    expect(modifierArticle).not.toHaveBeenCalled();
   });
 });
 
@@ -164,15 +157,72 @@ describe("tri sur téléphone", () => {
   });
 });
 
-describe("ordinateur inchangé", () => {
-  it("le tableau est rendu par LigneArticle : une ligne par article, avec ses champs, masqué sur téléphone", () => {
-    const bloc = conteneur.querySelector("table")!.parentElement!;
-    expect(bloc.className).toMatch(/hidden.*lg:block/);
+describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", () => {
+  const bloc = () => conteneur.querySelector("table")!.parentElement!;
+  const lignes = () => [...bloc().querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('input[type="checkbox"]'));
+
+  it("une ligne par article, masquée sur téléphone, avec sa case d'action groupée", () => {
+    expect(bloc().className).toMatch(/hidden.*lg:block/);
     expect(mobile().className).toContain("lg:hidden");
-    const lignes = [...bloc.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('input[type="checkbox"]'));
-    expect(lignes.length).toBe(ARTICLES.length);
-    expect(lignes[0].querySelector('[title="Code article"]')).not.toBeNull();
-    expect(lignes[0].querySelector('[aria-label="Stock minimum — Riz"]')).not.toBeNull();
+    expect(lignes().length).toBe(ARTICLES.length);
+  });
+
+  it("aucun champ modifiable dans le tableau : seules les cases à cocher sont des champs", () => {
+    expect(bloc().querySelectorAll('input:not([type="checkbox"]), select, textarea')).toHaveLength(0);
+    expect(bloc().querySelector("[contenteditable]")).toBeNull();
+  });
+
+  it("la désignation est un lien vers la fiche article, affichée avec sa contenance", () => {
+    const lien = lignes()[1].querySelector<HTMLAnchorElement>('a[href="/stock/catalogue/bas"]')!;
+    expect(lien.textContent).toBe("Farine");
+    expect(lien.className).toContain("text-primary");
+    expect(lien.className).toContain("hover:underline");
+    expect(lignes().every((tr, i) => tr.querySelector(`a[href="/stock/catalogue/${ARTICLES[i].id}"]`))).toBe(true);
+  });
+
+  it("valeurs en texte : nom court, catégorie, unité ; « — » pour une absence, jamais 0", () => {
+    const cellules = (i: number) => [...lignes()[i].querySelectorAll("td")].map((td) => td.textContent);
+    // case, code, désignation, nom court, stock, alerte, min, catégorie, fournisseur, unité, valeur, prix, par carton
+    const farine = cellules(1);
+    expect(farine[3]).toBe("Farine T55");
+    expect(farine[4]).toBe("4,83");
+    expect(farine[6]).toBe("5");
+    expect(farine[7]).toBe("Farines");
+    expect(farine[9]).toBe("Kg");
+    const amidon = cellules(4);
+    expect(amidon[1]).toBe("—"); // code
+    expect(amidon[3]).toBe("—"); // nom court
+    expect(amidon[6]).toBe("—"); // seuil 0 = sans seuil
+    expect(amidon[8]).toBe("—"); // fournisseur
+    expect(amidon[9]).toBe("—"); // unité
+    expect(amidon[12]).toBe("—"); // par carton
+  });
+
+  it("nombres alignés à droite (stock, min, valeur, prix, par carton)", () => {
+    const tds = [...lignes()[0].querySelectorAll("td")];
+    for (const i of [4, 6, 10, 11, 12]) expect(tds[i].className, `colonne ${i}`).toContain("text-right");
+  });
+
+  it("le prix s'affiche dans sa devise de saisie, l'autre devise en petit dessous", () => {
+    act(() => racine.render(h(CatalogueTable, { articles: [
+      { ...base, id: "usd", designation: "Riz", unite: "Kg", quantite: "1", stockMinimum: "1", niveau: "OK", prix: "2.5", prixAutre: "≈ 7 000 FC" },
+      { ...base, id: "fc", designation: "Sel", unite: "Kg", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null, devisePrix: "CDF", prixCDF: "7000", prixAutre: "≈ 2,50 $" },
+      { ...base, id: "rien", designation: "Eau", unite: "L", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null },
+    ], categories: [], fournisseurs: [] })));
+    const prix = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[11];
+    expect(prix("usd").firstChild!.textContent).toBe("2,50 $");
+    expect(prix("usd").querySelector("span")!.textContent).toBe("≈ 7 000 FC");
+    expect(prix("fc").firstChild!.textContent).toBe("7 000 FC");
+    expect(prix("fc").querySelector("span")!.textContent).toBe("≈ 2,50 $");
+    expect(prix("rien").textContent).toBe("—");
+  });
+
+  it("le total « Valeur totale du stock filtré » est toujours là", () => {
+    expect(bloc().querySelector("tfoot")!.textContent).toContain("Valeur totale du stock filtré");
+  });
+
+  it("le nom mène à la fiche aussi sur la rangée du téléphone", () => {
+    expect(rangee("bas").querySelector('a[href="/stock/catalogue/bas"]')!.textContent).toBe("Farine");
   });
 });
 

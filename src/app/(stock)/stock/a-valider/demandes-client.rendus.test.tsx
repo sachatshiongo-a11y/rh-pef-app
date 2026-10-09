@@ -141,29 +141,26 @@ describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valide
   });
 });
 
-describe("Inventaire hors Direction : en lecture, modifications proposées", () => {
+describe("Inventaire : en lecture pour tous, modifications depuis la fiche", () => {
   const art = { id: "a1", code: "137", designation: "Riz", nomCourt: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, unite: "Kg", prix: "2", uniteParCarton: null, quantite: "10", stockMinimum: "1", niveau: "OK" as const, haussePct: null, propositionEnAttente: true };
   const props = { articles: [art], categories: [{ id: "c1", nom: "Épicerie", domaine: "NOURRITURE" }], fournisseurs: [] };
   const ligne = () => conteneur.querySelector("tbody tr:not(:first-child)") ?? conteneur.querySelectorAll("tbody tr")[1];
 
-  it("responsable : cases en lecture seule, listes désactivées, pastille « proposition en attente », pas de fusion", () => {
+  it("responsable : aucune case de saisie dans la ligne, pastille « proposition en attente », avis vers la fiche, pas de fusion", () => {
     monter(h(CatalogueTable, { ...props, estDirection: false }));
     const tr = ligne()!;
-    const textes = [...tr.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')];
-    expect(textes.length).toBeGreaterThan(5);
-    // Cases texte en lecture seule ; la liste de recherche des fournisseurs (ChoixRecherche) désactivée.
-    expect(textes.every((i) => i.readOnly || i.disabled)).toBe(true);
-    expect(textes.some((i) => i.disabled)).toBe(true);
-    expect([...tr.querySelectorAll("select")].every((s) => s.disabled)).toBe(true);
+    expect(tr.querySelectorAll('input:not([type="checkbox"]), select, textarea')).toHaveLength(0);
+    expect(tr.querySelector('a[href="/stock/catalogue/a1"]')?.textContent).toBe("Riz");
     expect(tr.textContent).toContain("proposition en attente");
     expect(conteneur.textContent).toContain("validées par la Direction");
     expect(conteneur.querySelector('input[name="quantite"]')).toBeNull();
   });
 
-  it("Direction : cases modifiables (rien ne change pour elle)", () => {
+  it("Direction : le tableau est lui aussi en lecture (la modification passe par la fiche)", () => {
     monter(h(CatalogueTable, { ...props, estDirection: true }));
     const tr = ligne()!;
-    expect([...tr.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')].some((i) => i.readOnly || i.disabled)).toBe(false);
-    expect([...tr.querySelectorAll("select")].some((s) => s.disabled)).toBe(false);
+    expect(tr.querySelectorAll('input:not([type="checkbox"]), select, textarea')).toHaveLength(0);
+    expect(tr.querySelector('a[href="/stock/catalogue/a1"]')).not.toBeNull();
+    expect(conteneur.textContent).not.toContain("validées par la Direction");
   });
 });

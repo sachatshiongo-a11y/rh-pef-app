@@ -3,25 +3,20 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { creerArticle, modifierArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
+import { creerArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
-import { CelluleNombre } from "@/components/tableur/cellule-nombre";
-import { ZoneTableur } from "@/components/tableur/messages";
-import { ecrireSaisieNombre, lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { nombreDeBase } from "@/lib/saisie-nombre-stock";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { ChoixArticleProche, type CandidatProche } from "@/components/stock/choix-article-proche";
-import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
+import { optionsFournisseurs } from "@/lib/recherche-options";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
 import { articleDansFiltre, manqueDe, paramsFiltreInventaire, type ManqueKey } from "@/lib/filtre-inventaire";
-import { complementLibelle, libelleArticle } from "@/lib/libelle-article";
-
-/** Texte envoyé à `modifierArticle` (lu à la française par `decSaisiOptionnel`) : vide = effacer. Les
- *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
-const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
+import { libelleArticle } from "@/lib/libelle-article";
+import { formaterPrix } from "@/lib/prix-article";
 
 /**
  * Valeur du stock d'un article EN DOLLARS. Calculée par le serveur (`valeurUSD`, via
@@ -37,17 +32,22 @@ const approx = (rows: readonly ArticleRow[]) => (rows.some((a) => a.valeurApprox
 const horsSansTaux = (rows: readonly ArticleRow[]) => { const n = rows.filter((a) => a.devisePrix === "CDF" && a.prixCDF && a.valeurUSD === null).length; return n ? ` (hors ${n} article${n > 1 ? "s" : ""} en FC : taux non défini)` : ""; };
 /** Valeur d'UN article affichée : « — » sans prix (ou franc sans taux), « ≈ » pour un article en francs. */
 const texteValeur = (a: ArticleRow) => (a.valeurUSD === null ? "—" : `${a.valeurApprox ? "≈ " : ""}${usd(valeurStock(a))}`);
-/** Prix dans sa devise de saisie : le champ que la case modifie, la valeur et l'autre devise « ≈ ». */
-const prixDe = (a: ArticleRow) => a.devisePrix === "CDF"
-  ? { champ: "prixUnitaireCDF", valeur: nombreDeBase(a.prixCDF ?? null), symbole: "FC" }
-  : { champ: "prixUnitaireUSD", valeur: nombreDeBase(a.prix), symbole: "$" };
+/** Prix dans sa devise de saisie (la devise de saisie fait foi) : « 2,50 $ » ou « 7 000 FC » ; « — » sans prix (jamais 0 à sa place). */
+const prixTexte = (a: ArticleRow) => {
+  const n = nombreDeBase(a.devisePrix === "CDF" ? a.prixCDF ?? null : a.prix);
+  return n === null || n <= 0 ? "—" : formaterPrix(n, a.devisePrix === "CDF" ? "CDF" : "USD");
+};
+/** Texte d'une case en lecture : « — » quand elle est vide. */
+const texteOuTiret = (v: string | null | undefined) => (v && v.trim() ? v.trim() : "—");
+/** Nombre de la base (seuil, unités par carton) à la française ; « — » s'il est absent ou nul (0 = « pas de seuil », jamais affiché comme une valeur). */
+const nombreOuTiret = (v: string | null | undefined) => { const n = nombreDeBase(v); return n === null || n <= 0 ? "—" : formaterNombre(n, { maximumFractionDigits: 3 }); };
 
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
   code: string | null; // code article (repris du fichier d'inventaire)
   designation: string;
-  /** Contenance enregistrée (« 75 » + « cl ») : s'ajoute au nom AFFICHÉ (`libelleArticle`), jamais au champ modifiable. */
+  /** Contenance enregistrée (« 75 » + « cl ») : s'ajoute au nom AFFICHÉ (`libelleArticle`). */
   contenance?: string | null;
   contenanceUnite?: string | null;
   /** Nom court imprimé sur la fiche « Commande journalière ». */
@@ -78,14 +78,6 @@ export type ArticleRow = {
   /** Une proposition de modification attend la décision de la Direction (« Demandes à valider »). */
   propositionEnAttente?: boolean;
 };
-/**
- * Le nom se MODIFIE dans un champ qui garde la désignation brute (y écrire « 75 cl » la réécrirait en
- * base) : la contenance que le libellé affiché y ajoute se montre À CÔTÉ, en gris.
- */
-function ComplementContenance({ a }: { a: ArticleRow }) {
-  const c = complementLibelle(a);
-  return c ? <span data-complement-contenance className="shrink-0 whitespace-nowrap text-xs text-muted-foreground" title="Contenance de la fiche article, ajoutée au nom affiché">{c}</span> : null;
-}
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
 
@@ -120,9 +112,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
   pageInit?: number; parInit?: ParPage;
   /**
-   * Direction : les cases s'enregistrent tout de suite. Autre compte : l'Inventaire est en LECTURE
-   * (une modification se PROPOSE depuis la fiche article), et les actions groupées créent une
-   * proposition — règle de Sacha du 2026-09-30.
+   * L'Inventaire est en LECTURE pour tous (2026-10-09) : une modification se fait depuis la fiche article
+   * (Direction : enregistrée tout de suite ; autre compte : PROPOSÉE). Les actions groupées suivent la même
+   * règle : Direction = tout de suite, autre compte = une proposition (règle de Sacha du 2026-09-30).
    */
   estDirection?: boolean;
   /** Téléphone : boutons de l'en-tête de page (Exporter…) rangés dans le menu « Plus » du bloc du haut. */
@@ -164,6 +156,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
   const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
+  const fourPar = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f])), [fournisseurs]); // objet stable par fournisseur : les lignes mémoïsées ne se re-rendent pas pour rien
   // Une liste d'options pour TOUS les fournisseurs du tableau (lignes, cartes, action groupée, ajout) : on y cherche en tapant.
   const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
 
@@ -259,16 +252,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       }
     });
   };
-  // Stable (useCallback) : les lignes mémoïsées ne se re-rendent plus à chaque rendu du tableau.
-  // Renvoie le résultat : une case numérique affiche elle-même l'échec en rouge.
-  const save = useCallback(async (id: string, name: string, value: string) => {
-    const fd = new FormData(); fd.set(name, value);
-    const r = await modifierArticle(id, fd);
-    if (estErreur(r)) setErreur(r.erreur);
-    return r;
-  }, []);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  // Téléphone : un seul article déplié à la fois (ses champs éditables), un nouvel appui le replie.
+  // Téléphone : un seul article déplié à la fois (ses détails), un nouvel appui le replie.
   const [ouvert, setOuvert] = useState<string | null>(null);
   const basculerOuvert = useCallback((id: string) => setOuvert((o) => (o === id ? null : id)), []);
   // « Tout sélectionner » coche la PAGE affichée ; « Sélectionner les N du filtre » (barre d'actions) coche tout le filtre.
@@ -285,7 +270,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info} <Link href="/stock/a-valider" className="font-medium underline">Voir mes demandes</Link></p>}
       {!estDirection && (
         <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          Les modifications d&apos;articles sont validées par la Direction : ouvrez la fiche d&apos;un article (↗) pour en proposer une. Les actions groupées envoient, elles aussi, une proposition.
+          Les modifications d&apos;articles sont validées par la Direction : cliquez sur le nom d&apos;un article pour ouvrir sa fiche et en proposer une. Les actions groupées envoient, elles aussi, une proposition.
         </p>
       )}
 
@@ -569,9 +554,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           onCreer={() => run(async () => { const fd = doublon.fd; fd.set("creerQuandMeme", "1"); return creer(fd); })} />
       )}
 
-      <ZoneTableur>
-      {/* Mobile : une rangée compacte par article (stock en gros), groupée par catégorie ; un appui déplie les champs éditables. */}
-      <div data-tableur="" data-tableur-tab="natif" data-vue="rangees-mobile" className="space-y-1.5 lg:hidden">
+      {/* Mobile : une rangée compacte par article (stock en gros), groupée par catégorie ; le nom mène à la fiche, un appui sur le stock déplie les détails. */}
+      <div data-vue="rangees-mobile" className="space-y-1.5 lg:hidden">
         {page.map((a, i) => (
           <Fragment key={a.id}>
             {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
@@ -580,7 +564,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               </div>
             )}
             <CarteArticle
-              a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save} lectureSeule={!estDirection}
+              a={a} categorie={a.categorieId ? catNom.get(a.categorieId) ?? null : null} fournisseur={a.fournisseurId ? fourPar.get(a.fournisseurId) ?? null : null} selected={sel.has(a.id)} onToggle={toggle} lectureSeule={!estDirection}
               ouvert={ouvert === a.id} onOuvrir={basculerOuvert}
               categorieNom={tri && a.categorieId ? catNom.get(a.categorieId) ?? null : null}
             />
@@ -589,28 +573,27 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         {visibles.length === 0 && <EtatVide message="Aucun article." />}
       </div>
 
-      {/* Ordinateur — tableur : cellules éditables. Tableau « normal » : la page défile ; 13 colonnes ≥ 1085 px, donc défilement de côté seul (pas d'en-tête collant : un overflow-x le casse). */}
+      {/* Ordinateur — tableau en LECTURE (2026-10-09) : le nom mène à la fiche article et le fournisseur à sa fiche, où tout se modifie. Tableau « normal » : la page défile, défilement de côté seul si l'écran est étroit (pas d'en-tête collant : un overflow-x le casse). */}
       <div className="hidden overflow-x-auto rounded-lg border lg:block">
-        {/* Tableur : Entrée descend dans la colonne ; Tab reste celui du navigateur (champs texte et listes dans la ligne). */}
-        <table data-tableur="" data-tableur-tab="natif" className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
+        <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm">
           <thead className="bg-muted text-left shadow-sm">
-            <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
+            <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={pageToutCochee} ref={(el) => { if (el) el.indeterminate = !pageToutCochee && page.some((a) => sel.has(a.id)); }} onChange={(e) => toutSel(e.target.checked)} aria-label={`Tout sélectionner (${page.length} de cette page)`} title="Sélectionne les articles de cette page" /></th>
-              <ThTri col="code" tri={tri} onTri={trierPar} className="w-14">Code</ThTri>
+              <ThTri col="code" tri={tri} onTri={trierPar}>Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
-              <th className="w-40" title="Nom imprimé sur la fiche Commande journalière">Nom court</th>
-              <ThTri col="stock" tri={tri} onTri={trierPar} align="right" className="w-16">Stock</ThTri>
-              <ThTri col="alerte" tri={tri} onTri={trierPar} className="w-24">Alerte</ThTri>
-              <ThTri col="min" tri={tri} onTri={trierPar} align="right" className="w-20">Min</ThTri>
+              <th title="Nom imprimé sur la fiche Commande journalière">Nom court</th>
+              <ThTri col="stock" tri={tri} onTri={trierPar} align="right">Stock</ThTri>
+              <ThTri col="alerte" tri={tri} onTri={trierPar} >Alerte</ThTri>
+              <ThTri col="min" tri={tri} onTri={trierPar} align="right">Min</ThTri>
               <ThTri col="categorie" tri={tri} onTri={trierPar}>Catégorie</ThTri>
               <ThTri col="fournisseur" tri={tri} onTri={trierPar}>Fournisseur</ThTri>
-              <th className="w-20">Unité</th>
-              <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" className="w-24" title="Prix × stock">Valeur</ThTri>
-              <ThTri col="prix" tri={tri} onTri={trierPar} align="right" className="w-28" title="Prix de référence dans sa devise de saisie ($ ou FC) ; l'autre devise au taux du jour">Prix</ThTri>
-              <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
+              <th>Unité</th>
+              <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" title="Prix × stock">Valeur</ThTri>
+              <ThTri col="prix" tri={tri} onTri={trierPar} align="right" title="Prix de référence dans sa devise de saisie ($ ou FC) ; l'autre devise au taux du jour">Prix</ThTri>
+              <th className="text-right" title="Nombre d'unités par carton">Par carton</th>
             </tr>
           </thead>
-          <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
+          <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5">
             {page.map((a, i) => (
               <Fragment key={a.id}>
                 {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
@@ -620,7 +603,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                     </td>
                   </tr>
                 )}
-                <LigneArticle a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save} lectureSeule={!estDirection} />
+                <LigneArticle a={a} categorie={a.categorieId ? catNom.get(a.categorieId) ?? null : null} fournisseur={a.fournisseurId ? fourPar.get(a.fournisseurId) ?? null : null} selected={sel.has(a.id)} onToggle={toggle} />
               </Fragment>
             ))}
             {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
@@ -636,7 +619,6 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           )}
         </table>
       </div>
-      </ZoneTableur>
       <Pagination total={affichees.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="articles" />
     </div>
   );
@@ -662,65 +644,48 @@ function ThTri({ col, tri, onTri, align, className, title, children }: {
   );
 }
 
-const LigneArticle = memo(function LigneArticle({
-  a, categories, optionsFour, selected, onToggle, onSave, lectureSeule = false,
-}: {
-  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
-  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
-  /** Hors Direction : cases en lecture seule (la modification se propose depuis la fiche). */
-  lectureSeule?: boolean;
-}) {
-  const [busy, setBusy] = useState(false);
-  const catsPour = categories.filter((c) => c.domaine === a.domaine);
-  const write = (name: string, value: string, prev: string) => {
-    if (lectureSeule || value === prev) return;
-    setBusy(true);
-    onSave(a.id, name, value).finally(() => setBusy(false));
-  };
+/** Fournisseur en lecture : son nom mène à sa fiche (même lien que les autres écrans du module) ; « — » sans fournisseur. */
+function LienFournisseur({ f }: { f: Four | null }) {
+  return f ? <Link href={`/stock/fournisseurs/${f.id}`} className="text-primary hover:underline">{f.nom}</Link> : <>—</>;
+}
 
+/**
+ * Une ligne du tableau, en LECTURE (2026-10-09) : la modification se fait depuis la fiche article, où le nom
+ * mène. Nombres à droite, « — » pour une valeur absente (jamais 0 à sa place).
+ */
+const LigneArticle = memo(function LigneArticle({
+  a, categorie, fournisseur, selected, onToggle,
+}: {
+  a: ArticleRow; categorie: string | null; fournisseur: Four | null;
+  selected: boolean; onToggle: (id: string) => void;
+}) {
+  const etat = etatStock(a);
   return (
-    <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"} ${busy ? "opacity-60" : ""}`}>
-      <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} /></td>
-      <td><input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} w-14 text-center tabular-nums`} placeholder="—" title="Code article" /></td>
-      <td>
-        <div className="flex items-center gap-1">
-          <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
-          <ComplementContenance a={a} />
+    <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"}`}>
+      <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} aria-label={`Sélectionner ${libelleArticle(a)}`} /></td>
+      <td className="whitespace-nowrap tabular-nums">{texteOuTiret(a.code)}</td>
+      <td className="min-w-48">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix, modification)" className="font-medium text-primary hover:underline">{libelleArticle(a)}</Link>
           {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
           {a.propositionEnAttente && <BadgeProposition />}
-          <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix)" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche article">↗</Link>
         </div>
       </td>
-      <td><input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${libelleArticle(a)}`} /></td>
-      <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
-      <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${libelleArticle(a)}`} /></td>
-      <td>
-        <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
-          <option value="">— à classer —</option>
-          {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
-        </select>
+      <td>{texteOuTiret(a.nomCourt)}</td>
+      <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}</td>
+      <td className="whitespace-nowrap">{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
+      <td className="whitespace-nowrap text-right tabular-nums" title="Seuil minimum (alerte de réappro)">{nombreOuTiret(a.stockMinimum)}</td>
+      <td className={categorie ? "" : "text-muted-foreground"}>{categorie ?? "—"}</td>
+      <td><LienFournisseur f={fournisseur} /></td>
+      <td className="whitespace-nowrap">{texteOuTiret(a.unite)}</td>
+      <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">{texteValeur(a)}</td>
+      <td className="whitespace-nowrap text-right tabular-nums">
+        {/* Prix dans SA devise de saisie ; l'autre devise « ≈ » au taux du jour, en petit dessous. */}
+        {prixTexte(a)}
+        {a.prixAutre && <span className="block text-[10px] text-muted-foreground">{a.prixAutre}</span>}
       </td>
-      <td>
-        <div className="flex items-center gap-1">
-          <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${libelleArticle(a)}`} className={`${cellCls} min-w-28 flex-1`} />
-          {a.fournisseurId && (
-            <Link href={`/stock/fournisseurs/${a.fournisseurId}`} title="Ouvrir la fiche fournisseur" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche fournisseur">↗</Link>
-          )}
-        </div>
-      </td>
-      <td><input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
-      <td className="text-right tabular-nums text-muted-foreground">{texteValeur(a)}</td>
-      <td>
-        {/* Prix dans SA devise de saisie (la case modifie ce prix-là) ; l'autre devise « ≈ » au taux du jour. */}
-        <div className="flex items-center gap-1">
-          <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix ${prixDe(a).symbole} — ${libelleArticle(a)}`} />
-          <span className="w-5 shrink-0 text-[11px] text-muted-foreground">{prixDe(a).symbole}</span>
-        </div>
-        {a.prixAutre && <span className="block text-right text-[10px] tabular-nums text-muted-foreground">{a.prixAutre}</span>}
-      </td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${libelleArticle(a)}`} /></td>
+      <td className="whitespace-nowrap text-right tabular-nums" title="Nombre d'unités par carton">{nombreOuTiret(a.uniteParCarton)}</td>
     </tr>
   );
 });
@@ -747,31 +712,24 @@ const TON_QUANTITE = { rupture: "text-red-700", bas: "text-amber-700", ok: "text
 const TON_RANGEE = { rupture: "border-red-300 bg-red-50/60", bas: "border-amber-300 bg-amber-50/60", ok: "bg-card", inconnu: "bg-card" } as const;
 
 /**
- * Article sur téléphone — équivalent mobile de LigneArticle. Fermé : UNE rangée compacte (case des
- * actions groupées, nom, stock + unité en gros, seuil). Ouvert : les champs éditables, avec le même
- * enregistrement case par case qu'avant (au blur, `onSave` → `modifierArticle`).
+ * Article sur téléphone — équivalent mobile de LigneArticle, en LECTURE. Fermé : UNE rangée compacte (case des
+ * actions groupées, nom qui mène à la fiche, stock + unité en gros, seuil). Un appui sur le stock déplie les
+ * détails (aucun champ de saisie : la modification se fait depuis la fiche article).
  */
 export const CarteArticle = memo(function CarteArticle({
-  a, categories, optionsFour, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom, lectureSeule = false,
+  a, categorie, fournisseur, selected, onToggle, ouvert, onOuvrir, categorieNom, lectureSeule = false,
 }: {
-  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
-  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
-  /** Hors Direction : champs en lecture seule (la modification se propose depuis la fiche). */
+  a: ArticleRow; categorie: string | null; fournisseur: Four | null;
+  selected: boolean; onToggle: (id: string) => void;
+  /** Hors Direction : la modification de la fiche est une PROPOSITION (libellé du lien). */
   lectureSeule?: boolean;
   ouvert: boolean; onOuvrir: (id: string) => void;
   /** Catégorie à rappeler sous le nom quand la liste n'est pas groupée par catégorie (liste triée). */
   categorieNom?: string | null;
 }) {
-  const [busy, setBusy] = useState(false);
   const racine = useRef<HTMLDivElement>(null);
   // À l'ouverture, l'article reste visible en entier (marges d'écart : en-tête collant et barre du bas).
   useEffect(() => { if (ouvert) racine.current?.scrollIntoView?.({ block: "nearest" }); }, [ouvert]);
-  const catsPour = categories.filter((c) => c.domaine === a.domaine);
-  const write = (name: string, value: string, prev: string) => {
-    if (lectureSeule || value === prev) return;
-    setBusy(true);
-    onSave(a.id, name, value).finally(() => setBusy(false));
-  };
   const etat = etatStock(a);
   const unite = (a.unite ?? "").trim();
   const min = Number(a.stockMinimum);
@@ -779,88 +737,59 @@ export const CarteArticle = memo(function CarteArticle({
   const sousNom = [a.nomCourt?.trim(), categorieNom].filter(Boolean).join(" · ");
 
   return (
-    <div ref={racine} data-article={a.id} className={`scroll-mb-24 scroll-mt-16 rounded-xl border ${selected ? "bg-primary/10" : TON_RANGEE[etat.ton]} ${busy ? "opacity-60" : ""}`}>
+    <div ref={racine} data-article={a.id} className={`scroll-mb-24 scroll-mt-16 rounded-xl border ${selected ? "bg-primary/10" : TON_RANGEE[etat.ton]}`}>
       <div className="flex items-stretch">
         {/* Case des actions groupées : la zone entière (44 px) est cliquable. */}
         <label className="flex w-11 shrink-0 cursor-pointer items-center justify-center">
           <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="h-5 w-5" aria-label={`Sélectionner ${libelleArticle(a)}`} />
         </label>
+        <div className="min-w-0 flex-1 py-1.5">
+          <Link href={`/stock/catalogue/${a.id}`} className="block truncate py-0.5 text-sm font-medium text-primary hover:underline">{libelleArticle(a)}</Link>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+            {a.niveau && a.niveau !== "OK" && <span className={`shrink-0 rounded-full px-1.5 py-px font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
+            {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
+            {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
+            {a.propositionEnAttente && <BadgeProposition />}
+            {sousNom && <span className="truncate">{sousNom}</span>}
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => onOuvrir(a.id)}
           aria-expanded={ouvert}
           aria-controls={ouvert ? idChamps : undefined}
-          title={ouvert ? "Replier les champs" : "Modifier l'article"}
-          className="grid min-h-14 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-1.5 pr-3 text-left"
+          title={ouvert ? "Replier les détails" : "Voir les détails"}
+          className="flex min-h-14 shrink-0 items-center gap-1.5 pl-2 pr-3 text-right"
         >
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{libelleArticle(a)}</span>
-            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-              {a.niveau && a.niveau !== "OK" && <span className={`shrink-0 rounded-full px-1.5 py-px font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
-              {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
-              {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
-              {a.propositionEnAttente && <BadgeProposition />}
-              {sousNom && <span className="truncate">{sousNom}</span>}
-            </span>
-          </span>
-          <span className="text-right">
+          <span>
             <span data-stock={etat.ton} className={`block text-xl font-bold leading-tight tabular-nums ${TON_QUANTITE[etat.ton]}`}>
               {etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}
               {etat.quantite !== null && unite && <span className="ml-1 text-sm font-semibold">{unite}</span>}
             </span>
             <span className="block text-[11px] text-muted-foreground">{Number.isFinite(min) && min > 0 ? `min. ${formaterNombre(min, { maximumFractionDigits: 3 })}` : "sans seuil"}</span>
           </span>
+          <span aria-hidden className="text-[10px] text-muted-foreground">{ouvert ? "▲" : "▼"}</span>
         </button>
       </div>
 
       {ouvert && (
         <div id={idChamps} className="border-t px-3 pb-3 pt-2">
-          <div className="flex flex-wrap items-center gap-2">
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm [&_dd]:min-w-0 [&_dd]:break-words">
+            <div><dt className={champLabel}>Code article</dt><dd>{texteOuTiret(a.code)}</dd></div>
+            <div><dt className={champLabel}>Nom court (fiche commande)</dt><dd>{texteOuTiret(a.nomCourt)}</dd></div>
+            <div><dt className={champLabel}>Catégorie</dt><dd>{categorie ?? "—"}</dd></div>
+            <div><dt className={champLabel}>Fournisseur</dt><dd><LienFournisseur f={fournisseur} /></dd></div>
+            <div><dt className={champLabel}>Unité</dt><dd>{texteOuTiret(a.unite)}</dd></div>
+            <div><dt className={champLabel}>Stock min.</dt><dd className="tabular-nums">{nombreOuTiret(a.stockMinimum)}</dd></div>
+            <div><dt className={champLabel}>Prix {a.devisePrix === "CDF" ? "FC" : "$"}</dt><dd className="tabular-nums">{prixTexte(a)}{a.prixAutre && <span className="ml-1 text-[11px] text-muted-foreground">{a.prixAutre}</span>}</dd></div>
+            <div><dt className={champLabel}>Unités / carton</dt><dd className="tabular-nums">{nombreOuTiret(a.uniteParCarton)}</dd></div>
+            <div><dt className={champLabel}>Valeur du stock</dt><dd className="tabular-nums text-muted-foreground">{texteValeur(a)}</dd></div>
+          </dl>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             {a.surFicheCommande && <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary" title="Sur la fiche Commande journalière">fiche cmd</span>}
             <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${libelleArticle(a)}`}>{lectureSeule ? "Proposer une modification ↗" : "Ouvrir la fiche ↗"}</Link>
           </div>
-          <label className={champLabel}>Nom
-            <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
-            <ComplementContenance a={a} />
-          </label>
-          <label className={`${champLabel} mt-2`}>Nom court (fiche commande)
-            <input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${libelleArticle(a)}`} />
-          </label>
-          <div className="mt-2 grid grid-cols-2 gap-2 [&>*]:min-w-0">
-            <label className={champLabel}>Stock min.
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${libelleArticle(a)}`} />
-            </label>
-            <label className={champLabel}>Unité
-              <input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
-            </label>
-            <label className={`${champLabel} col-span-2`}>Catégorie
-              <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
-                <option value="">— à classer —</option>
-                {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
-              </select>
-            </label>
-            <label className={`${champLabel} col-span-2`}>
-              <span className="flex items-center justify-between">Fournisseur
-                {a.fournisseurId && (
-                  <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="py-1 text-primary hover:underline">Voir la fiche ↗</Link>
-                )}
-              </span>
-              <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${libelleArticle(a)}`} className={`${cellCls} !py-1.5`} />
-            </label>
-            <label className={champLabel}>Code article
-              <input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
-            </label>
-            <label className={champLabel}>Prix {prixDe(a).symbole}{a.prixAutre ? ` (${a.prixAutre})` : ""}
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
-            </label>
-            <label className={champLabel}>Unités / carton
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
-            </label>
-            <label className={champLabel}>Valeur du stock
-              <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{texteValeur(a)}</span>
-            </label>
-          </div>
-          <button type="button" onClick={() => onOuvrir(a.id)} className="mt-2 min-h-11 w-full rounded-md border text-sm font-medium hover:bg-accent">Replier</button>
+          <button type="button" onClick={() => onOuvrir(a.id)} className="mt-1 min-h-11 w-full rounded-md border text-sm font-medium hover:bg-accent">Replier</button>
         </div>
       )}
     </div>

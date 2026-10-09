@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 //
-// Inventaire : le fournisseur d'un article se choisit en TAPANT son nom (ligne du tableau, carte du
-// téléphone, action groupée, ajout) — plus de liste déroulante à faire défiler. Même enregistrement
-// qu'avant (`modifierArticle` avec fournisseurId), une seule liste d'options pour tout le tableau.
+// Inventaire : le fournisseur d'un article s'AFFICHE en lecture (ligne du tableau, carte du téléphone) comme
+// un lien vers sa fiche ; il se CHOISIT en tapant son nom dans l'action groupée et à l'ajout — plus de liste
+// déroulante à faire défiler. Une seule liste d'options pour tout le tableau.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { champChoix, choisirEnTapant, libellesOuverts, ouvrirChoix, taperChoix, valeurChoisie } from "@/lib/test/choix-recherche";
+import { champChoix, choisirEnTapant, libellesOuverts, ouvrirChoix } from "@/lib/test/choix-recherche";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -40,42 +40,37 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => racine.unmount()); conteneur.remove(); document.body.innerHTML = ""; });
 
-/** Champ fournisseur de la ligne du TABLEAU (ordinateur) d'un article. */
-const champLigne = (designation: string) =>
-  [...conteneur.querySelectorAll<HTMLInputElement>(`table input[role="combobox"][aria-label="Fournisseur — ${designation}"]`)][0]!;
+/** Cellule « Fournisseur » de la ligne du TABLEAU (ordinateur) d'un article. */
+const celluleFournisseur = (designation: string) => {
+  const ligne = [...conteneur.querySelectorAll("table tbody tr")].find((tr) => [...tr.querySelectorAll("a")].some((a) => a.textContent === designation))!;
+  return ligne.querySelectorAll("td")[8];
+};
 
-describe("Inventaire — fournisseur choisi en tapant", () => {
-  it("la ligne affiche le fournisseur de l'article ; aucune liste déroulante de fournisseurs ne subsiste", () => {
-    expect(champLigne("Riz").value).toBe("Marché central");
-    expect(champLigne("Farine").value).toBe("");
+describe("Inventaire — fournisseur en lecture, cliquable", () => {
+  it("le tableau montre le nom du fournisseur en lien vers sa fiche ; « — » sans fournisseur", () => {
+    const lien = celluleFournisseur("Riz").querySelector<HTMLAnchorElement>("a")!;
+    expect(lien.textContent).toBe("Marché central");
+    expect(lien.getAttribute("href")).toBe("/stock/fournisseurs/f1");
+    expect(lien.className).toContain("text-primary");
+    expect(lien.className).toContain("hover:underline");
+    expect(celluleFournisseur("Farine").textContent).toBe("—");
+    expect(celluleFournisseur("Farine").querySelector("a")).toBeNull();
+  });
+
+  it("la carte du téléphone dépliée montre le même lien vers la fiche fournisseur", () => {
+    const carte = conteneur.querySelector<HTMLElement>('[data-article="a1"]')!;
+    act(() => { carte.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click(); });
+    expect(carte.querySelector('a[href="/stock/fournisseurs/f1"]')!.textContent).toBe("Marché central");
+  });
+
+  it("aucune liste déroulante de fournisseurs ne subsiste dans les lignes, rien ne s'enregistre en ligne", () => {
+    expect(conteneur.querySelectorAll("table tbody input:not([type=checkbox]), table tbody select")).toHaveLength(0);
     expect(conteneur.querySelectorAll('select option[value="f2"]')).toHaveLength(0);
-  });
-
-  it("taper « kasa » puis Entrée enregistre le fournisseur de la ligne (même appel qu'avant)", async () => {
-    await choisirEnTapant(champLigne("Farine"), "kasa");
-    await vi.waitFor(() => expect(modifierArticle).toHaveBeenCalledTimes(1));
-    const [id, fd] = modifierArticle.mock.calls[0] as [string, FormData];
-    expect(id).toBe("a2");
-    expect(fd.get("fournisseurId")).toBe("f3");
-    expect([...fd.keys()]).toEqual(["fournisseurId"]);
-  });
-
-  it("taper puis quitter sans choisir n'enregistre rien ; choisir le fournisseur déjà en place non plus", async () => {
-    await taperChoix(champLigne("Riz"), "nord");
-    await act(async () => champLigne("Riz").blur());
-    expect(champLigne("Riz").value).toBe("Marché central");
-    await choisirEnTapant(champLigne("Riz"), "marche");
     expect(modifierArticle).not.toHaveBeenCalled();
   });
+});
 
-  it("« — » vide le fournisseur (valeur vide envoyée, comme l'option vide d'avant)", async () => {
-    await ouvrirChoix(champLigne("Riz"));
-    const vide = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.dataset.choixId === "")!;
-    await act(async () => vide.click());
-    await vi.waitFor(() => expect(modifierArticle).toHaveBeenCalledTimes(1));
-    expect((modifierArticle.mock.calls[0] as [string, FormData])[1].get("fournisseurId")).toBe("");
-  });
-
+describe("Inventaire — fournisseur choisi en tapant (action groupée)", () => {
   it("action groupée : on coche des articles, on tape le fournisseur, « Appliquer » envoie les ids et le fournisseur", async () => {
     const cases = [...conteneur.querySelectorAll<HTMLInputElement>('table tbody input[type="checkbox"]')];
     await act(async () => { cases[0].click(); cases[1].click(); });
@@ -91,17 +86,13 @@ describe("Inventaire — fournisseur choisi en tapant", () => {
     expect(four).toBe("f2");
   });
 
-  it("une seule liste d'options pour tout le tableau : ouverte, une seule liste, tous les fournisseurs", async () => {
-    await ouvrirChoix(champLigne("Farine"));
+  it("une seule liste d'options : ouverte depuis l'action groupée, tous les fournisseurs", async () => {
+    const cases = [...conteneur.querySelectorAll<HTMLInputElement>('table tbody input[type="checkbox"]')];
+    await act(async () => { cases[0].click(); });
+    await ouvrirChoix(champChoix(conteneur, "Fournisseur de l'action groupée"));
     expect(document.querySelectorAll('[role="listbox"]')).toHaveLength(1);
     expect(libellesOuverts()).toContain("Grossiste Nord");
     expect(libellesOuverts()).toHaveLength(4); // « — » + 3 fournisseurs
-  });
-
-  it("la liste flotte hors du tableau (portail) : le défilement du tableau ne la coupe pas", async () => {
-    await taperChoix(champLigne("Farine"), "m");
-    const liste = document.querySelector('[role="listbox"]')!;
-    expect(liste.closest("table")).toBeNull();
-    expect(valeurChoisie(champLigne("Farine"))).toBeUndefined(); // sans name : la valeur vit dans l'état, pas dans un champ caché
+    expect(document.querySelector('[role="listbox"]')!.closest("table")).toBeNull(); // portail : le défilement du tableau ne la coupe pas
   });
 });

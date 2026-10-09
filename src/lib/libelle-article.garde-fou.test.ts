@@ -45,7 +45,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
   "src/app/(stock)/stock/catalogue/_view.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/actions.ts": { n: 8, raisons: ["AUDIT_ACTION"] },
-  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 5, raisons: ["FORMULAIRE", "CLE"] }, // nom modifiable (contenance à côté) + tri
+  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/commandes/[id]/reception-client.tsx": { n: 2, raisons: ["AMONT"] },
