@@ -12,7 +12,8 @@ import { apresCommit } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
 import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
 import type { SelectionMouvements } from "@/lib/filtre-mouvements";
-import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements } from "@/lib/selection-mouvements";
+import { DELAI_TOUT_LE_FILTRE, SELECT_SELECTION, resoudreSelectionMouvements } from "@/lib/selection-mouvements";
+import { verrouillerMouvements } from "@/lib/validations-stock/verrou-suppression";
 import { appliquerChangementDateSorties } from "@/lib/validations-stock/date-sortie";
 import { StockInsuffisant, variationsStockTx } from "@/lib/validations-stock/stock-positif";
 import { similairesEnStock } from "@/lib/article-proche";
@@ -94,26 +95,34 @@ export const supprimerMouvement = actionLisible(async (id: string) => {
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
 
-  const m = await prisma.mouvementStock.findUniqueOrThrow({ where: { id } });
-  await exigerPeriodeOuverte(new Date(m.date));
-  const q = Number(m.quantite);
-  await prisma.$transaction(async (tx) => {
+  // Ligne VERROUILLÉE avant d'être lue : deux suppressions simultanées du même mouvement n'appliquent
+  // l'inverse sur le stock qu'une fois ; la seconde trouve la ligne partie et le dit.
+  const m = await prisma.$transaction(async (tx) => {
+    if ((await verrouillerMouvements(tx, [id])).size === 0) return null;
+    const m = await tx.mouvementStock.findUniqueOrThrow({ where: { id } });
+    await exigerPeriodeOuverte(new Date(m.date));
     // Par la porte unique : supprimer une ENTRÉE déjà consommée ferait passer le stock sous 0 → refus.
     if (m.type === "ENTREE") await variationsStockTx(tx, [{ articleId: m.articleId, delta: m.quantite.negated() }], { verbe: "à reprendre" });
     else if (m.type === "SORTIE") await variationsStockTx(tx, [{ articleId: m.articleId, delta: m.quantite }]);
     await tx.mouvementStock.delete({ where: { id } });
+    return m;
   });
+  if (!m) return { erreur: MESSAGE_DEJA_SUPPRIME("Ce mouvement") };
 
-  await journaliser(prisma, { entite: "MouvementStock", entiteId: id, champ: "suppression", ancienneValeur: `${m.type} ${q} (${m.origine ?? ""})`, userId: user.id });
+  await journaliser(prisma, { entite: "MouvementStock", entiteId: id, champ: "suppression", ancienneValeur: `${m.type} ${Number(m.quantite)} (${m.origine ?? ""})`, userId: user.id });
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/entree"); // l'historique de la liste d'achat affiche aussi ces mouvements
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
 });
 
+const MESSAGE_DEJA_SUPPRIME = (quoi: string) => `${quoi} a déjà été supprimé (par un autre onglet ou un autre clic) : son effet sur le stock a été annulé une seule fois. Rechargez la page.`;
+
 /**
  * Supprime plusieurs mouvements d'un coup (Direction) — les id cochés ou tout le filtre d'une
  * colonne — et annule leur effet sur le stock, en une transaction. Chaque suppression est journalisée.
+ * Les mouvements sont VERROUILLÉS avant d'être défaits : ceux qu'une autre suppression a emportés
+ * entre-temps ne sont pas repris une seconde fois (compte `dejaSupprimes`).
  */
 export const supprimerMouvementsEnLot = actionLisible(async (selection: SelectionMouvements) => {
   const user = await verifySession();
@@ -123,7 +132,12 @@ export const supprimerMouvementsEnLot = actionLisible(async (selection: Selectio
   const r = await prisma.$transaction(async (tx) => {
     const res = await resoudreSelectionMouvements(tx, selection, "mouvements", "Cochez au moins un mouvement.");
     if ("erreur" in res) return res;
-    const { mvs } = res;
+    // Verrou, puis relecture des seuls mouvements encore présents : l'effet sur le stock n'est appliqué
+    // QUE pour les lignes que CETTE transaction supprime.
+    const vivants = await verrouillerMouvements(tx, res.mvs.map((m) => m.id));
+    const dejaSupprimes = res.mvs.length - vivants.size;
+    if (vivants.size === 0) return { erreur: res.mvs.length > 1 ? "Ces mouvements ont déjà été supprimés (par un autre onglet ou un autre clic) : leur effet sur le stock a été annulé une seule fois. Rechargez la page." : MESSAGE_DEJA_SUPPRIME("Ce mouvement") };
+    const mvs = await tx.mouvementStock.findMany({ where: { id: { in: [...vivants] } }, select: SELECT_SELECTION });
     await exigerPeriodesOuvertes(mvs.map((m) => new Date(m.date)));
     // Effet sur le stock, cumulé par article (en décimal exact) : une ENTRÉE supprimée décrémente,
     // une SORTIE incrémente ; un AJUSTEMENT n'enregistre pas son sens → la ligne part sans recalcul.
@@ -139,7 +153,7 @@ export const supprimerMouvementsEnLot = actionLisible(async (selection: Selectio
     await journaliserPlusieurs(tx, mvs.map((m) => ({
       entite: "MouvementStock", entiteId: m.id, champ: "suppression", ancienneValeur: `${m.type} ${Number(m.quantite)} (${m.origine ?? ""})`, userId: user.id,
     })));
-    return { n: mvs.length };
+    return dejaSupprimes > 0 ? { n: mvs.length, dejaSupprimes } : { n: mvs.length }; // `dejaSupprimes` seulement s'il y en a (réponse inchangée sinon)
   }, { timeout: DELAI_TOUT_LE_FILTRE });
   if ("erreur" in r) return r;
   revalidatePath("/stock/mouvements");

@@ -20,7 +20,8 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
-import { entrerEnStockTx, variationsStockTx } from "@/lib/validations-stock/stock-positif";
+import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
+import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -397,21 +398,15 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   redirect(`/stock/factures/${fac.id}`);
 });
 
+const MESSAGE_FACTURE_DEJA_SUPPRIMEE = "Cette facture a déjà été supprimée (par un autre onglet ou un autre clic) : le stock qu'elle avait fait entrer n'a été repris qu'une seule fois. Rechargez la page.";
+
 /** Supprime une facture fournisseur et ANNULE ses entrées de stock (décrémente ce qu'elle avait fait entrer). */
 export const supprimerFacture = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
-  const f = await prisma.factureFournisseur.findUniqueOrThrow({
-    where: { id },
-    include: { mouvements: { where: { type: "ENTREE" } } },
-  });
-  await prisma.$transaction(async (tx) => {
-    // Reprise du stock entré par cette facture, avant suppression (les mouvements passeront à factureId=null).
-    // Porte unique : reprendre une entrée déjà consommée ferait passer le stock sous 0 → refus nommé.
-    await variationsStockTx(tx, f.mouvements.map((m) => ({ articleId: m.articleId, delta: m.quantite.negated() })), { verbe: "à reprendre" });
-    for (const m of f.mouvements) await tx.mouvementStock.delete({ where: { id: m.id } });
-    await tx.factureFournisseur.delete({ where: { id } });
-  });
+  const { facs } = await prisma.$transaction((tx) => supprimerFacturesTx(tx, [id]));
+  const f = facs[0];
+  if (!f) return { erreur: MESSAGE_FACTURE_DEJA_SUPPRIMEE };
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.devise === "CDF" ? `${f.montantCDF} CDF` : f.montantUSD}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
@@ -564,22 +559,18 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   return { reglees: regs.length, demandees: uniq.length };
 });
 
-/** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune. */
+/** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune, une seule fois même si une autre suppression vise la même facture. */
 export const supprimerFacturesEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
-  const facs = await prisma.factureFournisseur.findMany({ where: { id: { in: uniq } }, include: { mouvements: { where: { type: "ENTREE" } } } });
-  await prisma.$transaction(async (tx) => {
-    // Porte unique, tout le lot d'un coup : une reprise qui ferait passer un article sous 0 refuse tout.
-    await variationsStockTx(tx, facs.flatMap((f) => f.mouvements.map((m) => ({ articleId: m.articleId, delta: m.quantite.negated() }))), { verbe: "à reprendre" });
-    for (const f of facs) for (const m of f.mouvements) await tx.mouvementStock.delete({ where: { id: m.id } });
-    await tx.factureFournisseur.deleteMany({ where: { id: { in: uniq } } });
-  });
+  const { facs, dejaSupprimees } = await prisma.$transaction((tx) => supprimerFacturesTx(tx, uniq));
+  if (facs.length === 0) return { erreur: uniq.length > 1 ? "Ces factures ont déjà été supprimées (par un autre onglet ou un autre clic) : le stock qu'elles avaient fait entrer n'a été repris qu'une seule fois. Rechargez la page." : MESSAGE_FACTURE_DEJA_SUPPRIMEE };
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "suppression", nouvelleValeur: `${facs.length} facture(s) supprimée(s)`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
+  return dejaSupprimees > 0 ? { n: facs.length, dejaSupprimees } : { n: facs.length };
 });
