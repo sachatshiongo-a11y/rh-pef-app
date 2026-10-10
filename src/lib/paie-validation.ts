@@ -66,7 +66,7 @@ export const MESSAGE_LIGNE_RECALCULEE =
 /** Salarié qui n'est plus calculé (fiche désactivée, passé en intérim) mais dont la ligne rouverte
  *  reste (le recalcul ne supprime jamais une ligne qui a un historique) : dire comment en sortir. */
 export function messageNonCalcules(noms: string[]): string {
-  return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée ou passage en intérim) : sa ligne ne peut pas être validée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), elle est « hors calcul » : elle ne compte nulle part et la clôture la laisse de côté — pour la payer, réactivez la fiche le temps de valider la paie du mois en cours (une paie d'un mois passé déjà clôturé ne bouge plus).`;
+  return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée, passage en intérim, ou embauche postérieure au mois) : sa ligne ne peut pas être validée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), elle est « hors calcul » : elle ne compte nulle part et la clôture la laisse de côté — pour la payer, réactivez la fiche le temps de valider la paie du mois en cours (une paie d'un mois passé déjà clôturé ne bouge plus).`;
 }
 
 /** Clôture demandée par la RH alors que la Direction n'a pas tout validé (décision du 2026-10-01). */
