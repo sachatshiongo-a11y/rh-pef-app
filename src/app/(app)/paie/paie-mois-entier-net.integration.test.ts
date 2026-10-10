@@ -108,14 +108,14 @@ describe("#5 net à payer négatif : signalé, validation refusée", () => {
   it("validation unitaire refusée, avec le nom et les montants ; rien d'écrit", async () => {
     const l = (await ligne(ids.endette))!;
     const err = await erreurDe(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) })));
-    expect(err).toMatch(/^Net à payer négatif ou nul : Dora Dette \(net \(\d+,\d\d \$\) ; acompte 0,00 \$, échéance de prêt 500,00 \$\)/);
+    expect(err).toMatch(/^Total versé \(net à payer\) négatif ou nul : Dora Dette \(total versé \(\d+,\d\d \$\) ; acompte 0,00 \$, échéance de prêt 500,00 \$\)/);
     expect((await ligne(ids.endette))!.statutPaiement).toBe("PAS_VALIDE");
     expect(await prisma.retenuePret.count()).toBe(0);
   });
 
   it("la clôture (qui valide tout d'un coup) est refusée de même : rien de validé", async () => {
     const err = await erreurDe(cloturerPaie(fd({ mois: "9", annee: "2026" })));
-    expect(err).toContain("Net à payer négatif ou nul : Dora Dette");
+    expect(err).toContain("Total versé (net à payer) négatif ou nul : Dora Dette");
     expect((await ligne(ids.entree))!.statutPaiement).toBe("PAS_VALIDE");
   });
 

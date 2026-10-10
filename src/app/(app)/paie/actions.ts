@@ -13,6 +13,7 @@ import { calculerEcheancePret } from "@/lib/prets";
 import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
 import type { ModePaiement, PaymentStatus, Prisma, Role } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import {
   ATTENTE_VERROU_VALIDATION,
   messageAttenteDirection,
@@ -248,6 +249,9 @@ async function appliquerTransitionPaie(
     // sa dernière échéance) et la retenue disparaissait de la paie : 100 $ versés en trop. Le prêt
     // repasse EN COURS seulement s'il avait été soldé PAR SES RETENUES (un prêt soldé autrement, au
     // solde de tout compte, ou annulé, garde son statut). La revalidation réenregistre l'échéance.
+    // Rouvrir est réservé à la Direction (roleRequisPour, transitionPermise) : la garde est redite ici,
+    // au plus près de la seule suppression de ce fichier (garde-fou « seule la Direction supprime »).
+    exigerDirectionPourSupprimer(acteur, "Rouvrir un bulletin est réservé à la Direction.");
     const { mois: moisLigne, annee: anneeLigne } = ligne.payrollRun;
     const retenuesDuMois = await tx.retenuePret.findMany({
       where: { mois: moisLigne, annee: anneeLigne, pret: { employeeId: ligne.employeeId } },

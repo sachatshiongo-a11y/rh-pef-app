@@ -77,8 +77,8 @@ export function messageAttenteDirection(n: number): string {
 /** Refus de validation : net à payer négatif, ou nul parce que les retenues absorbent tout
  *  (`netNonValidable`, paie-avertissements-mois.ts). */
 export function messageNetNonPositif(lignes: { nom: string; net: number; acompte: number; pret: number }[]): string {
-  const detail = lignes.map((l) => `${l.nom} (net ${usdSigne(l.net)} ; acompte ${usdSigne(l.acompte)}, échéance de prêt ${usdSigne(l.pret)})`).join(", ");
-  return `Net à payer négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant de valider — le logiciel ne plafonne rien de lui-même.`;
+  const detail = lignes.map((l) => `${l.nom} (total versé ${usdSigne(l.net)} ; acompte ${usdSigne(l.acompte)}, échéance de prêt ${usdSigne(l.pret)})`).join(", ");
+  return `Total versé (net à payer) négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant de valider — le logiciel ne plafonne rien de lui-même.`;
 }
 
 export function messagePaieChangee(noms: string[]): string {

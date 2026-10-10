@@ -4,6 +4,7 @@
 import type { CodePresence } from "@/lib/payroll";
 import type { AvertissementPaie } from "@/lib/paie-reference";
 import { formaterUSD } from "@/lib/montant";
+import { totalVerseUSD, type LigneNet } from "@/lib/paie-net";
 
 const jjmm = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 const jjmmaaaa = (d: Date) => `${jjmm(d)}/${d.getUTCFullYear()}`;
@@ -64,22 +65,24 @@ export function avertissementsMoisEntier(e: {
 }
 
 /**
- * Net à payer qui ne peut pas être validé (audit du 2026-10-10) : NÉGATIF (acompte et/ou échéance de
- * prêt au-delà de ce que le mois rapporte : le bulletin dirait que le salarié doit de l'argent), ou
- * NUL parce que ces retenues absorbent tout. Un net nul SANS aucune retenue (rien gagné, rien retenu :
+ * Net à payer (TOTAL VERSÉ, lib/paie-net.ts) qui ne peut pas être validé (audit du 2026-10-10) :
+ * NÉGATIF (acompte et/ou échéance de prêt au-delà de ce que le mois rapporte : le bulletin dirait que
+ * le salarié doit de l'argent), ou NUL parce que ces retenues absorbent tout. Un net nul SANS aucune retenue (rien gagné, rien retenu :
  * congé sans solde tout le mois) reste validable — sinon la clôture serait bloquée sans remède.
  * L'outil ne plafonne rien lui-même : la Direction réduit l'acompte ou décide du report de l'échéance.
  */
-export function netNonValidable(l: { salNetUSD: number; acompteUSD: number; retenuePretUSD: number }): boolean {
-  return l.salNetUSD < 0 || (l.salNetUSD === 0 && l.acompteUSD + l.retenuePretUSD > 0);
+export function netNonValidable(l: LigneNet & { acompteUSD: number; retenuePretUSD: number }): boolean {
+  const verse = totalVerseUSD(l);
+  return verse < 0 || (verse === 0 && l.acompteUSD + l.retenuePretUSD > 0);
 }
 
 /** Négatif entre parenthèses, jamais un signe moins (convention maison, lib/montant.ts). */
 export const usdSigne = (n: number) => (n < 0 ? `(${formaterUSD(n)})` : formaterUSD(n));
 
-export function avertissementNetNonPositif(l: { salNetUSD: number; acompteUSD: number; retenuePretUSD: number }): AvertissementPaie {
+export function avertissementNetNonPositif(l: LigneNet & { acompteUSD: number; retenuePretUSD: number }): AvertissementPaie {
+  const verse = totalVerseUSD(l);
   return {
     code: "NET_NON_POSITIF",
-    message: `Net à payer ${l.salNetUSD < 0 ? "négatif" : "nul"} (${usdSigne(l.salNetUSD)} ; acompte ${usdSigne(l.acompteUSD)}, échéance de prêt ${usdSigne(l.retenuePretUSD)}) : la validation sera refusée tant que l'acompte n'est pas réduit ou l'échéance reportée.`,
+    message: `Total versé (net à payer) ${verse < 0 ? "négatif" : "nul"} (${usdSigne(verse)} ; acompte ${usdSigne(l.acompteUSD)}, échéance de prêt ${usdSigne(l.retenuePretUSD)}) : la validation sera refusée tant que l'acompte n'est pas réduit ou l'échéance reportée.`,
   };
 }
