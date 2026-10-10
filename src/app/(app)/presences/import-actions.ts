@@ -9,9 +9,11 @@ import {
   calculerHeuresDepuisPointages,
   apparierPointages,
   ajusterHeuresJour,
-  type PointageBrut,
+  extrairePointagesRapport,
   type AnomaliePointage,
+  type LectureRapport,
 } from "@/lib/pointage";
+import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
 
 // Import IVMS-4200 en DEUX temps (comme les imports du module Stock) :
 //  1. analyserPointageIVMS : lit le fichier, calcule les heures ajustées et renvoie un APERÇU
@@ -27,6 +29,9 @@ export type LigneImport = {
   heures: number; // heures ajustées (pause, bornes du shift)
   code: "P" | "F"; // présence, ou férié travaillé
   statut: "OK" | "CONGE" | "PAIE_FIGEE"; // CONGE : congé approuvé prioritaire · PAIE_FIGEE : mois validé
+  /** Ce que la grille porte DÉJÀ ce jour-là (heures et code), ou null si rien : l'aperçu montre
+   *  « existant → importé », et un jour déjà saisi n'est pas coché par défaut (l'import l'écraserait). */
+  existant: { heures: number | null; code: string | null } | null;
 };
 
 export type AnalysePointage = {
@@ -45,51 +50,19 @@ export type ResultatImport = {
   nbIgnores?: number;
 };
 
-/** Lecture + détection souple des colonnes du rapport (Excel/CSV). */
-function parserFichier(buf: Buffer): { ok: true; pointages: PointageBrut[] } | { ok: false; message: string } {
+/** Lecture du rapport (Excel/CSV) en valeurs BRUTES — jamais la lecture « devinée » du tableur, qui
+ *  prenait 05/10 pour le 10 mai et perdait le 13/10 — puis lecture explicite des dates
+ *  (`extrairePointagesRapport`, pur et testé). */
+function parserFichier(buf: Buffer): LectureRapport {
   let lignes: Record<string, unknown>[];
   try {
-    const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+    const wb = XLSX.read(buf, { type: "buffer", cellDates: false, raw: true });
     const ws = wb.Sheets[wb.SheetNames[0]];
     lignes = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
   } catch {
     return { ok: false, message: "Impossible de lire le fichier (format Excel/CSV attendu)." };
   }
-  if (lignes.length === 0) return { ok: false, message: "Le fichier ne contient aucune ligne." };
-
-  const cles = Object.keys(lignes[0]);
-  const colId = cles.find((c) => /id|matricule|badge|employ/i.test(c));
-  const colDateHeure = cles.find((c) => /date.?heure|horodat|time|pointage|event/i.test(c));
-  const colDate = cles.find((c) => /^date$|jour/i.test(c));
-  const colHeure = cles.find((c) => /^heure$|^time$/i.test(c));
-
-  if (!colId || (!colDateHeure && !(colDate && colHeure))) {
-    return {
-      ok: false,
-      message:
-        "Colonnes non reconnues. Le rapport doit contenir une colonne d'identifiant et une colonne date/heure (ou date + heure séparées).",
-    };
-  }
-
-  const pointages: PointageBrut[] = [];
-  for (const l of lignes) {
-    const idExterne = String(l[colId] ?? "").trim();
-    if (!idExterne) continue;
-
-    let dh: Date | null = null;
-    if (colDateHeure) {
-      const v = l[colDateHeure];
-      dh = v instanceof Date ? v : new Date(String(v));
-    } else if (colDate && colHeure) {
-      const dv = l[colDate];
-      const jour = dv instanceof Date ? dv.toISOString().slice(0, 10) : String(dv);
-      dh = new Date(`${jour}T${String(l[colHeure]).trim()}`);
-    }
-    if (dh && !Number.isNaN(dh.getTime())) {
-      pointages.push({ idExterne, dateHeure: dh });
-    }
-  }
-  return { ok: true, pointages };
+  return extrairePointagesRapport(lignes);
 }
 
 /** Mois « figés » : ceux dont la paie est VALIDÉE (aucune écriture possible). */
@@ -117,18 +90,38 @@ export async function analyserPointageIVMS(
 
   const resultat = calculerHeuresDepuisPointages(parse.pointages, { methode: "PREMIERE_DERNIERE" });
 
+  // Actifs, ET salariés sortis depuis le premier jour du rapport : appariés pour leurs seuls jours
+  // actifs (un jour après la sortie est signalé, jamais importé).
+  const premierJour = parse.pointages.reduce<string | null>((m, p) => { const j = p.dateHeure.toISOString().slice(0, 10); return m === null || j < m ? j : m; }, null);
+  const sortisRecents = premierJour
+    ? [...(await datesDeSortie(prisma, (await prisma.employee.findMany({ where: { actif: false }, select: { id: true } })).map((e) => e.id)))]
+        .filter(([, sortie]) => sortie >= premierJour)
+    : [];
+  const sorties = new Map(sortisRecents);
   const employees = await prisma.employee.findMany({
-    where: { actif: true },
+    where: { OR: [{ actif: true }, { id: { in: [...sorties.keys()] } }] },
     select: { id: true, matricule: true, nom: true, idExterneIVMS: true },
   });
   const correspondance = new Map<string, string>();
-  for (const e of employees) {
-    if (e.idExterneIVMS) correspondance.set(e.idExterneIVMS, e.id);
-    correspondance.set(e.matricule, e.id); // repli sur le matricule
-  }
+  // Le matricule d'abord, l'identifiant IVMS ensuite : l'identifiant de la pointeuse l'emporte
+  // quand il existe (un ID IVMS égal au matricule d'un autre ne le détourne plus selon l'ordre).
+  for (const e of employees) correspondance.set(e.matricule, e.id);
+  for (const e of employees) if (e.idExterneIVMS) correspondance.set(e.idExterneIVMS, e.id);
   const parId = new Map(employees.map((e) => [e.id, e]));
 
-  const { apparies, anomalies } = apparierPointages(resultat, correspondance);
+  const appariement = apparierPointages(resultat, correspondance);
+  const anomalies: AnomaliePointage[] = [...parse.illisibles, ...appariement.anomalies];
+  const apparies = appariement.apparies.filter((j) => {
+    if (!apresSortie(sorties, j.employeeId, j.date)) return true;
+    const sortie = sorties.get(j.employeeId)!;
+    anomalies.push({
+      idExterne: j.idExterne,
+      date: j.date,
+      type: "APRES_SORTIE",
+      detail: `${parId.get(j.employeeId)?.nom ?? j.idExterne} est sorti(e) le ${sortie.split("-").reverse().join("/")} : jour non importé`,
+    });
+    return false;
+  });
   if (apparies.length === 0) {
     return { ok: true, message: "Aucun jour exploitable dans ce fichier.", lignes: [], anomalies };
   }
@@ -139,7 +132,7 @@ export async function analyserPointageIVMS(
   const debut = new Date(dateMin + "T00:00:00Z");
   const fin = new Date(dateMax + "T00:00:00Z");
 
-  const [creneaux, feries, conges, figes] = await Promise.all([
+  const [creneaux, feries, conges, figes, heuresExistantes, codesExistants] = await Promise.all([
     prisma.planningCreneau.findMany({
       where: { date: { gte: debut, lte: fin } },
       select: { employeeId: true, date: true, shift: { select: { heureDebut: true, heureFin: true } } },
@@ -150,7 +143,12 @@ export async function analyserPointageIVMS(
       select: { employeeId: true, dateDebut: true, dateFin: true },
     }),
     moisFiges(),
+    prisma.overtimeEntry.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, heuresTravaillees: true } }),
+    prisma.attendance.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, code: true } }),
   ]);
+  const jourIso = (d: Date) => new Date(d).toISOString().slice(0, 10);
+  const heuresDuJour = new Map(heuresExistantes.map((h) => [`${h.employeeId}_${jourIso(h.date)}`, Number(h.heuresTravaillees)]));
+  const codeDuJour = new Map(codesExistants.map((a) => [`${a.employeeId}_${jourIso(a.date)}`, a.code as string]));
   const shiftParJour = new Map<string, { heureDebut: string | null; heureFin: string | null }>();
   for (const c of creneaux) shiftParJour.set(`${c.employeeId}_${new Date(c.date).toISOString().slice(0, 10)}`, c.shift);
   const feriesSet = new Set(feries.map((f) => new Date(f.date).toISOString().slice(0, 10)));
@@ -182,14 +180,23 @@ export async function analyserPointageIVMS(
         heures,
         code: (feriesSet.has(jour.date) ? "F" : "P") as "P" | "F",
         statut,
+        existant: (() => {
+          const k = `${jour.employeeId}_${jour.date}`;
+          const h = heuresDuJour.get(k);
+          const c = codeDuJour.get(k);
+          return h === undefined && c === undefined ? null : { heures: h ?? null, code: c ?? null };
+        })(),
       };
     })
     .sort((a, b) => (a.date === b.date ? a.nom.localeCompare(b.nom) : a.date.localeCompare(b.date)));
 
   const nbOk = lignes.filter((l) => l.statut === "OK").length;
+  const nbDeja = lignes.filter((l) => l.statut === "OK" && l.existant).length;
+  const nbIllisibles = anomalies.filter((a) => a.type === "LIGNE_ILLISIBLE").length;
+  const fr = (iso: string) => iso.split("-").reverse().join("/");
   return {
     ok: true,
-    message: `${lignes.length} jour(s) détecté(s) du ${dateMin} au ${dateMax} — ${nbOk} importable(s), ${anomalies.length} anomalie(s). Rien n'a encore été importé : choisissez la période et les lignes, puis importez.`,
+    message: `${lignes.length} jour(s) détecté(s) du ${fr(dateMin)} au ${fr(dateMax)} — ${nbOk} importable(s)${nbDeja > 0 ? ` dont ${nbDeja} déjà saisi(s) (non cochés : l'import les remplacerait)` : ""}, ${anomalies.length} anomalie(s)${nbIllisibles > 0 ? ` dont ${nbIllisibles} ligne(s) illisible(s)` : ""}. Rien n'a encore été importé : choisissez la période et les lignes, puis importez.`,
     lignes,
     anomalies,
     dateMin,
@@ -219,13 +226,14 @@ export async function appliquerPointageIVMS(
   const debut = new Date(dates[0] + "T00:00:00Z");
   const fin = new Date(dates[dates.length - 1] + "T00:00:00Z");
 
-  const [feries, conges, figes] = await Promise.all([
+  const [feries, conges, figes, sorties] = await Promise.all([
     prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } }, select: { date: true } }),
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
       select: { employeeId: true, dateDebut: true, dateFin: true },
     }),
     moisFiges(),
+    datesDeSortie(prisma, [...new Set(valides.map((s) => s.employeeId))]),
   ]);
   const feriesSet = new Set(feries.map((f) => new Date(f.date).toISOString().slice(0, 10)));
   const estEnConge = (employeeId: string, iso: string) => {
@@ -237,7 +245,7 @@ export async function appliquerPointageIVMS(
   let nbIgnores = 0;
   for (const s of valides) {
     // Garde-fous revérifiés à l'écriture : paie du mois validée, congé approuvé prioritaire.
-    if (figes.has(cleMois(s.date)) || estEnConge(s.employeeId, s.date)) {
+    if (figes.has(cleMois(s.date)) || estEnConge(s.employeeId, s.date) || apresSortie(sorties, s.employeeId, s.date)) {
       nbIgnores++;
       continue;
     }
@@ -284,7 +292,7 @@ export async function appliquerPointageIVMS(
 
   return {
     ok: true,
-    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s)${nbIgnores > 0 ? `, ${nbIgnores} ignoré(s) (congé ou paie validée)` : ""}.`,
+    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s)${nbIgnores > 0 ? `, ${nbIgnores} ignoré(s) (congé, paie validée ou après la sortie du salarié)` : ""}.`,
     nbAppliques,
     nbIgnores,
   };

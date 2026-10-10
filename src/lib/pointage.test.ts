@@ -118,3 +118,47 @@ describe("apparierPointages", () => {
     expect(anomalies.some((a) => a.type === "NON_APPARIE" && a.idExterne === "INCONNU")).toBe(true);
   });
 });
+
+// ── Lecture explicite des dates du rapport (audit RH 2026-10-10) ──────────────────────────────
+import { extrairePointagesRapport, lireHorodatage, lireJourSeul, lireHeureSeule } from "./pointage";
+
+describe("lecture des dates du rapport IVMS : JJ/MM/AAAA explicite, rien de deviné", () => {
+  const iso = (d: Date | null) => d?.toISOString().slice(0, 16) ?? null;
+  it("05/10/2026 est le 5 octobre (jamais le 10 mai) ; 13/10/2026 est lu ; AAAA-MM-JJ aussi", () => {
+    expect(iso(lireHorodatage("05/10/2026 08:00"))).toBe("2026-10-05T08:00");
+    expect(iso(lireHorodatage("13/10/2026 17:30:12"))).toBe("2026-10-13T17:30");
+    expect(iso(lireHorodatage("2026-10-14 09:05"))).toBe("2026-10-14T09:05");
+    expect(iso(lireHorodatage("2026/10/14 09:05:00"))).toBe("2026-10-14T09:05");
+    expect(iso(lireHorodatage("5.10.2026 8h05"))).toBe("2026-10-05T08:05");
+  });
+  it("illisible : jour impossible, mois 13, sans heure, texte libre, format AM/PM", () => {
+    for (const v of ["31/02/2026 08:00", "05/13/2026 08:00", "05/10/2026", "hier 8h", "10/05/2026 08:00 PM", "", null]) {
+      expect(lireHorodatage(v)).toBeNull();
+    }
+  });
+  it("cellule de date du tableur (numéro de série) : lue sans fuseau", () => {
+    // 46300 = 2026-10-05 ; + 8 h = 0,333…
+    expect(iso(lireHorodatage(46300 + 8 / 24))).toBe("2026-10-05T08:00");
+    expect(lireJourSeul(46300)).toBe("2026-10-05");
+    expect(lireHeureSeule(8.5 / 24)).toBe(8.5 * 3_600_000);
+    expect(lireHeureSeule("17:45")).toBe((17 * 60 + 45) * 60_000);
+    expect(lireHeureSeule("25:00")).toBeNull();
+  });
+  it("toute ligne illisible est signalée avec son numéro ; date + heure séparées", () => {
+    const r = extrairePointagesRapport([
+      { ID: "17", "Date/Heure": "05/10/2026 08:00" },
+      { ID: "17", "Date/Heure": "31/02/2026 08:00" },
+      { ID: "", "Date/Heure": "05/10/2026 09:00" },
+      { ID: "", "Date/Heure": "" },
+    ]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.pointages).toHaveLength(1);
+    expect(r.illisibles.map((a) => a.detail)).toEqual([
+      expect.stringContaining("Ligne 3 : date/heure « 31/02/2026 08:00 » illisible"),
+      expect.stringContaining("Ligne 4 : identifiant vide"),
+    ]);
+    const s = extrairePointagesRapport([{ Matricule: "AB12-PEF", Date: "13/10/2026", Time: "07:58" }]);
+    expect(s.ok && s.pointages[0].dateHeure.toISOString().slice(0, 16)).toBe("2026-10-13T07:58");
+  });
+});

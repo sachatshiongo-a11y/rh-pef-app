@@ -20,6 +20,14 @@ const STATUT_LABEL: Record<string, { label: string; cls: string }> = {
   PAIE_FIGEE: { label: "Paie validée", cls: "bg-red-100 text-red-800" },
 };
 
+const LIBELLE_ANOMALIE: Record<string, string> = {
+  POINTAGE_UNIQUE: "Pointage unique",
+  DUREE_ABERRANTE: "Durée aberrante",
+  NON_APPARIE: "Non apparié",
+  LIGNE_ILLISIBLE: "Ligne illisible",
+  APRES_SORTIE: "Après la sortie",
+};
+
 export function ImportPointage() {
   const [pending, start] = useTransition();
   const [analyse, setAnalyse] = useState<AnalysePointage | null>(null);
@@ -57,7 +65,8 @@ export function ImportPointage() {
       setAnalyse(a);
       setDu(a.dateMin ?? "");
       setAu(a.dateMax ?? "");
-      setDecochees(new Set());
+      // Un jour DÉJÀ saisi n'est pas coché d'office : l'importer remplacerait ce qui est en place.
+      setDecochees(new Set(a.lignes.filter((l) => l.statut === "OK" && l.existant).map((l) => cle(l))));
     });
   }
 
@@ -92,7 +101,9 @@ export function ImportPointage() {
           Chargez le rapport (Excel ou CSV) : l&apos;analyse affiche d&apos;abord un <b>aperçu</b> —
           rien n&apos;est importé tant que vous n&apos;avez pas choisi la <b>période</b> et les{" "}
           <b>lignes</b> à appliquer. Heures calculées par première entrée / dernière sortie, ajustées
-          (pause, bornes du shift). Congé approuvé et paie validée restent intouchables.
+          (pause, bornes du shift). Dates lues JJ/MM/AAAA (ou AAAA-MM-JJ) ; une ligne illisible est
+          signalée, jamais devinée. Un jour déjà saisi n&apos;est pas coché d&apos;office. Congé approuvé et
+          paie validée restent intouchables.
         </p>
 
         <form onSubmit={lancerAnalyse} className="flex flex-wrap items-center gap-3">
@@ -141,7 +152,7 @@ export function ImportPointage() {
                     <th className="w-8"><input type="checkbox" checked={pageToutCochee} disabled={importablesPage.length === 0} onChange={(e) => cocherPage(e.target.checked)} aria-label={`Cocher les lignes de cette page (${importablesPage.length})`} title="Coche les lignes de cette page" /></th>
                     <th>Date</th>
                     <th>Employé</th>
-                    <th className="text-right">Heures</th>
+                    <th className="text-right">Existant → importé</th>
                     <th>Code</th>
                     <th>Statut</th>
                   </tr>
@@ -164,10 +175,23 @@ export function ImportPointage() {
                         </td>
                         <td className="px-3 py-1.5 tabular-nums">{l.date}</td>
                         <td className="px-3 py-1.5">{l.nom}</td>
-                        <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                          {l.heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {l.existant ? (
+                            <span className="text-muted-foreground" title="Ce que la grille porte déjà ce jour-là">
+                              {l.existant.heures === null ? "—" : `${l.existant.heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h`}
+                              {l.existant.code ? ` (${l.existant.code})` : ""} →{" "}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground" title="Rien de saisi ce jour-là">— → </span>
+                          )}
+                          <span className="font-medium">{l.heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h</span>
                         </td>
-                        <td className="px-3 py-1.5">{l.code}</td>
+                        <td className="px-3 py-1.5">
+                          {l.code}
+                          {l.existant && l.statut === "OK" && (
+                            <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Déjà saisi</span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5">
                           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.cls}`}>{st.label}</span>
                         </td>
@@ -186,7 +210,7 @@ export function ImportPointage() {
               <div className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
                 <p className="font-semibold">Anomalies (jamais appliquées) :</p>
                 <ListePaginee items={analyse.anomalies} libelle="anomalies" className="mt-1 list-inside list-disc space-y-0.5" ligne={(a, i) => (
-                  <li key={i}>{a.date} · {a.idExterne} · {a.type} — {a.detail}</li>
+                  <li key={i}>{a.date ? `${a.date.split("-").reverse().join("/")} · ` : ""}{a.idExterne} · {LIBELLE_ANOMALIE[a.type] ?? a.type} — {a.detail}</li>
                 )} />
               </div>
             )}
