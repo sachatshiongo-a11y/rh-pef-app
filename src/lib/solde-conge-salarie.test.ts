@@ -24,7 +24,7 @@ describe("calculerSoldeConge", () => {
       ]),
       debutAnnee,
     });
-    expect(r).toEqual({ acquis: 18, pris: 6.5, solde: 11.5 });
+    expect(r).toEqual({ acquis: 18, pris: 6.5, solde: 11.5, cSansDemande: 0 });
   });
 
   it("un type inconnu n'entame pas le solde", () => {
@@ -92,5 +92,19 @@ describe("le calendrier des congés affiche le même solde", () => {
   it("passe par chargerSoldesCongeSalaries et ne recalcule ni droits ni décompte", () => {
     expect(cal).toMatch(/\bchargerSoldesCongeSalaries\(prisma, /);
     expect(cal).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b|\bancienneteEnMois\b|\bcompteDansSolde\b/);
+  });
+});
+
+import { compterCSansDemande } from "./solde-conge-salarie";
+
+describe("compterCSansDemande — « C » de la grille sans demande approuvée (audit RH 2026-10-10)", () => {
+  it("compte les C ouvrables non couverts ; jamais un dimanche, un férié, ni un jour couvert par une demande", () => {
+    const c = ["2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"].map(jour); // 04 = dimanche
+    const n = compterCSansDemande(c, [{ dateDebut: jour("2026-10-07"), dateFin: jour("2026-10-09") }], new Set(["2026-10-05"]));
+    expect(n).toBe(2); // 03 et 06
+  });
+  it("le solde décompte ces jours, et le dit", () => {
+    const r = calculerSoldeConge({ acquis: 10, demandesApprouvees: [], compteDansSolde: new Map(), debutAnnee, cSansDemande: 2 });
+    expect(r).toEqual({ acquis: 10, pris: 2, solde: 8, cSansDemande: 2 });
   });
 });

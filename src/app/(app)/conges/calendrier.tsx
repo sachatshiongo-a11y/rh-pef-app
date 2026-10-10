@@ -330,7 +330,14 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
                     </Link>
                   </td>
                   <td className="px-3 py-1.5 text-center">{s ? `${s.acquis} j` : "—"}</td>
-                  <td className="px-3 py-1.5 text-center">{s ? `${s.pris} j` : "—"}</td>
+                  <td className="px-3 py-1.5 text-center">
+                    {s ? `${s.pris} j` : "—"}
+                    {s && s.cSansDemande > 0 && (
+                      <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800" title="Jours C posés dans la grille Présences sans demande approuvée : décomptés">
+                        dont {s.cSansDemande} C sans demande
+                      </span>
+                    )}
+                  </td>
                   <td className={`px-3 py-1.5 text-center font-semibold ${s && s.solde < 0 ? "text-red-700" : "text-foreground"}`}>
                     {s ? `${s.solde} j` : "—"}
                   </td>
@@ -345,7 +352,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Source : demandes de congé <span className="font-medium">approuvées</span>. Solde = droits acquis
+        Source : demandes de congé <span className="font-medium">approuvées</span>, plus les « C » posés
+        directement dans la grille Présences sans demande (payés comme congé, donc décomptés). Solde = droits acquis
         selon l&apos;ancienneté (mois révolus à ce jour) − congés décomptés depuis le 1er janvier (seuls
         les types cochés « Solde annuel » dans Paramètres se déduisent) — le même chiffre que sur la
         fiche employé et l&apos;espace salarié. Les droits légaux restent à valider

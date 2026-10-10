@@ -345,7 +345,7 @@ export default async function FicheEmployePage({
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
-  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges } = soldeConge;
+  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande } = soldeConge;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -715,6 +715,14 @@ export default async function FicheEmployePage({
           <Stat label="Congés pris (année)" value={congesPrisAnnee} />
           <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
+        {cSansDemande > 0 && (
+          // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
+          <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
+            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences depuis le 1er janvier : décompté(s) des congés pris.
+            Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
+          </p>
+        )}
 
         <AbsencesCard
           absences={leaveRequests.map((l) => ({
