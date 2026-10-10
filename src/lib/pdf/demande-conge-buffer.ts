@@ -44,6 +44,8 @@ export async function genererDemandeCongePdf(
   };
 
   const signatureSalarie = await signatureImprimable(prisma, "DEMANDE_CONGE", demande.id);
+  // Fériés : la date de reprise est le prochain jour ouvrable (ni dimanche ni férié).
+  const feries = (await prisma.jourFerie.findMany({ select: { date: true } })).map((f) => new Date(f.date).toISOString().slice(0, 10));
   const buffer = await renderPdfBuffer(
     DemandeCongeDocument({
       employee: demande.employee,
@@ -51,6 +53,7 @@ export async function genererDemandeCongePdf(
       remplacant: demande.remplacant,
       solde,
       signatureSalarie,
+      feries,
     })
   );
 

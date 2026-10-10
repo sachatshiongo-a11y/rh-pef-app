@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresContrat, chargerParametresPaie } from "@/lib/config";
-import { reconstituerBrutDepuisNet } from "@/lib/payroll";
+import { brutDepuisNetContrat } from "@/lib/contrat-brut";
 import { lireFichier } from "@/lib/storage";
 import { formaterNombre } from "@/lib/montant";
 import { chargerSignature, signatureImprimable } from "@/lib/signature";
@@ -94,8 +94,10 @@ export async function genererContratPdf(
   let salaireBrut: string | null = null;
   if (salaireEstNet) {
     const parametresPaie = await chargerParametresPaie();
-    const brut = reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, contrat.employee.enfants);
-    salaireBrut = `${formaterNombre(brut, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
+    // Contrat en francs : conversion en dollars au taux de la paie avant la reconstitution, puis retour
+    // en francs (`brutDepuisNetContrat`). Taux inexploitable : pas de brut imprimé plutôt qu'un faux.
+    const brut = brutDepuisNetContrat(Number(contrat.salaireMensuel), contrat.devise, parametresPaie, contrat.employee.enfants);
+    if (brut !== null) salaireBrut = `${formaterNombre(brut, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
   }
 
   // « Fait à Kinshasa, le … » : signé et à jour → le jour de l'acceptation (= la signature, même

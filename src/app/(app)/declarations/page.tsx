@@ -4,6 +4,7 @@ import { marquerDeclarationForm } from "./actions";
 import type { StatutDeclaration } from "@prisma/client";
 import { exigerPageRH } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 function money(n: number) {
@@ -108,7 +109,7 @@ export default async function DeclarationsPage({
           )}
           {bordereau && (
             <TelechargerLien
-              href="/declarations/export-excel"
+              href={`/declarations/export-excel?mois=${mois}&annee=${annee}`}
               className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
             >
               Cotisations (Excel)
@@ -116,6 +117,14 @@ export default async function DeclarationsPage({
           )}
         </div>
       </div>
+
+      {bordereau?.provisoire && (
+        <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="font-semibold">Provisoire.</span> {bordereau.nbNonValides} bulletin(s) sur {bordereau.nbBulletins} ne sont pas
+          encore validés : ces montants peuvent encore changer. Les déclarations ne peuvent être marquées « déclaré » ou « payé »
+          qu&apos;une fois toute la paie du mois validée.
+        </p>
+      )}
 
       {!bordereau ? (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">
@@ -128,7 +137,7 @@ export default async function DeclarationsPage({
           <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Synthèse</div>
           <div className="mb-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-xl border bg-card p-4 shadow-sm">
-              <p className="text-xs text-muted-foreground">Total à déclarer</p>
+              <p className="text-xs text-muted-foreground">Total à déclarer{bordereau.provisoire ? " (provisoire)" : ""}</p>
               <p className="mt-1 text-xl font-semibold">{money(totalUSD)}</p>
               <p className="text-xs text-muted-foreground">{cdf(totalCDF)}</p>
             </div>
@@ -161,7 +170,20 @@ export default async function DeclarationsPage({
                   <tr key={l.type} className="border-t align-top">
                     <td className="px-3 py-2 font-medium">{l.libelle}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">{l.detail}</td>
-                    <td className="px-3 py-2 text-right">{money(l.montantUSD)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {money(l.montantUSD)}
+                      {bordereau.provisoire && !l.fige && <span className="ml-1 text-xs italic text-amber-700">(provisoire)</span>}
+                      {l.fige && (
+                        <span className="block text-xs text-muted-foreground">
+                          figé au marquage{l.fige.marqueLe ? ` du ${new Date(l.fige.marqueLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}` : ""}
+                        </span>
+                      )}
+                      {l.fige && l.ecartAvecFige && (
+                        <span className="block text-xs font-medium text-destructive">
+                          Recalcul d&apos;aujourd&apos;hui : {money(l.recalculUSD)} — différent du montant déclaré
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right">{cdf(l.montantCDF)}</td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {new Date(l.echeance).toLocaleDateString("fr-FR")}
@@ -178,7 +200,10 @@ export default async function DeclarationsPage({
                     </td>
                     {estAdmin && (
                       <td className="whitespace-nowrap px-3 py-2 text-right">
-                        {l.statut !== "DECLARE" && l.statut !== "PAYE" && (
+                        {bordereau.provisoire && l.statut !== "PAYE" && (
+                          <span className="text-xs italic text-muted-foreground">Validez la paie d&apos;abord</span>
+                        )}
+                        {!bordereau.provisoire && l.statut !== "DECLARE" && l.statut !== "PAYE" && (
                           <form action={marquerDeclarationForm} className="inline">
                             <input type="hidden" name="type" value={l.type} />
                             <input type="hidden" name="mois" value={mois} />
@@ -187,13 +212,18 @@ export default async function DeclarationsPage({
                             <button className="text-primary underline">Marquer déclaré</button>
                           </form>
                         )}
-                        {l.statut !== "PAYE" && (
+                        {!bordereau.provisoire && l.statut !== "PAYE" && (
                           <form action={marquerDeclarationForm} className="ml-3 inline">
                             <input type="hidden" name="type" value={l.type} />
                             <input type="hidden" name="mois" value={mois} />
                             <input type="hidden" name="annee" value={annee} />
                             <input type="hidden" name="statut" value="PAYE" />
-                            <button className="text-primary underline">Marquer payé</button>
+                            <ConfirmSubmitButton
+                              className="text-primary underline"
+                              message={`Marquer ${l.libelle} comme PAYÉ pour ${periode} (${money(l.montantUSD)}) ? Le paiement sera enregistré et ne pourra plus être annulé depuis cet écran.`}
+                            >
+                              Marquer payé
+                            </ConfirmSubmitButton>
                           </form>
                         )}
                         {l.statut === "PAYE" && (

@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors } from "./theme";
 import { dateDuSolde, joursDuSolde, libelleSolde, type SoldeImprime } from "@/lib/solde-conge-imprime";
+import { dateRepriseConge } from "@/lib/reprise-conge";
 
 registerPdfFonts();
 
@@ -93,9 +94,12 @@ export function DemandeCongeDocument({
   remplacant,
   solde,
   signatureSalarie,
+  feries = [],
 }: {
   employee: Employee;
   demande: LeaveRequest;
+  /** Jours fériés (AAAA-MM-JJ) : la reprise est le prochain jour ouvrable, ni dimanche ni férié. */
+  feries?: string[];
   remplacant: Employee | null;
   /** Le solde à imprimer et sa date : figé à l'approbation, ou du jour d'édition (`lib/solde-conge-imprime.ts`). */
   solde: SoldeImprime;
@@ -104,8 +108,7 @@ export function DemandeCongeDocument({
 }) {
   const dateDebut = new Date(demande.dateDebut);
   const dateFin = new Date(demande.dateFin);
-  const dateReprise = new Date(dateFin);
-  dateReprise.setUTCDate(dateReprise.getUTCDate() + 1);
+  const dateReprise = dateRepriseConge(dateFin, feries);
   const docLabel = `PÂTES EN FOLIE — TOLYA SARL  •  Demande de congé - ${employee.matricule}`;
   const estTranchee = demande.statut === "APPROUVE" || demande.statut === "REFUSE";
   // Mois de la demande (celui du début de congé), affiché en haut à droite comme sur le bulletin.
@@ -140,8 +143,9 @@ export function DemandeCongeDocument({
         <View style={styles.section}>
           <PdfSectionHeader>Détail de la demande</PdfSectionHeader>
           <Ligne label="Type de congé" value={demande.type} />
-          <Ligne label="Date de début" value={dateDebut.toLocaleDateString("fr-FR")} />
-          <Ligne label="Date de reprise" value={dateReprise.toLocaleDateString("fr-FR")} />
+          <Ligne label="Date de début" value={dateDebut.toLocaleDateString("fr-FR", { timeZone: "UTC" })} />
+          <Ligne label="Date de fin" value={dateFin.toLocaleDateString("fr-FR", { timeZone: "UTC" })} />
+          <Ligne label="Date de reprise" value={dateReprise.toLocaleDateString("fr-FR", { timeZone: "UTC" })} />
           <Ligne
             label="Nb jours ouvrables"
             value={String(demande.nbJours)}

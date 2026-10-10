@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       tauxChange: bordereau.tauxChange,
       entreprise: ent.entreprise,
       logo: ent.logo,
+      provisoire: bordereau.provisoire ? { nbNonValides: bordereau.nbNonValides, nbBulletins: bordereau.nbBulletins } : null,
     })
   );
 

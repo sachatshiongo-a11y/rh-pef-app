@@ -3,17 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { BulletinsDocument } from "@/lib/pdf/bulletin";
 import { chargerDonneesBulletinsDuMois, bulletinsPourPdf } from "@/lib/paie-bulletins";
+import { lireMoisAnnee } from "@/lib/mois-route";
 import type { Devise } from "@/lib/pdf/theme";
 
-/** Tous les bulletins du mois courant dans UN seul PDF (une page par employé). */
+/** Tous les bulletins d'un mois (le mois courant, ou `?mois=&annee=` pour un mois clôturé) dans UN seul PDF (une page par employé). */
 export async function GET(request: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
   const devise: Devise = new URL(request.url).searchParams.get("devise") === "CDF" ? "CDF" : "USD";
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const mois = config.moisCourant;
-  const annee = config.anneeCourante;
+  const lu = lireMoisAnnee(new URL(request.url).searchParams, { mois: config.moisCourant, annee: config.anneeCourante });
+  if (!lu.ok) return new Response(lu.message, { status: 400 });
+  const { mois, annee } = lu;
 
   const donnees = await chargerDonneesBulletinsDuMois(mois, annee);
   if (!donnees) {

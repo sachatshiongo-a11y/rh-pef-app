@@ -8,11 +8,18 @@ import type { ImagePdf } from "@/lib/entreprise";
 import type { ParametresPaie } from "@/lib/payroll";
 import type { BulletinProps } from "@/lib/pdf/bulletin";
 import { signaturesImprimables, type SignatureImprimable } from "@/lib/signature";
+import { congesDuBulletin, type CongeBulletin, type TypeCongeInfo } from "@/lib/conges-bulletin";
+import { chargerTypesCongeBulletin, congesDeLInstantane } from "@/lib/conges-bulletin-donnees";
+import { fusionnerFicheFigee } from "@/lib/bulletin-fiche-figee";
 
 export type DonneesBulletinsDuMois = {
   run: NonNullable<Awaited<ReturnType<typeof chargerRun>>>;
   feries: string[];
-  congesParEmp: Map<string, { dateDebut: Date; dateFin: Date }[]>;
+  congesParEmp: Map<string, { dateDebut: Date; dateFin: Date; type: string }[]>;
+  typesConge: TypeCongeInfo[];
+  /** Pour chaque ligne VALIDÉE ou PAYÉE : la fiche salarié et les congés figés à la dernière validation
+   *  (dernier instantané). Absent = ligne sans instantané (fiche du jour, rien d'inventé). */
+  figesParLigne: Map<string, { employe: Record<string, unknown> | undefined; conges: CongeBulletin[] | null }>;
   codesParEmp: Map<string, Record<number, string>>;
   primesParEmp: Map<string, { nom: string; montantUSD: number }[]>;
   entreprise: typeof entrepriseDefaut;
@@ -43,7 +50,8 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
 
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const [conges, attendances, primes, feriesRows, ent, parametres] = await Promise.all([
+  const idsFiges = run.lignes.filter((l) => l.statutPaiement !== "PAS_VALIDE").map((l) => l.id);
+  const [conges, attendances, primes, feriesRows, ent, parametres, typesConge, versions] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
     }),
@@ -52,15 +60,29 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
     prisma.jourFerie.findMany({ select: { date: true } }),
     chargerEntreprise(),
     chargerParametresPaie(),
+    chargerTypesCongeBulletin(prisma),
+    // Dernier instantané de chaque ligne figée (le plus récent numéro de version par ligne).
+    idsFiges.length
+      ? prisma.versionBulletin.findMany({
+          where: { payrollLineId: { in: idsFiges } },
+          orderBy: { numeroVersion: "desc" },
+          distinct: ["payrollLineId"],
+          select: { payrollLineId: true, snapshot: true },
+        })
+      : Promise.resolve([] as { payrollLineId: string; snapshot: unknown }[]),
   ]);
+  const figesParLigne: DonneesBulletinsDuMois["figesParLigne"] = new Map(
+    versions.map((v) => [v.payrollLineId, { employe: (v.snapshot as { employe?: Record<string, unknown> }).employe, conges: congesDeLInstantane(v.snapshot) }]),
+  );
 
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
-  const congesParEmp = new Map<string, { dateDebut: Date; dateFin: Date }[]>();
+  const congesParEmp = new Map<string, { dateDebut: Date; dateFin: Date; type: string }[]>();
   for (const c of conges)
     (congesParEmp.get(c.employeeId) ?? congesParEmp.set(c.employeeId, []).get(c.employeeId)!).push({
       dateDebut: new Date(c.dateDebut),
       dateFin: new Date(c.dateFin),
+      type: c.type,
     });
 
   const codesParEmp = new Map<string, Record<number, string>>();
@@ -86,7 +108,7 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
   // tracés dans le stockage est proportionnelle — et il n'y en a que pour les bulletins signés.
   const signaturesParLigne = await signaturesImprimables(prisma, "BULLETIN", run.lignes.map((l) => l.id));
 
-  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo, parametres, signaturesParLigne };
+  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo, parametres, signaturesParLigne, typesConge, figesParLigne };
 }
 
 /**
@@ -98,12 +120,17 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
  * comparerait son exemplaire à celui de la liasse.
  */
 export function bulletinsPourPdf(donnees: DonneesBulletinsDuMois): Omit<BulletinProps, "devise">[] {
-  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo, parametres, signaturesParLigne } = donnees;
-  return run.lignes.map((l) => ({
-    employee: l.employee,
+  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo, parametres, signaturesParLigne, typesConge, figesParLigne } = donnees;
+  return run.lignes.map((l) => {
+    // Même règle que le bulletin à l'unité (`genererBulletinPdf`) : une ligne validée ou payée garde la
+    // fiche et les congés de sa validation ; une ligne en brouillon est marquée PROVISOIRE.
+    const fige = figesParLigne.get(l.id);
+    return {
+    employee: fige ? fusionnerFicheFigee(l.employee, fige.employe) : l.employee,
     ligne: l,
     run,
-    congesPeriode: congesParEmp.get(l.employeeId) ?? [],
+    provisoire: l.statutPaiement === "PAS_VALIDE",
+    congesPeriode: fige?.conges ?? congesDuBulletin(congesParEmp.get(l.employeeId) ?? [], feries, run.mois, run.annee, typesConge),
     primes: primesParEmp.get(l.employeeId) ?? [],
     codesParJour: codesParEmp.get(l.employeeId) ?? {},
     feries,
@@ -111,5 +138,6 @@ export function bulletinsPourPdf(donnees: DonneesBulletinsDuMois): Omit<Bulletin
     logo,
     params: parametres,
     signatureSalarie: signaturesParLigne.get(l.id),
-  }));
+    };
+  });
 }

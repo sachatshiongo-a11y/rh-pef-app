@@ -9,27 +9,17 @@ import { salaireDeBaseUSD, salaireNetUSD, totalVerseUSD, brutHorsTransportUSD } 
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { congesDuBulletin, type CongeBulletin, type CategorieAbsenceBulletin } from "@/lib/conges-bulletin";
+import { MarquePage } from "./provisoire";
 
 registerPdfFonts();
 
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
 
-const fmtJour = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
+const fmtJour = (d: Date) => new Date(d).toLocaleDateString("fr-FR", { timeZone: "UTC" });
 /** Heures ou jours : virgule décimale française, séparateur de milliers compatible avec la police
  * (formateur partagé, jamais l'espace fine U+202F absente d'Optima). « 173,33 », jamais « 173.33 ». */
 const fmtQte = (n: number) => formaterNombre(n, { maximumFractionDigits: 2 });
-/** Jours ouvrables (hors dimanche ET hors jours fériés), bornes incluses — même règle que le reste de l'app. */
-function joursOuvrables(debut: Date, fin: Date, feries: Set<string>): number {
-  let n = 0;
-  const cur = new Date(debut);
-  while (cur <= new Date(fin)) {
-    const iso = cur.toISOString().slice(0, 10);
-    if (cur.getUTCDay() !== 0 && !feries.has(iso)) n++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return n;
-}
-
 const styles = StyleSheet.create({
   page: {
     paddingTop: 22,
@@ -234,7 +224,9 @@ export type BulletinProps = {
   ligne: PayrollLine;
   run: PayrollRun;
   devise: Devise;
-  congesPeriode: { dateDebut: Date; dateFin: Date }[];
+  /** Congés/absences du mois (bornés au mois à l'impression : `congesDuBulletin`). Pour une archive,
+   *  ceux figés dans l'instantané de validation ; absents d'une archive plus ancienne (rien d'inventé). */
+  congesPeriode: CongeBulletin[];
   feries?: string[]; // jours fériés (AAAA-MM-JJ) exclus du décompte des congés
   primes?: { nom: string; montantUSD: number }[]; // primes détaillées (une ligne chacune)
   codesParJour?: Record<number, string>; // jour du mois -> code de présence
@@ -251,11 +243,23 @@ export type BulletinProps = {
   /** Bulletin déjà REMIS relu depuis son instantané (VersionBulletin) : daté de sa remise, sans le
    *  calendrier des présences (non conservé dans l'instantané), et dit comme une archive. */
   archive?: { version: number; remisLe: Date };
+  /** Bulletin d'une ligne ni VALIDÉE ni PAYÉE : bandeau et filigrane « PROVISOIRE — non validé ».
+   *  Par défaut déduit du statut de la ligne ; une archive (remise = validée) n'est jamais provisoire. */
+  provisoire?: boolean;
 };
 
+/** Rubriques des absences imprimées en bas du bulletin : le congé annuel seul s'appelle « Congés ». */
+const RUBRIQUES_ABSENCES: { categorie: CategorieAbsenceBulletin; titre: string }[] = [
+  { categorie: "CONGE", titre: "Congés pris sur la période" },
+  { categorie: "AUTRE", titre: "Autres absences autorisées (maladie, etc.)" },
+  { categorie: "SANS_SOLDE", titre: "Congé sans solde (non payé)" },
+];
+
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params, signatureSalarie, archive }: BulletinProps) {
-  const feriesSet = new Set(feries);
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params, signatureSalarie, archive, provisoire }: BulletinProps) {
+  const estProvisoire = provisoire ?? (!archive && ligne.statutPaiement === "PAS_VALIDE");
+  // Bornés au mois du bulletin ; jours ouvrables par `lib/jours-ouvrables.ts` (fériés fournis).
+  const conges = congesDuBulletin(congesPeriode, feries, run.mois, run.annee);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
 
@@ -347,6 +351,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
 
   return (
     <Page size="A4" style={styles.page}>
+      {estProvisoire && <MarquePage />}
       <PdfHeader title="Bulletin de paie" subtitle={periode} logo={logo} />
 
       <View style={styles.identite}>
@@ -397,18 +402,17 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           {/* Scission lisible : heures travaillées d'un côté, jours payés non travaillés de
               l'autre. Les bulletins figés d'avant la scission n'ont pas la part « jours payés » →
               ligne unique historique.
-              La ligne des jours payés n'affiche PAS de taux (comme « Heures supplémentaires ») :
-              son montant est `remunerationJoursPayesUSD` stocké, calculé par le moteur sur un taux
-              non arrondi et, salaires saisis en net, avec un facteur brut/net propre. « base × taux
-              affiché » ne retombait pas sur le montant (écart mesuré jusqu'à 0,49 $, 1 912 FC) :
-              la Direction aurait signé une multiplication fausse. Le taux horaire reste dans la
-              case récapitulative. */}
+              AUCUNE de ces lignes n'affiche de taux : leur montant est celui stocké par le moteur,
+              calculé sur un taux non arrondi et, salaires saisis en net, avec un facteur brut/net
+              propre. « base × taux affiché » ne retombait pas sur le montant (écart mesuré jusqu'à
+              0,49 $ ; audit du 2026-10-10 : 150 h × 0,84 $ = 126,10 $ pour 123,26 $ imprimés) : la
+              Direction aurait signé une multiplication fausse. Le taux horaire reste dans la case
+              récapitulative, où il se lit avec le salaire de base dont il est dérivé. */}
           {Number(ligne.remunerationJoursPayesUSD ?? 0) > 0 ? (
             <>
               <Row
                 designation="Salaire de base (heures travaillées)"
                 base={`${fmtQte(heuresNormales)} h`}
-                taux={m(tauxHoraire)}
                 montant={m(Number(ligne.remuneration100) - Number(ligne.remunerationJoursPayesUSD))}
               />
               <Row
@@ -425,7 +429,6 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Row
               designation="Salaire de base"
               base={estBrigade ? `${fmtQte(heuresNormales)} h` : undefined}
-              taux={estBrigade ? m(tauxHoraire) : undefined}
               montant={m(salaireBaseLigne)}
             />
           )}
@@ -530,30 +533,36 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           addition : ils ne sont ni cotisables, ni imposables, ni versés en espèces (décision
           2026-08-16, traitement fiscal à valider). Les placer dans le tableau laisserait croire
           qu'ils entrent dans le net. */}
-      {(congesPeriode.length > 0 || estPaye || avantagesNatureUSD > 0) && (
+      {(conges.length > 0 || estPaye || avantagesNatureUSD > 0) && (
         <View style={styles.mentions} wrap={false}>
-          {congesPeriode.length > 0 && (
-            <>
-              <Text style={styles.mentionTitre}>Congés pris sur la période</Text>
-              {congesPeriode.map((c, i) => (
-                <Text key={i} style={styles.mentionLigne}>
-                  • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin, feriesSet)} jour(s) ouvrable(s)
-                </Text>
-              ))}
-              <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
-                Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin, feriesSet), 0)} jour(s)
-              </Text>
-            </>
-          )}
+          {RUBRIQUES_ABSENCES.map(({ categorie, titre }) => {
+            const lignes = conges.filter((c) => c.categorie === categorie);
+            if (lignes.length === 0) return null;
+            return (
+              <View key={categorie} style={categorie === "CONGE" ? {} : { marginTop: 3 }}>
+                <Text style={styles.mentionTitre}>{titre}</Text>
+                {lignes.map((c, i) => (
+                  <Text key={i} style={styles.mentionLigne}>
+                    • {categorie === "CONGE" ? "" : `${c.type ?? "Absence"} : `}du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {c.jours ?? 0} jour(s) ouvrable(s){c.rogne ? " (congé plus long, compté sur ce mois seulement)" : ""}
+                  </Text>
+                ))}
+                {categorie === "CONGE" && (
+                  <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
+                    Total congés : {lignes.reduce((n, c) => n + (c.jours ?? 0), 0)} jour(s)
+                  </Text>
+                )}
+              </View>
+            );
+          })}
           {avantagesNatureUSD > 0 && (
-            <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
+            <Text style={[styles.mentionLigne, conges.length > 0 ? { marginTop: 3 } : {}]}>
               <Text style={styles.mentionLabel}>Avantages en nature : </Text>
               {m(avantagesNatureUSD)} — fournis en nature, non versés en espèces. Mention informative,
               non comprise dans le salaire brut ni dans le salaire net.
             </Text>
           )}
           {estPaye && (
-            <Text style={[styles.mentionLigne, congesPeriode.length > 0 || avantagesNatureUSD > 0 ? { marginTop: 3 } : {}]}>
+            <Text style={[styles.mentionLigne, conges.length > 0 || avantagesNatureUSD > 0 ? { marginTop: 3 } : {}]}>
               <Text style={styles.mentionLabel}>Mode de paiement : </Text>
               {modePaiement}
             </Text>

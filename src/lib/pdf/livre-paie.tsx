@@ -2,6 +2,7 @@ import type { PaymentStatus } from "@prisma/client";
 import { TableauxParPartieDocument, type Cellule, type Colonne, type PartieTableau } from "./tableau";
 import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
+import { MENTION_PROVISOIRE } from "@/lib/mention-provisoire";
 import { aDesHeuresSupp, montantsDeLigne, partiesDuLivre, totauxDuLivre, type LigneLivre, type MontantsLivre } from "@/lib/livre-paie";
 
 // Tout nombre passe par formaterNombre (espaces normalisées) : l'espace fine insécable de fr-FR
@@ -161,10 +162,15 @@ export function partiesDuLivrePdf(lignes: LignePdf[], taux: number): PartieTable
  */
 export function LivrePaieDocument({ lignes, taux, periode }: { lignes: LignePdf[]; taux: number; periode: string }) {
   const statuts = lignes.map((l) => LIBELLE_STATUT[l.statutPaiement]).filter((v, i, a) => a.indexOf(v) === i);
+  // Un livre qui contient du non validé n'est pas un livre arrêté : la mention est dans l'en-tête de
+  // CHAQUE page (sous-titre) et dans le pied (audit du 2026-10-10).
+  const nonValides = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length;
+  const sousTitre = nonValides > 0 ? `${periode} — ${MENTION_PROVISOIRE}` : periode;
+  const avertissement = nonValides > 0 ? ` ${MENTION_PROVISOIRE} : ${nonValides} bulletin(s) sur ${lignes.length} pas encore validé(s), montants susceptibles de changer.` : "";
   return TableauxParPartieDocument({
     titre: "Livre de paie",
-    sousTitre: t(periode),
+    sousTitre: t(sousTitre),
     parties: partiesDuLivrePdf(lignes, taux),
-    pied: t(`Statuts : ${statuts.join(" · ")}. Document interne — TOLYA SARL.`),
+    pied: t(`Statuts : ${statuts.join(" · ")}. Document interne — TOLYA SARL.${avertissement}`),
   });
 }
