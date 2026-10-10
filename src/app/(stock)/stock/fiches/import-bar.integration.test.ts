@@ -132,6 +132,30 @@ async function choixToutCreer(sauf: Partial<ChoixImportBar> = {}): Promise<Choix
   };
 }
 
+describe("import des fiches du bar — anti-doublon d'article (audit du 10/10/2026)", () => {
+  it("un article INACTIF du même nom n'est pas recréé : la simulation le dit, l'écriture refuse tout (rien n'est écrit)", async () => {
+    // « Jus d'Ananas-100 » existe au catalogue mais a été mis de côté : l'import ne lit que les actifs.
+    const inactif = await prisma.articleStock.create({ data: { designation: "Jus d'Ananas-100", domaine: "BOISSON", unite: "l", actif: false } });
+    const a = await analyser();
+    const prop = a.ingredients.find((p) => p.libelle === "Jus d'Ananas-100")!;
+    expect(prop.articleId).toBeNull();
+    expect(prop.doute).toContain("INACTIF");
+    expect(prop.doute).toContain("réactiver");
+    // Choix de la Direction malgré tout : « Créer ».
+    const choix = await choixToutCreer();
+    expect(choix.ingredients[prop.cle]!.cible).toBe("creer");
+    const avant = await comptes();
+    const r = await appliquerImportBar(lues, choix);
+    expect(r).toEqual({ erreur: expect.stringContaining("INACTIF") });
+    expect(await comptes()).toEqual(avant); // tout ou rien
+    expect(await prisma.articleStock.count({ where: { designation: "Jus d'Ananas-100" } })).toBe(1);
+    // Réactivé : l'import le retrouve et le rattache, sans doublon.
+    await prisma.articleStock.update({ where: { id: inactif.id }, data: { actif: true } });
+    const b = await analyser();
+    expect(b.ingredients.find((p) => p.libelle === "Jus d'Ananas-100")!.articleId).toBe(inactif.id);
+  });
+});
+
 describe("import des fiches du bar", () => {
   it("réservé à la Direction : le rôle Stock est refusé, rien n'est écrit", async () => {
     const avant = await comptes();

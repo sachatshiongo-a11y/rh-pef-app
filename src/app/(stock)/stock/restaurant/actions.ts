@@ -109,7 +109,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
         if (comptages > 0 || livraisons > 0) {
           const quoi = [comptages > 0 ? `${comptages} comptage(s)` : null, livraisons > 0 ? `${livraisons} livraison(s) du dépôt` : null].filter(Boolean).join(" et ");
           throw new Error(
-            `L'unité de « ${article.designation} » ne peut plus changer : ${quoi} existent déjà en « ${article.unite} », et les relire dans une autre unité fausserait tout l'historique (4,5 kg deviendrait 4,5 g). ` +
+            `L'unité de « ${article.designation} » ne peut plus changer : ${quoi} existent déjà en « ${article.unite} », et les relire dans une autre unité fausserait tout l'historique (par exemple, 4,5 kg deviendrait 4,5 g). ` +
             "Créez un nouvel article avec la bonne unité, puis demandez à la Direction de désactiver celui-ci.",
           );
         }
