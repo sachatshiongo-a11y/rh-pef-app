@@ -119,6 +119,23 @@ export async function exigerCategorieDuDomaine(tx: Pick<Tx, "articleStock" | "ca
 }
 
 /**
+ * Une catégorie vit dans UN domaine : la donner à un article d'un autre domaine le rangerait dans un
+ * classement qui n'est pas le sien (audit du 10/10/2026, stock 17). Refus qui NOMME les articles. Seule
+ * exception : l'article qui porte déjà cette catégorie la garde (une retouche de prix ne doit pas buter
+ * sur un classement d'hier). Le changement de domaine a sa propre règle (`exigerCategorieDuDomaine`).
+ */
+export async function exigerCategorieDansLeDomaine(tx: Pick<Tx, "articleStock" | "categorieStock">, articleIds: string[], categorieId: string | null | undefined) {
+  if (!categorieId || articleIds.length === 0) return;
+  const cat = await tx.categorieStock.findUnique({ where: { id: categorieId }, select: { nom: true, domaine: true } });
+  if (!cat) return; // inconnue : la clé étrangère s'en charge
+  const arts = await tx.articleStock.findMany({ where: { id: { in: articleIds } }, select: { designation: true, domaine: true, categorieId: true } });
+  const fautifs = arts.filter((a) => a.domaine !== cat.domaine && a.categorieId !== categorieId);
+  if (fautifs.length === 0) return;
+  const noms = fautifs.map((a) => `« ${a.designation} »`).sort((x, y) => x.localeCompare(y, "fr"));
+  throw new Error(`La catégorie « ${cat.nom} » est du domaine ${libelleValeur("domaine", cat.domaine)} : elle ne peut pas être donnée ${noms.length > 1 ? "aux articles" : "à l'article"} ${noms.slice(0, 8).join(", ")}${noms.length > 8 ? ` et ${noms.length - 8} autre(s)` : ""} (${[...new Set(fautifs.map((a) => libelleValeur("domaine", a.domaine)))].join(", ")}). Choisissez une catégorie du même domaine. Rien n'a été modifié.`);
+}
+
+/**
  * Catégorie ARCHIVÉE (Inventaire › Catégories) : elle n'est plus proposée dans les choix, et le serveur
  * la refuse aussi (une action s'appelle sans l'écran). Seule exception : l'article qui la porte déjà
  * peut la GARDER (une retouche de prix ne doit pas buter sur la catégorie d'hier). `articleId` absent =
@@ -217,6 +234,7 @@ export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: Pa
   await exigerCategorieDuDomaine(tx, id, patch); // domaine changé : catégorie du nouveau domaine, ou « à classer »
   await exigerDesignationLibre(tx, id, patch, { procheAutorise: renommerQuandMeme }); // renommage : jamais un doublon d'un autre article
   if ("categorieId" in patch) await exigerCategorieActive(tx, patch.categorieId as string | null, id); // jamais vers une catégorie archivée
+  if ("categorieId" in patch && !("domaine" in patch)) await exigerCategorieDansLeDomaine(tx, [id], patch.categorieId as string | null); // …ni d'un autre domaine (le changement de domaine a sa règle)
   if ("devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch) {
     const cur = await tx.articleStock.findUniqueOrThrow({ where: { id }, select: { devisePrix: true } });
     patch = harmoniserPrix(cur.devisePrix, patch);
@@ -314,6 +332,11 @@ export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { ca
     const apres = champ in patch ? (patch[champ] ?? null) : avant;
     return { champ, avant, apres, avantLibelle: libelle(champ, avant), apresLibelle: libelle(champ, apres) };
   });
+}
+
+/** « Prix unitaire USD : 2,5 → 3 ; Unité : kg → g » — le journal de ce qui a VRAIMENT changé (avant → après). */
+export function texteChangements(changements: Changement[]): string {
+  return changements.map((ch) => `${CHAMPS_ARTICLE[ch.champ].libelle} : ${ch.avantLibelle} → ${ch.apresLibelle}`).join(" ; ").slice(0, 900);
 }
 
 /** Noms des catégories et fournisseurs (libellés des propositions). */
