@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { variationsStockTx } from "./stock-positif";
 import { verrouillerFactures, verrouillerMouvements } from "./verrou-suppression";
+import { exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 
 type Tx = Prisma.TransactionClient;
 
@@ -20,7 +21,10 @@ export async function supprimerFacturesTx(tx: Tx, ids: string[]) {
   // Entrées verrouillées à leur tour, puis relues : une entrée déjà emportée par la suppression d'un
   // mouvement ne doit pas être reprise une seconde fois.
   const entreesVivantes = await verrouillerMouvements(tx, facs.flatMap((f) => f.mouvements.map((m) => m.id)));
-  const entrees = await tx.mouvementStock.findMany({ where: { id: { in: [...entreesVivantes] } }, select: { id: true, articleId: true, quantite: true } });
+  const entrees = await tx.mouvementStock.findMany({ where: { id: { in: [...entreesVivantes] } }, select: { id: true, articleId: true, quantite: true, date: true } });
+  // Clôture (audit du 10/10/2026) : supprimer une facture supprime ses entrées, datées — un mois clôturé
+  // ne se réécrit pas en douce. Contrôlé AVANT toute écriture : le refus ne laisse rien derrière lui.
+  await exigerPeriodesOuvertes(entrees.map((m) => m.date));
   // Reprise du stock entré par ces factures, avant suppression (leurs autres mouvements passeront à factureId=null).
   // Porte unique, tout le lot d'un coup : une reprise qui ferait passer un article sous 0 refuse tout.
   await variationsStockTx(tx, entrees.map((m) => ({ articleId: m.articleId, delta: m.quantite.negated() })), { verbe: "à reprendre" });
