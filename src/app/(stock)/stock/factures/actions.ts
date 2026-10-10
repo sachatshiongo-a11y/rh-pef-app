@@ -25,6 +25,7 @@ import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
 import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture";
+import { annulerPaiementTx, corrigerEnteteFactureTx } from "@/lib/validations-stock/correction-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -630,4 +631,34 @@ export const supprimerFacturesEnLot = actionLisible(async (ids: string[]) => {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
   return dejaSupprimees > 0 ? { n: facs.length, dejaSupprimees } : { n: facs.length };
+});
+
+/**
+ * Corrige l'en-tête d'une facture (numéro, date, échéance, fournisseur, montant) — Direction seule. Les
+ * champs reçus sont comparés à la facture : seules les différences s'écrivent, journalisées avant → après.
+ * Le montant (texte à la française, dans la devise de la facture) n'est modifiable que si rien n'en dépend.
+ */
+export const modifierEnteteFacture = actionLisible(async (id: string, saisie: { numero?: string; date?: string; dateEcheance?: string; fournisseurId?: string; montant?: string }) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const montantTexte = saisie.montant === undefined ? "" : String(saisie.montant).trim();
+  const r = await prisma.$transaction((tx) => corrigerEnteteFactureTx(tx, user.id, String(id), {
+    ...(saisie.numero !== undefined ? { numero: saisie.numero } : {}),
+    ...(saisie.date !== undefined ? { date: saisie.date } : {}),
+    ...(saisie.dateEcheance !== undefined ? { dateEcheance: saisie.dateEcheance } : {}),
+    ...(saisie.fournisseurId !== undefined ? { fournisseurId: saisie.fournisseurId } : {}),
+    ...(montantTexte ? { montant: decSaisi(montantTexte, "montant") } : {}),
+  }));
+  rafraichirFactures([id]);
+  revalidatePath("/stock/mouvements");
+  return r;
+});
+
+/** Annule un paiement (ou un avoir) enregistré par erreur — Direction seule ; le reste et le statut sont recalculés. */
+export const annulerPaiementFacture = actionLisible(async (paiementId: string) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const r = await prisma.$transaction((tx) => annulerPaiementTx(tx, user.id, String(paiementId)));
+  rafraichirFactures([r.factureId]);
+  return r;
 });

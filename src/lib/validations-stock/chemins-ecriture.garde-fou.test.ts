@@ -94,6 +94,7 @@ const CLASSEMENT_ARGENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Annulation d'un import (supprime les factures importées) : imports/actions.ts (gardeDirection)." },
   "lib/validations-stock/suppression-facture.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur de la suppression de factures (verrou, reprise du stock, suppression) : appelé seulement par factures/actions.ts, Direction seule." },
   "lib/validations-stock/reglement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur des règlements : geste direct de la Direction ou demande validée." },
+  "lib/validations-stock/correction-facture.ts": { sort: "DIRECTION_SEULE", pourquoi: "Correction de l'en-tête d'une facture et annulation d'un paiement : appelé seulement par factures/actions.ts (modifierEnteteFacture, annulerPaiementFacture), requireRole ADMIN ; refuse si un paiement est déjà demandé." },
 };
 const ECRIT_ARGENT_PRISMA = /\b(?:factureFournisseur|paiement)\.(?:update|updateMany|upsert|create|createMany|delete|deleteMany)\s*\(/;
 const ECRIT_ARGENT_SQL = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."(?:FactureFournisseur|Paiement)"/i;
