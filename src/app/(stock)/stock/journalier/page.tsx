@@ -6,7 +6,8 @@ import { LEGUMES } from "../legumes/legumes-data";
 import { TableConso } from "./table-conso";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 import { TableComparaison } from "./table-comparaison";
-import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
+import { consoApproximativeParArticleCatalogue, consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
+import { achatsLegumesParLigne, lignesLegumesComparaison, type LigneLegume } from "@/lib/legumes-semaine";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { VentesGrid } from "./ventes-grid";
@@ -59,18 +60,10 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
 
   // Légumes frais : achats du jour (AchatLegume) et commandes (CommandeLegumeResto). Cuisine only.
   const inclureLegumes = domaine !== "BOISSON";
-  const chargerLegumesAchats = async () => {
-    const legumes = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { legume: true, date: true, quantite: true } });
-    const m = new Map<string, { jours: number[]; total: number }>();
-    for (const l of legumes) {
-      const row = m.get(l.legume) ?? { jours: Array(7).fill(0), total: 0 };
-      const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
-      const q = Number(l.quantite);
-      if (idx >= 0 && idx < 7) row.jours[idx] += q;
-      row.total += q;
-      m.set(l.legume, row);
-    }
-    return m;
+  // Rangés PAR LIGNE (légume + unité) : un achat en « Sac » ne s'additionne pas à la commande en « Kg ».
+  const chargerLegumesAchats = async (): Promise<LigneLegume[]> => {
+    const legumes = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { legume: true, unite: true, date: true, quantite: true } });
+    return achatsLegumesParLigne(legumes.map((l) => ({ legume: l.legume, unite: l.unite, jour: iso(new Date(l.date)), quantite: Number(l.quantite) })), isosSemaine, LEGUMES);
   };
   const chargerCommandesLegumes = async () => {
     const cmds = await prisma.commandeLegumeResto.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { legume: true, date: true, quantite: true } });
@@ -83,9 +76,9 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   if (vue === "conso") {
     const [donnees, legAchats] = await Promise.all([
       chargerDonneesRestaurant(lundi, domaine),
-      inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
+      inclureLegumes ? chargerLegumesAchats() : Promise.resolve<LigneLegume[]>([]),
     ]);
-    const legumes = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, r]) => ({ nom, ...r }));
+    const legumes = legAchats;
     const aide = <>Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).</>;
     return cadre(
       enTete(aide),
@@ -134,10 +127,11 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     const articles = await prisma.articleStock.findMany({
       where: { actif: true, ...(domaine ? { domaine } : {}) },
       orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-      select: { id: true, ...CHAMPS_LIBELLE, categorie: { select: { nom: true } } },
+      select: { id: true, ...CHAMPS_LIBELLE, unite: true, categorie: { select: { nom: true } } },
     });
     // Nom AFFICHÉ (contenance comprise) : la grille et la comparaison ne s'en servent que pour l'affichage et la recherche.
-    return articles.map((a) => ({ id: a.id, designation: libelleArticle(a), categorie: a.categorie?.nom ?? "À classer" }));
+    // L'unité du catalogue accompagne chaque ligne (kg, bouteille, pièce… ne se confondent pas).
+    return articles.map((a) => ({ id: a.id, designation: libelleArticle(a), unite: a.unite, categorie: a.categorie?.nom ?? "À classer" }));
   };
   const chargerCommandes = async () => {
     const cmds = await prisma.commandeResto.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { articleId: true, date: true, quantite: true } });
@@ -149,7 +143,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   // ---------- VUE COMMANDE (saisie) ----------
   if (vue === "commande") {
     const [articles, commandes, cmdLeg, calee] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}), ficheCommandeCalee()]);
-    if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.unite ? `${l.nom} (${l.unite})` : l.nom, categorie: "Légumes frais" })));
+    if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.nom, unite: l.unite, categorie: "Légumes frais" })));
     const aide = <>Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</>;
     return cadre(
       enTete(aide, { importer: user.role === "ADMIN" ? <ImportCommande /> : undefined }),
@@ -170,18 +164,18 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   // ---------- VUE COMPARAISON (commandé / livré au restaurant / consommé) ----------
   const [donnees, commandes, articles, legAchatsC, cmdLegC] = await Promise.all([
     chargerDonneesRestaurant(lundi, domaine), chargerCommandes(), chargerArticles(),
-    inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
+    inclureLegumes ? chargerLegumesAchats() : Promise.resolve<LigneLegume[]>([]),
     inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}),
   ]);
   const isos = joursLabel.map((j) => j.iso);
+  // Commande (unité de la liste) et achat dans une autre unité : deux lignes, jamais la même.
   const legumes = inclureLegumes
-    ? [...new Set([...LEGUMES.map((l) => l.nom), ...legAchatsC.keys()])].map((nom) => ({
-        nom, cmd: isos.map((j) => cmdLegC[`legume:${nom}_${j}`] ?? 0), liv: legAchatsC.get(nom)?.jours ?? Array(7).fill(0),
-      }))
+    ? lignesLegumesComparaison({ liste: LEGUMES, achats: legAchatsC, commandes: (nom) => isos.map((j) => cmdLegC[`legume:${nom}_${j}`] ?? 0), nbJours: isos.length })
     : [];
   const lignes = lignesComparaison({
     jours: isos, articles, commandes, livraisons: donnees.sorties.livraisons,
     consoParArticle: consommationParArticleCatalogue(donnees.entrees, isos),
+    consoApproxParArticle: consoApproximativeParArticleCatalogue(donnees.entrees, isos),
     inclureHorsCatalogue: !domaine, legumes,
   });
 

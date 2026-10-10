@@ -28,8 +28,8 @@ const jour = () => conteneur.querySelector<HTMLElement>('[data-vue="jour"]')!;
 const choisir = (prefixe: string) => act(() => { conteneur.querySelector<HTMLButtonElement>(`[data-selecteur-jour] button[aria-label^="${prefixe}"]`)!.click(); });
 
 const LJ = (id: string, jours: number[]): LigneJours => ({ id, designation: id, jours, total: jours.reduce((a, b) => a + b, 0) });
-const connue = (quantite: string, extra: Partial<{ negative: boolean; veilleEstimee: boolean }> = {}) =>
-  ({ etat: "CONNUE" as const, quantite, negative: false, stockVeille: "5", recu: "2", compte: "3", veilleEstimee: false, ...extra });
+const connue = (quantite: string, extra: Partial<{ negative: boolean; veilleEstimee: boolean; depuis: string | null; nbJours: number }> = {}) =>
+  ({ etat: "CONNUE" as const, quantite, negative: false, stockVeille: "5", recu: "2", compte: "3", veilleEstimee: false, depuis: null, nbJours: 1, ...extra });
 const inconnue = { etat: "INCONNUE" as const, raison: "PAS_DE_COMPTAGE" as const };
 const CONSO: LigneConso[] = [
   { id: "f", designation: "Farine", unite: "kg", espace: "CUISINE", jours: [inconnue, inconnue, connue("4")] },

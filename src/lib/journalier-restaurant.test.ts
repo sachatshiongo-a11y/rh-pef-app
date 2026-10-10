@@ -93,8 +93,9 @@ describe("export de l'onglet Consommation", () => {
     expect(apres(SECTION_LIVRE)).toEqual(["Farine", "2", "", "", "2"]);
     expect(apres(SECTION_PERTES)).toEqual(["Farine", "", "0,5", "", "0,5"]);
     expect(apres(SECTION_SANS_MOTIF)).toEqual(["Beurre", "", "", "1", "1"]);
-    // Consommation : « — » le jour sans comptage, et donc pas de total partiel.
-    expect(apres(SECTION_CONSO)).toEqual(["Farine (g)", "1 500", "—", "1 000", "—"]);
+    // Consommation : « — » le jour sans comptage, et donc pas de total partiel. Le 23, la veille (22)
+    // n'est pas comptée : 1 000 couvre DEUX jours depuis le comptage du 21, annoncé « ≈ … depuis le 21/09 ».
+    expect(apres(SECTION_CONSO)).toEqual(["Farine (g)", "1 500", "—", "≈ 1 000 depuis le 21/09 (2 jours)", "—"]);
     expect(r.rolesLignes[r.lignes.findIndex((l) => l[0] === "Farine (g)")]).toBe("conso");
     expect(r.rolesLignes[r.lignes.findIndex((l) => l[0] === "Farine" )]).toBe("liv");
   });

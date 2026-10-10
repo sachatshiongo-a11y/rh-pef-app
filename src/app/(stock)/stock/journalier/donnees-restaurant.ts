@@ -23,14 +23,14 @@ export async function chargerDonneesRestaurant(lundi: Date, domaine: Domaine) {
   const fin = new Date(lundi); fin.setUTCDate(fin.getUTCDate() + 7);
   const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
   const [sorties, entrees] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, select: { articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: CHAMPS_LIBELLE } } }),
+    prisma.mouvementStock.findMany({ where, select: { articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { ...CHAMPS_LIBELLE, unite: true } } } }),
     chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]!, inclureDesactives: true }),
   ]);
   return {
     jours,
     entrees: entrees as EntreesStockResto,
     sorties: sortiesParMotif(
-      sorties.map((m) => ({ articleId: m.articleId, designation: libelleArticle(m.article), date: iso(m.date), quantite: Number(m.quantite), categorieSortie: m.categorieSortie })),
+      sorties.map((m) => ({ articleId: m.articleId, designation: libelleArticle(m.article), unite: m.article.unite, date: iso(m.date), quantite: Number(m.quantite), categorieSortie: m.categorieSortie })),
       jours,
     ),
     consoResto: consommationsSemaine(entrees, jours, espaceDuDomaine(domaine)),
