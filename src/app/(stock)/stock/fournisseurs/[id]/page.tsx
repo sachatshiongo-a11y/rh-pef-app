@@ -308,7 +308,7 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
           </thead>
           <tbody>
             {articles.map((a) => {
-              const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+              const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
               return (
                 <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                   <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{libelleArticle(a)}</Link></td>

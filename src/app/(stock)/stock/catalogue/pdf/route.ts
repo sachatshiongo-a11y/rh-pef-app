@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   for (const a of articles) {
     const catNom = a.categorie?.nom ?? "À classer";
     if (catNom !== derniereCat) { sectionRows.push(lignes.length); lignes.push([catNom]); alerteRow.push(null); derniereCat = catNom; }
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
     const enUSD = prixArticleEnUSD(a, taux);

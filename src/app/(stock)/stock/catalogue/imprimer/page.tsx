@@ -28,7 +28,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
   const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
   const lignes = articles.map((a) => {
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
     const enUSD = prixArticleEnUSD(a, taux);

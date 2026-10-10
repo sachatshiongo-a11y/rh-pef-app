@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
+import { urgentsParDomaine } from "@/lib/indicateurs/urgents";
 import { exigerMotDePassePersonnel } from "@/app/espace/garde";
 import { StockShell } from "./stock-shell";
 
@@ -19,17 +20,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
     // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
     prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE", ...(user.role === "ADMIN" ? {} : { auteurId: user.id }) } }),
     chargerNotifications("STOCK", user.id), // + les réponses de la Direction adressées à ce compte
-    // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
-    // URGENT = rupture (quantité ≤ 0) uniquement si un seuil minimum est défini (sans seuil,
-    // pas d'alerte). Un seul aller-retour qui renvoie 3 nombres.
-    prisma.$queryRaw<{ domaine: string; n: number }[]>`
-      SELECT a."domaine" AS domaine, COUNT(*)::int AS n
-      FROM "stock"."Stock" s
-      JOIN "stock"."ArticleStock" a ON a."id" = s."articleId"
-      WHERE a."actif" = true
-        AND s."stockMinimum" > 0
-        AND s."quantite" <= 0
-      GROUP BY a."domaine"`,
+    urgentsParDomaine(), // même règle et mêmes articles (actifs) que le tableau de bord
     espaceEmployeActif(),
   ]);
 
@@ -43,8 +34,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
   });
 
   // Badge persistant par catalogue, à la manière des « Demandes à valider ».
-  const urgent: Record<"NOURRITURE" | "BOISSON" | "AUTRE", number> = { NOURRITURE: 0, BOISSON: 0, AUTRE: 0 };
-  for (const r of urgents) if (r.domaine in urgent) urgent[r.domaine as keyof typeof urgent] = Number(r.n);
+  const urgent = urgents;
 
   return (
     <StockShell

@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
   const alerteRow: (NiveauAlerte | null)[] = [];
   const lignes = articles.map((a) => {
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     alerteRow.push(niv);
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     // Prix en $ ET en FC : celui de la devise de saisie est exact, l'autre au taux du jour (colonne « Devise du prix »).

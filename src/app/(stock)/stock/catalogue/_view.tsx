@@ -38,7 +38,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
 
   const rows: ArticleRow[] = articles.map((a) => {
-    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     return {
       id: a.id,
       code: a.code,
