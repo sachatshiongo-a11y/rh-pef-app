@@ -63,7 +63,8 @@ describe("Congés — actions groupées : droits", () => {
 
 describe("Congés — actions groupées : effets", () => {
   it("approuver en lot : seules les demandes EN ATTENTE passent, les autres sont laissées telles quelles", async () => {
-    const [att, refusee] = [await demande("EN_ATTENTE"), await demande("REFUSE")];
+    // Jour propre : une demande qui recouvre le congé APPROUVÉ du cas précédent n'est plus approuvée (audit RH 2026-10-10).
+    const [att, refusee] = [await demande("EN_ATTENTE", "2026-11-10"), await demande("REFUSE", "2026-11-10")];
     const r = await approuverCongesEnLot([att, refusee]);
     expect(r).toEqual({ traitees: 1, echecs: [] });
     expect(await statutDe(att)).toBe("APPROUVE");

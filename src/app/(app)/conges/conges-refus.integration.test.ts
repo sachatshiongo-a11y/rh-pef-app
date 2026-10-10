@@ -136,7 +136,8 @@ describe("refus en lot : un même motif pour la sélection", () => {
   });
 
   it("l'approbation en lot efface un éventuel motif", async () => {
-    const id = await demande("REFUSE");
+    // Jour propre à ce cas : une demande qui recouvre un congé déjà approuvé n'est plus approuvée (audit RH 2026-10-10).
+    const id = await demande("REFUSE", "2026-12-15");
     await prisma.leaveRequest.update({ where: { id }, data: { motifRefus: "Ancien motif" } });
     await prisma.leaveRequest.update({ where: { id }, data: { statut: "EN_ATTENTE" } });
     await approuverCongesEnLot([id]);

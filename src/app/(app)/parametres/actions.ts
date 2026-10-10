@@ -229,8 +229,8 @@ export async function ajouterJourFerie(formData: FormData) {
     const jj = `${brut.slice(8, 10)}/${brut.slice(5, 7)}/${brut.slice(0, 4)}`;
 
     const resume = await prisma.$transaction(async (tx) => {
-      const deja = await tx.jourFerie.findUnique({ where: { date }, select: { designation: true } });
-      if (deja) throw new Error(`Le ${jj} est déjà un jour férié (« ${deja.designation} »). Rien n'a été ajouté.`);
+      const deja = await tx.jourFerie.count({ where: { date } });
+      if (deja > 0) throw new Error(`Le ${jj} est déjà un jour férié (voir la liste ci-dessous). Rien n'a été ajouté.`);
       await tx.jourFerie.create({ data: { date, designation, annee: date.getUTCFullYear() } });
       return resumeRecalage(await recalerCongesSurFerie(tx, date, "ajout", user.id), "ajout");
     });

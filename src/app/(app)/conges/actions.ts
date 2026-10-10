@@ -371,7 +371,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
     }
   }
   revaliderConges();
-  return { traitees: n, echecs, avertissements };
+  return { traitees: n, echecs, ...(avertissements.length > 0 ? { avertissements } : {}) };
 }
 
 /** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
@@ -445,5 +445,5 @@ export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotCon
     }
   }
   revaliderConges();
-  return { traitees: n, echecs, avertissements };
+  return { traitees: n, echecs, ...(avertissements.length > 0 ? { avertissements } : {}) };
 }
