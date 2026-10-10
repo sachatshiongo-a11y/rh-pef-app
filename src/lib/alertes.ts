@@ -1,4 +1,5 @@
 import "server-only";
+import { estEchue } from "@/lib/facture-echue";
 
 import { libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
@@ -66,8 +67,8 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     }),
     prisma.factureFournisseur.findMany({
       // Factures en dollars OU en francs (2026-10-09) : reste lu dans la devise de chacune.
-      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, OR: [{ resteAPayerUSD: { gt: 0 } }, { resteAPayerCDF: { gt: 0 } }], dateEcheance: { not: null, lte: dans7j } },
-      select: { devise: true, resteAPayerUSD: true, resteAPayerCDF: true, statut: true },
+      where: { statut: { not: "REGLEE" }, OR: [{ resteAPayerUSD: { gt: 0 } }, { resteAPayerCDF: { gt: 0 } }], dateEcheance: { not: null, lte: dans7j } },
+      select: { devise: true, resteAPayerUSD: true, resteAPayerCDF: true, statut: true, dateEcheance: true },
     }),
   ]);
 
@@ -176,7 +177,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   const ordre = { urgent: 0, warning: 1, info: 2 };
   // Factures fournisseurs à payer sous 7 jours (ou déjà échues) — une alerte agrégée, pas une par facture.
   if (facturesDues.length > 0) {
-    const echues = facturesDues.filter((f) => f.statut === "ECHUE_NON_REGLEE").length;
+    const echues = facturesDues.filter((f) => estEchue(f)).length; // jugée à la lecture, pas sur le statut stocké
     const parDevise = totalFactures(facturesDues, "reste");
     // Dollars seuls : le texte d'avant ; avec des francs, « 120,00 $ + 280 000 FC » ou « 280 000 FC » seul.
     const fmtUSD = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;

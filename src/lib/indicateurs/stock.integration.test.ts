@@ -49,7 +49,7 @@ beforeAll(async () => {
 
   // Factures : 120 à régler cette semaine, 80 échue non réglée, 500 réglée (ignorée).
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. A", montantUSD: 120, resteAPayerUSD: 120, mois: 9, annee: 2026, statut: "A_REGLER", dateEcheance: auj } });
-  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. B", montantUSD: 80, resteAPayerUSD: 80, mois: 9, annee: 2026, statut: "ECHUE_NON_REGLEE" } });
+  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. B", montantUSD: 80, resteAPayerUSD: 80, mois: 9, annee: 2026, statut: "ECHUE_NON_REGLEE", dateEcheance: new Date("2026-09-01") } }); // « échue » se juge à l'échéance (lecture), plus au statut stocké
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. C", montantUSD: 500, resteAPayerUSD: 0, mois: 9, annee: 2026, statut: "REGLEE" } });
   // Légumes du mois : 15,50. Conso du mois : sortie valorisée 12,00 + sortie sans montant 2 × 2,50 = 17,00.
   await prisma.achatLegume.create({ data: { date: auj, legume: "Tomate", quantite: 5, montantUSD: 15.5 } });

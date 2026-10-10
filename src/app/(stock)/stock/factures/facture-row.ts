@@ -1,5 +1,6 @@
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { montantsFacture, type MontantsFactureBrut } from "@/lib/facture-devise";
+import { statutAffiche } from "@/lib/facture-echue";
 import type { FactureRow } from "./factures-client";
 
 // Une facture telle que la liste la montre — UN seul passage de la base à la ligne d'écran, partagé
@@ -29,11 +30,13 @@ type FactureBase = MontantsFactureBrut & {
 export function versFactureRow(x: FactureBase, enAttente: Set<string>): FactureRow {
   // Montant et reste DANS LA DEVISE de la facture (factures en francs depuis le 2026-10-09).
   const m = montantsFacture(x);
+  // « Échue » se juge à la lecture (échéance dépassée, reste à payer) — pas d'après le statut stocké.
+  const statut = statutAffiche(x);
   return {
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
     date: d(x.date), echeance: d(x.dateEcheance),
-    joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
-    devise: m.devise, montant: String(m.montant), reste: m.reste, statut: x.statut,
+    joursRestants: joursAvant(x.dateEcheance, statut), datePaiement: d(x.datePaiement),
+    devise: m.devise, montant: String(m.montant), reste: m.reste, statut,
     documentUrl: x.documentUrl ?? null,
     paiementDemande: enAttente.has(x.id),
   };

@@ -23,6 +23,7 @@ import { FacturesUI } from "../../factures/factures-client";
 import { versFactureRow } from "../../factures/facture-row";
 import { CommandesListe } from "../../commandes/commandes-liste";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { whereEchues } from "@/lib/facture-echue";
 
 const s = (v: string | null) => v ?? "";
 
@@ -45,13 +46,15 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
   // Toujours lus, et peu coûteux : la fiche, les comptes des libellés d'onglets, les KPIs et les
   // effectifs des filtres (agrégats SQL, aucune ligne rapatriée). Le CONTENU, lui, n'est lu que pour
   // l'onglet affiché : plus de 500 factures + 300 bons + 300 achats à chaque ouverture.
-  const [f, statsFactures, statsBons, nbAchatsDirects, taux] = await Promise.all([
+  const [f, statsFactures, statsBons, nbAchatsDirects, taux, statsEchues] = await Promise.all([
     prisma.fournisseur.findUnique({ where: { id }, include: { _count: { select: { articles: true } } } }),
     prisma.factureFournisseur.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true, montantCDF: true }, _sum: { montantUSD: true, resteAPayerUSD: true, montantCDF: true, resteAPayerCDF: true } }),
     prisma.bonDeCommande.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true } }),
     // Le VRAI total des achats DIRECTS (la liste de l'onglet est plafonnée).
     prisma.mouvementStock.count({ where: { fournisseurId: id, type: "ENTREE" } }),
     tauxDuJour(), // prix d'articles en francs (≈) et paiement des factures en francs
+    // L'échu se juge à la lecture (échéance dépassée, reste à payer), jamais d'après le statut stocké.
+    prisma.factureFournisseur.aggregate({ where: { fournisseurId: id, ...whereEchues() }, _count: { _all: true, montantCDF: true }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true } }),
   ]);
   if (!f) notFound();
 
@@ -66,7 +69,11 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
     total = additionnerTotaux(total, m); regle = additionnerTotaux(regle, moins(m, r)); nbFactures += n;
     if (g.statut === "REGLEE") nbPayees += n;
     else { impaye = additionnerTotaux(impaye, r); nbARegler += n; }
-    if (g.statut === "ECHUE_NON_REGLEE") { echu = additionnerTotaux(echu, r); nbEchu += n; }
+  }
+  {
+    const n = statsEchues._count._all;
+    echu = totalDepuisSommes(statsEchues._sum.resteAPayerUSD, statsEchues._sum.resteAPayerCDF, { usd: n - statsEchues._count.montantCDF, cdf: statsEchues._count.montantCDF });
+    nbEchu = n;
   }
   // « 100,00 $ + 280 000 FC » ; dollars seuls : l'affichage d'avant. Équivalent unique « ≈ » au taux du jour s'il y a des francs.
   const lib = (t: TotalDevises) => libelleTotal(t, undefined, usd);

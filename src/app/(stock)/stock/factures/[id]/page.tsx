@@ -17,6 +17,7 @@ import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { formaterMontantFacture, libelleAutreDevise, montantsFacture } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleLigneArticle } from "@/lib/libelle-article";
+import { statutAffiche } from "@/lib/facture-echue";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -46,6 +47,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   // Montants DANS LA DEVISE de la facture (2026-10-09) ; en francs, l'équivalent « ≈ » au taux du jour.
   const m = montantsFacture(facture);
+  const statut = statutAffiche(facture); // « échue » jugée à la lecture (échéance dépassée, reste à payer)
   const enFC = m.devise === "CDF";
   const fm = (n: number | null) => (n === null ? "—" : enFC ? formaterMontantFacture(n, "CDF") : usd(n));
   const prixLigne = (l: { prixUnitaireUSD: unknown; prixUnitaireCDF: unknown }) => (enFC ? (l.prixUnitaireCDF === null ? "—" : formaterMontantFacture(Number(l.prixUnitaireCDF), "CDF")) : usd(l.prixUnitaireUSD as number));
@@ -120,7 +122,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
         <Info label="Échéance" val={d(facture.dateEcheance)} />
         <div>
           <p className="text-xs text-muted-foreground">Statut</p>
-          <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[facture.statut]}`}>{STATUT_FACTURE_LABEL[facture.statut]}</span>
+          <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[statut]}`}>{STATUT_FACTURE_LABEL[statut]}</span>
         </div>
         <Info label="Montant" val={fm(m.montant)} sous={enFC ? libelleAutreDevise(m.montant, "CDF", tauxCDF) + " au taux du jour" : undefined} />
         <Info label="Réglé" val={fm(m.regle)} />
