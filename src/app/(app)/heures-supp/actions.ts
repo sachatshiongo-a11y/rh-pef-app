@@ -16,15 +16,23 @@ import { lireNombreSaisi } from "@/lib/nombre";
  * Heures envoyées par l'écran : lues à la française (« 7,5 ») ; une chaîne canonique écrite par le
  * programme (« 7.5 ») reste lue. Illisible → erreur : jamais un effacement silencieux des heures.
  */
-function lireHeures(heures: string): number {
+/** Borne d'une journée (audit du 2026-10-10) : l'écran la vérifiait, le serveur non — 75 h ou -3 h
+ *  arrivaient en paie (heures supp. gonflées, ou heures normales retranchées). Aucune journée ne
+ *  dépasse 24 h ni ne descend sous zéro. */
+const HEURES_JOUR_MAX = 24; // pas exporté : un module « use server » n'exporte que des fonctions asynchrones
+
+function lireHeures(heures: string, date?: string): number {
   if (!heures) return 0;
   const v = lireNombreSaisi(heures) ?? Number(heures);
   if (Number.isNaN(v)) throw new Error(`Heures « ${heures} » illisibles : écrivez 7,5 pour sept heures et demie.`);
+  if (v < 0 || v > HEURES_JOUR_MAX) {
+    throw new Error(`Heures « ${heures} »${date ? ` le ${date.slice(8, 10)}/${date.slice(5, 7)}` : ""} impossibles : une journée compte entre 0 et ${HEURES_JOUR_MAX} heures. Rien n'a été enregistré.`);
+  }
   return v;
 }
 
 async function appliquerHeures(employeeId: string, date: string, heures: string, userId: string) {
-  const valeur = lireHeures(heures);
+  const valeur = lireHeures(heures, date);
   const jour = new Date(date);
   const avant = await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId, date: jour } }, select: { heuresTravaillees: true } });
   const ancienne = avant ? Number(avant.heuresTravaillees) : null;
@@ -70,10 +78,13 @@ export async function saisirHeuresEnLot(
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  // Toutes les saisies lues AVANT la première écriture : une valeur hors 0–24 h refuse le lot entier
+  // (jamais un lot à moitié appliqué).
+  for (const { date, heures } of entrees) lireHeures(heures, date);
   const [enConge, repos] = await Promise.all([joursEnConge(entrees), joursDeReposSelonModele(entrees)]);
   const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, heures } of entrees) {
-    const valeur = lireHeures(heures);
+    const valeur = lireHeures(heures, date);
     if (heures !== "" && valeur > 0 && (enConge.has(`${employeeId}|${date}`) || repos.has(`${employeeId}|${date}`))) { ignores.push({ employeeId, date }); continue; }
     await appliquerHeures(employeeId, date, heures, user.id);
   }
