@@ -3,6 +3,7 @@ import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurLivrePaie } from "@/lib/livre-paie-excel";
 import { MENTION_PROVISOIRE } from "@/lib/mention-provisoire";
+import { lireMoisAnnee } from "@/lib/mois-route";
 
 /**
  * Export Excel du livre de paie — mêmes lignes et mêmes colonnes que l'onglet Paie, plus le
@@ -14,10 +15,11 @@ export async function GET(request: Request) {
   if (!g.ok) return g.reponse;
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  // Mois/année optionnels (?mois=&annee=) pour exporter n'importe quel mois de l'historique.
-  const sp = new URL(request.url).searchParams;
-  const mois = Number(sp.get("mois")) || config.moisCourant;
-  const annee = Number(sp.get("annee")) || config.anneeCourante;
+  // Mois/année optionnels (?mois=&annee=) pour exporter n'importe quel mois de l'historique ; une valeur
+  // illisible est refusée (400), jamais remplacée en silence par le mois courant (comme les autres routes de paie).
+  const lu = lireMoisAnnee(new URL(request.url).searchParams, { mois: config.moisCourant, annee: config.anneeCourante });
+  if (!lu.ok) return new Response(lu.message, { status: 400 });
+  const { mois, annee } = lu;
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },

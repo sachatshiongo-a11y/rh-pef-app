@@ -348,7 +348,7 @@ describe("6 et 7 — mois clôturé : liasse, ZIP, livre de paie et Excel des co
     for (const route of ["bulletins-pdf", "bulletins-zip"]) expect(html).toContain(`/paie/${route}?mois=8&amp;annee=2026&amp;devise=USD`);
     expect(html).toContain("/paie/export-pdf?mois=8&amp;annee=2026");
 
-    for (const route of [bulletinsPdf, bulletinsZip, exportPdf]) {
+    for (const route of [bulletinsPdf, bulletinsZip, exportPdf, exportExcelLivre]) {
       expect((await route.GET(requete("/x?mois=13&annee=2026"))).status).toBe(400);
     }
 
