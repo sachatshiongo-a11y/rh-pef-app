@@ -50,7 +50,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/commandes/[id]/reception-client.tsx": { n: 2, raisons: ["AMONT"] },
   "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
-  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 2, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/actions.ts": { n: 24, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/entree/alertes-ligne.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // nom tapé d'un nouvel article
@@ -106,7 +106,7 @@ const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
   "src/lib/import-inventaire.ts": { n: 3, raison: "import d'inventaire : rapprochement et messages d'import" },
   "src/lib/import-mouvements.ts": { n: 1, raison: "import de mouvements : rapprochement par nom et code" },
   "src/lib/rattachement-auto.ts": { n: 2, raison: "rattachement au restaurant : la règle (homonymes, « rattaché à ») compare des noms" },
-  "src/lib/validations-stock/article.ts": { n: 2, raison: "modification d'article : message d'erreur et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
+  "src/lib/validations-stock/article.ts": { n: 3, raison: "modification d'article : messages d'erreur (domaine, catégorie du domaine de l'article) et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
   "src/lib/validations-stock/demandes.ts": { n: 2, raison: "demandes à valider : noms figés dans la demande et contrôle d'unicité de la désignation" },
 };
 
