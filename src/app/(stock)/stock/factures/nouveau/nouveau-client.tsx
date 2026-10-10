@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
@@ -41,7 +40,7 @@ type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
 type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
 /** `suggestion` : article PROCHE proposé à la lecture d'un PDF (ligne « à choisir ») — jamais appliqué sans clic. */
-type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string; suggestion?: { id: string; designation: string; unite: string | null } | null };
+type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string; suggestion?: { id: string; libelle: string; unite: string | null } | null };
 /** Doublon de facture signalé par le serveur (même fournisseur, même montant à ±14 jours). */
 type DoublonFactureEcran = { message: string; factures: { id: string; numero: string | null; date: string | null }[] };
 
@@ -254,7 +253,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           <p className="font-semibold">⚠ Facture peut-être déjà saisie</p>
           <p className="mt-1">{doublonFacture.message}</p>
           <ul className="mt-1 list-disc pl-5 text-xs">
-            {doublonFacture.factures.map((f) => <li key={f.id}><Link href={`/stock/factures/${f.id}`} target="_blank" className="text-primary underline">{f.numero ? `Facture n° ${f.numero}` : "Facture sans numéro"}{f.date ? ` du ${f.date.split("-").reverse().join("/")}` : ""}</Link></li>)}
+            {doublonFacture.factures.map((f) => <li key={f.id}>{f.numero ? `Facture n° ${f.numero}` : "Facture sans numéro"}{f.date ? ` du ${f.date.split("-").reverse().join("/")}` : ""} — à retrouver dans la liste des factures de ce fournisseur</li>)}
           </ul>
           <button type="button" onClick={creerQuandMeme} disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
             Créer quand même
@@ -404,7 +403,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
                   {!l.articleId && l.suggestion && (
                     <span data-ligne-a-choisir className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-amber-800">
                       <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium">à choisir</span>
-                      proche : « {l.suggestion.designation} »
+                      proche : « {l.suggestion.libelle} »
                       <button type="button" onClick={() => maj(i, { articleId: l.suggestion!.id, unite: l.unite || (l.suggestion!.unite ?? ""), suggestion: null })} className="rounded border border-amber-400 px-1.5 py-0.5 font-semibold hover:bg-amber-100">Utiliser</button>
                     </span>
                   )}

@@ -14,7 +14,6 @@ const envois = vi.hoisted(() => ({
   pdf: vi.fn(async (_fd: FormData): Promise<unknown> => ({})),
 }));
 vi.mock("../actions", () => ({ creerFactureAvecLignes: envois.facture, analyserFacturePDF: envois.pdf }));
-vi.mock("next/link", () => ({ default: (p: { href: string; children: unknown }) => createElement("a", { href: p.href }, p.children as never) }));
 
 import { NouvelleFactureForm } from "./nouveau-client";
 
@@ -47,7 +46,8 @@ describe("facture déjà saisie", () => {
     expect(envois.facture.mock.calls[0][0].get("forcerFacture")).toBeNull();
     const boite = conteneur.querySelector("[data-doublon-facture]")!;
     expect(boite.textContent).toContain("Facture peut-être déjà saisie");
-    expect(boite.querySelector("a")?.getAttribute("href")).toBe("/stock/factures/x1");
+    expect(boite.textContent).toContain("Facture n° FA-1 du 10/09/2026");
+    expect(boite.querySelector("a")).toBeNull(); // pas de lien vers une page interne en nouvel onglet (application installée) : on perdrait aussi la saisie
     expect(bouton("Créer quand même").getAttribute("type")).toBe("button"); // jamais le bouton d'envoi par défaut
     envois.facture.mockClear();
     await cliquer(bouton("Créer quand même"));
@@ -104,7 +104,7 @@ describe("lecture d'un PDF", () => {
   it("ligne sans nom identique : libellé lu conservé, article « à choisir » proposé, rattaché seulement au clic", async () => {
     envois.pdf.mockResolvedValueOnce({
       montant: 12, date: "2026-10-01", numero: "L-1", devise: "USD", fournisseur: { nom: "Marché", rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, proches: [],
-      lignes: [{ designation: "Lait entier 1L", quantite: 2, prixUnitaireUSD: 6, total: 12, articleId: null, articleNom: null, unite: null, suggestion: { id: "a1", designation: "Lait de coco", unite: "L" } }],
+      lignes: [{ designation: "Lait entier 1L", quantite: 2, prixUnitaireUSD: 6, total: 12, articleId: null, articleNom: null, unite: null, suggestion: { id: "a1", libelle: "Lait de coco", unite: "L" } }],
     });
     monter();
     const entree = conteneur.querySelector<HTMLInputElement>('input[name="facturePdf"]')!;

@@ -84,7 +84,7 @@ export type LigneAnalyse = {
   /** Article rattaché D'OFFICE : seulement sur un nom identique (casse, accents, espaces, contenance écrite autrement). */
   articleId: string | null; articleNom: string | null; unite: string | null;
   /** Article PROCHE (sans nom identique) : proposé, jamais appliqué — la ligne est « à choisir ». */
-  suggestion: { id: string; designation: string; unite: string | null } | null;
+  suggestion: { id: string; /** Nom AFFICHÉ (contenance comprise). */ libelle: string; unite: string | null } | null;
 };
 export type AnalyseFacture = {
   /** Montant et prix des lignes dans `devise` (CDF : document libellé en francs, jamais converti). */
@@ -121,7 +121,7 @@ export const analyserFacturePDF = actionLisible(async (formData: FormData): Prom
     // Lignes : article du catalogue rattaché d'office SEULEMENT sur un nom identique ; un article proche
     // est une suggestion (« à choisir »). Le libellé lu dans le PDF est CONSERVÉ : avant, « Lait entier
     // 1L » devenait « Lait de coco » (score 1,0) et la désignation de la facture était réécrite.
-    const articlesCat = await prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true } });
+    const articlesCat = await prisma.articleStock.findMany({ where: { actif: true }, select: { ...CHAMPS_LIBELLE, id: true, unite: true } });
     const lignes: LigneAnalyse[] = ex.lignes.map((l) => {
       const { article: art, suggestion: sug } = rapprocherLignePdf(l.designation, articlesCat);
       return {
@@ -130,9 +130,9 @@ export const analyserFacturePDF = actionLisible(async (formData: FormData): Prom
         prixUnitaireUSD: l.prixUnitaireUSD,
         total: l.totalLigneUSD,
         articleId: art?.id ?? null,
-        articleNom: art?.designation ?? null,
+        articleNom: art ? libelleArticle(art) : null,
         unite: art?.unite ?? l.unite ?? null,
-        suggestion: sug ? { id: sug.id, designation: sug.designation, unite: sug.unite } : null,
+        suggestion: sug ? { id: sug.id, libelle: libelleArticle(sug), unite: sug.unite } : null,
       };
     });
     return { montant: ex.montant, date: ex.date, numero: ex.numero, devise: ex.devise, fournisseur: ex.fournisseur, match, proches, lignes };
