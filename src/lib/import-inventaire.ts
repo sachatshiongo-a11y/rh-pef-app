@@ -11,6 +11,7 @@ import { verrouillerMouvements } from "./validations-stock/verrou-suppression";
 import { derniereClotureStock, estDansPeriodeFigee, exigerPeriodesOuvertes } from "./cloture-stock";
 import { tauxDuJour } from "./taux-du-jour";
 import { PREFIXE_STOCK_POSTERIEUR } from "./annulation-import-texte";
+import { cleFacture } from "./validations-stock/charge";
 import { catalogueCandidats } from "./achats-liste-serveur";
 import { decisionArticle } from "./article-proche";
 import { cleArticleImport } from "./import-inventaire-cle";
@@ -415,6 +416,37 @@ export async function annulerImport(batchId: string, userId?: string, opts: { re
           );
         }
         remisMalgrePosterieur.push(...lignes);
+      }
+    }
+
+    // 0 quater) Import de FACTURES : supprimer une facture emporte ses paiements (cascade). Refus, factures nommées,
+    //    si l'une a reçu un paiement (ligne Paiement ou réglé > 0), a un paiement demandé en cours, une entrée de stock
+    //    ou une ligne liée depuis l'import. Pas de « quand même » : annuler d'abord les paiements (« Annuler ce paiement »).
+    const idsFactures = creations.filter((o) => o.entite === "FactureFournisseur").map((o) => o.entiteId);
+    if (idsFactures.length > 0) {
+      const [facs, demandes] = await Promise.all([
+        tx.factureFournisseur.findMany({
+          where: { id: { in: idsFactures } },
+          select: { id: true, fournisseurNom: true, numero: true, montantRegleUSD: true, montantRegleCDF: true, _count: { select: { paiements: true, lignes: true, mouvements: true } } },
+        }),
+        tx.cibleDemandeStock.findMany({ where: { cle: { in: idsFactures.map(cleFacture) }, demande: { statut: "EN_ATTENTE" } }, select: { cle: true } }),
+      ]);
+      const enDemande = new Set(demandes.map((d) => d.cle));
+      const fautives = facs.flatMap((f) => {
+        const raisons = [
+          f._count.paiements > 0 ? `${f._count.paiements} paiement(s)` : null,
+          f._count.paiements === 0 && (Number(f.montantRegleUSD ?? 0) > 0 || Number(f.montantRegleCDF ?? 0) > 0) ? "un montant réglé" : null,
+          enDemande.has(cleFacture(f.id)) ? "un paiement demandé en cours" : null,
+          f._count.mouvements > 0 ? `${f._count.mouvements} entrée(s) en stock` : null,
+          f._count.lignes > 0 ? `${f._count.lignes} ligne(s) d'articles` : null,
+        ].filter(Boolean);
+        return raisons.length > 0 ? [`${f.fournisseurNom}${f.numero ? ` n° ${f.numero}` : " (sans n°)"} : ${raisons.join(", ")}`] : [];
+}).sort((x, y) => x.localeCompare(y, "fr"));
+      if (fautives.length > 0) {
+        throw new Error(
+          `Annulation impossible : ${fautives.length} facture(s) de cet import ont bougé depuis (${fautives.join(" | ")}). ` +
+            `Supprimer ces factures emporterait leurs paiements. Annulez d'abord les paiements (fiche de la facture → « Annuler ce paiement »), puis relancez. Rien n'a été annulé.`
+        );
       }
     }
 

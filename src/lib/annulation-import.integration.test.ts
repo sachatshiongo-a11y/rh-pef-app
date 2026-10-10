@@ -140,3 +140,52 @@ describe("annulation d'un import d'INVENTAIRE — valeur posée en absolu", () =
     await prisma.clotureStock.deleteMany({});
   }, 60_000);
 });
+
+describe("annulation d'un import de FACTURES : aucune perte de paiement en cascade", () => {
+  async function lot() {
+    const batch = await prisma.importBatch.create({ data: { type: "FACTURES", libelle: "Factures de test" } });
+    const mk = async (numero: string, o: Record<string, unknown> = {}) => {
+      const f = await prisma.factureFournisseur.create({ data: { fournisseurNom: "SENEVE", numero, mois: 9, annee: 2026, montantUSD: 100, montantRegleUSD: 0, resteAPayerUSD: 100, ...o } });
+      await prisma.importOperation.create({ data: { batchId: batch.id, entite: "FactureFournisseur", entiteId: f.id, action: "CREATE" } });
+      return f.id;
+    };
+    return { batch: batch.id, mk };
+  }
+
+  it("une facture payée depuis l'import : refus nommé, tout le lot reste, paiement intact", async () => {
+    const { batch, mk } = await lot();
+    const propre = await mk("P-1");
+    const payee = await mk("P-2");
+    await prisma.paiement.create({ data: { factureId: payee, date: new Date("2026-09-20"), montantUSD: 40 } });
+    await expect(annulerImport(batch, userId)).rejects.toThrow(/SENEVE n° P-2 : 1 paiement\(s\)[\s\S]*Annuler ce paiement/);
+    expect(await prisma.factureFournisseur.count({ where: { id: { in: [propre, payee] } } })).toBe(2);
+    expect(await prisma.paiement.count({ where: { factureId: payee } })).toBe(1);
+    expect((await prisma.importBatch.findUniqueOrThrow({ where: { id: batch } })).statut).toBe("APPLIQUE");
+  }, 60_000);
+
+  it("réglé > 0 sans ligne de paiement, entrée de stock, ligne liée : refusés aussi", async () => {
+    const { batch, mk } = await lot();
+    await mk("R-1", { montantRegleUSD: 10, resteAPayerUSD: 90 });
+    const art = await prisma.articleStock.create({ data: { designation: "Farine facture", domaine: "NOURRITURE" } });
+    const avecEntree = await mk("R-2");
+    await prisma.mouvementStock.create({ data: { articleId: art.id, type: "ENTREE", quantite: 1, factureId: avecEntree } });
+    await mk("R-3", { lignes: { create: [{ designation: "x", quantite: 1, prixUnitaireUSD: 1, totalLigneUSD: 1 }] } });
+    await expect(annulerImport(batch, userId)).rejects.toThrow(/R-1 : un montant réglé[\s\S]*R-2 : 1 entrée\(s\) en stock[\s\S]*R-3 : 1 ligne\(s\)/);
+  }, 60_000);
+
+  it("un paiement demandé en cours : refusé", async () => {
+    const { batch, mk } = await lot();
+    const id = await mk("D-1");
+    const u = await prisma.user.findFirstOrThrow();
+    const dem = await prisma.demandeValidationStock.create({ data: { nature: "PAIEMENT_FACTURE", resume: "Payer D-1", charge: {}, auteurId: u.id, auteurNom: "X" } });
+    await prisma.cibleDemandeStock.create({ data: { demandeId: dem.id, cle: `FACTURE:${id}` } });
+    await expect(annulerImport(batch, userId)).rejects.toThrow(/D-1 : un paiement demandé en cours/);
+  }, 60_000);
+
+  it("factures intactes depuis l'import : l'annulation les supprime, comme avant", async () => {
+    const { batch, mk } = await lot();
+    const a = await mk("N-1");
+    await annulerImport(batch, userId);
+    expect(await prisma.factureFournisseur.count({ where: { id: a } })).toBe(0);
+  }, 60_000);
+});
