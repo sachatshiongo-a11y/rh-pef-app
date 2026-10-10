@@ -46,6 +46,7 @@ const { marquerDeclaration } = await import("@/app/(app)/declarations/actions");
 const bulletinsPdf = await import("@/app/(app)/paie/bulletins-pdf/route");
 const bulletinsZip = await import("@/app/(app)/paie/bulletins-zip/route");
 const exportPdf = await import("@/app/(app)/paie/export-pdf/route");
+const exportExcelLivre = await import("@/app/(app)/paie/export/route");
 const declExport = await import("@/app/(app)/declarations/export/route");
 const declExcel = await import("@/app/(app)/declarations/export-excel/route");
 const pageDeclarations = (await import("@/app/(app)/declarations/page")).default;
@@ -125,6 +126,14 @@ describe("1 et 3 — bulletin non validé : PROVISOIRE ; congés bornés au mois
     const pages = await pagesDuPdf(await renderPdfBuffer(BulletinsDocument({ bulletins: bulletinsPourPdf(donnees), devise: "USD" })));
     expect(pages).toHaveLength(2);
     expect(pages.every((p) => p.plat.includes("PROVISOIRE — non validé"))).toBe(true);
+    // Le livre de paie (PDF et Excel) qui contient du non validé le dit aussi.
+    expect(await textePdf(await exportPdf.GET(requete("/paie/export-pdf")))).toContain("PROVISOIRE — non validé");
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await (await exportExcelLivre.GET(requete("/paie/export"))).arrayBuffer()) as unknown as ArrayBuffer);
+    const cellules: string[] = [];
+    wb.eachSheet((ws) => ws.eachRow((row) => row.eachCell((c) => cellules.push(String(c.text ?? "")))));
+    expect(cellules.join(" | ")).toContain("PROVISOIRE");
   }, 120_000);
 });
 
