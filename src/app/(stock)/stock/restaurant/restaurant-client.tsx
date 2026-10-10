@@ -210,7 +210,15 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, sel
           onChoisir={(id) => { setBusy(true); onRattacher(ligne.id, id).finally(() => setBusy(false)); }}
         />
       </td>
-      <td><input defaultValue={ligne.unite ?? ""} onBlur={(e) => write("unite", e.target.value, ligne.unite ?? "")} className={inp} /></td>
+      <td>
+        {/* Une unité refusée (des comptages ou livraisons existent) : la case reprend l'unité enregistrée, le message est en haut de page. */}
+        <input defaultValue={ligne.unite ?? ""} className={inp} onBlur={(e) => {
+          const champ = e.currentTarget;
+          if (champ.value === (ligne.unite ?? "")) return;
+          setBusy(true);
+          onSave(ligne.id, "unite", champ.value).then((r) => { if (estErreur(r)) champ.value = ligne.unite ?? ""; }).finally(() => setBusy(false));
+        }} />
+      </td>
       {/* Cases du tableur partagé (Entrée ↓, Tab →, pas de flèches d'incrément) : colonne 0 = base, puis un jour par colonne. */}
       <td className="text-right"><CelluleNombre ligne={ligne.id} col={0} groupe={ligne.categorie ?? ""} quantite valeur={nombreDeBase(ligne.base)} onEnregistrer={(v) => onSave(ligne.id, "stockBaseJournalier", texteDe(v))} className={cell} aria-label={`Stock de base — ${ligne.designation}`} /></td>
       {jours.map((j, i) => (
@@ -291,7 +299,7 @@ function ListeRestoJour({ lignes, jours, estDirection, selection, onSelection, o
                     {l.base !== "" && <span> · base {qteTexte(l.base)}</span>}
                   </p>
                   {recu !== undefined && (
-                    <p className="text-xs font-medium text-emerald-800" aria-label={`Reçu du dépôt — ${l.designation} — ${nomJour}`}>reçu du dépôt {qteTexte(recu)}</p>
+                    <p className="text-xs font-medium text-emerald-800" aria-label={`Reçu du dépôt — ${l.designation} — ${nomJour}`}>reçu du dépôt {qteTexte(recu)}{l.unite ? ` ${l.unite}` : ""}</p>
                   )}
                   {(l.signauxJour[jour.iso] ?? []).map((t, k) => <p key={k} className="text-xs font-medium text-amber-800">{t}</p>)}
                   {l.theorique.signalements.map((t, k) => <p key={k} className="text-xs font-medium text-amber-800">{t}</p>)}
@@ -299,9 +307,15 @@ function ListeRestoJour({ lignes, jours, estDirection, selection, onSelection, o
               }
               droite={
                 // Clé = le jour : changer de jour remonte la case (une frappe en attente part à sa date d'origine).
-                <CelluleNombre key={jour.iso} ligne={l.id} col={0} groupe={l.categorie ?? ""} donnee={jour.iso} quantite disabled={inactif}
-                  valeur={nombreDeBase(l.comptages[jour.iso])} onEnregistrer={(v, c) => onSaveComptage(l.id, c.donnee ?? jour.iso, texteDe(v))}
-                  placeholder="—" className={CASE_JOUR} aria-label={`${l.designation} — ${nomJour}`} />
+                // L'unité accompagne la case : on compte des kg, des bouteilles ou des pièces, pas « 3 ».
+                <>
+                  <CelluleNombre key={jour.iso} ligne={l.id} col={0} groupe={l.categorie ?? ""} donnee={jour.iso} quantite disabled={inactif}
+                    valeur={nombreDeBase(l.comptages[jour.iso])} onEnregistrer={(v, c) => onSaveComptage(l.id, c.donnee ?? jour.iso, texteDe(v))}
+                    placeholder="—" className={CASE_JOUR} aria-label={`${l.designation} — ${nomJour}`} />
+                  {l.unite
+                    ? <span data-unite-comptage="" className="w-14 break-words text-sm text-muted-foreground">{l.unite}</span>
+                    : <span data-unite-comptage="" className="w-14 text-xs text-amber-800" title="Unité non renseignée : renseignez-la dans la Vue semaine">unité ?</span>}
+                </>
               }
             />
           </Fragment>

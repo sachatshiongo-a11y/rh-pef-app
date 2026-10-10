@@ -63,3 +63,35 @@ export function lignesLegumesComparaison(p: {
   for (const a of p.achats) if (!pris.has(a.id)) lignes.push({ id: a.id, nom: a.nom, unite: a.unite, cmd: zeros(), liv: a.jours });
   return lignes;
 }
+
+/** Une ligne de la fiche commande des légumes : commande et livraison dans la MÊME unité. */
+export type LigneLegumeCommande = { designation: string; unite: string | null; commande: number | null; livraison: number | null };
+
+/**
+ * Lignes de la fiche « Commande » pour les légumes frais, à partir de la fiche d'achat du jour
+ * (`lignesAchat` : d'abord les légumes de la liste, dans l'ordre de la liste, puis les achats hors
+ * liste ou dans une autre unité). La commande est saisie dans l'unité de la LISTE : un achat
+ * enregistré dans une autre unité (« Sac » pour un légume en « Kg ») ne se met jamais sur la même
+ * ligne — la ligne du légume garde la commande (unité de la liste), l'achat passe sur sa propre
+ * ligne. Une commande saisie sous un libellé hors liste est ajoutée, jamais perdue.
+ */
+export function lignesLegumesCommande(lignesAchat: { designation: string; unite: string; quantite: number | null }[], commandes: Map<string, number>, liste: LegumeListe[]): LigneLegumeCommande[] {
+  const surLigne: LigneLegumeCommande[] = [];
+  const autreUnite: LigneLegumeCommande[] = [];
+  const horsListe: LigneLegumeCommande[] = [];
+  lignesAchat.forEach((l, i) => {
+    const element = liste[i];
+    if (!element) { horsListe.push({ designation: l.designation, unite: l.unite || null, commande: null, livraison: l.quantite }); return; }
+    const commande = commandes.get(element.nom) ?? null;
+    const uniteDifferente = l.quantite !== null && l.unite.trim() !== "" && normaliserUnite(l.unite) !== normaliserUnite(element.unite);
+    if (uniteDifferente) {
+      surLigne.push({ designation: element.nom, unite: element.unite || null, commande, livraison: null });
+      autreUnite.push({ designation: l.designation, unite: l.unite || null, commande: null, livraison: l.quantite });
+    } else {
+      surLigne.push({ designation: l.designation, unite: l.unite || null, commande, livraison: l.quantite });
+    }
+  });
+  const connus = new Set(liste.map((l) => l.nom));
+  const commandesHorsListe = [...commandes].filter(([nom]) => !connus.has(nom)).map(([nom, q]) => ({ designation: nom, unite: null, commande: q, livraison: null }));
+  return [...surLigne, ...autreUnite, ...horsListe, ...commandesHorsListe];
+}
