@@ -7,6 +7,7 @@ import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { refusSuppression, MESSAGE_EFFACER_PRESENCE } from "@/lib/suppression-direction";
 import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
+import { heuresDansLesBornes, messageHeuresHorsBornes } from "@/lib/heures-bornes";
 import {
   chargerContextePresences, codeSansHeures, heuresPreRemplies, messageRetraitAConfirmer, messageRetraitFait, type Entree,
 } from "@/lib/presences-lot";
@@ -44,8 +45,8 @@ export type ResultatPresence = {
  * Les codes existants sont MIS À JOUR (date de saisie d'origine conservée : la paie s'en sert),
  * les nouveaux créés en bloc.
  */
-async function ecrireEntrees(entrees: Entree[], ctx: Awaited<ReturnType<typeof chargerContextePresences>>): Promise<void> {
-  if (entrees.length === 0) return;
+async function ecrireEntrees(entrees: Entree[], ctx: Awaited<ReturnType<typeof chargerContextePresences>>): Promise<{ erreur?: string }> {
+  if (entrees.length === 0) return {};
   const cle = (e: { employeeId: string; date: string }) => `${e.employeeId}|${e.date}`;
   const aEffacer = entrees.filter((e) => e.code === "");
   const aCreer: { employeeId: string; date: Date; code: AttendanceCode }[] = [];
@@ -62,6 +63,12 @@ async function ecrireEntrees(entrees: Entree[], ctx: Awaited<ReturnType<typeof c
     }
     if (codeSansHeures(e.code) && ctx.heures.has(cle(e))) heuresARetirer.push({ employeeId: e.employeeId, date: new Date(`${e.date}T00:00:00.000Z`) });
   }
+  // Bornes serveur (0–24 h) des heures pré-remplies (créneau, modèle ou contrat mal renseignés) :
+  // une seule valeur fausse refuse TOUT le lot, avant la première écriture.
+  const horsBornes = heuresACreer.filter((h) => !heuresDansLesBornes(h.heuresTravaillees));
+  if (horsBornes.length > 0) {
+    return { erreur: messageHeuresHorsBornes(horsBornes.map((h) => ({ date: h.date.toISOString().slice(0, 10), heures: h.heuresTravaillees }))) };
+  }
   await prisma.$transaction(async (tx) => {
     if (aEffacer.length > 0) {
       await tx.attendance.deleteMany({ where: { OR: aEffacer.map((e) => ({ employeeId: e.employeeId, date: new Date(`${e.date}T00:00:00.000Z`) })) } });
@@ -71,6 +78,7 @@ async function ecrireEntrees(entrees: Entree[], ctx: Awaited<ReturnType<typeof c
     if (heuresACreer.length > 0) await tx.overtimeEntry.createMany({ data: heuresACreer, skipDuplicates: true });
     if (heuresARetirer.length > 0) await tx.overtimeEntry.deleteMany({ where: { OR: heuresARetirer } });
   }, { timeout: DELAI_LOT });
+  return {};
 }
 
 /** Vrai si l'une des cases à VIDER porte déjà un code enregistré : les vider serait une suppression. */
@@ -127,7 +135,8 @@ export async function saisirPresence(
   if (retrait.saisies.length > 0 && !options.confirmerRetraitHeures) {
     return { aConfirmer: messageRetraitAConfirmer(retrait.saisies, code) };
   }
-  await ecrireEntrees([entree], ctx);
+  const ecrit = await ecrireEntrees([entree], ctx);
+  if (ecrit.erreur) return { erreur: ecrit.erreur };
 
   revaliderPresences();
   const info = messageRetraitFait(retrait);
@@ -188,7 +197,8 @@ export async function saisirPresencesEnLot(
     // Rien n'est écrit : la question porte sur tout le lot.
     return { ignores: [], aConfirmer: messageRetraitAConfirmer(retrait.saisies) };
   }
-  await ecrireEntrees(retenues, ctx);
+  const ecrit = await ecrireEntrees(retenues, ctx);
+  if (ecrit.erreur) return { ignores: [], erreur: ecrit.erreur };
 
   revaliderPresences();
   const morceaux = [`${retenues.length} case(s) enregistrée(s)`];

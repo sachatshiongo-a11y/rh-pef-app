@@ -425,3 +425,28 @@ describe("13 — mineurs : identifiants, remplaçant", () => {
 });
 
 void adminId;
+
+describe("bornes serveur des heures (0–24 h) : un lot fautif est refusé en entier", () => {
+  it("import IVMS : une ligne à 25 h ou négative refuse toute la sélection, rien n'est écrit", async () => {
+    comme("ADMIN");
+    const id = await emp();
+    for (const fautive of [25, -1, Number.NaN]) {
+      const r = await IMPORT.appliquerPointageIVMS([{ employeeId: id, date: "2026-05-04", heures: 8 }, { employeeId: id, date: "2026-05-05", heures: fautive }]);
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain("hors bornes");
+    }
+    expect(await prisma.overtimeEntry.count({ where: { employeeId: id } })).toBe(0);
+    expect(await prisma.attendance.count({ where: { employeeId: id } })).toBe(0);
+  });
+
+  it("présences : un contrat à 30 h/jour ne pré-remplit pas 30 h — le lot entier est refusé", async () => {
+    comme("ADMIN");
+    const ok = await emp();
+    const faux = await emp();
+    await prisma.employee.update({ where: { id: faux }, data: { heuresParJour: 30 } });
+    const r = await PRES.saisirPresencesEnLot([{ employeeId: ok, date: "2026-05-04", code: "P" }, { employeeId: faux, date: "2026-05-04", code: "P" }]);
+    expect(r.erreur).toContain("hors bornes");
+    expect(await prisma.attendance.count({ where: { employeeId: { in: [ok, faux] } } })).toBe(0);
+    expect(await prisma.overtimeEntry.count({ where: { employeeId: { in: [ok, faux] } } })).toBe(0);
+  });
+});

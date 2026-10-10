@@ -14,6 +14,7 @@ import {
   type LectureRapport,
 } from "@/lib/pointage";
 import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
+import { heuresDansLesBornes, messageHeuresHorsBornes } from "@/lib/heures-bornes";
 
 // Import IVMS-4200 en DEUX temps (comme les imports du module Stock) :
 //  1. analyserPointageIVMS : lit le fichier, calcule les heures ajustées et renvoie un APERÇU
@@ -211,14 +212,14 @@ export async function appliquerPointageIVMS(
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const valides = (selection ?? []).filter(
-    (s) =>
-      typeof s.employeeId === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(s.date ?? "") &&
-      typeof s.heures === "number" &&
-      s.heures >= 0 &&
-      s.heures <= 24
-  );
+  // Tout ou rien : une seule ligne illisible ou hors bornes (0–24 h, jamais négatif) refuse le lot
+  // ENTIER avant la première écriture — plus de ligne écartée en silence.
+  const lignes = selection ?? [];
+  const malFormees = lignes.filter((s) => typeof s?.employeeId !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s?.date ?? ""));
+  if (malFormees.length > 0) return { ok: false, message: `${malFormees.length} ligne(s) sans salarié ou sans date lisible dans la sélection. Rien n'a été importé.` };
+  const horsBornes = lignes.filter((s) => !heuresDansLesBornes(s.heures));
+  if (horsBornes.length > 0) return { ok: false, message: messageHeuresHorsBornes(horsBornes) };
+  const valides = lignes;
   if (valides.length === 0) return { ok: false, message: "Aucune ligne sélectionnée." };
   if (valides.length > 2000) return { ok: false, message: "Sélection trop volumineuse (max 2000 lignes)." };
 
