@@ -5,7 +5,11 @@ import { Prisma } from "@prisma/client";
 import { repererDejaPresents, refusAnnulationHistoriquePorte, traceJumeau, ACTION_DEJA_PRESENT } from "./doublons-imports";
 import { categorieSortieImport } from "./motif-sorties-import";
 import { journaliser } from "./audit";
-import { poserStocksTx } from "./validations-stock/stock-positif";
+import { poserStocksTx, variationsStockTx } from "./validations-stock/stock-positif";
+import { verrouillerStocks } from "./validations-stock/comptage";
+import { verrouillerMouvements } from "./validations-stock/verrou-suppression";
+import { exigerPeriodesOuvertes } from "./cloture-stock";
+import { PREFIXE_STOCK_POSTERIEUR } from "./annulation-import-texte";
 import { catalogueCandidats } from "./achats-liste-serveur";
 import { decisionArticle } from "./article-proche";
 import { cleArticleImport } from "./import-inventaire-cle";
@@ -301,25 +305,95 @@ export async function appliquerInventaire(
   return { batchId, resume };
 }
 
-/** Annule un import : supprime les créations, restaure les mises à jour. Réversible.
- *  `userId` : l'annulation est journalisée à son nom (le 2026-09-28, trois imports ont été
- *  annulés sans que le journal dise par qui). */
-export async function annulerImport(batchId: string, userId?: string): Promise<{ stocksLaisses: string[] }> {
+
+const q3s = (d: Prisma.Decimal | string | number) => new Prisma.Decimal(d).toString().replace(".", ",");
+const jjmm = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
+
+/**
+ * Annule un import. Réversible, et JAMAIS au prix d'un effacement de ce qui a été saisi depuis.
+ *
+ *  - Import de MOUVEMENTS : on défait uniquement l'EFFET de l'import — chaque mouvement encore présent
+ *    est supprimé et sa variation INVERSE est appliquée au stock par la porte unique (une entrée de 5
+ *    retire 5, une sortie de 2 rend 2). Jamais de valeur absolue reposée : une sortie saisie depuis à la
+ *    main, un comptage, un autre import restent intacts. Un mouvement déjà supprimé à la main (son effet
+ *    est déjà repris) n'est pas repris deux fois.
+ *  - Import d'INVENTAIRE (stock posé en ABSOLU) : remettre la valeur d'avant n'est juste que si rien n'a
+ *    bougé depuis. S'il existe, sur un article de l'import, un mouvement, un comptage ou un autre import
+ *    postérieur, l'annulation est REFUSÉE en nommant les articles et ce qui les a touchés ; la Direction
+ *    peut la confirmer (`remettreQuandMeme`) : la valeur d'avant est alors reposée pour ces articles
+ *    (leur quantité actuelle et la quantité remise sont écrites au journal).
+ *  - Dans tous les cas, aucun mouvement ni achat de légumes daté d'une période clôturée n'est supprimé.
+ *
+ * `userId` : l'annulation est journalisée à son nom (le 2026-09-28, trois imports ont été annulés sans
+ * que le journal dise par qui). `remettreQuandMeme` n'est passé que par l'action réservée à la Direction.
+ */
+export async function annulerImport(batchId: string, userId?: string, opts: { remettreQuandMeme?: boolean } = {}): Promise<{ stocksLaisses: string[]; remisMalgrePosterieur: string[] }> {
   const stocksLaisses: string[] = [];
+  const remisMalgrePosterieur: string[] = [];
   const restaurations: { articleId: string; quantite: Prisma.Decimal }[] = [];
   await prisma.$transaction(async (tx) => {
     const batch = await tx.importBatch.findUniqueOrThrow({ where: { id: batchId }, include: { operations: true } });
     if (batch.statut === "ANNULE") throw new Error("Cet import a déjà été annulé.");
+    const parMouvements = batch.type === "MOUVEMENTS";
     // Ordre : d'abord supprimer les créations (mouvements, achats, articles), puis restaurer les updates.
     // Seules CREATE et UPDATE se rejouent : DOUBLON_RETIRE (copie retirée par le nettoyage des
     // doublons) et DEJA_PRESENT (mouvement ignoré à l'import) n'ont rien créé à supprimer.
     const creations = batch.operations.filter((o) => o.action === "CREATE");
     const updates = batch.operations.filter((o) => o.action === "UPDATE");
-    // 0) Un AUTRE import encore appliqué s'appuie sur des mouvements de celui-ci (ses copies ont
+    const idsMvtLot = creations.filter((o) => o.entite === "MouvementStock").map((o) => o.entiteId);
+    const idsAchatsLot = creations.filter((o) => o.entite === "AchatLegume").map((o) => o.entiteId);
+
+    // 0) Période clôturée : ni mouvement ni achat de légumes daté d'un mois figé ne se supprime en douce.
+    const [mvtsDates, achatsDates] = await Promise.all([
+      tx.mouvementStock.findMany({ where: { id: { in: idsMvtLot } }, select: { date: true } }),
+      tx.achatLegume.findMany({ where: { id: { in: idsAchatsLot } }, select: { date: true } }),
+    ]);
+    await exigerPeriodesOuvertes([...mvtsDates.map((m) => m.date), ...achatsDates.map((a) => a.date)]);
+
+    // 0 bis) Un AUTRE import encore appliqué s'appuie sur des mouvements de celui-ci (ses copies ont
     //    été retirées, ou ignorées car déjà présentes) : les supprimer viderait son historique.
-    const refus = await refusAnnulationHistoriquePorte(tx, batchId, creations.filter((o) => o.entite === "MouvementStock").map((o) => o.entiteId));
+    const refus = await refusAnnulationHistoriquePorte(tx, batchId, idsMvtLot);
     if (refus) throw new Error(refus);
+
+    // 0 ter) Import d'inventaire : la valeur d'avant ne se repose que si rien n'a bougé depuis.
+    const opsStock = parMouvements ? [] : updates.filter((o) => o.entite === "Stock");
+    if (opsStock.length > 0) {
+      const idsArt = opsStock.map((o) => o.entiteId);
+      await verrouillerStocks(tx, idsArt); // rien ne s'intercale pendant la vérification
+      const [mvts, comptages, autres] = await Promise.all([
+        tx.mouvementStock.findMany({ where: { articleId: { in: idsArt }, createdAt: { gt: batch.createdAt }, id: { notIn: idsMvtLot } }, select: { articleId: true, type: true, quantite: true, date: true, origine: true, article: { select: { designation: true, unite: true } } }, orderBy: { createdAt: "asc" } }),
+        tx.ligneComptage.findMany({ where: { articleId: { in: idsArt }, session: { createdAt: { gt: batch.createdAt } } }, select: { articleId: true, designation: true, session: { select: { date: true } } } }),
+        tx.importOperation.findMany({ where: { entite: "Stock", action: "UPDATE", entiteId: { in: idsArt }, batch: { createdAt: { gt: batch.createdAt }, statut: "APPLIQUE", id: { not: batchId } } }, select: { entiteId: true, batch: { select: { libelle: true } } } }),
+      ]);
+      const parArticle = new Map<string, { nom: string; faits: string[] }>();
+      const fiche = (id: string, nom: string) => parArticle.get(id) ?? parArticle.set(id, { nom, faits: [] }).get(id)!;
+      for (const m of mvts) fiche(m.articleId, m.article.designation).faits.push(`${m.type === "ENTREE" ? "entrée" : m.type === "SORTIE" ? "sortie" : "ajustement"} de ${q3s(m.quantite)}${m.article.unite ? ` ${m.article.unite}` : ""} du ${jjmm(m.date)}${m.origine ? ` (${m.origine})` : ""}`);
+      for (const c of comptages) fiche(c.articleId!, c.designation).faits.push(`comptage du ${jjmm(c.session.date)}`);
+      for (const o of autres) fiche(o.entiteId, "").faits.push(`import « ${o.batch.libelle} »`);
+      if (parArticle.size > 0) {
+        const noms = new Map((await tx.articleStock.findMany({ where: { id: { in: [...parArticle.keys()] } }, select: { id: true, designation: true } })).map((a) => [a.id, a.designation]));
+        const actuels = new Map((await tx.stock.findMany({ where: { articleId: { in: [...parArticle.keys()] } }, select: { articleId: true, quantite: true } })).map((x) => [x.articleId, x.quantite]));
+        const avants = new Map(opsStock.map((o) => [o.entiteId, (o.avant as { quantite?: string | null } | null)?.quantite ?? null]));
+        // Pour la confirmation et le journal : la quantité actuelle et celle qui serait remise (avant → après).
+        const lignes = [...parArticle.entries()].map(([id, f]) => `« ${f.nom || noms.get(id) || "Article"} » : ${f.faits.join(" ; ")} [stock actuel ${actuels.has(id) ? q3s(actuels.get(id)!) : "—"} → ${q3s(avants.get(id) ?? 0)} si remis]`);
+        if (!opts.remettreQuandMeme) {
+          throw new Error(
+            `${PREFIXE_STOCK_POSTERIEUR}Annulation refusée : ${parArticle.size} article(s) de cet import ont bougé depuis (${lignes.join(" | ")}). ` +
+              `Annuler remettrait la valeur d'AVANT l'import et effacerait l'effet de ces saisies sur la quantité en stock. Rien n'a été annulé.`
+          );
+        }
+        remisMalgrePosterieur.push(...lignes);
+      }
+    }
+
     // 1) Supprime d'abord les entités dépendantes créées par l'import.
+    if (parMouvements && idsMvtLot.length > 0) {
+      // Effet de l'import SEUL, par la variation inverse : mouvements verrouillés puis relus (un mouvement
+      // déjà supprimé ailleurs a déjà rendu son effet), reprise groupée par la porte unique (tout ou rien).
+      const vivants = await verrouillerMouvements(tx, idsMvtLot);
+      const aDefaire = await tx.mouvementStock.findMany({ where: { id: { in: [...vivants] } }, select: { articleId: true, type: true, quantite: true } });
+      await variationsStockTx(tx, aDefaire.filter((m) => m.type !== "AJUSTEMENT").map((m) => ({ articleId: m.articleId, delta: m.type === "ENTREE" ? m.quantite.negated() : m.quantite })), { verbe: "à reprendre" });
+    }
     for (const o of creations) {
       if (o.entite === "MouvementStock") await tx.mouvementStock.deleteMany({ where: { id: o.entiteId } });
       else if (o.entite === "AchatLegume") await tx.achatLegume.deleteMany({ where: { id: o.entiteId } });
@@ -372,7 +446,7 @@ export async function annulerImport(batchId: string, userId?: string): Promise<{
         const restaurerPrix = "prixUnitaireUSD" in av && art?.devisePrix !== "CDF";
         await tx.articleStock.update({ where: { id: o.entiteId }, data: { ...(restaurerPrix ? { prixUnitaireUSD: av.prixUnitaireUSD != null ? new Prisma.Decimal(av.prixUnitaireUSD) : null } : {}), unite: av.unite } });
       }
-      else if (o.entite === "Stock") restaurations.push({ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : new Prisma.Decimal(0) });
+      else if (o.entite === "Stock" && !parMouvements) restaurations.push({ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : new Prisma.Decimal(0) });
     }
     // Remise des stocks à leur valeur d'avant l'import, EN UNE FOIS par la porte unique (lignes encore
     // présentes seulement). Un stock ne passe jamais sous 0 (2026-10-09) : une valeur d'avant NÉGATIVE
@@ -396,12 +470,14 @@ export async function annulerImport(batchId: string, userId?: string): Promise<{
         nouvelleValeur:
           `Import « ${batch.libelle} » annulé : ${nb("MouvementStock")} mouvement(s) retiré(s), ` +
           `stock de ${aRestaurer.length - negatifs.length} article(s) remis à sa valeur d'avant l'import` +
+          (parMouvements ? ` (effet de l'import défait par variation inverse, aucune valeur absolue reposée)` : "") +
           (stocksLaisses.length ? `, ${stocksLaisses.length} stock(s) laissé(s) tel(s) quel(s) (valeur d'avant négative, jamais réécrite) : ${stocksLaisses.join(", ")}` : "") +
+          (remisMalgrePosterieur.length ? `. CONFIRMÉ par la Direction malgré des saisies postérieures : ${remisMalgrePosterieur.join(" | ")}` : "") +
           (nb("AchatLegume") ? `, ${nb("AchatLegume")} achat(s) de légumes retiré(s)` : "") +
           (nb("ArticleStock") ? `, ${nb("ArticleStock")} article(s) créé(s) supprimé(s)` : ""),
         userId,
       });
     }
   }, { timeout: 120000 });
-  return { stocksLaisses };
+  return { stocksLaisses, remisMalgrePosterieur };
 }

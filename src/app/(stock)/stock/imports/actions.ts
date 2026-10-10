@@ -112,10 +112,14 @@ export const appliquerMouvementsAction = actionLisible(
   }
 );
 
-/** Annule un import (supprime les créations, restaure les mises à jour). */
-export const annulerImportAction = actionLisible(async (batchId: string): Promise<{ stocksLaisses: string[] }> => {
+/**
+ * Annule un import. Mouvements : l'effet de l'import est défait par variation inverse. Inventaire : refusé
+ * si des saisies sont postérieures, sauf `remettreQuandMeme` (confirmation explicite de la Direction —
+ * cette action n'est ouverte qu'à elle).
+ */
+export const annulerImportAction = actionLisible(async (batchId: string, remettreQuandMeme?: boolean): Promise<{ stocksLaisses: string[]; remisMalgrePosterieur: string[] }> => {
   const user = await gardeDirection();
-  const r = await annulerImport(batchId, user.id);
+  const r = await annulerImport(batchId, user.id, { remettreQuandMeme: remettreQuandMeme === true });
   revalidatePath("/stock/imports");
   revalidatePath("/stock/catalogue", "layout");
   return r; // stocks dont la valeur d'avant était négative : laissés tels quels, nommés
