@@ -843,7 +843,9 @@ export default async function FicheEmployePage({
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
-                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
+                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé</>}
+                {plafondAcompte.echeancePretUSD > 0 && <> — {formaterUSD(plafondAcompte.echeancePretUSD)} d&apos;échéance de prêt retenue ce mois</>}
+                {(plafondAcompte.dejaEngageUSD > 0 || plafondAcompte.echeancePretUSD > 0) && <>, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
               </p>
             </form>
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">

@@ -13,6 +13,7 @@ import {
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
+import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
 
 export type ApercuBulletin = {
   ligne: LignePaie;
@@ -68,8 +69,10 @@ export async function calculerBulletinLive(
   });
   const typeContrat = contratActif?.type ?? employee.contrat;
 
-  // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici.
+  // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Embauché
+  // après la fin du mois : aucun bulletin non plus (même règle que le lot, estCalculeEnPaie).
   if (typeContrat === "INTERIM") return null;
+  if (new Date(employee.dateEmbauche).getTime() > Date.UTC(annee, mois, 0)) return null;
   const estStage = typeContrat === "STAGE";
 
   const parametres = await chargerParametresPaie();
@@ -184,7 +187,21 @@ export async function calculerBulletinLive(
       motif: ref.motif,
       heuresReference: ref.heuresReference,
       tauxMois: ref.tauxMois,
-      avertissements,
+      // Mêmes signalements que la ligne du lot (paie-batch.ts) : mois entier non proratisé, net ≤ 0.
+      avertissements: [
+        ...avertissements,
+        ...(employee.categorie === "BRIGADE" && !estStage
+          ? []
+          : avertissementsMoisEntier({
+              mois,
+              annee,
+              presences: attendances.map((a) => ({ date: a.date, code: a.code as CodePresence })),
+              joursCongeSansSolde: joursParEmp.get(employeeId)?.joursCongeSansSolde ?? [],
+              dateEmbauche: new Date(employee.dateEmbauche),
+              dateFinContrat: joursParEmp.get(employeeId)?.dateFinContrat ?? null,
+            })),
+        ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
+      ],
     },
   };
 }

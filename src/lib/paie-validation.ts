@@ -20,6 +20,7 @@ import { Prisma } from "@prisma/client";
 import { calculerLignesPaie, type DonneesLignePaie } from "@/lib/paie-batch";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
 import { ecartJeton, jetonDeLigneLue, SELECTION_JETON } from "@/lib/paie-jeton";
+import { netNonValidable, usdSigne } from "@/lib/paie-avertissements-mois";
 
 /**
  * Compare les jetons FOURNIS aux lignes lues : null si tout concorde ; sinon « TAUX » quand seul le
@@ -71,6 +72,13 @@ export function messageNonCalcules(noms: string[]): string {
 /** Clôture demandée par la RH alors que la Direction n'a pas tout validé (décision du 2026-10-01). */
 export function messageAttenteDirection(n: number): string {
   return `${n} bulletin${n > 1 ? "s attendent" : " attend"} encore la validation de la Direction : la RH ne clôture qu'une paie entièrement validée.`;
+}
+
+/** Refus de validation : net à payer négatif, ou nul parce que les retenues absorbent tout
+ *  (`netNonValidable`, paie-avertissements-mois.ts). */
+export function messageNetNonPositif(lignes: { nom: string; net: number; acompte: number; pret: number }[]): string {
+  const detail = lignes.map((l) => `${l.nom} (net ${usdSigne(l.net)} ; acompte ${usdSigne(l.acompte)}, échéance de prêt ${usdSigne(l.pret)})`).join(", ");
+  return `Net à payer négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant de valider — le logiciel ne plafonne rien de lui-même.`;
 }
 
 export function messagePaieChangee(noms: string[]): string {
@@ -198,6 +206,7 @@ export async function controlerLignesAValider(
   }
   const changees: string[] = [];
   const nonCalcules: string[] = [];
+  const netsRefuses: { nom: string; net: number; acompte: number; pret: number }[] = [];
   for (const groupe of parMois.values()) {
     const { mois, annee } = groupe[0].payrollRun;
     const { lignes: recalculees } = await calculerLignesPaie(mois, annee, tx);
@@ -209,12 +218,16 @@ export async function controlerLignesAValider(
       const r = parSalarie.get(l.employeeId);
       if (!r) nonCalcules.push(l.employee.nom);
       else if (ligneDiffere(l, r)) changees.push(l.employee.nom);
+      else if (netNonValidable(r)) netsRefuses.push({ nom: l.employee.nom, net: r.salNetUSD, acompte: r.acompteUSD, pret: r.retenuePretUSD });
     }
   }
   const trier = (noms: string[]) => [...new Set(noms)].sort((a, b) => a.localeCompare(b, "fr"));
   if (nonCalcules.length > 0) throw new ValidationPaieRefuseeError(messageNonCalcules(trier(nonCalcules)));
   if (changees.length > 0) {
     throw new ValidationPaieRefuseeError(messagePaieChangee(trier(changees)));
+  }
+  if (netsRefuses.length > 0) {
+    throw new ValidationPaieRefuseeError(messageNetNonPositif(netsRefuses.sort((a, b) => a.nom.localeCompare(b.nom, "fr"))));
   }
   return new Set(aValider.map((l) => l.id));
 }

@@ -14,6 +14,7 @@ import {
   type CodePresence,
 } from "@/lib/payroll";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
+import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
 import type { Employee, Prisma } from "@prisma/client";
@@ -146,8 +147,10 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
   for (const a of acomptesDuMois) acomptesParEmp.set(a.employeeId, (acomptesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
 
   const codesParEmp = new Map<string, CodePresence[]>();
+  const datesParEmp = new Map<string, { date: Date; code: CodePresence }[]>();
   for (const a of attendances) {
     (codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, []).get(a.employeeId)!).push(a.code as CodePresence);
+    (datesParEmp.get(a.employeeId) ?? datesParEmp.set(a.employeeId, []).get(a.employeeId)!).push({ date: a.date, code: a.code as CodePresence });
   }
 
   // Jours du mois (créneaux, modèle, codes, heures, horodatages), jours hors du mois des semaines à
@@ -161,7 +164,8 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
     const typeContrat = typeContratParEmp.get(employee.id) ?? employee.contrat;
     // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Règle
     // partagée avec les totaux et les exports (paie-hors-calcul.ts) : « calculé » = « compté ».
-    if (!estCalculeEnPaie(employee, typeContratParEmp.get(employee.id))) continue;
+    // Embauche postérieure au dernier jour du mois : aucun bulletin ce mois-là (règle partagée, idem).
+    if (!estCalculeEnPaie(employee, typeContratParEmp.get(employee.id), { mois, annee })) continue;
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
@@ -175,7 +179,7 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
     const estStage = typeContrat === "STAGE";
     const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
     // Référence d'heures et avertissements : le MÊME chemin que l'aperçu de la fiche (bulletin-live.ts).
-    const { ref, avertissements: avertissementsPaie } = calculerReferenceSalarie({
+    const { ref, avertissements: avertissementsReference } = calculerReferenceSalarie({
       mois,
       annee,
       employee,
@@ -219,6 +223,24 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
             { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
             parametres
           );
+
+    // Signalements (audit du 2026-10-10), jamais un montant changé : le back-office et les stagiaires
+    // sont payés au MOIS ENTIER, sans retenue pour N/S/M ni prorata d'entrée/sortie — la règle attend
+    // la décision de la Direction. L'écran Paie et la confirmation de validation les nomment.
+    const avertissementsPaie: AvertissementPaie[] = [
+      ...avertissementsReference,
+      ...(employee.categorie === "BRIGADE" && !estStage
+        ? []
+        : avertissementsMoisEntier({
+            mois,
+            annee,
+            presences: datesParEmp.get(employee.id) ?? [],
+            joursCongeSansSolde: joursParEmp.get(employee.id)?.joursCongeSansSolde ?? [],
+            dateEmbauche: new Date(employee.dateEmbauche),
+            dateFinContrat: joursParEmp.get(employee.id)?.dateFinContrat ?? null,
+          })),
+      ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
+    ];
 
     // Facteur de reconstitution brut/net appliqué à la base (1 hors brigade / flag inactif). Les
     // composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés)

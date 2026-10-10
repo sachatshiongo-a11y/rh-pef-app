@@ -19,7 +19,11 @@ export type CodeAvertissementPaie =
   | "PLANNING_MODIFIE_APRES_HEURES"
   | "CDD_ECHU_POURSUIVI"
   | "CONGE_SANS_SOLDE_RECODE"
-  | "SEMAINE_A_CHEVAL_NON_PLANIFIEE";
+  | "SEMAINE_A_CHEVAL_NON_PLANIFIEE"
+  // Lot audit du 2026-10-10 (paie-batch.ts) : signalements, aucun montant changé par eux.
+  | "ABSENCES_NON_DEDUITES"
+  | "ENTREE_SORTIE_EN_COURS_DE_MOIS"
+  | "NET_NON_POSITIF";
 
 export type AvertissementPaie = { code: CodeAvertissementPaie; message: string };
 
