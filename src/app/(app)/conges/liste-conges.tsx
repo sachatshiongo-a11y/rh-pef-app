@@ -98,8 +98,9 @@ export function ListeConges({
         const r = await fn(cibles);
         selection.clear();
         // Rapport de fin : l'échec d'une demande ne bloque pas les autres, mais il est NOMMÉ.
-        setNote(r.echecs.length > 0
-          ? { ok: false, texte: `${r.traitees} demande(s) ${verbe}, ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}` }
+        const reserves = r.avertissements ?? [];
+        setNote(r.echecs.length > 0 || reserves.length > 0
+          ? { ok: false, texte: [`${r.traitees} demande(s) ${verbe}${r.echecs.length > 0 ? `, ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}` : "."}`, ...reserves].join(" · ") }
           : { ok: true, texte: `${r.traitees} demande(s) ${verbe}.` });
       } catch (e) {
         setNote({ ok: false, texte: e instanceof Error && e.message ? e.message : "L'action groupée a échoué. Réessayez." });
