@@ -63,6 +63,9 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
     maj(i, { articleId, designation: a ? a.designation : "", prix: canoniqueVersSaisie(a?.prix), uniteParCarton: canoniqueVersSaisie(a?.uniteParCarton) });
   };
   const total = lignes.reduce((t, l) => t + nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix), 0);
+  // Ligne sans prix (case vide ou 0) : signalée, son total est « — » et le total du bon est annoncé incomplet (jamais complété par un zéro).
+  const sansPrix = (l: Ligne) => !(nombreDeSaisie(l.prix) > 0);
+  const nbSansPrix = lignes.filter((l) => (l.designation.trim() || l.articleId) && nombreDeSaisie(l.quantite) > 0 && sansPrix(l)).length;
 
   return (
     // Entrée n'envoie jamais le bon : seul un clic sur le bouton l'enregistre.
@@ -132,7 +135,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                   />
                   {(() => { const fc = l.articleId ? articles.find((x) => x.id === l.articleId)?.prixFC : null; return fc ? <span className="block text-[10px] text-muted-foreground" title="Prix de référence en francs : converti en dollars au taux du jour">{fc} ≈</span> : null; })()}
                 </td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{(nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{sansPrix(l) ? <span data-sans-prix className={nombreDeSaisie(l.quantite) > 0 ? "text-amber-800" : ""}>{nombreDeSaisie(l.quantite) > 0 ? "sans prix" : "—"}</span> : `${(nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}</td>
               </tr>
             ))}
           </tbody>
@@ -144,7 +147,8 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
         <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <div className="text-right">
           <span className="text-sm text-muted-foreground">Total : </span>
-          <span className="text-lg font-semibold">{total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>
+          <span className="text-lg font-semibold">{total > 0 || nbSansPrix === 0 ? `${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $` : "—"}</span>
+          {nbSansPrix > 0 && <span data-total-incomplet className="ml-2 text-xs font-medium text-amber-800">incomplet : {nbSansPrix} ligne(s) sans prix</span>}
         </div>
       </div>
 
