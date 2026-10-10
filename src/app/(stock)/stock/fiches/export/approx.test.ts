@@ -15,11 +15,13 @@ const vue = (id: string, nom: string, articleId: string, extra: Record<string, u
   estSousRecette: false, rendementQuantite: "", rendementUnite: "", recette: "", actif: true, photoUrl: null, lignes: [ligne(`${id}-l`, articleId)], ...extra,
 });
 const VUES = [vue("exact", "Plat exact", "usd"), vue("approx", "Plat en francs", "fc"), vue("partiel", "Plat partiel", "fc", { lignes: [ligne("p1", "fc"), { id: "p2", articleId: null, sousFicheId: null, unite: "kg", quantite: "1", ordre: 2 }] })];
-const ARTICLES = [
+const ARTICLES: ArticleOption[] = [
   { id: "usd", designation: "Farine", unite: "kg", prixUnitaireUSD: "3", actif: true },
   { id: "fc", designation: "Riz (prix en francs)", unite: "kg", prixUnitaireUSD: "3", prixApprox: true, prixSaisi: { devise: "CDF", montant: "8400" }, actif: true },
 ];
 vi.mock("../_data/charger-fiche", () => ({ chargerFichesVues: async () => VUES, chargerArticlesDesFiches: async () => ARTICLES }));
+
+import type { ArticleOption } from "../_data/fiche-calc";
 
 const { GET } = await import("./route");
 const { construireContexte } = await import("../_data/fiche-calc");
