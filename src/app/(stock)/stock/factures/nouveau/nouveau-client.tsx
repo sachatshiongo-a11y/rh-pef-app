@@ -12,6 +12,7 @@ import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { ChoixRecherche } from "@/components/choix-recherche";
+import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
 import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 import { formaterMontantFacture, libelleAutreDevise } from "@/lib/facture-devise";
 import { formaterNombre } from "@/lib/montant";
@@ -261,16 +262,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         </div>
       )}
       {proches && (
-        <div data-fournisseur-proche className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          <p className="font-semibold">⚠ Fournisseur proche trouvé pour « {fournisseurNom} »</p>
-          <p className="mt-1 text-xs">Aucun fournisseur n&apos;a exactement ce nom. Choisissez : un rattachement approximatif en silence placerait la facture (et sa dette) chez le mauvais fournisseur.</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {proches.map((p) => (
-              <button key={p.id} type="button" onClick={() => utiliserFournisseur(p)} disabled={isPending} className="rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">Utiliser « {p.nom} »</button>
-            ))}
-            <button type="button" onClick={creerFournisseur} disabled={isPending} className="rounded-md border px-3 py-1.5 text-xs font-semibold hover:bg-accent disabled:opacity-50">Créer « {fournisseurNom} »</button>
-          </div>
-        </div>
+        <ChoixFournisseurProche nom={fournisseurNom} candidats={proches} desactive={isPending} onUtiliser={utiliserFournisseur} onCreer={creerFournisseur} />
       )}
 
       {forcerStock && <input type="hidden" name="forcerDoublons" value="1" />}
@@ -291,15 +283,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
             {analyse.match ? (
               <p className="text-emerald-700">Fournisseur : associé à <span className="font-medium">« {analyse.match.nom} »</span> (même nom que « {analyse.fournisseur.nom} » lu).</p>
             ) : analyse.fournisseur.nom && analyse.proches.length > 0 && !fournisseurId && !fournisseurNouveau ? (
-              <div data-proches-pdf className="space-y-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-amber-900">
-                <p>Fournisseur lu : <span className="font-medium">« {analyse.fournisseur.nom} »</span> — aucun fournisseur de ce nom exact. Il ressemble à :</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {analyse.proches.map((p) => (
-                    <button key={p.id} type="button" onClick={() => { choisirFournisseur(p.id); setCoord(null); }} className="rounded-md border border-amber-500 bg-amber-100 px-2 py-1 text-xs font-semibold hover:bg-amber-200">Utiliser « {p.nom} »</button>
-                  ))}
-                  <button type="button" onClick={() => setFournisseurNouveau(true)} className="rounded-md border px-2 py-1 text-xs font-semibold hover:bg-accent">Créer « {analyse.fournisseur.nom} »</button>
-                </div>
-              </div>
+              <ChoixFournisseurProche nom={analyse.fournisseur.nom} candidats={analyse.proches} onUtiliser={(p) => { choisirFournisseur(p.id); setCoord(null); }} onCreer={() => setFournisseurNouveau(true)} />
             ) : analyse.fournisseur.nom ? (
               <p className="text-sky-700">
                 Nouveau fournisseur <span className="font-medium">« {analyse.fournisseur.nom} »</span> — sera créé à l’enregistrement

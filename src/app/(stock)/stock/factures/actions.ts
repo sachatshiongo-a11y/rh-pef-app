@@ -9,8 +9,6 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-import { donneesMontantsImportee, parserClasseurFactures } from "@/lib/import-factures-excel";
-import { sigExistante, sigImportee } from "@/lib/import-factures";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { fournisseurIdentique, fournisseursProches } from "@/lib/fournisseur-match";
 import { rapprocherLignePdf } from "@/lib/facture-ligne-match";
@@ -28,7 +26,7 @@ import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture
 import { annulerPaiementTx, corrigerEnteteFactureTx } from "@/lib/validations-stock/correction-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
-import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 
@@ -143,68 +141,9 @@ export const analyserFacturePDF = actionLisible(async (formData: FormData): Prom
   }
 });
 
-/**
- * Importe un ou plusieurs classeurs Excel « Suivi des factures fournisseurs ». Direction uniquement.
- * Rattache chaque facture au fournisseur existant (par nom) ou le crée ; ignore les doublons
- * (même fournisseur/mois/année/montant/n°) pour permettre des imports répétés.
- */
-export const importerFacturesExcel = actionLisible(async (formData: FormData): Promise<{ importees: number; ignorees: number; fournisseursCrees: string[]; erreurs: string[] }> => {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-
-  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
-  if (fichiers.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: ["Aucun fichier."] };
-
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-  const anneeCourante = config?.anneeCourante ?? anneeCouranteKinshasa();
-
-  const erreurs: string[] = [];
-  const lignes = [] as Awaited<ReturnType<typeof parserClasseurFactures>>;
-  for (const f of fichiers) {
-    const anneeFichier = Number((f.name.match(/(20\d{2})/) ?? [])[1]) || anneeCourante;
-    try {
-      lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), anneeFichier, taux, erreurs)));
-    } catch (e) {
-      erreurs.push(`${f.name} : ${e instanceof Error ? e.message : "illisible"}`);
-    }
-  }
-  if (lignes.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: erreurs.length ? erreurs : ["Aucune facture trouvée dans le(s) fichier(s)."] };
-
-  // Fournisseurs : rattachement ou création.
-  const fours = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
-  const parNom = new Map(fours.map((x) => [normNom(x.nom), x.id]));
-  const fournisseursCrees: string[] = [];
-  for (const nom of [...new Set(lignes.map((l) => l.fournisseurNom))]) {
-    if (parNom.has(normNom(nom))) continue;
-    const cree = await prisma.fournisseur.create({ data: { nom, pays: "République démocratique du Congo" } });
-    parNom.set(normNom(nom), cree.id);
-    fournisseursCrees.push(nom);
-  }
-
-  // Dé-duplication (signature, dans la devise de chaque facture) contre l'existant + à l'intérieur du lot.
-  const existantes = await prisma.factureFournisseur.findMany({ select: { annee: true, mois: true, fournisseurNom: true, numero: true, devise: true, montantUSD: true, montantCDF: true } });
-  const vues = new Set(existantes.map(sigExistante));
-
-  const aInserer = lignes.filter((r) => { const s = sigImportee(r); if (vues.has(s)) return false; vues.add(s); return true; });
-
-  if (aInserer.length > 0) {
-    await prisma.factureFournisseur.createMany({
-      data: aInserer.map((r) => ({
-        fournisseurId: parNom.get(normNom(r.fournisseurNom)) ?? null,
-        fournisseurNom: r.fournisseurNom, numero: r.numero,
-        date: r.date, dateEcheance: r.dateEcheance, datePaiement: r.datePaiement,
-        ...donneesMontantsImportee(r),
-        statut: r.statut, modePaiement: r.modePaiement, mois: r.mois, annee: r.annee,
-      })),
-    });
-    await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "import", champ: "import Excel", nouvelleValeur: `${aInserer.length} facture(s)`, userId: user.id });
-  }
-
-  revalidatePath("/stock/factures");
-  return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
-});
+// L'import de classeurs de factures vit UNIQUEMENT dans l'écran Imports (aperçu, confirmation des probables
+// doublons, devise obligatoire, lot annulable — src/lib/import-factures.ts). L'ancien bouton « Importer » de
+// cet écran écrivait directement, sans aperçu ni annulation, et devinait la devise d'après le montant.
 
 const AUJ = () => jourCourantKinshasaISO();
 

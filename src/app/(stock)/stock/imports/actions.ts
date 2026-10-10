@@ -65,7 +65,13 @@ export const appliquerFacturesAction = actionLisible(
     const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
     if (fichiers.length === 0) throw new Error("Fichier(s) manquant(s).");
     const libelle = String(formData.get("libelle") ?? "").trim() || `Factures ${jourKinshasa(new Date())}`;
-    const res = await appliquerFactures(fichiers, libelle, user.id);
+    // `forcer` : rangs des lignes « à confirmer » cochées dans l'aperçu ; `choixFournisseurs` : « Utiliser … » / « CREER » par fournisseur proche.
+    const lireJson = (k: string): unknown => { try { return JSON.parse(String(formData.get(k) ?? "")); } catch { return null; } };
+    const brutForcer = lireJson("forcer");
+    const forcer = Array.isArray(brutForcer) ? brutForcer.filter((x): x is string => typeof x === "string") : [];
+    const brutChoix = lireJson("choixFournisseurs");
+    const choixFournisseurs = brutChoix && typeof brutChoix === "object" && !Array.isArray(brutChoix) ? Object.fromEntries(Object.entries(brutChoix).filter(([, v]) => typeof v === "string")) as Record<string, string> : {};
+    const res = await appliquerFactures(fichiers, libelle, user.id, { forcer, choixFournisseurs });
     revalidatePath("/stock/imports");
     revalidatePath("/stock/factures");
     return res;
