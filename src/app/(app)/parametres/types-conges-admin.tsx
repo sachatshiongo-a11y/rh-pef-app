@@ -19,6 +19,10 @@ export type TypeCongeRow = {
   compteDansSolde: boolean;
   systeme: boolean;
   actif: boolean;
+  /** Demandes qui portent ce type (toutes périodes) : un type utilisé ne se renomme ni ne se supprime. */
+  nbDemandes: number;
+  /** « Congé annuel », « Congé sans solde » : jamais renommés ni supprimés. */
+  protege: boolean;
 };
 
 const inputCls = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -56,7 +60,12 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
               <tr key={t.id} className="border-t">
                 <td className="py-1.5">
                   <form action={(fd) => run(() => modifierTypeConge(t.id, fd))} className="flex items-center gap-2">
-                    <input name="nom" defaultValue={t.nom} className={`${inputCls} w-44`} />
+                    {t.protege || t.nbDemandes > 0 ? (
+                      // Nom figé : les demandes portent le NOM du type ; le changer les détacherait de leur règle.
+                      <input name="nom" defaultValue={t.nom} readOnly title={t.protege ? "Type protégé : nom non modifiable" : `Utilisé par ${t.nbDemandes} demande(s) : nom non modifiable`} className={`${inputCls} w-44 bg-muted text-muted-foreground`} />
+                    ) : (
+                      <input name="nom" defaultValue={t.nom} className={`${inputCls} w-44`} />
+                    )}
                     <ChampNombre name="joursPayes" defaultValue={t.joursPayes === null ? "" : versSaisie(t.joursPayes)} placeholder="À valider" className={`${inputCls} w-full`} classeConteneur="w-24" />
                     <ChampNombre name="tauxPct" defaultValue={t.tauxPct === null ? "" : versSaisie(t.tauxPct)} placeholder="À valider" suffixe="%" className={`${inputCls} w-full`} classeConteneur="w-20" />
                     <label className="flex items-center gap-1 text-xs" title="Ce type se déduit du solde de congé annuel">
@@ -79,7 +88,12 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
                     <button onClick={() => run(() => basculerTypeConge(t.id))} disabled={isPending} className="rounded border px-2 py-1 text-xs hover:bg-accent">
                       {t.actif ? "Désactiver" : "Activer"}
                     </button>
-                    {!t.systeme && (
+                    {(t.protege || t.nbDemandes > 0) && (
+                      <span className="text-xs text-muted-foreground" title="Un type protégé ou utilisé se désactive, il ne se supprime pas">
+                        {t.protege ? "Protégé" : `${t.nbDemandes} demande(s)`}
+                      </span>
+                    )}
+                    {!t.systeme && !t.protege && t.nbDemandes === 0 && (
                       <button
                         onClick={() => { if (confirm("Supprimer ce type de congé ?")) run(() => supprimerTypeConge(t.id)); }}
                         disabled={isPending}
@@ -106,7 +120,9 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
       <p className="text-xs text-muted-foreground">
         Jours payés / taux laissés vides = <span className="font-medium text-amber-600">À valider</span> par un
         comptable-juriste (non appliqués en paie tant que non renseignés). Seuls les types cochés
-        « Solde annuel » se déduisent du solde de congé annuel ; les autres restent demandables.
+        « Solde annuel » se déduisent du solde de congé annuel ; les autres restent demandables. Un type
+        déjà utilisé par une demande (ou protégé : Congé annuel, Congé sans solde) ne se renomme ni ne se
+        supprime : il se désactive.
       </p>
     </div>
   );
