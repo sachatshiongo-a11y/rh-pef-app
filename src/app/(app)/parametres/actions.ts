@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { recalerCongesSurFerie, resumeRecalage } from "@/lib/conges-feries";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { changerMoisCourant, revaliderApresChangementDeMois, verrouillerMoisCourant } from "@/lib/changement-mois";
@@ -200,24 +202,58 @@ export async function mettreAJourTrancheIprCDF(id: number, formData: FormData) {
   });
 }
 
-export async function ajouterJourFerie(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
-
-  const date = new Date(String(formData.get("date")));
-  const designation = String(formData.get("designation"));
-
-  await prisma.jourFerie.create({
-    data: { date, designation, annee: date.getFullYear() },
-  });
-
+function revaliderFeries() {
   revalidatePath("/parametres");
+  revalidatePath("/conges");
+  revalidatePath("/presences");
+  revalidatePath("/employes");
+  revalidatePath("/paie");
 }
 
+/**
+ * Ajoute un férié. Une date déjà fériée est refusée avec un message lisible (plus d'erreur brute de
+ * la base). Les congés déjà posés qui couvrent ce jour sont recalés dans la même transaction (nombre
+ * de jours recalculé, « C » du jour retiré — jamais dans un mois à paie validée : `recalerCongesSurFerie`).
+ */
+export async function ajouterJourFerie(formData: FormData) {
+  await formulaireLisible("/parametres", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
+
+    const brut = String(formData.get("date") ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(brut)) throw new Error("Date du férié invalide : choisissez un jour du calendrier.");
+    const date = new Date(`${brut}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== brut) throw new Error("Date du férié invalide : choisissez un jour du calendrier.");
+    const designation = String(formData.get("designation") ?? "").trim();
+    if (!designation) throw new Error("Indiquez la désignation du jour férié.");
+    const jj = `${brut.slice(8, 10)}/${brut.slice(5, 7)}/${brut.slice(0, 4)}`;
+
+    const resume = await prisma.$transaction(async (tx) => {
+      const deja = await tx.jourFerie.findUnique({ where: { date }, select: { designation: true } });
+      if (deja) throw new Error(`Le ${jj} est déjà un jour férié (« ${deja.designation} »). Rien n'a été ajouté.`);
+      await tx.jourFerie.create({ data: { date, designation, annee: date.getUTCFullYear() } });
+      return resumeRecalage(await recalerCongesSurFerie(tx, date, "ajout", user.id), "ajout");
+    });
+
+    revaliderFeries();
+    redirect(`/parametres?msg=${encodeURIComponent(`Férié du ${jj} ajouté.${resume ? ` ${resume}.` : ""}`)}`);
+  });
+}
+
+/** Retire un férié (Direction). Les congés qui couvrent ce jour sont recalés (jour recompté, code reposé). */
 export async function supprimerJourFerie(id: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
-  await prisma.jourFerie.delete({ where: { id } });
-  revalidatePath("/parametres");
+  const resume = await prisma.$transaction(async (tx) => {
+    const f = await tx.jourFerie.findUnique({ where: { id } });
+    if (!f) return null;
+    await tx.jourFerie.delete({ where: { id } });
+    const date = new Date(f.date);
+    const r = resumeRecalage(await recalerCongesSurFerie(tx, date, "retrait", user.id), "retrait");
+    const iso = date.toISOString().slice(0, 10);
+    return `Férié du ${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} retiré.${r ? ` ${r}.` : ""}`;
+  });
+  revaliderFeries();
+  if (resume) redirect(`/parametres?msg=${encodeURIComponent(resume)}`);
 }
