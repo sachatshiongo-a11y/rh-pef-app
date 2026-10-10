@@ -30,7 +30,7 @@ beforeEach(() => {
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
-  const employe = (id: string, nom: string) => ({ id, matricule: id, nom, heuresParJour: 8, heuresHebdo: 48, salaireHoraire: 1 });
+  const employe = (id: string, nom: string) => ({ id, matricule: id, nom, heuresParJour: 8, heuresHebdo: 48 });
   act(() => racine.render(createElement(TempsGrid, {
     employees: [employe("e1", "Alice"), employe("e2", "Bruno")],
     days: [1, 2],

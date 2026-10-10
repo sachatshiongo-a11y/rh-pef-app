@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerHeuresSupp, reconstituerBrutDepuisNet, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { calculerHeuresSupp, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { classeurExcel } from "@/lib/export-excel";
 
 /**
@@ -23,9 +25,11 @@ export async function GET() {
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
+  // Même effectif que l'écran : actifs + sortis dans le mois (pour leurs jours actifs).
+  const inactifsGardes = await inactifsDeLaPeriode(prisma, debutMois, finMois);
   const [employees, attendances, entries, joursFeriesDuMois] = await Promise.all([
     prisma.employee.findMany({
-      where: { actif: true },
+      where: { OR: [{ actif: true }, { id: { in: inactifsGardes } }] },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
     }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -82,26 +86,21 @@ export async function GET() {
     "HS 30%",
     "HS 60%",
     "HS 100%",
-    "HS valorisées $",
+    "HS valorisées $ (paie)",
   ];
   const lignesHeures: (string | number)[][] = [];
   const lignesSemaines: (string | number)[][] = [];
 
+  // HS valorisées : le montant de la PAIE (même chemin que le lot), « — » si la paie n'en paie pas ;
+  // par semaine : les heures de la semaine au taux de la paie (taux du contrat, brut reconstitué).
+  const hsPaie = await hsValoriseesPaie(mois, annee, employees, parametres);
   for (const e of employees) {
-    // Salaires en net (2026-07-22) : grossir le taux horaire par ρ (brut/net) si le flag est actif,
-    // pour que les HS valorisées exportées soient au taux brut reconstitué (cohérent avec le bulletin).
-    const salaireMensuelNet = Number(e.salaireMensuel);
-    const rho =
-      parametres.salairesSaisisEnNet && salaireMensuelNet > 0
-        ? reconstituerBrutDepuisNet(salaireMensuelNet, parametres, e.enfants) / salaireMensuelNet
-        : 1;
-    const salaireJournalier = (salaireMensuelNet / parametres.joursOuvrablesMois) * rho;
-    const salaireHoraire = salaireJournalier / Number(e.heuresParJour);
+    const paie = hsPaie.get(e.id) ?? { montant: null, tauxHoraire: null };
     const hs = calculerHeuresSupp({
       jours: joursParEmploye[e.id] ?? [],
       heuresParJourContrat: Number(e.heuresParJour),
       heuresHebdoContrat: Number(e.heuresHebdomadaires),
-      salaireHoraire,
+      salaireHoraire: paie.tauxHoraire ?? 0,
       joursFeries,
       params: parametres,
     });
@@ -116,7 +115,7 @@ export async function GET() {
       hs.hs30,
       hs.hs60,
       hs.hs100,
-      Number(hs.hsValorisee.toFixed(2)),
+      paie.montant === null ? "—" : paie.montant,
     ]);
 
     const parNumero = new Map(hs.semaines.map((s) => [s.semaine, s]));
@@ -130,7 +129,7 @@ export async function GET() {
         d ? d.hs30 : 0,
         d ? d.hs60 : 0,
         d ? d.hs100 : 0,
-        d ? Number(d.hsValorisee.toFixed(2)) : 0,
+        paie.tauxHoraire === null ? "—" : d ? Number(d.hsValorisee.toFixed(2)) : 0,
       ]);
     }
   }
@@ -145,7 +144,7 @@ export async function GET() {
       {
         nom: "Détail hebdomadaire",
         titre: "Heures supplémentaires — détail hebdomadaire",
-        entete: ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $"],
+        entete: ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $ (taux de la paie)"],
         lignes: lignesSemaines,
       },
     ],

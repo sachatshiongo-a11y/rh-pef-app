@@ -18,6 +18,7 @@ import { Icone } from "@/components/icones";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
+import { formaterUSD } from "@/lib/montant";
 import { saisirPresence, saisirPresencesEnLot } from "./actions";
 import { saisirHeures, saisirHeuresEnLot } from "../heures-supp/actions";
 import { COULEUR_CODE_HEX, LIBELLE_CODE } from "./attendance-colors";
@@ -52,7 +53,12 @@ export type EmployeeRow = {
   photoUrl?: string | null;
   heuresParJour: number;
   heuresHebdo: number;
-  salaireHoraire: number;
+  /** Prime d'heures supplémentaires du mois TELLE QUE LA PAIE LA CALCULE (`calculerReferenceSalarie`
+   *  + moteur de paie), au dernier chargement ; `null` = pas d'heures supp. payées à ce salarié
+   *  (back-office au salaire fixe, stage, intérim) — affiché « — », jamais 0. */
+  hsValoriseePaie?: number | null;
+  /** Salarié sorti dans le mois : jour de sortie (AAAA-MM-JJ). Les jours suivants ne se saisissent pas. */
+  sortieLe?: string | null;
 };
 
 type Cellule = { code: string; heures: number | null };
@@ -172,7 +178,12 @@ export function TempsGrid({
     const avant = cel(empId, day);
     setCellules((c) => ({ ...c, [k]: { ...avant, code } }));
     startTransition(async () => {
-      const res = await saisirPresence(empId, isoDates[day - 1], code as AttendanceCode | "");
+      let res = await saisirPresence(empId, isoDates[day - 1], code as AttendanceCode | "");
+      // Des heures SAISIES seraient retirées (jour sans travail) : rien n'est écrit sans accord.
+      if (res?.aConfirmer) {
+        if (!window.confirm(res.aConfirmer)) { setCellules((c) => ({ ...c, [k]: avant })); return; }
+        res = await saisirPresence(empId, isoDates[day - 1], code as AttendanceCode | "", { confirmerRetraitHeures: true });
+      }
       if (res?.erreur) {
         // Refus (effacement réservé à la Direction) : rien n'a été écrit, la case revient.
         setCellules((c) => ({ ...c, [k]: avant }));
@@ -182,6 +193,12 @@ export function TempsGrid({
       if (res?.ignore) {
         setCellules((c) => ({ ...c, [k]: { ...c[k], code: "" } }));
         setNote(res.ignore);
+        return;
+      }
+      if (res?.info) {
+        // Heures retirées (jour sans travail) : la case le montre tout de suite, et c'est dit.
+        setCellules((c) => ({ ...c, [k]: { ...c[k], heures: null } }));
+        setNote(res.info);
       }
     });
   }
@@ -387,11 +404,19 @@ export function TempsGrid({
     setNote(null);
     startTransition(async () => {
       let nbIgnores = 0;
+      const messagesLot: string[] = [];
       if (faireCode) {
         const entrees = emps.flatMap((empId) =>
           cibles.map((d) => ({ employeeId: empId, date: isoDates[d - 1], code: code as AttendanceCode | "" }))
         );
-        const { ignores, erreur } = await saisirPresencesEnLot(entrees);
+        let lot = await saisirPresencesEnLot(entrees);
+        if (lot.aConfirmer) {
+          // Tout ou rien : sans accord, le lot n'est pas écrit du tout.
+          if (!window.confirm(lot.aConfirmer)) { setCellules(avantLot); return; }
+          lot = await saisirPresencesEnLot(entrees, { confirmerRetraitHeures: true });
+        }
+        const { ignores, erreur } = lot;
+        if (lot.message) messagesLot.push(lot.message);
         if (erreur) {
           // Lot refusé en entier (il viderait une présence saisie) : rien n'a été écrit.
           setCellules(avantLot);
@@ -427,14 +452,16 @@ export function TempsGrid({
             return n;
           });
       }
-      if (nbIgnores > 0)
+      // Compte rendu EXACT du serveur (cases écrites, ignorées par raison, heures retirées).
+      if (messagesLot.length > 0) setNote(messagesLot.join(" "));
+      else if (nbIgnores > 0)
         setNote(`${nbIgnores} case(s) ignorée(s) : congé approuvé, jour de repos selon le modèle hebdo, ou congé (C/S) sur un dimanche/férié. La saisie case par case reste possible pour un travail exceptionnel.`);
     });
   }
 
   // ── Totaux vivants (présences + heures supp) calculés depuis l'état local ──
   const totaux = useMemo(() => {
-    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number }> = {};
+    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number | null }> = {};
     for (const e of employees) {
       const codes: CodePresence[] = [];
       const jours: { date: Date; heuresTravaillees: number }[] = [];
@@ -449,16 +476,19 @@ export function TempsGrid({
         jours,
         heuresParJourContrat: e.heuresParJour,
         heuresHebdoContrat: e.heuresHebdo,
-        salaireHoraire: e.salaireHoraire,
+        // Heures seulement : le MONTANT des HS vient de la paie (`hsValoriseePaie`), jamais d'un taux recalculé ici.
+        salaireHoraire: 0,
         joursFeries,
         params,
       });
-      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hs.totalHS, hsVal: hs.hsValorisee };
+      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hs.totalHS, hsVal: e.hsValoriseePaie ?? null };
     }
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cellules, employees]);
-  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsVal: 0 };
+  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsVal: null };
+  /** « HS valorisées » : le montant de la PAIE (dernier enregistrement), « — » si la paie n'en paie pas. */
+  const fmtHsVal = (v: number | null) => (v === null ? "—" : formaterUSD(v));
   /** Somme simple des heures saisies sur les jours de la semaine affichée (lecture, aucun calcul de paie). */
   const heuresDeLaSemaine = (id: string) => joursSemaine.reduce((t, d) => t + (cel(id, d).heures ?? 0), 0);
 
@@ -479,6 +509,8 @@ export function TempsGrid({
     const c = cel(e.id, d);
     const hs = infoHoraire(c, info, e.heuresParJour);
     const quand = libelleJourLong(isoDates[d - 1]);
+    // Après la sortie du salarié : jour hors contrat, non saisissable (le serveur l'ignore aussi).
+    const horsContrat = !!e.sortieLe && isoDates[d - 1] > e.sortieLe;
     const resume = `${c.code ? LIBELLE_CODE[c.code as CodePresence] : "aucun code"}${c.heures ? `, ${fmtH(c.heures)} h` : ""}`;
     const aide = peutModifier ? ` Clic : menu code + heures. Ou tapez une lettre (P, O, M…)${peutEffacer ? " ; Suppr efface" : ""} ; flèches pour naviguer.` : "";
     return {
@@ -491,8 +523,8 @@ export function TempsGrid({
       reel: !!info?.reel,
       pauseParDefaut: !!info?.pauseParDefaut,
       couleur: couleurDe(c.code),
-      disabled: !peutModifier,
-      title: `${e.nom} — ${quand} : ${resume}.${aide}${hs.titre}`.trim(),
+      disabled: !peutModifier || horsContrat,
+      title: horsContrat ? `${e.nom} — ${quand} : après la sortie du ${e.sortieLe!.split("-").reverse().join("/")} (hors contrat).` : `${e.nom} — ${quand} : ${resume}.${aide}${hs.titre}`.trim(),
       libelle: `${e.nom}, ${quand} : ${resume}${hs.horaire ? `, ${hs.horaire}` : ""}`,
       onClick: (ev) => ouvrirMenu(ev, e.id, d),
       onKeyDown: (ev) => clavier(ev, e.id, d, voisin),
@@ -624,7 +656,7 @@ export function TempsGrid({
   /** Nom + sous-ligne de totaux d'un employé (vues Semaine et Mois). */
   function celluleNom(e: EmployeeRow) {
     const t = totauxDe(e.id);
-    const detail = `Payés 100 % : ${t.p100} j · payés 2/3 : ${t.p23} j · non payés : ${t.np} j · heures du mois : ${fmtH(t.h)} · heures supp. : ${fmtH(t.hs)} (valorisées ${t.hsVal.toFixed(2)} $)`;
+    const detail = `Payés 100 % : ${t.p100} j · payés 2/3 : ${t.p23} j · non payés : ${t.np} j · heures du mois : ${fmtH(t.h)} · heures supp. : ${fmtH(t.hs)} (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
     return (
       <div role="rowheader" className="flex min-w-0 items-center gap-2 px-2 py-1">
         {peutModifier && (
@@ -639,6 +671,11 @@ export function TempsGrid({
             {vue === "semaine" ? `${fmtH(heuresDeLaSemaine(e.id))} h · mois ${fmtH(t.h)}` : `${fmtH(t.h)} h`}
             {t.hs > 0 && <span className="font-medium text-amber-700"> · HS {fmtH(t.hs)}</span>}
           </span>
+          {e.sortieLe && (
+            <span className="mt-0.5 inline-block rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground" title="Fin de contrat : les jours suivants ne se saisissent plus">
+              Sorti le {e.sortieLe.slice(8, 10)}/{e.sortieLe.slice(5, 7)}
+            </span>
+          )}
         </span>
       </div>
     );
@@ -653,7 +690,7 @@ export function TempsGrid({
       ["Jours non payés", String(t.np)],
       ["Heures du mois", fmtH(t.h)],
       ["Heures supp.", fmtH(t.hs), t.hs > 0 ? "text-amber-700" : undefined],
-      ["HS valorisées", `${t.hsVal.toFixed(2)} $`],
+      ["HS valorisées (paie)", fmtHsVal(t.hsVal)],
     ];
     const rang = employees.findIndex((x) => x.id === e.id);
     const voisinCal = (d: number): Voisin => (dir) => {

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerHeuresSupp, numeroSemaineDuMois, reconstituerBrutDepuisNet, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
+import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
+import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { datesDeSortie, inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
 import { BarreVuePresences, PresencesVueProvider, type VuePresences } from "./vue-presences";
 import { semaineParDefaut, semainesDuMois } from "./semaines";
@@ -53,8 +55,10 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // avant la synchro). Idempotent ; ne touche jamais un code existant ni un mois à paie validée.
   await rattraperCodesConges();
 
+  // Salariés SORTIS dans le mois (fin de contrat) : gardés pour leurs jours actifs (audit RH 2026-10-10).
+  const inactifsGardes = await inactifsDeLaPeriode(prisma, debutMois, finMois);
   const [employees, attendances, entries, joursFeriesDuMois, pointages, creneauxMois, modeles, shifts] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
+    prisma.employee.findMany({ where: { OR: [{ actif: true }, { id: { in: inactifsGardes } }] }, orderBy: { nom: "asc" } }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -129,36 +133,30 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   }
 
   // Détail hebdomadaire (HS par semaine) — calculé côté serveur pour le tableau replié.
+  // « HS valorisées » : le MONTANT de la paie (même chemin que le lot : référence du mois puis moteur),
+  // plus aucun taux recalculé ici (salaire ÷ 26 ÷ heures/jour divergeait du bulletin).
+  const [hsPaie, sorties] = await Promise.all([
+    hsValoriseesPaie(mois, annee, employees, parametres),
+    datesDeSortie(prisma, employees.filter((e) => !e.actif).map((e) => e.id)),
+  ]);
   const semainesParEmploye: Record<string, DetailSemaineHS[]> = {};
-  const toRow = (e: (typeof employees)[number]): EmployeeRow => {
-    // Salaires saisis en net (2026-07-22) : le taux horaire dérivé de salaireMensuel est un taux
-    // NET ; on le grossit par le ratio ρ (brut/net) de l'employé pour que les « HS valorisées »
-    // affichées ici soient au taux BRUT reconstitué, cohérentes avec le bulletin. Approximation
-    // (ρ calculé sur le salaire mensuel nominal, pas sur la base horaire du mois — à valider comptable).
-    const salaireMensuelNet = Number(e.salaireMensuel);
-    const rho =
-      parametres.salairesSaisisEnNet && salaireMensuelNet > 0
-        ? reconstituerBrutDepuisNet(salaireMensuelNet, parametres, e.enfants) / salaireMensuelNet
-        : 1;
-    const salaireJournalier = (salaireMensuelNet / parametres.joursOuvrablesMois) * rho;
-    const salaireHoraire = salaireJournalier / Number(e.heuresParJour);
-    return {
-      id: e.id,
-      matricule: e.matricule,
-      nom: e.nom,
-      photoUrl: e.photoUrl,
-      heuresParJour: Number(e.heuresParJour),
-      heuresHebdo: Number(e.heuresHebdomadaires),
-      salaireHoraire,
-    };
-  };
+  const toRow = (e: (typeof employees)[number]): EmployeeRow => ({
+    id: e.id,
+    matricule: e.matricule,
+    nom: e.nom,
+    photoUrl: e.photoUrl,
+    heuresParJour: Number(e.heuresParJour),
+    heuresHebdo: Number(e.heuresHebdomadaires),
+    hsValoriseePaie: hsPaie.get(e.id)?.montant ?? null,
+    sortieLe: sorties.get(e.id) ?? null,
+  });
   const rows = employees.map(toRow);
   for (const r of rows) {
     semainesParEmploye[r.id] = calculerHeuresSupp({
       jours: joursParEmploye[r.id] ?? [],
       heuresParJourContrat: r.heuresParJour,
       heuresHebdoContrat: r.heuresHebdo,
-      salaireHoraire: r.salaireHoraire,
+      salaireHoraire: hsPaie.get(r.id)?.tauxHoraire ?? 0, // le tableau hebdomadaire ne montre que des heures
       joursFeries,
       params: parametres,
     }).semaines;
