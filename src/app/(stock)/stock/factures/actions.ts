@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { lireDateJour } from "@/lib/achats-liste";
 import { donneesMontantsImportee, parserClasseurFactures } from "@/lib/import-factures-excel";
 import { sigExistante, sigImportee } from "@/lib/import-factures";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
@@ -272,12 +273,15 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
   const reste = Math.max(0, montant - montantRegle);
-  const d = new Date(dateStr ?? echeanceStr ?? AUJ());
+  // Les entrées en stock portent la date de la FACTURE : sans date, c'est le jour (Kinshasa), jamais l'échéance
+  // (une échéance est une date à venir) ; et, quand la facture fait entrer du stock, jamais dans le futur.
+  const entrerEnStockTot = formData.get("entrerEnStock") != null;
+  const d = new Date(entrerEnStockTot ? lireDateJour(dateStr, "de la facture") : (dateStr ?? AUJ()));
   const numero = String(formData.get("numero") ?? "").trim() || null;
   // C'est l'enregistrement de la facture (articles + quantités) qui fait entrer la marchandise
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
-  const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
+  const entrerEnStock = entrerEnStockTot; // case cochée ⇒ présente dans le FormData
   // Les entrées en stock créées plus bas portent la date de la FACTURE (`d`) : c'est elle que la
   // clôture doit contrôler. Contrôler « aujourd'hui » laissait une facture datée d'un mois clôturé
   // écrire dans ce mois figé.

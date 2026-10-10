@@ -437,7 +437,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         </div>
         <input type="hidden" name="type" value={type} />
         {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} /></label>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} max={jourCourantKinshasaISO()} className={inp} /></label>
         {type === "SORTIE" ? (
           <label className="flex items-center gap-1 text-xs text-muted-foreground">Motif
             <select name="categorieSortie" value={motif} aria-required aria-invalid={motifManquant || undefined} aria-label="Motif de la sortie (obligatoire)"
@@ -454,7 +454,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
               <option value="">Autre entrée (correction, don…)</option>
               <option value="RETOUR_RESTAURANT">Retour restaurant</option>
             </select>
-            <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
+            <input name="origine" placeholder={motifEntree === "RETOUR_RESTAURANT" ? "Précision (facultatif)" : "Motif de l'entrée (obligatoire : correction, don, achat direct…)"} required={motifEntree !== "RETOUR_RESTAURANT"} aria-required={motifEntree !== "RETOUR_RESTAURANT"} className={`${inp} min-w-56 flex-1`} />
           </>
         )}
         {type === "SORTIE" && motif === "PERTE" && (
