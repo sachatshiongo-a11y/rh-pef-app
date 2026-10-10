@@ -15,6 +15,7 @@ import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificat
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
+import { exigerBulletinModifiable } from "@/lib/paie-element-fige";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { actionLisible } from "@/lib/action-lisible";
@@ -133,6 +134,8 @@ export async function demanderMonAcompte(formData: FormData) {
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
     const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
     const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
+    // Bulletin du mois déjà validé ou payé : l'acompte n'y serait plus déduit (même refus que la fiche).
+    await exigerBulletinModifiable(prisma, { employeeId, mois, annee });
 
     // Même plafond que côté Direction : le salarié ne peut pas demander plus que son salaire net
     // du mois précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.
