@@ -147,7 +147,7 @@ export const sansArticleDisparu = (l: Ligne, existe: (id: string) => boolean): L
  * (« 1 » ou vide). Le PU n'est jamais envoyé. Le serveur lit ces champs par position
  * (`entreeListeAchat`).
  */
-export function construireFormData(e: { date: string; origine: string; lignes: readonly Ligne[]; idFourn: (nom: string) => string }): FormData {
+export function construireFormData(e: { date: string; origine: string; lignes: readonly Ligne[]; idFourn: (nom: string) => string; /** Noms de NOUVEAUX fournisseurs que la personne a choisi de créer malgré un nom proche. */ fournCreerQuandMeme?: readonly string[] }): FormData {
   const fd = new FormData();
   fd.append("date", e.date);
   fd.append("origine", e.origine);
@@ -164,6 +164,7 @@ export function construireFormData(e: { date: string; origine: string; lignes: r
     fd.append("fournisseurId", e.idFourn(l.fournNom));
     fd.append("creerNouveau", l.creerNouveau ? "1" : "");
   }
+  for (const nom of e.fournCreerQuandMeme ?? []) fd.append("fournisseurCreerQuandMeme", nom);
   return fd;
 }
 

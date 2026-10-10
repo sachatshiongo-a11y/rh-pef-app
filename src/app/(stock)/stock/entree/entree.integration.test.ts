@@ -170,7 +170,8 @@ describe("Liste d'achat — fournisseur facultatif par ligne", () => {
 
   it("Listes envoyées EN MÊME TEMPS avec le même nouveau fournisseur : créé une seule fois", async () => {
     const arts = await Promise.all(["manioc", "maïs", "riz", "blé", "sorgho", "mil"].map((x) => article(`Farine de ${x}`)));
-    const noms = ["Marché Gambela", "marché gambela", "MARCHÉ GAMBELA", "Marche Gambela", "marché  gambela", "Marché-Gambela"];
+    // (nom SANS rapport avec « Kin Marché Central » créé plus haut : un nom proche demanderait un choix — anti-doublon de fournisseur)
+    const noms = ["Gambela Primeur", "gambela primeur", "GAMBELA PRIMEUR", "Gambela Priméur", "gambela  primeur", "Gambela-Primeur"];
     const rs = await Promise.all(arts.map((a, i) => entreeListeAchat(fd([{ articleId: a.id, quantite: 1, fournisseurNom: noms[i] }]))));
     rs.forEach((r) => ok(r));
     const fs = await prisma.fournisseur.findMany({ where: { nom: { in: noms } } });

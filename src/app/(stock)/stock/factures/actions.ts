@@ -24,6 +24,7 @@ import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
 import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
+import { refusCreationFournisseur } from "@/lib/fournisseur-doublon-serveur";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
@@ -328,6 +329,17 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     const m = meilleurFournisseur(fournisseurNom, liste, 0.82);
     if (m) fournisseurId = m.id;
     else {
+      // ANTI-DOUBLON DE FOURNISSEUR (audit du 10/10/2026) : un nom NOUVEAU qui ressemble à un fournisseur
+      // existant (sous le seuil de rattachement automatique) n'est pas créé en silence. Même confirmation que le
+      // doublon d'entrées : « Enregistrer quand même » (`forcerDoublons`) crée un nouveau fournisseur ; sinon la
+      // personne choisit le fournisseur existant dans le champ « Fournisseur ». Un nom identique à un fournisseur
+      // existant est toujours refusé (il aurait été rattaché plus haut).
+      const refus = await refusCreationFournisseur(prisma, fournisseurNom, { creerQuandMeme: formData.get("forcerDoublons") != null });
+      if (refus) {
+        throw new Error(refus.creationPossible
+          ? `DOUBLON_POSSIBLE|Le fournisseur « ${fournisseurNom} » ressemble à ${refus.candidats.map((c) => `« ${c.nom} »`).join(", ")}, déjà enregistré${refus.candidats.length > 1 ? "s" : ""}. S'il s'agit du même, choisissez-le dans le champ « Fournisseur » ; sinon confirmez avec le bouton « Enregistrer quand même » (un nouveau fournisseur sera créé).`
+          : refus.message);
+      }
       const coord = (k: string) => String(formData.get(k) ?? "").trim() || null;
       const nf = await prisma.fournisseur.create({
         data: {
@@ -338,6 +350,8 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
       });
       fournisseurId = nf.id;
       await journaliser(prisma, { entite: "Fournisseur", entiteId: nf.id, champ: "creation", nouvelleValeur: `${fournisseurNom} (auto — facture)`, userId: user.id });
+      // Fournisseur créé par un compte non-Direction : la Direction en est notifiée (doublon, coordonnées à vérifier).
+      await notifierGesteStock(user, { genre: "FOURNISSEUR", noms: [fournisseurNom], origine: "facture" });
     }
   }
 

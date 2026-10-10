@@ -15,6 +15,7 @@ import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { libelleTotalBon } from "@/lib/bon-commande-devise";
+import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fournisseur-doublon-serveur";
 import { extraireBonCommandePDF, type DeviseBon, type LigneBonLue } from "@/lib/import-bc-pdf";
 import { appliquerReception, exigerBonReceptionnable, lireQuantitesRecues } from "@/lib/reception-bc";
 import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -63,10 +64,21 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
   const fours = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
   const parNom = new Map(fours.map((x) => [normNom(x.nom), x.id]));
   const fournisseursCrees: string[] = [];
+  const refuses = new Set<string>(); // nom de fournisseur refusé (proche d'un existant) : ses bons ne sont pas importés
   for (const nom of [...new Set(extraits.map((e) => e.fournisseur))]) {
     if (parNom.has(normNom(nom))) continue;
-    const c = await prisma.fournisseur.create({ data: { nom, pays: "République démocratique du Congo" } });
-    parNom.set(normNom(nom), c.id);
+    // ANTI-DOUBLON DE FOURNISSEUR (audit du 10/10/2026) : un import ne peut pas demander « Utiliser / Créer quand
+    // même » ; un nom qui ressemble à un fournisseur existant n'est donc pas créé en silence — les bons de ce
+    // fournisseur sont écartés et la Direction est renvoyée vers l'écran Fournisseurs (choix explicite).
+    const refus = await prisma.$transaction(async (tx) => {
+      await verrouillerNomFournisseur(tx, nom);
+      const r = await refusCreationFournisseur(tx, nom);
+      if (r) return r;
+      const c = await tx.fournisseur.create({ data: { nom, pays: "République démocratique du Congo" } });
+      parNom.set(normNom(nom), c.id);
+      return null;
+    });
+    if (refus) { refuses.add(nom); erreurs.push(`Fournisseur « ${nom} » non créé : ${refus.message.replace(/ Rien n'a été créé\.$/, "")} Créez-le (ou choisissez l'existant) dans Fournisseurs, puis réimportez ses bons.`); continue; }
     fournisseursCrees.push(nom);
   }
 
@@ -79,6 +91,7 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
 
   let importes = 0, ignores = 0;
   for (const e of extraits) {
+    if (refuses.has(e.fournisseur)) continue; // déjà signalé ci-dessus
     if (sigExist.has(sigDe(e.numero, e.fournisseur, e.date))) { ignores++; continue; }
     // Numéro unique : suffixe si le numéro existe pour un AUTRE bon.
     let numero = e.numero, k = 1;
