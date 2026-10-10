@@ -29,11 +29,6 @@ export async function marquerDeclaration(
     const bordereau = await calculerDeclarationsMois(mois, annee);
     if (!bordereau) throw new Error("Aucune paie calculée pour ce mois.");
     if (statut !== "DECLARE" && statut !== "PAYE") throw new Error(`Statut inconnu : ${statut}`);
-    if (bordereau.provisoire) {
-      throw new Error(
-        `Déclaration impossible : ${bordereau.nbNonValides} bulletin(s) sur ${bordereau.nbBulletins} ne sont pas encore validés — les montants peuvent encore changer. Validez la paie du mois d'abord.`,
-      );
-    }
     const ligne = bordereau.lignes.find((l) => l.type === type);
     if (!ligne) throw new Error(`Taxe inconnue : ${type}`);
 
@@ -41,6 +36,15 @@ export async function marquerDeclaration(
       const existant = await tx.declarationTaxe.findUnique({ where: { type_mois_annee: { type, mois, annee } } });
       // Jamais de retour en arrière : une taxe payée ne redevient pas « déclarée ».
       if (existant?.statut === "PAYE") throw new Error("Cette déclaration est déjà marquée payée.");
+      // Le provisoire n'empêche que le PREMIER marquage (celui qui fige le montant). Une taxe déjà
+      // déclarée garde son montant figé : enregistrer son paiement reste possible même si un bulletin
+      // a été rouvert depuis.
+      const premierMarquage = !existant || existant.statut === "A_DECLARER";
+      if (premierMarquage && bordereau.provisoire) {
+        throw new Error(
+          `Déclaration impossible : ${bordereau.nbNonValides} bulletin(s) sur ${bordereau.nbBulletins} ne sont pas encore validés — les montants peuvent encore changer. Validez la paie du mois d'abord.`,
+        );
+      }
       await tx.declarationTaxe.upsert({
         where: { type_mois_annee: { type, mois, annee } },
         // Le montant est figé au PREMIER marquage (déclaré) ; un passage à « payé » ne le change pas.

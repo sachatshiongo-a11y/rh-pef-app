@@ -200,7 +200,7 @@ export default async function DeclarationsPage({
                     </td>
                     {estAdmin && (
                       <td className="whitespace-nowrap px-3 py-2 text-right">
-                        {bordereau.provisoire && l.statut !== "PAYE" && (
+                        {bordereau.provisoire && l.statut !== "PAYE" && l.statut !== "DECLARE" && (
                           <span className="text-xs italic text-muted-foreground">Validez la paie d&apos;abord</span>
                         )}
                         {!bordereau.provisoire && l.statut !== "DECLARE" && l.statut !== "PAYE" && (
@@ -212,7 +212,7 @@ export default async function DeclarationsPage({
                             <button className="text-primary underline">Marquer déclaré</button>
                           </form>
                         )}
-                        {!bordereau.provisoire && l.statut !== "PAYE" && (
+                        {(!bordereau.provisoire || l.statut === "DECLARE") && l.statut !== "PAYE" && (
                           <form action={marquerDeclarationForm} className="ml-3 inline">
                             <input type="hidden" name="type" value={l.type} />
                             <input type="hidden" name="mois" value={mois} />

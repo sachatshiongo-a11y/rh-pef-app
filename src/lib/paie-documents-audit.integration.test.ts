@@ -275,8 +275,17 @@ describe("5 — déclarations : provisoire, marquage refusé, montant figé, tau
     expect(pdf).not.toContain("PROVISOIRE");
     await prisma.payrollLine.update({ where: { id: lb.id }, data: { cnssSalarieUSD: Number(lb.cnssSalarieUSD) } });
 
+    // Un bulletin rouvert APRÈS la déclaration : le bordereau redevient provisoire, mais le paiement
+    // d'une taxe déjà déclarée (montant figé) reste enregistrable — seul le premier marquage est bloqué.
+    const statutBob = (await ligne(ids.bob)).statutPaiement;
+    await prisma.payrollLine.update({ where: { id: lb.id }, data: { statutPaiement: "PAS_VALIDE" } });
+    expect((await calculerDeclarationsMois(9, 2026))!.provisoire).toBe(true);
+    await refus(marquerDeclaration("IPR", 9, 2026, "DECLARE")); // premier marquage : toujours refusé
+    expect(await htmlDeclarations()).toContain("Marquer payé"); // CNSS déclarée : le bouton reste
+
     // « Payé » ne change pas le montant figé ; une taxe payée ne redevient pas « déclarée ».
     await marquerDeclaration("CNSS", 9, 2026, "PAYE");
+    await prisma.payrollLine.update({ where: { id: lb.id }, data: { statutPaiement: statutBob } });
     const paye = await prisma.declarationTaxe.findFirstOrThrow({ where: { type: "CNSS", mois: 9, annee: 2026 } });
     expect(Number(paye.montantUSD)).toBeCloseTo(cnssAvant.montantUSD, 2);
     expect(paye.statut).toBe("PAYE");
