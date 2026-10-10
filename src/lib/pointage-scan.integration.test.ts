@@ -114,7 +114,7 @@ beforeAll(async () => {
   prisma = db.prisma; fermer = db.fermer; H.client = prisma;
   await prisma.config.create({
     data: {
-      id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 9,
+      id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 9, espaceEmployeActif: true,
       pointageLatitude: RESTAURANT.lat, pointageLongitude: RESTAURANT.lng, pointageRayonM: 150, pointageCode: CODE,
     },
   });

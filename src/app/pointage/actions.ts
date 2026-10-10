@@ -16,7 +16,15 @@ import { actionLisible } from "@/lib/action-lisible";
 import { employeLieAuCompte } from "@/lib/pointage-presences";
 import { enregistrerScan, saisirPauseScan, type ResultatScan } from "@/lib/pointage-scan";
 import { annulerScan } from "@/lib/pointage-annulation";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import type { PositionScan } from "@/lib/pointage-qr";
+
+/** Le pointage par l'affiche fait partie de l'espace salarié : interrupteur éteint = aucun scan,
+ *  aucune pause, aucune annulation n'est enregistré, pour personne (audit RH 2026-10-10). */
+const MESSAGE_POINTAGE_FERME = "Le pointage par l'affiche est fermé : l'espace salarié est désactivé (Paramètres). Rien n'a été enregistré.";
+async function exigerPointageOuvert(): Promise<void> {
+  if (!(await espaceEmployeActif())) throw new Error(MESSAGE_POINTAGE_FERME);
+}
 
 function revaliderPointage() {
   revalidatePath("/pointer");
@@ -34,6 +42,7 @@ function revaliderPointage() {
 export const scannerAffiche = actionLisible(
   async (entree: { code: string; position: PositionScan }): Promise<ResultatScan> => {
     const user = await verifySession();
+    await exigerPointageOuvert();
     const employeeId = await employeLieAuCompte(prisma, user.id);
     const r = await enregistrerScan(prisma, {
       employeeId,
@@ -56,6 +65,7 @@ export const saisirMaPause = actionLisible(
     pauseMinutes: number;
   }): Promise<{ heureFin: string; heures: number; presencesEcrites: boolean; pauseMinutes: number }> => {
     const user = await verifySession();
+    await exigerPointageOuvert();
     const employeeId = await employeLieAuCompte(prisma, user.id);
     const r = await saisirPauseScan(prisma, {
       employeeId,
@@ -75,6 +85,7 @@ export const saisirMaPause = actionLisible(
 export const annulerPointage = actionLisible(
   async (entree: { scanId: string }): Promise<{ moment: "ARRIVEE" | "DEPART"; heure: string }> => {
     const user = await verifySession();
+    await exigerPointageOuvert();
     const employeeId = await employeLieAuCompte(prisma, user.id);
     const r = await annulerScan(prisma, { employeeId, userId: user.id, scanId: String(entree.scanId) });
     revaliderPointage();
