@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { decSaisi } from "@/lib/nombre";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { cleAlnum as normNom } from "@/lib/texte";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
@@ -14,8 +14,9 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
-import { usd } from "@/lib/stock";
-import { extraireBonCommandePDF, type LigneBonCommande } from "@/lib/import-bc-pdf";
+import { libelleTotalBon } from "@/lib/bon-commande-devise";
+import { extraireBonCommandePDF, type DeviseBon, type LigneBonLue } from "@/lib/import-bc-pdf";
+import { appliquerReception, exigerBonReceptionnable, lireQuantitesRecues } from "@/lib/reception-bc";
 import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
@@ -45,16 +46,14 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
   const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
   if (fichiers.length === 0) return { importes: 0, ignores: 0, fournisseursCrees: [], erreurs: ["Aucun fichier."] };
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-
+  // LA DEVISE LUE FAIT FOI (audit du 10/10/2026) : un bon en francs reste en francs, jamais converti au taux du jour.
   const erreurs: string[] = [];
-  const extraits: { file: File; numero: string; sequence: number; mois: number; annee: number; fournisseur: string; date: string | null; total: number; lignes: LigneBonCommande[] }[] = [];
+  const extraits: { file: File; numero: string; sequence: number; mois: number; annee: number; fournisseur: string; date: string | null; devise: DeviseBon; total: number; lignes: LigneBonLue[] }[] = [];
   for (const f of fichiers) {
     try {
-      const e = await extraireBonCommandePDF(await f.arrayBuffer(), taux);
+      const e = await extraireBonCommandePDF(await f.arrayBuffer());
       if (!e.numero || !e.fournisseur) { erreurs.push(`${f.name} : numéro/fournisseur introuvable`); continue; }
-      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? anneeCouranteKinshasa(), fournisseur: e.fournisseur, date: e.date, total: e.total, lignes: e.lignes });
+      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? anneeCouranteKinshasa(), fournisseur: e.fournisseur, date: e.date, devise: e.devise, total: e.total, lignes: e.lignes });
     } catch (err) {
       erreurs.push(`${f.name} : ${err instanceof Error ? err.message : "illisible"}`);
     }
@@ -88,12 +87,17 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
     try {
       const url = await televerserBC(e.file, `bons-commande/${slugBC(e.fournisseur)}-${slugBC(numero)}-${Date.now().toString(36)}.pdf`);
       // Total : préférer la somme des lignes si l'en-tête n'a rien donné.
-      const totalLignes = e.lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
+      const totalLignes = e.lignes.reduce((t, l) => t + l.totalLigne, 0);
       const total = e.total > 0 ? e.total : Math.round(totalLignes * 100) / 100;
+      const enFrancs = e.devise === "CDF";
       await prisma.bonDeCommande.create({
         data: { numero, sequence: e.sequence, annee: e.annee, mois: e.mois, date: e.date ? new Date(e.date) : jourCivilKinshasa(new Date()),
-          fournisseurId: parNom.get(normNom(e.fournisseur)) ?? null, statut: "VALIDE", totalUSD: total, documentUrl: url, creeParId: user.id,
-          lignes: { create: e.lignes.map((l) => ({ designation: l.designation, unite: l.unite, quantite: l.quantite, prixUnitaireUSD: l.prixUnitaireUSD, totalLigneUSD: l.totalLigneUSD })) } },
+          fournisseurId: parNom.get(normNom(e.fournisseur)) ?? null, statut: "VALIDE", devise: e.devise,
+          // Dollars : comme avant. Francs : le total lu, tel quel ; aucun total en dollars (contrainte en base).
+          totalUSD: enFrancs ? null : total, ...(enFrancs ? { totalCDF: total } : {}),
+          documentUrl: url, creeParId: user.id,
+          lignes: { create: e.lignes.map((l) => ({ designation: l.designation, unite: l.unite, quantite: l.quantite,
+            ...(enFrancs ? { prixUnitaireCDF: l.prixUnitaire, totalLigneCDF: l.totalLigne } : { prixUnitaireUSD: l.prixUnitaire, totalLigneUSD: l.totalLigne }) })) } },
       });
       numExist.add(numero);
       sigExist.add(sigDe(e.numero, e.fournisseur, e.date));
@@ -109,6 +113,11 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
 });
 /** Une colonne de nombres d'un tableau de lignes : illisible → refus lisible qui nomme la colonne et la ligne. */
 const colonne = (fd: FormData, nom: string, libelle: string) => fd.getAll(nom).map((v, i) => decSaisi(v, `${libelle}, ligne ${i + 1}`));
+/** Idem, mais une case VIDE reste vide (null) : une ligne sans prix n'a pas un prix de 0. */
+const colonneOptionnelle = (fd: FormData, nom: string, libelle: string) => fd.getAll(nom).map((v, i) => decSaisiOptionnel(v, `${libelle}, ligne ${i + 1}`));
+/** Total d'une ligne ; null sans prix. Total du bon = somme des lignes CHIFFRÉES (le bon est annoncé incomplet sinon). */
+const totalLigne = (quantite: number, prix: number | null) => (prix === null ? null : quantite * prix);
+const totalDesLignes = (ls: { quantite: number; prixUnitaireUSD: number | null }[]) => ls.reduce((t, l) => t + (l.prixUnitaireUSD === null ? 0 : l.quantite * l.prixUnitaireUSD), 0);
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
 
@@ -134,7 +143,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
   const qtes = colonne(formData, "ligne_quantite", "quantité");
-  const prixs = colonne(formData, "ligne_prix", "prix");
+  const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
   const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
 
   const lignes = desigs
@@ -142,14 +151,15 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
       articleId: ids[i] || null,
       designation,
       quantite: qtes[i] ?? 0,
-      prixUnitaireUSD: prixs[i] ?? 0,
+      prixUnitaireUSD: prixs[i] ?? null, // vide = SANS PRIX (null), jamais 0
       uniteParCarton: cartons[i] || null,
     }))
     .filter((l) => l.designation && l.quantite > 0);
 
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
 
-  const totalUSD = lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0);
+  const totalUSD = totalDesLignes(lignes);
+  const nbSansPrix = lignes.filter((l) => l.prixUnitaireUSD === null).length;
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
 
@@ -191,7 +201,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
             prixUnitaireUSD: l.prixUnitaireUSD,
             uniteParCarton: l.uniteParCarton,
             nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null,
-            totalLigneUSD: l.quantite * l.prixUnitaireUSD,
+            totalLigneUSD: totalLigne(l.quantite, l.prixUnitaireUSD),
           })),
         },
       },
@@ -203,9 +213,9 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   // Cloche TOUJOURS émise (choix client : trace visible de chaque bon, même auto-validé) :
   // « à valider » quand un autre rôle l'émet, « créé et validé » quand la Direction auto-valide.
   if (autoValide) {
-    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${usd(totalUSD)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${libelleTotalBon({ totalUSD }, nbSansPrix, lignes.length)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
   } else if (user.role !== "ADMIN") {
-    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${libelleTotalBon({ totalUSD }, nbSansPrix, lignes.length)})`, lien: "/stock/a-valider", refId: bc.id });
   }
 
   revalidatePath("/stock/commandes");
@@ -223,15 +233,15 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
   const qtes = colonne(formData, "ligne_quantite", "quantité");
-  const prixs = colonne(formData, "ligne_prix", "prix");
+  const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
   const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
 
   const lignes = desigs
-    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prixUnitaireUSD: prixs[i] ?? 0, uniteParCarton: cartons[i] || null }))
+    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prixUnitaireUSD: prixs[i] ?? null, uniteParCarton: cartons[i] || null }))
     .filter((l) => l.designation && l.quantite > 0);
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
 
-  const totalUSD = lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0);
+  const totalUSD = totalDesLignes(lignes);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
 
@@ -257,7 +267,7 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
             articleId: l.articleId, designation: l.designation, quantite: l.quantite,
             prixUnitaireUSD: l.prixUnitaireUSD, uniteParCarton: l.uniteParCarton,
             nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null,
-            totalLigneUSD: l.quantite * l.prixUnitaireUSD,
+            totalLigneUSD: totalLigne(l.quantite, l.prixUnitaireUSD),
           })),
         },
       },
@@ -323,34 +333,38 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
 }
 
 /**
- * Réceptionne un bon de commande : enregistre la réception (marchandise arrivée) et met le
- * statut à REÇU / REÇU PARTIEL selon les quantités saisies. NE TOUCHE PAS AU STOCK — l'entrée
- * en stock se fait uniquement à l'enregistrement de la FACTURE fournisseur (articles + quantités)
- * ou via la liste d'achat. La réception et l'entrée en stock sont volontairement différenciées.
+ * Réceptionne un bon de commande : enregistre la réception (marchandise arrivée) PAR LIGNE. Les quantités
+ * saisies s'ajoutent au cumul reçu de chaque ligne (`quantiteRecue`) ; le statut se calcule sur ce cumul —
+ * « Reçu partiel » tant qu'une ligne n'est pas entièrement reçue, « Reçu » quand toutes le sont. Les lignes
+ * libres (sans article du catalogue) se réceptionnent comme les autres : comptées, sans effet sur le stock.
+ * NE TOUCHE PAS AU STOCK — l'entrée en stock se fait uniquement à l'enregistrement de la FACTURE fournisseur
+ * (articles + quantités) ou via la liste d'achat (par la porte unique stock-positif.ts). La réception et
+ * l'entrée en stock sont volontairement différenciées.
+ *
+ * Refusée sur un bon brouillon, annulé ou déjà entièrement reçu. Le bon est verrouillé le temps du calcul :
+ * deux réceptions simultanées ne s'écrasent pas (le cumul reste exact).
  */
 export const receptionnerBonCommande = actionLisible(async (bcId: string, formData: FormData) => {
   const user = await garde();
-  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true, fournisseur: { select: { nom: true } } } });
-
   const ligneIds = formData.getAll("recu_ligneId").map(String);
   const qtes = formData.getAll("recu_quantite").map((v, i) => decSaisi(v, `quantité reçue, ligne ${i + 1}`)); // illisible : refus lisible
-  const recu = new Map<string, number>();
-  ligneIds.forEach((lid, i) => recu.set(lid, qtes[i] ?? 0));
 
-  const aRecevoir = bc.lignes.filter((l) => l.articleId && (recu.get(l.id) ?? 0) > 0);
-  if (aRecevoir.length === 0) throw new Error("Renseignez au moins une quantité reçue (sur une ligne liée à un article).");
-
-  const complet = await prisma.$transaction(async (tx) => {
+  const r = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "stock"."BonDeCommande" WHERE "id" = ${bcId} FOR UPDATE`;
+    const bc = await tx.bonDeCommande.findUnique({ where: { id: bcId }, include: { lignes: true, fournisseur: { select: { nom: true } } } });
+    if (!bc) throw new Error("Bon de commande introuvable : il a peut-être été supprimé.");
+    exigerBonReceptionnable(bc.statut);
+    const recu = lireQuantitesRecues(ligneIds, qtes, bc.lignes);
+    const calcul = appliquerReception(bc.lignes, recu);
+    for (const m of calcul.maj) await tx.ligneBonDeCommande.update({ where: { id: m.id }, data: { quantiteRecue: m.quantiteRecue } });
     await tx.reception.create({ data: { bonDeCommandeId: bcId, date: jourCivilKinshasa(new Date()), creeParId: user.id } }); // date explicite : le défaut de la base est le jour UTC
-    const articleLines = bc.lignes.filter((l) => l.articleId);
-    const complet = articleLines.every((l) => (recu.get(l.id) ?? 0) >= Number(l.quantite));
-    await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: complet ? "RECU" : "RECU_PARTIEL" } });
-    return complet;
+    await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: calcul.complet ? "RECU" : "RECU_PARTIEL" } });
+    return { bc, nb: calcul.maj.length, complet: calcul.complet, restes: calcul.restes };
   });
 
   // Arrivée de marchandise par un compte non-Direction : notifiée à la Direction (2026-10-07), jamais bloquante.
-  await notifierGesteStock(user, { genre: "RECEPTION", bonDeCommandeId: bcId, numero: bc.numero, fournisseurNom: bc.fournisseur?.nom ?? null, nbLignes: aRecevoir.length, complete: complet });
-  await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
+  await notifierGesteStock(user, { genre: "RECEPTION", bonDeCommandeId: bcId, numero: r.bc.numero, fournisseurNom: r.bc.fournisseur?.nom ?? null, nbLignes: r.nb, complete: r.complet });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${r.nb} ligne(s)${r.complet ? " — bon reçu en totalité" : ` — reste à recevoir : ${r.restes.length} ligne(s)`}`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
 });

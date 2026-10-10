@@ -5,6 +5,7 @@ import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
 import { detailConso, mentionSansPrix } from "@/lib/valeur-stock";
+import { WHERE_LIGNE_SANS_PRIX, bonDeListe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contientFrancsConvertis, inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
@@ -73,7 +74,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
     prisma.sessionComptage.findMany({ where: dansLeMois, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: CHAMPS_LIBELLE } } }),
-    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
+    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } } }),
     // Valeur du stock d'un autre mois : l'inventaire figé à sa clôture, s'il existe (jamais reconstitué).
     estCourant ? Promise.resolve(null) : inventaireFige(annee, mois),
     // Demandes en attente de la Direction (paiements, réconciliations, articles) : toutes pour la
@@ -173,7 +174,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             {bcAValider.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-2 py-1.5">
                 <Link href={`/stock/commandes/${b.id}`} className="truncate pr-2 font-medium text-amber-900 hover:underline">{b.numero} · {b.fournisseur?.nom ?? "—"}</Link>
-                <span className="shrink-0 font-medium text-amber-900">{usd(b.totalUSD)}</span>
+                <span className="shrink-0 font-medium text-amber-900">{libelleTotalListe(bonDeListe(b, b.lignes.length, b._count.lignes))}</span>
               </li>
             ))}
           </ul>

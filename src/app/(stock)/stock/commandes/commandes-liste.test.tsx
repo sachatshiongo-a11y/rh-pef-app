@@ -66,3 +66,22 @@ describe("actions groupées sur les bons", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 });
+
+describe("total d'un bon : « — » et « incomplet », jamais « 0,00 $ » (audit du 10/10/2026)", () => {
+  it("bon dont toutes les lignes sont sans prix : « — », et le mois est annoncé incomplet", () => {
+    rendre({ commandes: [{ ...bon("c", "VALIDE"), total: 0, sansPrix: 2 }], estDirection: false });
+    const t = conteneur.textContent ?? "";
+    expect(conteneur.querySelector("[data-total-bon]")?.textContent).toBe("— (incomplet)");
+    expect(t).toContain("· incomplet");
+    expect(t).not.toContain("0,00 $");
+  });
+  it("bon partiellement chiffré : son montant et la mention incomplet ; bon complet : montant seul", () => {
+    rendre({ commandes: [{ ...bon("c", "VALIDE"), total: 80, sansPrix: 1 }, bon("d", "VALIDE")], estDirection: false });
+    const totaux = [...conteneur.querySelectorAll("[data-total-bon]")].map((e) => e.textContent);
+    expect(totaux).toEqual(["80,00 $ (incomplet)", "10,00 $"]);
+  });
+  it("bon en francs : son total en francs, jamais converti", () => {
+    rendre({ commandes: [{ ...bon("e", "VALIDE"), total: 2300000, devise: "CDF" }], estDirection: false });
+    expect(conteneur.querySelector("[data-total-bon]")?.textContent).toMatch(/^2\s?300\s?000 FC$/);
+  });
+});
