@@ -33,13 +33,25 @@ type PointageSuivi = {
   scans: ScanSuivi[];
 };
 
-export function lignesSuivi(employees: EmployeSuivi[], pointages: PointageSuivi[]) {
+/**
+ * `contexte` (facultatif) : `jourPasse` — le jour affiché est antérieur à aujourd'hui (Kinshasa) : une
+ * arrivée sans départ n'est plus « en cours », c'est un DÉPART MANQUANT à corriger ; `conges` /
+ * `repos` — salariés en congé (approuvé, ou C/S sur la grille) ou au repos (planning, modèle, code O)
+ * ce jour-là : sans pointage, ils ne sont pas « Pas pointé ».
+ */
+export function lignesSuivi(
+  employees: EmployeSuivi[],
+  pointages: PointageSuivi[],
+  contexte: { jourPasse?: boolean; conges?: Set<string>; repos?: Set<string> } = {},
+) {
   const parEmp = new Map(pointages.map((p) => [p.employeeId, p]));
 
   const lignesBrutes = employees.map((e) => {
     const p = parEmp.get(e.id);
     const heures = p?.heureFin ? heuresPayables({ ...p, heureFin: p.heureFin }) : null;
-    const statut: LigneSuivi["statut"] = !p ? "ABSENT" : p.heureFin ? "TERMINE" : "EN_COURS";
+    const statut: LigneSuivi["statut"] = !p
+      ? contexte.conges?.has(e.id) ? "CONGE" : contexte.repos?.has(e.id) ? "REPOS" : "ABSENT"
+      : p.heureFin ? "TERMINE" : contexte.jourPasse ? "DEPART_MANQUANT" : "EN_COURS";
 
     const scans = p?.scans ?? [];
     // « À vérifier » se DÉRIVE des scans (un scan A_VERIFIER sans `verifieLe`) — jamais un booléen
@@ -56,7 +68,7 @@ export function lignesSuivi(employees: EmployeSuivi[], pointages: PointageSuivi[
       photoUrl: e.photoUrl,
       pointageId: p?.id ?? null,
       arriveeLabel: p ? heureKinshasa(p.heureDebut) : "—",
-      departLabel: p?.heureFin ? heureKinshasa(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
+      departLabel: p?.heureFin ? heureKinshasa(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : statut === "DEPART_MANQUANT" ? "manquant" : "—",
       // La pause posée d'office au départ (30 min) se lit « pause par défaut 30 min (non déduite) »,
       // jamais comme saisie ; une pause saisie (déduite) se lit en minutes.
       pauseLabel: !pause ? "—" : pause.parDefaut ? libellePause(pause) : `${pause.minutesDeduites} min`,
@@ -74,7 +86,9 @@ export function lignesSuivi(employees: EmployeSuivi[], pointages: PointageSuivi[
     lignes: lignesBrutes.map((l) => l.ligne),
     nbTermine: lignesBrutes.filter((l) => l.statut === "TERMINE").length,
     nbEnCours: lignesBrutes.filter((l) => l.statut === "EN_COURS").length,
+    nbDepartManquant: lignesBrutes.filter((l) => l.statut === "DEPART_MANQUANT").length,
     nbAbsent: lignesBrutes.filter((l) => l.statut === "ABSENT").length,
+    nbCongeRepos: lignesBrutes.filter((l) => l.statut === "CONGE" || l.statut === "REPOS").length,
     totalHeures: Math.round(lignesBrutes.reduce((s, l) => s + (l.heures ?? 0), 0) * 100) / 100,
   };
 }

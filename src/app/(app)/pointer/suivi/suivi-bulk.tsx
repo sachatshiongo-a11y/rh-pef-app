@@ -21,7 +21,9 @@ export type LigneSuivi = {
   departLabel: string;
   pauseLabel: string;
   heuresLabel: string;
-  statut: "TERMINE" | "EN_COURS" | "ABSENT";
+  /** DEPART_MANQUANT : arrivée sans départ sur un jour PASSÉ (plus « en cours ») ; CONGE / REPOS :
+   *  pas de pointage attendu ce jour-là (jamais « Pas pointé »). */
+  statut: "TERMINE" | "EN_COURS" | "DEPART_MANQUANT" | "ABSENT" | "CONGE" | "REPOS";
   sourceLabel: string | null;
   badgeArrivee: string | null; // "À vérifier · à 2,3 km", ou null
   badgeDepart: string | null;
@@ -31,9 +33,14 @@ export type LigneSuivi = {
 const BADGE_STATUT: Record<LigneSuivi["statut"], string> = {
   TERMINE: "bg-emerald-100 text-emerald-800",
   EN_COURS: "bg-amber-100 text-amber-800",
+  DEPART_MANQUANT: "bg-red-100 text-red-800",
   ABSENT: "bg-muted text-muted-foreground",
+  CONGE: "bg-sky-100 text-sky-800",
+  REPOS: "bg-slate-100 text-slate-700",
 };
-const LABEL_STATUT: Record<LigneSuivi["statut"], string> = { TERMINE: "Terminé", EN_COURS: "En cours", ABSENT: "Pas pointé" };
+const LABEL_STATUT: Record<LigneSuivi["statut"], string> = {
+  TERMINE: "Terminé", EN_COURS: "En cours", DEPART_MANQUANT: "Départ manquant", ABSENT: "Pas pointé", CONGE: "Congé", REPOS: "Repos",
+};
 
 function BadgeAVerifier({ texte }: { texte: string }) {
   return (
