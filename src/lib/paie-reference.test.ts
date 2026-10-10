@@ -693,3 +693,47 @@ describe("ancienne règle (mode contrat) — reproduite à l'identique", () => {
     expect(r.affichage.heuresPayeesNonTravaillees).toBe(8);
   });
 });
+
+// ── Semaine à cheval 28/09 → 03/10/2026 : heures supp. perdues (« bug connu Tier 2 #4 », audit 2026-10-10) ──
+describe("semaine à cheval sur deux mois — la semaine civile est évaluée en entier pour les heures supp.", () => {
+  // Contrat 48 h/sem (8 h × 6). Semaine du 28/09 : 10 h par jour du lundi au samedi, planifiées ET
+  // faites (60 h → 12 HS). Le reste d'octobre : 8 h du lundi au samedi (48 h, aucune HS).
+  const h = (d: Date) => (dow(d) === 0 ? 0 : d.getUTCMonth() === 8 || (d.getUTCMonth() === 9 && jour(d) <= 3) ? 10 : 8);
+  const gabarit = { heures: h, faites: h, code: (d: Date) => (h(d) > 0 ? ("P" as const) : null) };
+  const horsMois = [...joursEntre("2026-09-28", "2026-09-30", gabarit), ...joursEntre("2026-11-01", "2026-11-01", gabarit)];
+  const octobre = (planning: boolean, hors: JourReference[]) =>
+    calculerReferenceMois(entrees({ mois: 10, salaireMensuel: 400, heuresHebdomadaires: 48, heuresParJour: 8, joursHorsMois: hors,
+      referencePlanningDepuis: planning ? 202609 : null, jours: joursDuMois(2026, 10, gabarit) }));
+
+  for (const planning of [true, false]) {
+    it(`${planning ? "paie sur le planning" : "ancienne règle (contrat)"} : les 12 HS sont payées en octobre (le jour du franchissement), 6 à +30 %, 6 à +60 %`, () => {
+      const r = octobre(planning, horsMois);
+      expect(r.source).toBe(planning ? "PLANNING" : "CONTRAT");
+      expect([r.hs.hs30, r.hs.hs60, r.hs.hs100]).toEqual([6, 6, 0]);
+      const t0 = 400 / (48 * 52 / 12);
+      expect(r.moteur.hsValorisee).toBeCloseTo(t0 * (6 * 1.3 + 6 * 1.6), 9);
+      // Les heures de septembre ne sont pas payées en octobre : 30 h de la semaine à cheval + 4 × 48 h.
+      expect(r.hs.heuresTotalesMois).toBe(30 + 4 * 48);
+      expect(r.moteur.heuresNormales).toBe(30 + 4 * 48 - 12);
+    });
+  }
+
+  it("planning respecté à l'heure près : la base vaut le salaire du mois (R exclut aussi les HS planifiées de la semaine à cheval)", () => {
+    const r = octobre(true, horsMois);
+    expect(r.heuresReference).toBe(30 + 4 * 48 - 12);
+    expect(baseNette(r)).toBeCloseTo(400, 9);
+  });
+
+  it("sans les jours de septembre (appel d'avant le correctif) : 0 HS — la preuve du défaut", () => {
+    const r = octobre(false, horsMois.filter((j) => j.date.getUTCMonth() !== 8));
+    expect(r.hs.totalHS).toBe(0);
+  });
+
+  it("septembre, lui, ne change pas : les jours d'octobre de la semaine ne lui ajoutent aucune HS", () => {
+    const sept = (hors: JourReference[]) => calculerReferenceMois(entrees({ mois: 9, salaireMensuel: 400, heuresHebdomadaires: 48, heuresParJour: 8,
+      joursHorsMois: hors, referencePlanningDepuis: null, jours: joursDuMois(2026, 9, gabarit) }));
+    const avecOctobre = sept([...joursEntre("2026-08-31", "2026-08-31", gabarit), ...joursEntre("2026-10-01", "2026-10-04", gabarit)]);
+    const sansOctobre = sept(joursEntre("2026-08-31", "2026-08-31", gabarit));
+    expect(avecOctobre.hs).toEqual(sansOctobre.hs);
+  });
+});

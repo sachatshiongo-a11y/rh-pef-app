@@ -85,25 +85,12 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  // BUG CONNU documenté le 2026-07-22 (Tier 2, #4 — NON corrigé, montants impactés) : les heures faites
-  // ne sont données à `calculerHeuresSupp` que pour les jours DU MOIS (`jours` de `chargerJoursMois`,
-  // qui lit pourtant la semaine entière pour le seul plafond de la référence). `calculerHeuresSupp` (payroll.ts) regroupe pourtant les
-  // heures par VRAIES semaines lundi→dimanche (`numeroSemaineDuMois`, déjà correct EN INTRA-mois). Une
-  // semaine à cheval sur deux mois est donc scindée : le seuil hebdomadaire contractuel qui déclenche
-  // les heures supp. (30 %/60 %) repart de zéro de CHAQUE côté de la coupure → sous-évaluation possible
-  // des heures supp. sur ces semaines-charnières (ex. semaine du 27 juin au 3 juillet : les heures du
-  // 27-30 juin ne « comptent » pas pour le seuil de la semaine côté juillet, et inversement).
-  // Piste de correction recommandée (NON implémentée ici — risquée sans tests dédiés) : élargir la
-  // fenêtre des heures faites passées à `calculerHeuresSupp` aux semaines complètes qui chevauchent le
-  // mois (du lundi de la semaine du 1er au dimanche de la semaine du dernier jour — cf. `lundiDe` dans
-  // `src/lib/dates-fr.ts`), puis faire évoluer `calculerHeuresSupp` pour qu'il attribue les heures supp.
-  // JOUR PAR JOUR (cumul chronologique dans la semaine) au lieu d'un agrégat hebdomadaire, afin de ne
-  // compter dans `heuresTotalesMois`/`hs30`/`hs60`/`hsValorisee` QUE les jours du mois en cours (les
-  // jours « hors mois » ne servant qu'à positionner correctement le seuil, sans être payés deux fois —
-  // ils sont déjà couverts par le mois voisin, y compris s'il est déjà VALIDE/PAYE et donc figé). C'est
-  // un changement de signature/algorithme du moteur central (`calculerHeuresSupp`), couvert par
-  // `payroll.test.ts` et `payroll-reference.test.ts` : à faire dans un lot dédié avec de nouveaux tests
-  // de semaines-charnières, plutôt qu'un correctif partiel ici.
+  // Semaine à cheval sur deux mois (« bug connu Tier 2 #4 », corrigé le 2026-10-10) : la semaine
+  // civile lundi → dimanche est évaluée en entier. Les jours d'avant le 1er (mois précédent, lus par
+  // `chargerJoursMois` dans `joursHorsMois`) placent le seuil hebdomadaire sans être payés ici ; une
+  // heure supp. est payée dans le mois du jour qui fait franchir le seuil (attribution chronologique,
+  // `calculerHeuresSupp` dans payroll.ts, `joursAvantMois`). Un mois déjà validé ne bouge pas : ses
+  // jours de fin de semaine ont été comptés dans l'ordre, les jours suivants ne le concernent pas.
   const [employees, joursFeriesDuMois, attendances, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
     await Promise.all([
       db.employee.findMany({ where: { actif: true } }),
