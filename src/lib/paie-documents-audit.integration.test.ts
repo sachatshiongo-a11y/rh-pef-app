@@ -48,6 +48,7 @@ const bulletinsZip = await import("@/app/(app)/paie/bulletins-zip/route");
 const exportPdf = await import("@/app/(app)/paie/export-pdf/route");
 const declExport = await import("@/app/(app)/declarations/export/route");
 const declExcel = await import("@/app/(app)/declarations/export-excel/route");
+const pageDeclarations = (await import("@/app/(app)/declarations/page")).default;
 const pageHistorique = (await import("@/app/(app)/historique/[id]/page")).default;
 
 let prisma: PrismaClient;
@@ -63,6 +64,11 @@ const requete = (chemin: string) => new Request(`http://localhost${chemin}`);
 const valider = async (employeeId: string) => { const l = await ligne(employeeId); await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) })); return l.id; };
 const texte = async (pdf: Buffer) => (await pagesDuPdf(pdf)).map((p) => p.plat).join(" || ");
 const textePdf = async (r: Response) => texte(Buffer.from(await r.arrayBuffer()));
+const htmlDeclarations = async (q = "mois=9&annee=2026") => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const sp = Object.fromEntries(new URLSearchParams(q));
+  return renderToStaticMarkup(await pageDeclarations({ searchParams: Promise.resolve(sp) }));
+};
 const refus = async (p: Promise<unknown>) => { try { await p; } catch (e) { return decodeURIComponent(String((e as Error).message)); } throw new Error("aucun refus"); };
 
 async function brigade(matricule: string, nom: string) {
@@ -197,6 +203,16 @@ describe("5 — déclarations : provisoire, marquage refusé, montant figé, tau
     await refus(marquerDeclaration("CNSS", 9, 2026, "PAYE"));
     expect(await prisma.declarationTaxe.count()).toBe(0);
 
+    // L'écran dit « provisoire » et ne propose plus les boutons de marquage.
+    const ecran = await htmlDeclarations();
+    expect(ecran).toContain("Provisoire.");
+    expect(ecran).toContain("1 bulletin(s) sur 2");
+    expect(ecran).toContain("Validez la paie d");
+    expect(ecran).not.toContain("Marquer déclaré");
+    expect(ecran).not.toContain("Marquer payé");
+    // « Cotisations (Excel) » porte le mois affiché.
+    expect(ecran).toContain("/declarations/export-excel?mois=9&amp;annee=2026");
+
     const pdf = await texte(Buffer.from(await (await declExport.GET(requete("/declarations/export?mois=9&annee=2026"))).arrayBuffer()));
     expect(pdf).toContain("PROVISOIRE — non validé");
     const ExcelJS = (await import("exceljs")).default;
@@ -237,6 +253,12 @@ describe("5 — déclarations : provisoire, marquage refusé, montant figé, tau
     expect(cnss.recalculUSD).toBeCloseTo(cnssAvant.montantUSD + 10, 2);
     expect(cnss.ecartAvecFige).toBe(true);
     expect(apres.lignes.find((l) => l.type === "IPR")!.ecartAvecFige).toBe(false); // IPR pas marquée : pas de figé
+
+    const ecran = await htmlDeclarations();
+    expect(ecran).not.toContain("Provisoire.");
+    expect(ecran).toContain("figé au marquage");
+    expect(ecran).toMatch(/Recalcul d(&#x27;|')aujourd(&#x27;|')hui/);
+    expect(ecran).toContain("Marquer payé"); // CNSS déclarée, pas encore payée : le bouton existe (avec sa confirmation, voir plus bas)
 
     const pdf = await texte(Buffer.from(await (await declExport.GET(requete("/declarations/export?mois=9&annee=2026"))).arrayBuffer()));
     expect(pdf).toContain("Montant figé au marquage");
@@ -335,4 +357,16 @@ describe("6 et 7 — mois clôturé : liasse, ZIP, livre de paie et Excel des co
     expect(await lire("/declarations/export-excel")).toContain("septembre 2026");
     expect((await declExcel.GET(requete("/declarations/export-excel?mois=0&annee=2026"))).status).toBe(400);
   }, 180_000);
+});
+
+describe("5 — « Marquer payé » demande une confirmation", () => {
+  it("le bouton est un ConfirmSubmitButton (confirmation navigateur) dont le message cite l'organisme, la période et le montant", async () => {
+    const source = (await import("node:fs")).readFileSync(new URL("../app/(app)/declarations/page.tsx", import.meta.url), "utf8");
+    const i = source.indexOf("Marquer payé");
+    const balise = source.lastIndexOf("<ConfirmSubmitButton", i);
+    expect(balise).toBeGreaterThan(-1);
+    expect(source.slice(balise, i)).toMatch(/message=\{`Marquer \$\{l\.libelle\} comme PAYÉ pour \$\{periode\} \(\$\{money\(l\.montantUSD\)\}\)/);
+    // Le bouton « déclaré » n'est pas concerné : seul le paiement, qui clôt le suivi, demande confirmation.
+    expect(source.slice(source.indexOf("Marquer déclaré") - 120, source.indexOf("Marquer déclaré"))).not.toContain("ConfirmSubmitButton");
+  });
 });
