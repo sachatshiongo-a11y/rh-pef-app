@@ -4,8 +4,12 @@ import { useState } from "react";
 import { terminerContrat } from "./dossier-actions";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
+import { MOIS_FR } from "@/lib/dates-fr";
+import { AVERTISSEMENT_SOLDE_REGLEMENTAIRE, messageBulletinDuMoisFige, type ReprisesSolde } from "@/lib/solde-tout-compte";
 
 const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
+/** Négatif entre parenthèses (convention maison), jamais un signe moins. */
+const fmtSigne = (n: number) => (n < 0 ? `(${fmt(-n)})` : fmt(n));
 const cls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 /**
@@ -22,6 +26,7 @@ export function FinContratForm({
   preavisDemission,
   preavisLicenciement,
   indemniteLicenciementJoursParAn,
+  reprises = null,
 }: {
   employeeId: string;
   salaireJournalier: number;
@@ -31,6 +36,8 @@ export function FinContratForm({
   preavisDemission: number | null;
   preavisLicenciement: number | null;
   indemniteLicenciementJoursParAn: number | null;
+  /** Reste des prêts, acomptes non retenus, bulletin du mois figé (lib/solde-tout-compte.ts). */
+  reprises?: ReprisesSolde | null;
 }) {
   // Préavis pré-rempli depuis les paramètres légaux selon le motif (À VALIDER si non renseigné).
   const preavisDe = (m: string) =>
@@ -62,6 +69,9 @@ export function FinContratForm({
   const indemConges = salaireJournalier * lire(joursConges);
   const indemPreavis = salaireJournalier * lire(preavis);
   const total = salaireProrata + indemConges + indemPreavis + lire(licenciement) + lire(autres);
+  const reprisePret = reprises?.reprisePretUSD ?? 0;
+  const repriseAcomptes = reprises?.repriseAcomptesUSD ?? 0;
+  const netAVerser = total - reprisePret - repriseAcomptes;
 
   return (
     <form
@@ -72,6 +82,20 @@ export function FinContratForm({
         }
       }}
     >
+      {/* Reprises MONTRÉES : le serveur les revérifie au centime (un écart depuis l'affichage refuse). */}
+      <input type="hidden" name="reprisePretUSD" value={reprisePret.toFixed(2)} />
+      <input type="hidden" name="repriseAcomptesUSD" value={repriseAcomptes.toFixed(2)} />
+      <div className="mb-4 space-y-2">
+        {reprises?.bulletinFigeDuMois && (
+          <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {messageBulletinDuMoisFige(reprises.bulletinFigeDuMois)}
+          </p>
+        )}
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {AVERTISSEMENT_SOLDE_REGLEMENTAIRE}
+          {(reprises?.primesDuMoisUSD ?? 0) > 0 && <> Primes enregistrées ce mois : {fmt(reprises!.primesDuMoisUSD)}.</>}
+        </p>
+      </div>
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         {/* Colonne saisie, en 3 blocs clairs */}
         <div className="space-y-4">
@@ -134,9 +158,28 @@ export function FinContratForm({
             <div className="flex justify-between"><span className="text-muted-foreground">Autres</span><span className="font-medium">{fmt(lire(autres))}</span></div>
           </div>
           <div className="mt-3 flex items-center justify-between border-t pt-3">
-            <span className="font-semibold">Total à verser</span>
-            <span className="text-xl font-bold">{fmt(total)}</span>
+            <span className="font-semibold">Total du solde</span>
+            <span className="font-semibold">{fmt(total)}</span>
           </div>
+          {(reprisePret > 0 || repriseAcomptes > 0) && (
+            <div className="mt-2 space-y-1.5 text-sm">
+              {reprises!.prets.map((p) => (
+                <div key={p.id} className="flex justify-between"><span className="text-muted-foreground">Reste du prêt{p.motif ? <span className="text-xs"> ({p.motif})</span> : null}</span><span className="font-medium">({fmt(p.resteUSD)})</span></div>
+              ))}
+              {reprises!.acomptes.map((a) => (
+                <div key={`${a.annee}-${a.mois}`} className="flex justify-between"><span className="text-muted-foreground">Acompte non retenu <span className="text-xs">({MOIS_FR[a.mois - 1]} {a.annee})</span></span><span className="font-medium">({fmt(a.montantUSD)})</span></div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex items-center justify-between border-t pt-3">
+            <span className="font-semibold">Net à verser</span>
+            <span className={`text-xl font-bold ${netAVerser < 0 ? "text-red-700" : ""}`}>{fmtSigne(netAVerser)}</span>
+          </div>
+          {netAVerser < 0 && (
+            <p className="mt-2 text-xs text-red-700">
+              Le reste du prêt et les acomptes dépassent le solde : le salarié resterait débiteur. À la Direction de décider (annuler le prêt, accord de remboursement) — l&apos;archivage sera refusé en l&apos;état.
+            </p>
+          )}
           <button className="mt-4 w-full rounded-md bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground hover:opacity-90">
             Terminer le contrat &amp; archiver
           </button>
