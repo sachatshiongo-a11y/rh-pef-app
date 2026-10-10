@@ -27,11 +27,11 @@ const styles = StyleSheet.create({
   },
   filigrane: {
     position: "absolute",
-    top: 340,
+    top: 400,
     left: 20,
     right: 20,
     textAlign: "center",
-    fontSize: 54,
+    fontSize: 38,
     fontWeight: 700,
     color: "#c9a0a0",
     opacity: 0.4,

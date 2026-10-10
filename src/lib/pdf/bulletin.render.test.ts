@@ -125,8 +125,9 @@ describe("bulletin — référence d'heures du mois (paie sur heures planifiées
   it("jours payés non travaillés : colonne Taux vide, montant stocké inchangé (base en heures)", async () => {
     const t = await texteDu(await rendre(ligne({ sourceReference: "PLANNING", heuresContractuelles: 156, heuresPayeesNonTravaillees: 54, joursPayesNonTravailles: 9, remunerationJoursPayesUSD: 82.05 })));
     expect(t).toMatch(/Jours payés non travaillés \(congés, fériés, repos\)\s*54 h \(9 j\)\s*82,05 \$/);
-    // La ligne des heures travaillées, elle, garde son taux horaire.
-    expect(t).toMatch(/Salaire de base \(heures travaillées\)\s*\S+ h\s*[\d,]+ \$\s*[\d,]+ \$/);
+    // Audit du 2026-10-10 : la ligne des heures travaillées n'imprime plus de taux non plus (« 150 h ×
+    // 0,84 $ » ne retombait pas sur 123,26 $) : la base est suivie IMMÉDIATEMENT du montant.
+    expect(t).toMatch(/Salaire de base \(heures travaillées\)\s*207 h\s*182,89 \$\s*Jours payés non travaillés/);
   }, 60_000);
 
   it("jours payés non travaillés : colonne Taux vide aussi pour une ligne antérieure (base en jours)", async () => {
@@ -285,7 +286,7 @@ describe("bulletin — les lignes s'additionnent au centime (moteur au centime �
     const deladri = { ...employee, nom: "Deladri Losole", enfants: 1, salaireMensuel: 150 } as unknown as Employee;
     const m = calculerPaieBrigade({ salaireJournalier: (150 / 208) * 8, salaireHoraire: 150 / 208, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 312_000 / 2300, enfants: 1 }, params);
     const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: deladri, ligne: versLigne(m, 208), run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
-    const base = montant(t, /Salaire de base 208 h\s*[\d,]+ \$\s*([\d ,]+) \$/);
+    const base = montant(t, /Salaire de base 208 h\s*([\d ,]+) \$/);
     expect(base).toBe("174,88");
     expect(montant(t, /Salaire brut imposable \(hors transport\)\s*([\d ,]+) \$/)).toBe(base);
     expect(montant(t, /CNSS\s*([\d ,]+) \$/)).toBe(base);
