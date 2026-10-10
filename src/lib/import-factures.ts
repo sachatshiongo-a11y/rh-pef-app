@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { donneesMontantsImportee, parserClasseurFactures, type FactureImportee } from "@/lib/import-factures-excel";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type TotalDevises } from "@/lib/facture-devise";
 import { chercherDoublonFacture, messageDoublonFacture, type FactureExistante } from "@/lib/facture-doublon";
-import { fournisseurIdentique, fournisseursProches } from "@/lib/fournisseur-match";
+import { fournisseursProches } from "@/lib/fournisseur-match";
 
 // Import de factures fournisseurs depuis un classeur Excel, avec aperçu et journal réversible
 // (écran Imports : le SEUL chemin d'import de factures depuis le 10/10/2026 — l'ancien bouton de l'écran
