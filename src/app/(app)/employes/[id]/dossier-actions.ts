@@ -15,6 +15,7 @@ import type {
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
+import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -225,28 +226,15 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
     const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
     const motif = String(formData.get("motif") ?? "Ajustement");
 
+    // Même chemin que « Modifier » côté Direction (lib/historique-salaire) : historique + fiche + journal.
     await prisma.$transaction(async (tx) => {
-      await tx.historiqueSalaire.create({
-        data: {
-          employeeId,
-          ancienSalaire: employee.salaireMensuel,
-          nouveauSalaire,
-          ancienPoste: employee.poste,
-          nouveauPoste,
-          motif,
-          decideParId: user.id,
-        },
-      });
-      await tx.employee.update({
-        where: { id: employeeId },
-        data: { salaireMensuel: nouveauSalaire, poste: nouveauPoste },
-      });
-      await journaliser(tx, {
-        entite: "Employee",
-        entiteId: employeeId,
-        champ: "salaireMensuel",
-        ancienneValeur: employee.salaireMensuel.toString(),
-        nouvelleValeur: String(nouveauSalaire),
+      await enregistrerChangementSalaire(tx, {
+        employeeId,
+        ancienSalaire: employee.salaireMensuel,
+        nouveauSalaire,
+        ancienPoste: employee.poste,
+        nouveauPoste,
+        motif,
         userId: user.id,
       });
     });

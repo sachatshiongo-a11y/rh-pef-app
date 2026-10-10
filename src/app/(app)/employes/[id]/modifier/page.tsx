@@ -100,6 +100,7 @@ export default async function ModifierEmployePage({
         parametres={parametres}
         impact={impact}
         doublons={{ fiches: fichesPourEcran(identites), ecartees: [...ecartees], peutReactiver: user.role === "ADMIN" }}
+        champsDirection={user.role === "ADMIN" ? "modifiables" : "lecture"}
         famille={
           // Composition familiale — modifiable uniquement ici, comme la photo (ses propres formulaires : hors du formulaire principal).
           <CompositionFamiliale
