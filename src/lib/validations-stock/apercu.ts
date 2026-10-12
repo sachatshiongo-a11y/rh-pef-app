@@ -9,9 +9,12 @@ import "server-only";
 import Decimal from "decimal.js";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { ArticleUniteResto, ChargeArticle } from "./charge";
 import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull, valeursEgales, type NatureDemande } from "./charge";
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
 import { obstaclesLiens } from "./lien-resto";
+import { obstaclesAlignement } from "./unite-resto";
+import { libelleFacteur } from "@/lib/unite-resto";
 import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
@@ -56,6 +59,8 @@ export type ApercuDemande = {
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
   /** Rattachement au restaurant : les opérations demandées (AJOUT / RETRAIT d'une marque). */
+  /** Alignement d'unité : l'effet demandé, article par article. */
+  uniteResto?: null | { articles: { designation: string; uniteAvant: string | null; uniteApres: string; facteur: string; nbComptages: number }[] };
   lien?: null | { operations: { op: "AJOUT" | "RETRAIT"; articleRestoDesignation: string; espace: "CUISINE" | "BAR"; articleStockId: string; articleStockDesignation: string }[] };
   mouvement: null | {
     type: "ENTREE" | "SORTIE"; origine: string; date: string;
@@ -193,12 +198,17 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         return { ...l, designation: libelle(l.articleId, l.designation), ecart: ecart.toString(), valeur, actuel: a.toString(), final: e.etat === "conflit" ? null : e.final.toString(), etat: e.etat, raison: e.etat === "conflit" ? e.raison : null };
       });
       base.comptage = { origine: charge.origine, nbLignes: charge.lignes.length, valeurTotale, lignes };
+    } else if (d.nature === "UNITE_RESTO" && "articles" in charge) {
+      const arts = charge.articles as ArticleUniteResto[];
+      base.uniteResto = { articles: arts.map((a) => ({ designation: a.designation, uniteAvant: a.uniteAvant, uniteApres: a.uniteApres, facteur: libelleFacteur(a.facteurNum, a.facteurDen), nbComptages: a.nbComptages })) };
+      if (d.statut === "EN_ATTENTE") base.alertes.push(...(await obstaclesAlignement(prisma, arts)));
     } else if (d.nature === "LIEN_RESTO" && "operations" in charge) {
       base.lien = { operations: charge.operations.map((o) => ({ op: o.op, articleRestoDesignation: o.articleRestoDesignation, espace: o.espace, articleStockId: o.articleStockId, articleStockDesignation: o.articleStockDesignation })) };
       // Demande périmée ? Les MÊMES constats que la validation (lien déjà posé / déjà retiré, article disparu…).
       if (d.statut === "EN_ATTENTE") base.alertes.push(...(await obstaclesLiens(prisma, charge.operations)));
-    } else if ("articles" in charge) {
-      const ids = charge.articles.map((a) => a.id);
+    } else if (d.nature === "MODIF_ARTICLE" && "articles" in charge) {
+      const ca = charge as ChargeArticle;
+      const ids = ca.articles.map((a) => a.id);
       const [arts, cats, fours] = await Promise.all([
         prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } }),
         prisma.categorieStock.findMany({ select: { id: true, nom: true } }),
@@ -209,7 +219,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const fourNom = new Map(fours.map((f) => [f.id, f.nom]));
       const dec = (v: { toString(): string } | null | undefined) => (v === null || v === undefined ? null : v.toString());
       base.article = {
-        articles: charge.articles.map((a) => {
+        articles: ca.articles.map((a) => {
           const art = parId.get(a.id);
           if (!art) base.alertes.push(`« ${a.designation} » n'existe plus.`);
           const valeurs: Record<string, string | boolean | null> | null = art ? {

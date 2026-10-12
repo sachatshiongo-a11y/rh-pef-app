@@ -1901,6 +1901,7 @@ enum NatureDemandeStock {
   MODIF_ARTICLE
   MOUVEMENT_MANUEL // entrée/sortie manuelle hors flux libre (ni livraison restaurant, ni perte, ni retour restaurant)
   LIEN_RESTO // rattacher / détacher un article du catalogue à un article du restaurant (2026-10-12)
+  UNITE_RESTO // aligner l'unité d'un article du restaurant sur celle de l'Inventaire (conversion exacte des comptages, 2026-10-12)
 
   @@schema("stock")
 }

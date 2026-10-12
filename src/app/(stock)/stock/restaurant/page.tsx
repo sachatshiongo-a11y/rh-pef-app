@@ -8,6 +8,8 @@ import { formaterNombre } from "@/lib/montant";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
 import { planRattachementAuto } from "@/lib/rattachement-auto";
 import { LIBELLE_SIGNALEMENT, recuDuDepot, stockRestaurantTheorique, type SignalementLivraison } from "@/lib/stock-restaurant";
+import { plansAlignement } from "@/lib/validations-stock/unite-resto";
+import { libelleFacteur } from "@/lib/unite-resto";
 import { lireChargeOuNull } from "@/lib/validations-stock/charge";
 import { CHAMPS_LIBELLE, libelleArticle, rechercheContenance } from "@/lib/libelle-article";
 
@@ -62,6 +64,11 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     if (!c || !("operations" in c)) continue;
     for (const o of c.operations) enAttentePar.set(o.articleRestoId, [...(enAttentePar.get(o.articleRestoId) ?? []), { id: o.articleStockId, designation: o.articleStockDesignation, op: o.op }]);
   }
+  // Unités qui diffèrent de l'Inventaire (règle : une seule unité par produit) : listées, jamais converties en silence.
+  const ecartsUnite = (await plansAlignement(prisma, { actifsSeulement: true })).map((p) => ({
+    id: p.ecart.articleRestoId, designation: p.ecart.designation, espace: p.ecart.espace, uniteResto: p.ecart.uniteResto, uniteInventaire: p.ecart.uniteInventaire,
+    facteur: p.ecart.etat === "ALIGNABLE" ? libelleFacteur(p.ecart.facteurNum, p.ecart.facteurDen) : null, raison: p.ecart.etat === "NON_CONVERTIBLE" ? p.ecart.raison : null, nbComptages: p.nbComptages,
+  }));
   const theorique = stockRestaurantTheorique(entrees, aujourdhui).parArticle;
   // Livraisons de la semaine qui n'alimentent pas le restaurant : signalées, jamais réparties.
   const nonRattachees = stockRestaurantTheorique(entrees, jours[6].iso).nonRattachees.filter((l) => l.date >= jours[0].iso);
@@ -117,7 +124,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     <RestaurantEcran
       espace={espace} jours={jours} aujourdhui={aujourdhui} estDirection={estDirection} afficherDesactives={afficherDesactives}
       lignes={lignes} categories={categories} catalogue={catalogue.map((a) => ({ id: a.id, designation: libelleArticle(a), unite: a.unite ?? "", recherche: [a.nomCourt, ...rechercheContenance(a)] }))}
-      livraisonsParJour={livraisonsParJour} nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} planAuto={planAuto}
+      ecartsUnite={ecartsUnite} livraisonsParJour={livraisonsParJour} nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} planAuto={planAuto}
       articlesResto={entrees.articles} propositions={propositions.map((p) => ({ ...p, designationCatalogue: libelleCatalogue.get(p.articleStockId) ?? p.designationCatalogue }))}
     />
   );

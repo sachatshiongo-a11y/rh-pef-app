@@ -13,7 +13,7 @@ import Decimal from "decimal.js";
 /** Nombre → chaîne décimale en notation simple (« 0.0000001 », jamais « 1e-7 »), lisible par la charge. */
 export const texteDecimal = (n: number): string => new Decimal(n).toFixed();
 
-export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE" | "MOUVEMENT_MANUEL" | "LIEN_RESTO";
+export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE" | "MOUVEMENT_MANUEL" | "LIEN_RESTO" | "UNITE_RESTO";
 
 export const NATURE_LIBELLE: Record<NatureDemande, string> = {
   PAIEMENT_FACTURE: "Paiements de factures",
@@ -21,6 +21,7 @@ export const NATURE_LIBELLE: Record<NatureDemande, string> = {
   MODIF_ARTICLE: "Modifications d'articles",
   MOUVEMENT_MANUEL: "Entrées et sorties manuelles",
   LIEN_RESTO: "Rattachements au restaurant",
+  UNITE_RESTO: "Unités du restaurant",
 };
 
 // ── Cibles (verrou « une demande en attente par cible », voir CibleDemandeStock) ──────────────
@@ -29,6 +30,8 @@ export const cleArticle = (id: string) => `ARTICLE:${id}`;
 export const cleComptage = (articleId: string) => `COMPTAGE:${articleId}`;
 export const cleMouvement = (articleId: string) => `MOUVEMENT:${articleId}`;
 /** Un couple (article du restaurant, article du catalogue) : au plus une demande de rattachement en attente. */
+/** Un article du restaurant : au plus une demande d'alignement d'unité en attente. */
+export const cleUniteResto = (articleRestoId: string) => `UNITE:${articleRestoId}`;
 export const cleLien = (articleRestoId: string, articleStockId: string) => `LIEN:${articleRestoId}:${articleStockId}`;
 
 // ── Paiement de facture ─────────────────────────────────────────────────────
@@ -158,7 +161,18 @@ export type OperationLien = {
 };
 export type ChargeLienResto = { v: 1; operations: OperationLien[] };
 
-export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement | ChargeLienResto;
+// ── Alignement de l'unité d'un article du restaurant sur celle de l'Inventaire ───────────────────
+/**
+ * Facteur EXACT (fraction) qui convertit une quantité de l'ancienne unité en la nouvelle : quantité × num ÷ den.
+ * `nbComptages` : combien de comptages seront convertis (information pour la Direction).
+ */
+export type ArticleUniteResto = {
+  articleRestoId: string; designation: string; espace: "CUISINE" | "BAR";
+  uniteAvant: string | null; uniteApres: string; facteurNum: string; facteurDen: string; nbComptages: number;
+};
+export type ChargeUniteResto = { v: 1; articles: ArticleUniteResto[] };
+
+export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement | ChargeLienResto | ChargeUniteResto;
 
 /** Domaines d'un article (enum `DomaineStock`) et leur libellé — jamais une autre valeur. */
 export const DOMAINES_ARTICLE = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
@@ -312,6 +326,20 @@ function lireMouvement(o: Record<string, unknown>): ChargeMouvement {
   return { v: 1, type: o.type, date, origine: chaine(o.origine, "origine"), raisonSortie: chaineOuNull(o.raisonSortie, "raisonSortie"), lignes };
 }
 
+function lireUniteResto(o: Record<string, unknown>): ChargeUniteResto {
+  const articles = liste(o.articles, "articles").map((x, i) => {
+    if (!estObjet(x) || (x.espace !== "CUISINE" && x.espace !== "BAR") || typeof x.nbComptages !== "number" || !Number.isInteger(x.nbComptages) || x.nbComptages < 0) throw new ChargeIllisible(`article ${i + 1}`);
+    const num = decimale(x.facteurNum, "facteurNum"), den = decimale(x.facteurDen, "facteurDen");
+    if (!(Number(num) > 0) || !(Number(den) > 0)) throw new ChargeIllisible("facteur");
+    return {
+      articleRestoId: chaine(x.articleRestoId, "articleRestoId"), designation: chaine(x.designation, "designation"), espace: x.espace as "CUISINE" | "BAR",
+      uniteAvant: chaineOuNull(x.uniteAvant, "uniteAvant"), uniteApres: chaine(x.uniteApres, "uniteApres"), facteurNum: num, facteurDen: den, nbComptages: x.nbComptages,
+    };
+  });
+  if (new Set(articles.map((a) => a.articleRestoId)).size !== articles.length) throw new ChargeIllisible("article en double");
+  return { v: 1, articles };
+}
+
 function lireLien(o: Record<string, unknown>): ChargeLienResto {
   const operations = liste(o.operations, "operations").map((x, i) => {
     if (!estObjet(x) || (x.op !== "AJOUT" && x.op !== "RETRAIT") || (x.espace !== "CUISINE" && x.espace !== "BAR")) throw new ChargeIllisible(`opération ${i + 1}`);
@@ -330,6 +358,7 @@ export function lireCharge(nature: "MOUVEMENT_MANUEL", brut: unknown): ChargeMou
 export function lireCharge(nature: "RECONCILIATION", brut: unknown): ChargeComptage;
 export function lireCharge(nature: "MODIF_ARTICLE", brut: unknown): ChargeArticle;
 export function lireCharge(nature: "LIEN_RESTO", brut: unknown): ChargeLienResto;
+export function lireCharge(nature: "UNITE_RESTO", brut: unknown): ChargeUniteResto;
 export function lireCharge(nature: NatureDemande, brut: unknown): Charge;
 /** Relit et VALIDE la charge d'une demande ; lève « Demande illisible » si elle n'est pas conforme. */
 export function lireCharge(nature: NatureDemande, brut: unknown): Charge {
@@ -338,6 +367,7 @@ export function lireCharge(nature: NatureDemande, brut: unknown): Charge {
   if (nature === "RECONCILIATION") return lireComptage(brut);
   if (nature === "MOUVEMENT_MANUEL") return lireMouvement(brut);
   if (nature === "LIEN_RESTO") return lireLien(brut);
+  if (nature === "UNITE_RESTO") return lireUniteResto(brut);
   return lireArticle(brut);
 }
 

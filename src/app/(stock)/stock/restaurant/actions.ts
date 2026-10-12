@@ -10,8 +10,9 @@ import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
 import { libelleArticle } from "@/lib/libelle-article";
-import { demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
-import { obstaclesLiens, poserLiensTx, retirerLiensTx } from "@/lib/validations-stock/lien-resto";
+import { demanderAlignementsUnite, demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
+import { aligner, articlesDeDemande, plansAlignement, texteEffet } from "@/lib/validations-stock/unite-resto";
+import { ecartUnite, obstaclesLiens, poserLiensTx, retirerLiensTx } from "@/lib/validations-stock/lien-resto";
 import type { OperationLien } from "@/lib/validations-stock/charge";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
@@ -120,6 +121,15 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
             `L'unité de « ${article.designation} » ne peut plus changer : ${quoi} existent déjà en « ${article.unite} », et les relire dans une autre unité fausserait tout l'historique (par exemple, 4,5 kg deviendrait 4,5 g). ` +
             "Créez un nouvel article avec la bonne unité, puis demandez à la Direction de désactiver celui-ci.",
           );
+        }
+      }
+      // Une seule unité par produit, celle de l'Inventaire : un article RATTACHÉ ne prend qu'une unité identique (normalisée)
+      // à celle de ses articles du dépôt. Pour en changer : l'Inventaire d'abord, ou « Aligner sur l'Inventaire » (conversion exacte).
+      if (article.liens.length > 0) {
+        const inventaire = await prisma.articleStock.findMany({ where: { id: { in: article.liens.map((l) => l.articleStockId) } }, select: { designation: true, unite: true } });
+        const autre = inventaire.find((i) => ecartUnite(apres, i.unite) !== null);
+        if (autre) {
+          throw new Error(`L'unité de « ${article.designation} » est celle de l'Inventaire (« ${autre.unite?.trim() || "—"} » pour « ${autre.designation} ») : ${apres ?? "vide"} ne convient pas. Changez l'unité dans l'Inventaire d'abord, ou utilisez « Aligner sur l'Inventaire » (qui convertit aussi les comptages).`);
         }
       }
       changementUnite = { avant: article.unite, apres };
@@ -288,6 +298,36 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   });
   revaliderRattachement();
   return { n: ecrites.length, ignores: articleRestoIds.length - ecrites.length };
+});
+
+/**
+ * « Aligner sur l'Inventaire » : change l'unité d'articles du restaurant pour celle de leurs articles de
+ * l'Inventaire ET convertit leurs comptages et stock de base par le facteur exact (une transaction, journal
+ * avant → après). Première passe : l'EFFET est montré (« 4,5 kg → 4 500 g sur 12 comptage(s) ») et rien n'est
+ * écrit ; avec `confirmer` : la Direction aligne, un autre compte dépose une demande à valider. Refusé, sans
+ * rien écrire, pour une conversion impossible ou qui ne tient pas en 3 décimales.
+ */
+export const alignerUnitesResto = actionLisible(async (ids: string[], confirmer = false) => {
+  const user = await garde();
+  const choisis = idsDistincts(ids);
+  if (choisis.length === 0) throw new Error("Aucun article sélectionné.");
+  if (choisis.length > MAX_LIENS_PAR_GESTE) throw new Error(`Trop d'articles d'un coup (${choisis.length}) : ${MAX_LIENS_PAR_GESTE} au plus.`);
+  const plans = await plansAlignement(prisma, { ids: choisis });
+  if (plans.length === 0) return { ok: true as const, modifies: 0 };
+  const non = plans.filter((p) => p.ecart.etat !== "ALIGNABLE");
+  if (non.length > 0) throw new Error(`${non.map(texteEffet).join(" ")} Rien n'a été aligné.`);
+  if (confirmer !== true) {
+    return { ok: false as const, aConfirmer: true as const, message: `${plans.map(texteEffet).join(" ")} ${estDirection(user) ? "Aligner maintenant ?" : "Envoyer la demande à la Direction ?"}` };
+  }
+  const articles = articlesDeDemande(plans);
+  if (!estDirection(user)) {
+    await demanderAlignementsUnite(user, articles);
+    revaliderRattachement();
+    return { ok: true as const, modifies: 0, enAttente: articles.length };
+  }
+  await prisma.$transaction((tx) => aligner(tx, user.id, articles), { timeout: 60_000 });
+  revaliderRattachement();
+  return { ok: true as const, modifies: articles.length };
 });
 
 /**

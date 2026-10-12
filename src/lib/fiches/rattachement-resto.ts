@@ -13,7 +13,7 @@
 
 import Decimal from "decimal.js";
 import { convertirVersUniteArticle } from "./disponibilite";
-import { uniteManquante, type UniteArticle } from "./conversion";
+import { normaliserUnite, uniteManquante, type UniteArticle } from "./conversion";
 import { sansAccents } from "@/lib/texte";
 
 /** `articleStockIds` : articles du catalogue déjà rattachés (une proposition ne vise que les articles LIBRES, sans aucun). */
@@ -32,10 +32,11 @@ export type CataloguePourProposition = {
  * Une proposition signalée reste PROPOSABLE, mais n'est jamais cochée d'office : son stock
  * restaurant serait « unité non convertible » dans la disponibilité des plats.
  */
-export type AlerteUnite = "UNITE_MANQUANTE" | "UNITES_INCOMPATIBLES";
+export type AlerteUnite = "UNITE_MANQUANTE" | "UNITES_INCOMPATIBLES" | "UNITES_DIFFERENTES";
 export const ALERTE_UNITE_LABEL: Record<AlerteUnite, string> = {
   UNITE_MANQUANTE: "unité manquante",
   UNITES_INCOMPATIBLES: "unités incompatibles",
+  UNITES_DIFFERENTES: "unité différente de l'Inventaire",
 };
 
 export type Proposition = {
@@ -48,10 +49,15 @@ export type Proposition = {
   alerteUnite: AlerteUnite | null;
 };
 
-/** « unité manquante » si l'une des deux est vide ; « unités incompatibles » si la conversion est impossible. */
+/**
+ * « unité manquante » si l'une des deux est vide ; « unités incompatibles » si la conversion est impossible ;
+ * « unité différente de l'Inventaire » si elles se convertissent mais ne sont pas LA MÊME (règle de la Direction,
+ * 2026-10-12 : une seule unité par produit, celle de l'Inventaire — rattacher exige la même unité normalisée).
+ */
 export function alerteUnite(uniteResto: string | null, catalogue: UniteArticle): AlerteUnite | null {
   if (uniteManquante(uniteResto) || uniteManquante(catalogue.unite)) return "UNITE_MANQUANTE";
-  return convertirVersUniteArticle(1, uniteResto!, catalogue) === null ? "UNITES_INCOMPATIBLES" : null;
+  if (convertirVersUniteArticle(1, uniteResto!, catalogue) === null) return "UNITES_INCOMPATIBLES";
+  return normaliserUnite(uniteResto!) === normaliserUnite(catalogue.unite!) ? null : "UNITES_DIFFERENTES";
 }
 
 // Contenance écrite dans une désignation : « 33cl », « 0,33 L », « 1 litre », « 500 gr », « 1kg ».
@@ -195,7 +201,7 @@ export function planifierRattachementsAuto(
       const r = libres[0]!;
       const alerte = alerteUnite(r.unite, { unite: c.unite, contenance: c.contenance, contenanceUnite: c.contenanceUnite });
       if (alerte) {
-        laisser("UNITES", `« ${r.designation} » (${NOM_ESPACE[r.espace]}) porte ce nom, mais ${alerte === "UNITE_MANQUANTE" ? "une unité manque" : "les unités ne se convertissent pas"} (restaurant : ${r.unite?.trim() || "—"}, catalogue : ${c.unite?.trim() || "—"}) : vérifiez puis rattachez à la main`);
+        laisser("UNITES", `« ${r.designation} » (${NOM_ESPACE[r.espace]}) porte ce nom, mais ${alerte === "UNITE_MANQUANTE" ? "une unité manque" : alerte === "UNITES_DIFFERENTES" ? "l'unité diffère de l'Inventaire (alignez-la d'abord)" : "les unités ne se convertissent pas"} (restaurant : ${r.unite?.trim() || "—"}, catalogue : ${c.unite?.trim() || "—"}) : vérifiez puis rattachez à la main`);
         continue;
       }
       r.articleStockIds.push(c.id);

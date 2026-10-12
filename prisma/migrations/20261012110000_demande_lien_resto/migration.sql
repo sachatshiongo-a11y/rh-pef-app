@@ -4,3 +4,6 @@
 -- des natures de demande. Aucune ligne existante n'est touchée. Migration séparée de la table de liaison
 -- (20261012100000) : un ALTER TYPE ... ADD VALUE ne se mélange pas à ce qui l'utilise.
 ALTER TYPE "stock"."NatureDemandeStock" ADD VALUE 'LIEN_RESTO';
+-- Même jour : aligner l'unité d'un article du restaurant sur celle de l'Inventaire (une seule unité par produit),
+-- par un autre compte que la Direction = une demande à valider.
+ALTER TYPE "stock"."NatureDemandeStock" ADD VALUE 'UNITE_RESTO';

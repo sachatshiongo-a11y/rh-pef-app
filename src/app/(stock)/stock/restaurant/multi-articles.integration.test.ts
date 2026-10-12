@@ -30,7 +30,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 
-const { ajouterLiensResto, retirerLiensResto, changerActivationArticlesResto } = await import("./actions");
+const { retirerLiensResto, changerActivationArticlesResto } = await import("./actions");
 const { chargerEntreesStockResto } = await import("@/lib/stock-restaurant-charger");
 const { stockRestaurantTheorique } = await import("@/lib/stock-restaurant");
 const { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } = await import("../fiches/_data/charger-fiche");
@@ -59,7 +59,9 @@ beforeAll(async () => {
   ids.president = (await marque("Beurre Président", 250)).id;
   ids.lurpak = (await marque("Beurre Lurpak", 500)).id;
   ids.resto = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", ordre: 1 } })).id;
-  ok(await ajouterLiensResto(ids.resto, [ids.president, ids.lurpak]));
+  // État d'AVANT la règle « une seule unité par produit » (resto en kg, marques en pièces de 250 g / 500 g) : posé en base,
+  // car le geste de rattachement exige désormais la même unité. La lecture des liens, elle, doit continuer de convertir.
+  await prisma.articleRestoStock.createMany({ data: [{ articleRestoId: ids.resto, articleStockId: ids.president }, { articleRestoId: ids.resto, articleStockId: ids.lurpak }] });
   // Comptage d'hier : 0,5 kg ; livraisons d'aujourd'hui des DEUX marques : 4 × 250 g + 2 × 500 g = 2 kg.
   await prisma.comptageResto.create({ data: { articleRestoId: ids.resto, date: le(jourAvant(1)), quantite: 0.5 } });
   const sortie = (articleId: string, quantite: number) => prisma.mouvementStock.create({ data: { articleId, type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", quantite, date: le(AUJ) } });
@@ -103,7 +105,7 @@ describe("plusieurs marques pour un article du restaurant (base réelle)", () =>
     const d = await dispoDuPlat();
     expect(d.etat).toBe("DISPONIBLE");
     expect(d.portions).toBe(9); // dépôt 3 + restaurant 1,5 kg = 6 pièces
-    ok(await ajouterLiensResto(ids.resto, [ids.lurpak]));
+    await prisma.articleRestoStock.create({ data: { articleRestoId: ids.resto, articleStockId: ids.lurpak } });
   }, 60_000);
 
   it("désactiver l'article avec du stock : TOUTES les marques passent « À vérifier », la confirmation nomme les livraisons de chacune", async () => {

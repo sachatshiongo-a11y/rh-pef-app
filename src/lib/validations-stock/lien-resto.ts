@@ -13,11 +13,18 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { journaliserPlusieurs } from "@/lib/audit";
 import type { OperationLien } from "./charge";
+import { normaliserUnite, uniteManquante } from "@/lib/fiches/conversion";
 
 type Tx = Prisma.TransactionClient;
 
 /** Champ du journal d'audit d'un lien posé ou retiré (libellé de l'article du catalogue, avant → après). */
 export const CHAMP_LIEN = "lien article du catalogue";
+
+/** Unités de l'article du restaurant et de l'article de l'Inventaire : MANQUANTE si l'une est vide, DIFFERENTE si elles ne sont pas la même (normalisée), null si identiques. */
+export function ecartUnite(uniteResto: string | null | undefined, uniteInventaire: string | null | undefined): "MANQUANTE" | "DIFFERENTE" | null {
+  if (uniteManquante(uniteResto) || uniteManquante(uniteInventaire)) return "MANQUANTE";
+  return normaliserUnite(uniteResto!) === normaliserUnite(uniteInventaire!) ? null : "DIFFERENTE";
+}
 
 const NOM_ESPACE = { CUISINE: "Cuisine", BAR: "Bar" } as const;
 
@@ -33,8 +40,8 @@ export async function obstaclesLiens(tx: Tx | typeof prisma, ops: OperationLien[
   const restoIds = [...new Set(ops.map((o) => o.articleRestoId))];
   const stockIds = [...new Set(ops.map((o) => o.articleStockId))];
   const [restos, stocks, liens] = await Promise.all([
-    tx.articleResto.findMany({ where: { id: { in: restoIds } }, select: { id: true, espace: true } }),
-    tx.articleStock.findMany({ where: { id: { in: stockIds } }, select: { id: true, actif: true } }),
+    tx.articleResto.findMany({ where: { id: { in: restoIds } }, select: { id: true, espace: true, unite: true } }),
+    tx.articleStock.findMany({ where: { id: { in: stockIds } }, select: { id: true, actif: true, unite: true } }),
     tx.articleRestoStock.findMany({ where: { articleStockId: { in: stockIds } }, select: { articleRestoId: true, articleStockId: true, articleResto: { select: { designation: true, espace: true } } } }),
   ]);
   const resto = new Map(restos.map((r) => [r.id, r]));
@@ -53,6 +60,14 @@ export async function obstaclesLiens(tx: Tx | typeof prisma, ops: OperationLien[
     if (!s) { obstacles.push(`${nom} : l'article du catalogue n'existe plus`); continue; }
     if (!s.actif) { obstacles.push(`${nom} : l'article du catalogue est désactivé`); continue; }
     if (pose) { obstacles.push(`${nom} : déjà rattaché`); continue; }
+    // UNE seule unité par produit, celle de l'Inventaire : on ne rattache qu'une marque de la MÊME unité.
+    const ecart = ecartUnite(r.unite, s.unite);
+    if (ecart) {
+      obstacles.push(ecart === "MANQUANTE"
+        ? `« ${o.articleRestoDesignation} » ou « ${o.articleStockDesignation} » n'a pas d'unité : renseignez-la d'abord (l'Inventaire donne l'unité)`
+        : `« ${o.articleStockDesignation} » est en ${s.unite!.trim()} dans l'Inventaire, « ${o.articleRestoDesignation} » est en ${r.unite!.trim()} : alignez l'unité dans l'Inventaire d'abord (ou « Aligner sur l'Inventaire » au Stock restaurant)`);
+      continue;
+    }
     const ailleurs = liens.find((l) => l.articleStockId === o.articleStockId && l.articleRestoId !== o.articleRestoId && l.articleResto.espace === r.espace);
     if (ailleurs) obstacles.push(`« ${o.articleStockDesignation} » est déjà rattaché à « ${ailleurs.articleResto.designation} » (${NOM_ESPACE[r.espace]}) : détachez-le d'abord de cet article du restaurant, ses livraisons iraient sinon aux deux`);
   }

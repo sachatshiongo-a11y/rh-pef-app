@@ -166,6 +166,20 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
     );
   }
 
+  if (a.uniteResto) {
+    return (
+      <ul className="divide-y rounded-md border text-sm">
+        {a.uniteResto.articles.map((x) => (
+          <li key={x.designation} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+            <b>{x.designation}</b>
+            <span>unité <span className="text-muted-foreground line-through">{x.uniteAvant ?? "—"}</span> → <b>{x.uniteApres}</b> ({x.facteur})</span>
+            <span className="text-xs text-muted-foreground">{x.nbComptages} comptage(s) convertis</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   if (a.lien) {
     return (
       <ul className="divide-y rounded-md border text-sm">
