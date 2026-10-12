@@ -17,6 +17,10 @@ import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { formaterMontantFacture, libelleAutreDevise, montantsFacture } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleLigneArticle } from "@/lib/libelle-article";
+import { statutAffiche } from "@/lib/facture-echue";
+import { CorrigerEntete } from "./corriger-entete";
+import { AnnulerPaiementBtn } from "./annuler-paiement-btn";
+import { ecrireSaisieNombre } from "@/lib/nombre";
 import { deviseBon, formaterMontantBon, prixLigneBon, totalBon, totalLigneBon } from "@/lib/bon-commande-devise";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -47,11 +51,19 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   // Montants DANS LA DEVISE de la facture (2026-10-09) ; en francs, l'équivalent « ≈ » au taux du jour.
   const m = montantsFacture(facture);
+  const statut = statutAffiche(facture); // « échue » jugée à la lecture (échéance dépassée, reste à payer)
   const enFC = m.devise === "CDF";
   const fm = (n: number | null) => (n === null ? "—" : enFC ? formaterMontantFacture(n, "CDF") : usd(n));
   const prixLigne = (l: { prixUnitaireUSD: unknown; prixUnitaireCDF: unknown }) => (enFC ? (l.prixUnitaireCDF === null ? "—" : formaterMontantFacture(Number(l.prixUnitaireCDF), "CDF")) : usd(l.prixUnitaireUSD as number));
   const totalLigne = (l: { totalLigneUSD: unknown; totalLigneCDF: unknown }) => Number(enFC ? l.totalLigneCDF : l.totalLigneUSD);
   const bc = facture.bonDeCommande;
+  // Correction de l'en-tête (Direction) : le montant n'est modifiable que si rien n'en dépend (lignes, entrées en stock).
+  const nbEntrees = estDirection ? await prisma.mouvementStock.count({ where: { factureId: facture.id, type: "ENTREE" } }) : 0;
+  const montantBloque = facture.lignes.length > 0 || nbEntrees > 0
+    ? `Le montant est la somme des ${facture.lignes.length} ligne(s) d'articles${nbEntrees > 0 ? ` et ${nbEntrees} entrée(s) en stock en dépendent` : ""} : non modifiable ici (supprimez la facture et ressaisissez-la).`
+    : null;
+  const fournisseursListe = estDirection ? await prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }) : [];
+  const isoJour = (v: Date | null) => (v ? v.toISOString().slice(0, 10) : null);
   const retour = lireRetourFiche(sp.retour, facture.fournisseurId);
 
   // Bons de commande liables (même fournisseur), pour lier / changer à tout moment.
@@ -106,6 +118,10 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
           {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} reste={m.reste} taux={tauxCDF} deviseFacture={m.devise} />}
           {!demande && <EnregistrerPaiement factureId={facture.id} reste={m.reste} taux={tauxCDF} estDirection={estDirection} deviseFacture={m.devise} />}
+          {estDirection && !demande && (
+            <CorrigerEntete id={facture.id} numero={facture.numero} date={isoJour(facture.date)} echeance={isoJour(facture.dateEcheance)} fournisseurId={facture.fournisseurId}
+              montant={ecrireSaisieNombre(m.montant)} symbole={enFC ? "FC" : "$"} montantBloque={montantBloque} fournisseurs={fournisseursListe} />
+          )}
           <Link href={retour ?? "/stock/factures"} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
@@ -126,7 +142,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
         <Info label="Échéance" val={d(facture.dateEcheance)} />
         <div>
           <p className="text-xs text-muted-foreground">Statut</p>
-          <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[facture.statut]}`}>{STATUT_FACTURE_LABEL[facture.statut]}</span>
+          <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[statut]}`}>{STATUT_FACTURE_LABEL[statut]}</span>
         </div>
         <Info label="Montant" val={fm(m.montant)} sous={enFC ? libelleAutreDevise(m.montant, "CDF", tauxCDF) + " au taux du jour" : undefined} />
         <Info label="Réglé" val={fm(m.regle)} />
@@ -166,7 +182,14 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                     ? (p.montantUSD !== null ? <span className="ml-1 text-xs">(payé {usd(Number(p.montantUSD))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null)
                     : (p.montantCDF ? <span className="ml-1 text-xs">(payé {formaterFC(Number(p.montantCDF))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null)}
                 </span>
-                <span className="font-semibold tabular-nums text-emerald-700">{p.devise === "CDF" ? formaterMontantFacture(Number(p.montantCDF), "CDF") : usd(Number(p.montantUSD))}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-semibold tabular-nums text-emerald-700">{p.devise === "CDF" ? formaterMontantFacture(Number(p.montantCDF), "CDF") : usd(Number(p.montantUSD))}</span>
+                  {estDirection && !demande && (
+                    <AnnulerPaiementBtn paiementId={p.id}
+                      libelle={`${p.type === "AVOIR" ? "avoir" : "paiement"} de ${p.devise === "CDF" ? formaterMontantFacture(Number(p.montantCDF), "CDF") : usd(Number(p.montantUSD))} du ${new Date(p.date).toLocaleDateString("fr-FR")}`}
+                      resteApres={fm(Math.round((m.reste + Number(p.devise === "CDF" ? p.montantCDF : p.montantUSD)) * 100) / 100)} />
+                  )}
+                </span>
               </li>
             ))}
           </ul>

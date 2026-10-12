@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formaterMontantFacture } from "@/lib/facture-devise";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { statutAffiche } from "@/lib/facture-echue";
 import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
@@ -24,7 +25,7 @@ export default async function FacturesImprimerPage() {
     d(f.dateEcheance),
     f.devise === "CDF" ? formaterMontantFacture(Number(f.montantCDF), "CDF") : avecFC ? `${u(f.montantUSD)} $` : u(f.montantUSD),
     f.devise === "CDF" ? formaterMontantFacture(Number(f.resteAPayerCDF), "CDF") : avecFC ? `${u(f.resteAPayerUSD)} $` : u(f.resteAPayerUSD),
-    STATUT_FACTURE_LABEL[f.statut] ?? f.statut,
+    STATUT_FACTURE_LABEL[statutAffiche(f)],
     f.modePaiement ?? "",
   ] as (string | number)[]);
 

@@ -10,23 +10,26 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { lireDateJour } from "@/lib/achats-liste";
-import { donneesMontantsImportee, parserClasseurFactures } from "@/lib/import-factures-excel";
-import { sigExistante, sigImportee } from "@/lib/import-factures";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
-import { meilleurFournisseur } from "@/lib/fournisseur-match";
-import { meilleurArticle } from "@/lib/article-match";
+import { fournisseurIdentique, fournisseursProches } from "@/lib/fournisseur-match";
+import { rapprocherLignePdf } from "@/lib/facture-ligne-match";
+import { trouverDoublonFacture } from "@/lib/facture-doublon-serveur";
+import { messageDoublonFacture } from "@/lib/facture-doublon";
+import { lireDatePaiement } from "@/lib/date-paiement";
 import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture, type VerseLot } from "@/lib/validations-stock/reglement";
-import { deviseFacture, resteFacture } from "@/lib/facture-devise";
+import { deviseFacture, formaterMontantFacture, resteFacture } from "@/lib/facture-devise";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
 import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture";
+import { annulerPaiementTx, corrigerEnteteFactureTx } from "@/lib/validations-stock/correction-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
-import { refusCreationFournisseur } from "@/lib/fournisseur-doublon-serveur";
+import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fournisseur-doublon-serveur";
+import { decisionFournisseur } from "@/lib/fournisseur-doublon";
 import { Prisma } from "@prisma/client";
-import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 
@@ -79,17 +82,24 @@ export const attacherDocumentFacture = actionLisible(async (id: string, formData
 
 /** Lit un PDF de facture et renvoie un pré-remplissage complet (fournisseur, date, n°, LIGNES) — Direction. À CONFIRMER. */
 export type LigneAnalyse = {
+  /** Le libellé LU dans le PDF — conservé tel quel, jamais réécrit par le nom d'un article du catalogue. */
   designation: string; quantite: number; prixUnitaireUSD: number; total: number;
-  articleId: string | null; articleNom: string | null; unite: string | null; // article du catalogue rapproché
+  /** Article rattaché D'OFFICE : seulement sur un nom identique (casse, accents, espaces, contenance écrite autrement). */
+  articleId: string | null; articleNom: string | null; unite: string | null;
+  /** Article PROCHE (sans nom identique) : proposé, jamais appliqué — la ligne est « à choisir ». */
+  suggestion: { id: string; /** Nom AFFICHÉ (contenance comprise). */ libelle: string; unite: string | null } | null;
 };
 export type AnalyseFacture = {
   /** Montant et prix des lignes dans `devise` (CDF : document libellé en francs, jamais converti). */
   montant: number | null; date: string | null; numero: string | null; devise: "USD" | "CDF";
   fournisseur: { nom: string | null; rccm: string | null; idNational: string | null; telephone: string | null; email: string | null; adresse: string | null; ville: string | null };
-  match: { id: string; nom: string; score: number } | null; // fournisseur existant proche
+  /** Fournisseur de MÊME NOM (casse, accents, espaces) : seul rattachement d'office. */
+  match: { id: string; nom: string; score: number } | null;
+  /** Fournisseurs qui RESSEMBLENT (sans nom identique) : à proposer (« Utiliser … » / « Créer »), jamais appliqués. */
+  proches: { id: string; nom: string; score: number }[];
   lignes: LigneAnalyse[];
 };
-const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, devise: "USD", fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, lignes: [] };
+const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, devise: "USD", fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, proches: [], lignes: [] };
 
 export const analyserFacturePDF = actionLisible(async (formData: FormData): Promise<AnalyseFacture> => {
   const user = await verifySession();
@@ -101,98 +111,42 @@ export const analyserFacturePDF = actionLisible(async (formData: FormData): Prom
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
   try {
     const ex = await extraireFacturePDF(await file.arrayBuffer(), taux);
-    // Rapprochement flou avec les fournisseurs existants (« Kathy » ↔ « Maison Kathy »).
+    // Fournisseur : rattaché d'office SEULEMENT sur un nom identique ; les noms qui ressemblent
+    // (« Kathy » ↔ « Maison Kathy ») sont proposés à l'écran, jamais appliqués.
     let match: AnalyseFacture["match"] = null;
+    let proches: AnalyseFacture["proches"] = [];
     if (ex.fournisseur.nom) {
       const liste = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
-      const m = meilleurFournisseur(ex.fournisseur.nom, liste);
-      if (m) match = { id: m.id, nom: m.nom, score: Math.round(m.score * 100) / 100 };
+      const m = fournisseurIdentique(ex.fournisseur.nom, liste);
+      if (m) match = { id: m.id, nom: m.nom, score: 1 };
+      else proches = fournisseursProches(ex.fournisseur.nom, liste).map((f) => ({ id: f.id, nom: f.nom, score: Math.round(f.score * 100) / 100 }));
     }
-    // Rapprochement de chaque ligne avec un article du catalogue, par mots-clés
-    // (« Saumon frais 1KG » → « Filet de saumon norvégien »).
-    const articlesCat = await prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true } });
-    const pourMatch = articlesCat.map((a) => ({ id: a.id, designation: a.designation }));
+    // Lignes : article du catalogue rattaché d'office SEULEMENT sur un nom identique ; un article proche
+    // est une suggestion (« à choisir »). Le libellé lu dans le PDF est CONSERVÉ : avant, « Lait entier
+    // 1L » devenait « Lait de coco » (score 1,0) et la désignation de la facture était réécrite.
+    const articlesCat = await prisma.articleStock.findMany({ where: { actif: true }, select: { ...CHAMPS_LIBELLE, id: true, unite: true } });
     const lignes: LigneAnalyse[] = ex.lignes.map((l) => {
-      const m = meilleurArticle(l.designation, pourMatch);
-      const art = m ? articlesCat.find((x) => x.id === m.id) : null;
+      const { article: art, suggestion: sug } = rapprocherLignePdf(l.designation, articlesCat);
       return {
-        designation: art ? art.designation : l.designation,
+        designation: l.designation,
         quantite: l.quantite,
         prixUnitaireUSD: l.prixUnitaireUSD,
         total: l.totalLigneUSD,
         articleId: art?.id ?? null,
-        articleNom: art?.designation ?? null,
+        articleNom: art ? libelleArticle(art) : null,
         unite: art?.unite ?? l.unite ?? null,
+        suggestion: sug ? { id: sug.id, libelle: libelleArticle(sug), unite: sug.unite } : null,
       };
     });
-    return { montant: ex.montant, date: ex.date, numero: ex.numero, devise: ex.devise, fournisseur: ex.fournisseur, match, lignes };
+    return { montant: ex.montant, date: ex.date, numero: ex.numero, devise: ex.devise, fournisseur: ex.fournisseur, match, proches, lignes };
   } catch {
     return VIDE;
   }
 });
 
-/**
- * Importe un ou plusieurs classeurs Excel « Suivi des factures fournisseurs ». Direction uniquement.
- * Rattache chaque facture au fournisseur existant (par nom) ou le crée ; ignore les doublons
- * (même fournisseur/mois/année/montant/n°) pour permettre des imports répétés.
- */
-export const importerFacturesExcel = actionLisible(async (formData: FormData): Promise<{ importees: number; ignorees: number; fournisseursCrees: string[]; erreurs: string[] }> => {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-
-  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
-  if (fichiers.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: ["Aucun fichier."] };
-
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-  const anneeCourante = config?.anneeCourante ?? anneeCouranteKinshasa();
-
-  const erreurs: string[] = [];
-  const lignes = [] as Awaited<ReturnType<typeof parserClasseurFactures>>;
-  for (const f of fichiers) {
-    const anneeFichier = Number((f.name.match(/(20\d{2})/) ?? [])[1]) || anneeCourante;
-    try {
-      lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), anneeFichier, taux, erreurs)));
-    } catch (e) {
-      erreurs.push(`${f.name} : ${e instanceof Error ? e.message : "illisible"}`);
-    }
-  }
-  if (lignes.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: erreurs.length ? erreurs : ["Aucune facture trouvée dans le(s) fichier(s)."] };
-
-  // Fournisseurs : rattachement ou création.
-  const fours = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
-  const parNom = new Map(fours.map((x) => [normNom(x.nom), x.id]));
-  const fournisseursCrees: string[] = [];
-  for (const nom of [...new Set(lignes.map((l) => l.fournisseurNom))]) {
-    if (parNom.has(normNom(nom))) continue;
-    const cree = await prisma.fournisseur.create({ data: { nom, pays: "République démocratique du Congo" } });
-    parNom.set(normNom(nom), cree.id);
-    fournisseursCrees.push(nom);
-  }
-
-  // Dé-duplication (signature, dans la devise de chaque facture) contre l'existant + à l'intérieur du lot.
-  const existantes = await prisma.factureFournisseur.findMany({ select: { annee: true, mois: true, fournisseurNom: true, numero: true, devise: true, montantUSD: true, montantCDF: true } });
-  const vues = new Set(existantes.map(sigExistante));
-
-  const aInserer = lignes.filter((r) => { const s = sigImportee(r); if (vues.has(s)) return false; vues.add(s); return true; });
-
-  if (aInserer.length > 0) {
-    await prisma.factureFournisseur.createMany({
-      data: aInserer.map((r) => ({
-        fournisseurId: parNom.get(normNom(r.fournisseurNom)) ?? null,
-        fournisseurNom: r.fournisseurNom, numero: r.numero,
-        date: r.date, dateEcheance: r.dateEcheance, datePaiement: r.datePaiement,
-        ...donneesMontantsImportee(r),
-        statut: r.statut, modePaiement: r.modePaiement, mois: r.mois, annee: r.annee,
-      })),
-    });
-    await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "import", champ: "import Excel", nouvelleValeur: `${aInserer.length} facture(s)`, userId: user.id });
-  }
-
-  revalidatePath("/stock/factures");
-  return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
-});
+// L'import de classeurs de factures vit UNIQUEMENT dans l'écran Imports (aperçu, confirmation des probables
+// doublons, devise obligatoire, lot annulable — src/lib/import-factures.ts). L'ancien bouton « Importer » de
+// cet écran écrivait directement, sans aperçu ni annulation, et devinait la devise d'après le montant.
 
 const AUJ = () => jourCourantKinshasaISO();
 
@@ -273,12 +227,20 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   if (montantRegle !== 0 && !estDirection(user)) {
     throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
-  const reste = Math.max(0, montant - montantRegle);
+  // Un réglé SUPÉRIEUR au montant est refusé (avant : ramené à 0 reste en silence, l'excédent s'évaporait).
+  if (montantRegle < 0) throw new Error("Le montant déjà réglé ne peut pas être négatif.");
+  if (montantRegle > montant + 0.001) {
+    throw new Error(`Le montant déjà réglé (${formaterMontantFacture(montantRegle, devise)}) dépasse le montant de la facture (${formaterMontantFacture(montant, devise)}). Rien n'a été enregistré.`);
+  }
+  const reste = Math.max(0, Math.round((montant - montantRegle) * 100) / 100);
   // Les entrées en stock portent la date de la FACTURE : sans date, c'est le jour (Kinshasa), jamais l'échéance
   // (une échéance est une date à venir) ; et, quand la facture fait entrer du stock, jamais dans le futur.
   const entrerEnStockTot = formData.get("entrerEnStock") != null;
   const d = new Date(entrerEnStockTot ? lireDateJour(dateStr, "de la facture") : (dateStr ?? AUJ()));
   const numero = String(formData.get("numero") ?? "").trim() || null;
+  // Date du paiement « déjà réglé » : celle saisie, sinon la date de la facture ; jamais future, jamais
+  // antérieure à la facture (même règle que « Marquer payée »). Un Paiement daté est créé plus bas.
+  const datePaiementISO = montantRegle > 0 ? lireDatePaiement(String(formData.get("datePaiement") ?? "").trim() || dateStr, dateStr ? d : null) : null;
   // C'est l'enregistrement de la facture (articles + quantités) qui fait entrer la marchandise
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
@@ -321,37 +283,33 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     }
   }
 
-  // Rattachement fournisseur : id explicite ; sinon rapprochement flou (« Kathy » ↔ « Maison Kathy »),
-  // sinon création automatique du fournisseur avec les coordonnées lues sur la facture.
+  // Rattachement fournisseur (audit du 10/10/2026) : identifiant explicite choisi à l'écran ; sinon le nom
+  // IDENTIQUE (casse, accents, espaces) s'applique d'office ; sinon, si des fournisseurs RESSEMBLENT, on
+  // refuse en les proposant (« Utiliser … » / « Créer ») — jamais un rattachement approximatif en silence,
+  // qui plaçait la facture (et sa dette) chez le mauvais fournisseur. Création en transaction plus bas.
   let fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+  if (fournisseurId && !(await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { id: true } }))) throw new Error("Ce fournisseur n'existe plus : choisissez-le à nouveau.");
   if (!fournisseurId) {
     const liste = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
-    const m = meilleurFournisseur(fournisseurNom, liste, 0.82);
-    if (m) fournisseurId = m.id;
-    else {
-      // ANTI-DOUBLON DE FOURNISSEUR (audit du 10/10/2026) : un nom NOUVEAU qui ressemble à un fournisseur
-      // existant (sous le seuil de rattachement automatique) n'est pas créé en silence. Même confirmation que le
-      // doublon d'entrées : « Enregistrer quand même » (`forcerDoublons`) crée un nouveau fournisseur ; sinon la
-      // personne choisit le fournisseur existant dans le champ « Fournisseur ». Un nom identique à un fournisseur
-      // existant est toujours refusé (il aurait été rattaché plus haut).
-      const refus = await refusCreationFournisseur(prisma, fournisseurNom, { creerQuandMeme: formData.get("forcerDoublons") != null });
-      if (refus) {
-        throw new Error(refus.creationPossible
-          ? `DOUBLON_POSSIBLE|Le fournisseur « ${fournisseurNom} » ressemble à ${refus.candidats.map((c) => `« ${c.nom} »`).join(", ")}, déjà enregistré${refus.candidats.length > 1 ? "s" : ""}. S'il s'agit du même, choisissez-le dans le champ « Fournisseur » ; sinon confirmez avec le bouton « Enregistrer quand même » (un nouveau fournisseur sera créé).`
-          : refus.message);
-      }
-      const coord = (k: string) => String(formData.get(k) ?? "").trim() || null;
-      const nf = await prisma.fournisseur.create({
-        data: {
-          nom: fournisseurNom,
-          rccm: coord("nf_rccm"), idNational: coord("nf_idNational"), adresse: coord("nf_adresse"),
-          telephone: coord("nf_telephone"), email: coord("nf_email"), ville: coord("nf_ville"),
-        },
-      });
-      fournisseurId = nf.id;
-      await journaliser(prisma, { entite: "Fournisseur", entiteId: nf.id, champ: "creation", nouvelleValeur: `${fournisseurNom} (auto — facture)`, userId: user.id });
-      // Fournisseur créé par un compte non-Direction : la Direction en est notifiée (doublon, coordonnées à vérifier).
-      await notifierGesteStock(user, { genre: "FOURNISSEUR", noms: [fournisseurNom], origine: "facture" });
+    // UN SEUL flux pour le fournisseur proche (le même moteur que l'écran Fournisseurs et la Liste d'achat :
+    // `decisionFournisseur`) : nom identique et unique = rattaché d'office ; fournisseurs qui ressemblent = refus qui
+    // les PROPOSE (« Utiliser … » / « Créer ») ; la création confirmée (`fournisseurNouveau`) se fait plus bas, en
+    // transaction, sous verrou du nom, et la Direction en est notifiée si l'auteur n'est pas la Direction.
+    const decision = decisionFournisseur(fournisseurNom, liste);
+    if (decision.type === "auto") fournisseurId = decision.fournisseur.id;
+    else if (decision.type === "choix" && (!decision.creationPossible || formData.get("fournisseurNouveau") == null)) {
+      throw new Error(`FOURNISSEUR_PROCHE|${JSON.stringify({ candidats: decision.candidats, creationPossible: decision.creationPossible })}`);
+    }
+  }
+
+  // Facture déjà saisie ? Même fournisseur + même numéro : refus sec. Même fournisseur + même montant à
+  // ±14 jours : avertissement, « Créer quand même » (forcerFacture) pour la Direction qui sait.
+  const doublonFacture = await trouverDoublonFacture(prisma, { fournisseurId, fournisseurNom, numero, date: dateStr ? d.toISOString().slice(0, 10) : null, annee: d.getUTCFullYear(), mois: d.getUTCMonth() + 1, devise, montant });
+  if (doublonFacture) {
+    const texte = messageDoublonFacture(doublonFacture, (dv, m) => formaterMontantFacture(m, dv));
+    if (doublonFacture.type === "MEME_NUMERO") throw new Error(texte);
+    if (formData.get("forcerFacture") == null) {
+      throw new Error(`DOUBLON_FACTURE|${JSON.stringify({ message: texte, factures: doublonFacture.factures.map((f) => ({ id: f.id, numero: f.numero, date: f.date })) })}`);
     }
   }
 
@@ -360,12 +318,34 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const pdf = formData.get("facturePdf");
   if (pdf instanceof File && pdf.size > 0) documentUrl = await televerserFacturePdf(pdf, fournisseurNom);
 
+  let fournisseurCree = false;
   const fac = await prisma.$transaction(async (tx) => {
     // Entrée en stock : lignes de stock verrouillées d'abord, dans un ordre fixe (pas d'interblocage).
     if (entrerEnStock) await verrouillerStocks(tx, [...new Set(lignes.map((l) => l.articleId).filter((x): x is string => !!x))]);
+    // Aucun fournisseur du même nom : création avec les coordonnées lues sur la facture (dans la transaction :
+    // une facture refusée plus loin ne laisse pas de fournisseur orphelin).
+    let fournisseurDeLaFacture = fournisseurId;
+    if (!fournisseurDeLaFacture) {
+      // Sous verrou du nom : deux saisies simultanées du même nouveau fournisseur ne le créent pas deux fois ; le
+      // moteur de l'écran Fournisseurs revérifie (identique = refus, proche = seulement si confirmé à l'écran).
+      await verrouillerNomFournisseur(tx, fournisseurNom);
+      const refus = await refusCreationFournisseur(tx, fournisseurNom, { creerQuandMeme: formData.get("fournisseurNouveau") != null });
+      if (refus) throw new Error(refus.message);
+      fournisseurCree = true;
+      const coord = (k: string) => String(formData.get(k) ?? "").trim() || null;
+      const nf = await tx.fournisseur.create({
+        data: {
+          nom: fournisseurNom,
+          rccm: coord("nf_rccm"), idNational: coord("nf_idNational"), adresse: coord("nf_adresse"),
+          telephone: coord("nf_telephone"), email: coord("nf_email"), ville: coord("nf_ville"),
+        },
+      });
+      fournisseurDeLaFacture = nf.id;
+      await journaliser(tx, { entite: "Fournisseur", entiteId: nf.id, champ: "creation", nouvelleValeur: `${fournisseurNom} (auto — facture)`, userId: user.id });
+    }
     const f = await tx.factureFournisseur.create({
       data: {
-        fournisseurId,
+        fournisseurId: fournisseurDeLaFacture,
         fournisseurNom,
         bonDeCommandeId: String(formData.get("bonDeCommandeId") ?? "").trim() || null,
         numero,
@@ -379,9 +359,23 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
         documentUrl,
         mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
+        // Soldée à la saisie : la date du dernier paiement est celle du Paiement créé ci-dessous.
+        ...(datePaiementISO && reste <= 0.001 ? { datePaiement: new Date(datePaiementISO) } : {}),
         lignes: { create: lignes.map((l) => { const { total, ...ligne } = l; void total; return ligne; }) },
       },
     });
+    // « Déjà réglé » à la création = un PAIEMENT daté, dans la devise de la facture (avant : un cumul réglé
+    // sans trace — ni date, ni ligne dans l'historique des paiements, ni « Annuler ce paiement » possible).
+    if (datePaiementISO) {
+      await tx.paiement.create({
+        data: {
+          factureId: f.id, type: "PAIEMENT", devise, date: new Date(datePaiementISO),
+          ...(devise === "USD" ? { montantUSD: montantRegle } : { montantCDF: montantRegle }),
+          modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
+          note: "Déjà réglé à la saisie de la facture", creeParId: user.id,
+        },
+      });
+    }
     if (entrerEnStock) {
       for (const l of lignes) {
         if (!l.articleId) continue; // seules les lignes reliées à un article du catalogue entrent en stock
@@ -404,12 +398,14 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
 
   // Facture enregistrée par un compte non-Direction : notifiée à la Direction (2026-10-07), après
   // l'écriture et avant la redirection, jamais bloquante.
+  // Fournisseur créé par un compte non-Direction : la Direction en est notifiée (doublon, coordonnées à vérifier).
+  if (fournisseurCree) await notifierGesteStock(user, { genre: "FOURNISSEUR", noms: [fournisseurNom], origine: "facture" });
   await notifierGesteStock(user, {
     genre: "FACTURE", factureId: fac.id, numero, fournisseurNom, montantUSD: devise === "USD" ? montant : 0, ...(devise === "CDF" ? { devise, montantCDF: montant } : {}), nbLignes: lignes.length,
     entreeEnStock: entrerEnStock, nbEntrees: entrerEnStock ? lignes.filter((l) => l.articleId).length : 0,
   });
 
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montant} ${devise} (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montant} ${devise} (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}${datePaiementISO ? ` · déjà réglé ${montantRegle} ${devise} le ${datePaiementISO}` : ""}${doublonFacture ? " · créée malgré une facture ressemblante (confirmé)" : ""}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
@@ -592,4 +588,34 @@ export const supprimerFacturesEnLot = actionLisible(async (ids: string[]) => {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
   return dejaSupprimees > 0 ? { n: facs.length, dejaSupprimees } : { n: facs.length };
+});
+
+/**
+ * Corrige l'en-tête d'une facture (numéro, date, échéance, fournisseur, montant) — Direction seule. Les
+ * champs reçus sont comparés à la facture : seules les différences s'écrivent, journalisées avant → après.
+ * Le montant (texte à la française, dans la devise de la facture) n'est modifiable que si rien n'en dépend.
+ */
+export const modifierEnteteFacture = actionLisible(async (id: string, saisie: { numero?: string; date?: string; dateEcheance?: string; fournisseurId?: string; montant?: string }) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const montantTexte = saisie.montant === undefined ? "" : String(saisie.montant).trim();
+  const r = await prisma.$transaction((tx) => corrigerEnteteFactureTx(tx, user.id, String(id), {
+    ...(saisie.numero !== undefined ? { numero: saisie.numero } : {}),
+    ...(saisie.date !== undefined ? { date: saisie.date } : {}),
+    ...(saisie.dateEcheance !== undefined ? { dateEcheance: saisie.dateEcheance } : {}),
+    ...(saisie.fournisseurId !== undefined ? { fournisseurId: saisie.fournisseurId } : {}),
+    ...(montantTexte ? { montant: decSaisi(montantTexte, "montant") } : {}),
+  }));
+  rafraichirFactures([id]);
+  revalidatePath("/stock/mouvements");
+  return r;
+});
+
+/** Annule un paiement (ou un avoir) enregistré par erreur — Direction seule ; le reste et le statut sont recalculés. */
+export const annulerPaiementFacture = actionLisible(async (paiementId: string) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const r = await prisma.$transaction((tx) => annulerPaiementTx(tx, user.id, String(paiementId)));
+  rafraichirFactures([r.factureId]);
+  return r;
 });

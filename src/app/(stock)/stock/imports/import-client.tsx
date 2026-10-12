@@ -97,6 +97,18 @@ export function ImportInventaireClient() {
               <ListePaginee items={sansMatch} libelle="articles" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code})</li>} />
             </details>
           )}
+          {preview.periodeFigee && (
+            <div role="alert" data-periode-figee className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+              <p className="font-medium">Période {preview.periodeFigee.periode} clôturée (et mois antérieurs) : {preview.periodeFigee.nbMouvements} mouvement(s) et {preview.periodeFigee.nbLegumes} achat(s) de légumes de ce classeur sont datés d&apos;un mois figé. L&apos;import sera refusé en entier. Rouvrez les mois concernés (Paramètres → Clôture mensuelle, Direction) ou corrigez les dates du classeur.</p>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground" data-taux-legumes>
+            {preview.resume.legumes > 0
+              ? (preview.tauxLegumes !== null
+                ? <>Achats de légumes : montants en francs convertis au taux des Paramètres, 1 $ = {String(preview.tauxLegumes).replace(".", ",")} FC.</>
+                : <b className="text-amber-700">Achats de légumes : aucun taux de change n&apos;est défini dans les Paramètres — les montants restent en francs, sans équivalent en dollars (rien n&apos;est converti).</b>)
+              : null}
+          </p>
           {negatifs.length > 0 && (
             <div role="alert" data-stocks-negatifs className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
               <p className="font-medium">{negatifs.length} article(s) ont un stock final négatif dans le classeur : un stock ne passe jamais sous 0, l&apos;import sera refusé. Corrigez le classeur (stock initial, entrées, sorties) puis analysez-le à nouveau.</p>
@@ -106,7 +118,7 @@ export function ImportInventaireClient() {
           )}
           {aDecider.length > 0 && (
             <div data-doublons-import className="space-y-2 rounded-md border border-amber-400 bg-amber-50/60 p-2 text-sm">
-              <p className="font-medium text-amber-900">{aDecider.length} article(s) à créer ressemblent à un article du catalogue : choisissez pour chacun avant d&apos;appliquer.</p>
+              <p className="font-medium text-amber-900">{aDecider.length} article(s) sans nom identique au catalogue ressemblent à un article existant (nom approchant) : confirmez ligne par ligne — « Utiliser » pose le stock sur l&apos;article existant, « Créer » en fait un nouveau. Rien n&apos;est rapproché d&apos;office.</p>
               {aDecider.map((a) => {
                 const k = cleArticleImport(a);
                 const c = choix[k];
@@ -123,13 +135,13 @@ export function ImportInventaireClient() {
           )}
           {parNom.length > 0 && (
             <details className="rounded-md border p-2 text-sm">
-              <summary className="cursor-pointer font-medium">{parNom.length} rapprochement(s) par nom (à vérifier)</summary>
+              <summary className="cursor-pointer font-medium">{parNom.length} rapprochement(s) par nom identique (casse, accents, espaces)</summary>
               <ListePaginee items={parNom} libelle="rapprochements" className="mt-1 list-disc pl-5 text-muted-foreground" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} → {a.articleNom}</li>} />
             </details>
           )}
 
           <div className="flex items-center gap-2 pt-1">
-            <button type="button" onClick={appliquer} disabled={isPending || nonDecides.length > 0 || negatifs.length > 0} title={negatifs.length > 0 ? `${negatifs.length} stock(s) final(aux) négatif(s)` : nonDecides.length > 0 ? `${nonDecides.length} article(s) à décider` : undefined} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
+            <button type="button" onClick={appliquer} disabled={isPending || nonDecides.length > 0 || negatifs.length > 0 || !!preview.periodeFigee} title={preview.periodeFigee ? `Période ${preview.periodeFigee.periode} clôturée` : negatifs.length > 0 ? `${negatifs.length} stock(s) final(aux) négatif(s)` : nonDecides.length > 0 ? `${nonDecides.length} article(s) à décider` : undefined} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
             <button type="button" onClick={() => setPreview(null)} className="text-sm text-muted-foreground underline">Annuler</button>
           </div>
         </div>

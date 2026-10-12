@@ -135,19 +135,19 @@ describe("Facture", () => {
     ["ligne_articleId", ""], ["ligne_designation", "Farine"], ["ligne_unite", "kg"], ["ligne_quantite", "5"], ["ligne_prix", "2"],
   ]);
 
-  it("un fournisseur nouveau PROCHE d'un existant : demande confirmation (DOUBLON_POSSIBLE), rien n'est créé", async () => {
+  it("un fournisseur nouveau PROCHE d'un existant : demande de choix (FOURNISSEUR_PROCHE, un seul flux avec « Créer »), rien n'est créé", async () => {
     await prisma.fournisseur.create({ data: { nom: "Boulangerie Ndoki" } });
     const r = await creerFactureAvecLignes(facture("Boulangerie Kasa"));
-    expect(erreurDe(r)).toMatch(/^DOUBLON_POSSIBLE\|Le fournisseur « Boulangerie Kasa » ressemble à « Boulangerie Ndoki »/);
+    expect(erreurDe(r)).toMatch(/^FOURNISSEUR_PROCHE\|.*"creationPossible":true.*Boulangerie Ndoki|^FOURNISSEUR_PROCHE\|.*Boulangerie Ndoki.*"creationPossible":true/);
     expect(await noms()).toEqual(["Boulangerie Ndoki"]);
     expect(await prisma.factureFournisseur.count()).toBe(0);
   }, 60_000);
 
-  it("« Enregistrer quand même » (forcerDoublons) crée le fournisseur ; le compte non-Direction notifie la Direction", async () => {
+  it("« Créer » (fournisseurNouveau) crée le fournisseur ; le compte non-Direction notifie la Direction", async () => {
     await prisma.fournisseur.create({ data: { nom: "Boulangerie Ndoki" } });
     en("resp");
     // La création se termine par une redirection vers la fiche de la facture.
-    await expect(creerFactureAvecLignes(facture("Boulangerie Kasa", { forcerDoublons: "1" }))).rejects.toThrow("NEXT_REDIRECT");
+    await expect(creerFactureAvecLignes(facture("Boulangerie Kasa", { fournisseurNouveau: "1" }))).rejects.toThrow("NEXT_REDIRECT");
     expect(await noms()).toEqual(["Boulangerie Kasa", "Boulangerie Ndoki"]);
     const n = await prisma.notification.findMany({ where: { destinataireUserId: U.dir.id } });
     expect(n.some((x) => /Nouveau fournisseur créé par Jean \(facture\) : « Boulangerie Kasa »/.test(x.message))).toBe(true);

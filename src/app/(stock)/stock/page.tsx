@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { statutAffiche } from "@/lib/facture-echue";
 import { equivalentSomme, formaterMontantFacture, libelleSomme } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
@@ -219,7 +220,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
               {dernieresFactures.map((f) => (
                 <li key={f.id} className="flex items-center justify-between gap-2 py-1.5">
                   <Link href={`/stock/factures/${f.id}`} className="truncate hover:underline">{f.fournisseur?.nom ?? f.fournisseurNom} · {f.devise === "CDF" ? formaterMontantFacture(Number(f.montantCDF), "CDF") : usd(f.montantUSD)}</Link>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[statutAffiche(f)]}`}>{STATUT_FACTURE_LABEL[statutAffiche(f)]}</span>
                 </li>
               ))}
             </ul>

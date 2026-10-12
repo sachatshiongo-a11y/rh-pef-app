@@ -29,6 +29,12 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
     lotsPourDoublons(),
   ]);
 
+  // Ce que l'annulation de chaque import va faire (le confirm() le dit) : nombre de mouvements, d'achats, d'articles touchés.
+  const ops = batches.length > 0
+    ? await prisma.importOperation.groupBy({ by: ["batchId", "entite", "action"], where: { batchId: { in: batches.map((b) => b.id) } }, _count: { _all: true } })
+    : [];
+  const portee = (id: string, entite: string, action: string) => ops.find((o) => o.batchId === id && o.entite === entite && o.action === action)?._count._all ?? 0;
+
   return (
     <div className="w-full space-y-6">
       <div>
@@ -74,7 +80,13 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
                       {b._count.operations > 0 && ` · ${b._count.operations} doublon(s) retiré(s)`}
                     </p>
                   </div>
-                  {!annule && <BoutonAnnulerImport batchId={b.id} libelle={b.libelle} />}
+                  {!annule && (
+                    <BoutonAnnulerImport batchId={b.id} libelle={b.libelle} type={b.type} portee={{
+                      mouvements: portee(b.id, "MouvementStock", "CREATE"), achatsLegumes: portee(b.id, "AchatLegume", "CREATE"),
+                      articlesCrees: portee(b.id, "ArticleStock", "CREATE"), articlesStock: portee(b.id, "Stock", "UPDATE"),
+                      factures: portee(b.id, "FactureFournisseur", "CREATE"), fournisseursCrees: portee(b.id, "Fournisseur", "CREATE"),
+                    }} />
+                  )}
                 </li>
               );
             })}

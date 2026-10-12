@@ -86,7 +86,7 @@ beforeAll(async () => {
   // Factures : 120 à régler cette semaine (sept.), 80 échue non réglée (août), 500 réglée (sept.),
   // 60 réglée d'août.
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Sept", montantUSD: 120, resteAPayerUSD: 120, mois: 9, annee: 2026, statut: "A_REGLER", dateEcheance: d("2026-09-30"), createdAt: new Date("2026-09-20T09:00:00Z") } });
-  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Echue", montantUSD: 80, resteAPayerUSD: 80, mois: 8, annee: 2026, statut: "ECHUE_NON_REGLEE", createdAt: new Date("2026-08-05T09:00:00Z") } });
+  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Echue", montantUSD: 80, resteAPayerUSD: 80, mois: 8, annee: 2026, statut: "ECHUE_NON_REGLEE", dateEcheance: new Date("2026-08-31"), createdAt: new Date("2026-08-05T09:00:00Z") } }); // « échue » se juge à l'échéance (lecture), plus au statut stocké
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Reglee", montantUSD: 500, resteAPayerUSD: 0, mois: 9, annee: 2026, statut: "REGLEE", createdAt: new Date("2026-09-10T09:00:00Z") } });
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Aout", montantUSD: 60, resteAPayerUSD: 0, mois: 8, annee: 2026, statut: "REGLEE", createdAt: new Date("2026-08-12T09:00:00Z") } });
 

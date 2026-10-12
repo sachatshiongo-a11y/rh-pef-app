@@ -65,7 +65,13 @@ export const appliquerFacturesAction = actionLisible(
     const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
     if (fichiers.length === 0) throw new Error("Fichier(s) manquant(s).");
     const libelle = String(formData.get("libelle") ?? "").trim() || `Factures ${jourKinshasa(new Date())}`;
-    const res = await appliquerFactures(fichiers, libelle, user.id);
+    // `forcer` : rangs des lignes « à confirmer » cochées dans l'aperçu ; `choixFournisseurs` : « Utiliser … » / « CREER » par fournisseur proche.
+    const lireJson = (k: string): unknown => { try { return JSON.parse(String(formData.get(k) ?? "")); } catch { return null; } };
+    const brutForcer = lireJson("forcer");
+    const forcer = Array.isArray(brutForcer) ? brutForcer.filter((x): x is string => typeof x === "string") : [];
+    const brutChoix = lireJson("choixFournisseurs");
+    const choixFournisseurs = brutChoix && typeof brutChoix === "object" && !Array.isArray(brutChoix) ? Object.fromEntries(Object.entries(brutChoix).filter(([, v]) => typeof v === "string")) as Record<string, string> : {};
+    const res = await appliquerFactures(fichiers, libelle, user.id, { forcer, choixFournisseurs });
     revalidatePath("/stock/imports");
     revalidatePath("/stock/factures");
     return res;
@@ -112,10 +118,14 @@ export const appliquerMouvementsAction = actionLisible(
   }
 );
 
-/** Annule un import (supprime les créations, restaure les mises à jour). */
-export const annulerImportAction = actionLisible(async (batchId: string): Promise<{ stocksLaisses: string[] }> => {
+/**
+ * Annule un import. Mouvements : l'effet de l'import est défait par variation inverse. Inventaire : refusé
+ * si des saisies sont postérieures, sauf `remettreQuandMeme` (confirmation explicite de la Direction —
+ * cette action n'est ouverte qu'à elle).
+ */
+export const annulerImportAction = actionLisible(async (batchId: string, remettreQuandMeme?: boolean): Promise<{ stocksLaisses: string[]; remisMalgrePosterieur: string[] }> => {
   const user = await gardeDirection();
-  const r = await annulerImport(batchId, user.id);
+  const r = await annulerImport(batchId, user.id, { remettreQuandMeme: remettreQuandMeme === true });
   revalidatePath("/stock/imports");
   revalidatePath("/stock/catalogue", "layout");
   return r; // stocks dont la valeur d'avant était négative : laissés tels quels, nommés

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
-import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
@@ -10,7 +9,8 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 import { versFactureRow } from "./facture-row";
-import { STATUTS_FACTURE_A_REGLER } from "@/lib/fiche-fournisseur";
+import { aujourdhuiEcheance, whereSelonFiltreStatut } from "@/lib/facture-echue";
+import { sqlEchue } from "@/lib/facture-echue-sql";
 import { LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
 import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
@@ -42,9 +42,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const anneeSel: number | null =
     filtreImpayes || sp.annee === "toutes" ? null : Number(sp.annee) || anneeDefaut;
 
+  // « Échue » se juge à la LECTURE (échéance dépassée à Kinshasa, reste à payer) : le statut stocké n'est pas relu.
+  const auj = aujourdhuiEcheance();
+  const echue = sqlEchue(auj);
   const where: Prisma.FactureFournisseurWhereInput = {
-    ...(f === "du" ? { statut: { in: STATUTS_FACTURE_A_REGLER } }
-      : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {}),
+    ...whereSelonFiltreStatut(f, auj),
     ...(anneeSel ? { annee: anneeSel } : {}),
   };
   const orderBy: Prisma.FactureFournisseurOrderByWithRelationInput[] =
@@ -60,15 +62,15 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
              COALESCE(SUM("montantCDF"), 0)::float                                              AS "totalCDF",
              COALESCE(SUM("montantCDF" - "resteAPayerCDF"), 0)::float                           AS "regleCDF",
              COALESCE(SUM("resteAPayerCDF") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS "duCDF",
-             COALESCE(SUM("resteAPayerCDF") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS "echuCDF",
+             COALESCE(SUM("resteAPayerCDF") FILTER (WHERE ${echue}), 0)::float AS "echuCDF",
              COUNT(*) FILTER (WHERE "devise" = 'CDF')::int                                      AS "nbCDF",
              COUNT(*)::int                                                                      AS "nbTotal",
              COALESCE(SUM("montantUSD" - "resteAPayerUSD"), 0)::float                           AS regle,
              COUNT(*) FILTER (WHERE statut = 'REGLEE')::int                                     AS "nbReglees",
              COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS du,
              COUNT(*) FILTER (WHERE statut <> 'REGLEE')::int                                    AS "nbDues",
-             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS echu,
-             COUNT(*) FILTER (WHERE statut = 'ECHUE_NON_REGLEE')::int                           AS "nbEchues"
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE ${echue}), 0)::float AS echu,
+             COUNT(*) FILTER (WHERE ${echue})::int                           AS "nbEchues"
       FROM "stock"."FactureFournisseur"`,
     prisma.config.findUnique({ where: { id: "singleton" } }),
     ciblesEnAttente(), // factures dont le paiement attend la Direction
@@ -177,7 +179,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
-          {estDirection && <ImportFacturesBtn />}
+          {estDirection && <Link href="/stock/imports" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent" title="Aperçu, doublons signalés, devise obligatoire, import annulable">Importer des factures</Link>}
           <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} pdfHref="/stock/factures/imprimer" pdfPage excelHref="/stock/factures/export" />
         </div>
       </div>

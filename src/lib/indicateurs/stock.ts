@@ -1,4 +1,5 @@
 import "server-only";
+import { whereEchues } from "@/lib/facture-echue";
 
 import { prixSaisi, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
@@ -90,7 +91,8 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
     prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Factures échues non réglées.
-    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
+    prisma.factureFournisseur.aggregate({ where: whereEchues(), // « échue » jugée à la lecture (échéance dépassée), pas le statut stocké
+       _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Achats de légumes frais du mois (en cours, ou celui de `options.mois`).
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
     // Consommation du mois, PAR MOTIF : sorties valorisées (montant saisi, sinon quantité × prix catalogue ; un
