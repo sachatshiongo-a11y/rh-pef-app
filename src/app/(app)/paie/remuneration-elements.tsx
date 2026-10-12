@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { EtatVide } from "@/components/etat-vide";
 
 export type LigneRemu = {
   employeeId: string;
@@ -35,11 +36,7 @@ const ELEMENTS: { cle: keyof LigneRemu; label: string; retenue?: boolean }[] = [
  */
 export function RemunerationElements({ lignes }: { lignes: LigneRemu[] }) {
   if (lignes.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-        Aucune paie calculée pour ce mois.
-      </div>
-    );
+    return <EtatVide message="Aucune paie calculée pour ce mois." />;
   }
 
   const masseNette = lignes.reduce((s, l) => s + l.net, 0);

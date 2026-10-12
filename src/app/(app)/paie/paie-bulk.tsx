@@ -16,6 +16,7 @@ import { lignesAValiderDuLot, messageConfirmationValidation } from "./avertissem
 import { ChampDateVersement } from "./champ-date-versement";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { cleSelection, lignesSelectionnees, messageEcartes, messageEcarteesPaiement, partagerPourPaiement } from "./selection-paie";
+import { EtatVide } from "@/components/etat-vide";
 
 export type PaieRow = {
   id: string;
@@ -240,11 +241,7 @@ export function PaieBulk({
       <div className="h-6" />
       <Groupe titre="Backoffice" rows={backofficeAff} selection={selection} onToggle={toggle} onToggleGroupe={toggleGroupe} role={role} />
 
-      {toutes.length === 0 && (
-        <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
-          Aucune paie calculée pour ce mois.
-        </p>
-      )}
+      {toutes.length === 0 && <EtatVide message="Aucune paie calculée pour ce mois." />}
     </div>
   );
 }

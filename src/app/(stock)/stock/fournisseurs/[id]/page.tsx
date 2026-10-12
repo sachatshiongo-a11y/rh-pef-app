@@ -272,7 +272,7 @@ function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: num
       <h2 className="mb-2 text-base font-semibold">Achats directs — Liste d&apos;achat ({nbAchatsDirects})</h2>
       {nbAchatsDirects > achatsDirects.length && <p className="mb-2 text-xs text-muted-foreground">Les {achatsDirects.length} plus récents sont affichés.</p>}
       {achatsDirects.length === 0 ? (
-        <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun achat direct. Choisissez ce fournisseur sur une ligne de la Liste d&apos;achat pour l&apos;y retrouver.</p>
+        <EtatVide message="Aucun achat direct. Choisissez ce fournisseur sur une ligne de la Liste d'achat pour l'y retrouver." />
       ) : (
         <div className="divide-y rounded-lg border text-sm">
           {achatsDirects.map((m) => (

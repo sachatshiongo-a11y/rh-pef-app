@@ -24,6 +24,7 @@ import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 import { exigerPageRH } from "@/lib/garde-page";
 import { peutSupprimer } from "@/lib/suppression-direction";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { EtatVide } from "@/components/etat-vide";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -284,7 +285,7 @@ export default async function PlanningPage({
 
         {/* Grille éditable du mois — cartes de shift (défilement horizontal) */}
         {employees.length === 0 ? (
-          <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
+          <EtatVide message="Aucun employé actif." />
         ) : (
           <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
             <PlanningSemaine
@@ -437,7 +438,7 @@ export default async function PlanningPage({
       {configPanels ?? legende}
 
       {employees.length === 0 ? (
-        <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
+        <EtatVide message="Aucun employé actif." />
       ) : (
         <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
           <PlanningSemaine

@@ -14,6 +14,7 @@ import { sqlEchue } from "@/lib/facture-echue-sql";
 import { LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
 import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
+import { EtatVide } from "@/components/etat-vide";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string; page?: string; par?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -231,7 +232,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       ) : vue === "echeancier" ? (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non réglées). Le cumul aide à planifier la trésorerie.</p>
-          {echeancier.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucune facture à payer — tout est réglé. 🎉</p>}
+          {echeancier.length === 0 && <EtatVide message="Aucune facture à payer : tout est réglé." />}
           {(() => { let cumul = totalVide(); return echeancier.map((g) => { cumul = additionnerTotaux(cumul, g.sousTotal); const cum = cumul; return (
             <div key={g.cle} className={`overflow-hidden rounded-lg border ${g.retard ? "border-red-300" : ""}`}>
               <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-sm font-semibold ${g.retard ? "bg-red-50 text-red-800" : "bg-muted/50"}`}>

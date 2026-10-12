@@ -9,6 +9,7 @@ import { lotsPourDoublons, ACTION_DOUBLON_RETIRE } from "@/lib/doublons-imports"
 import { exigerPageStock } from "@/lib/garde-page";
 import { Pagination } from "@/components/pagination";
 import { PLAFOND_TOUT, fenetrePage, lirePagination } from "@/lib/pagination";
+import { EtatVide } from "@/components/etat-vide";
 
 export default async function ImportsPage({ searchParams }: { searchParams: Promise<{ page?: string; par?: string }> }) {
   const user = await exigerPageStock();
@@ -63,7 +64,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des imports</h2>
         {batches.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun import pour l&apos;instant.</p>
+          <EtatVide message="Aucun import pour l'instant." />
         ) : (
           <ul className="divide-y rounded-lg border">
             {batches.map((b) => {

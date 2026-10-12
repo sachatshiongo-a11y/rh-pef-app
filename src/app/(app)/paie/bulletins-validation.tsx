@@ -15,6 +15,7 @@ import type { PaieRow } from "./paie-bulk";
 import type { Devise } from "@/lib/pdf/theme";
 import type { Role } from "@prisma/client";
 import { formaterNombre } from "@/lib/montant";
+import { EtatVide } from "@/components/etat-vide";
 
 function money(n: number) {
   return formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -52,11 +53,7 @@ export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Rol
   useLockBodyScroll(agrandi);
 
   if (rows.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-        Aucun bulletin calculé pour ce mois.
-      </div>
-    );
+    return <EtatVide message="Aucun bulletin calculé pour ce mois." />;
   }
 
   return (

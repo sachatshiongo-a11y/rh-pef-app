@@ -7,6 +7,7 @@ import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
 import { exigerPageRH } from "@/lib/garde-page";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { EtatVide } from "@/components/etat-vide";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -183,7 +184,7 @@ export default async function AccueilPage() {
               <h2 className="font-semibold">Alertes</h2>
             </div>
             {alertes.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucune alerte. Tout est à jour ✅</p>
+              <div className="p-4"><EtatVide message="Aucune alerte : tout est à jour." /></div>
             ) : (
               <ul className="divide-y">
                 {alertes.map((a, i) => {
@@ -253,7 +254,7 @@ export default async function AccueilPage() {
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-5 py-3"><h2 className="font-semibold">Absences à venir de l&apos;équipe</h2></div>
             {absencesAVenir.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucune absence prévue (30 j).</p>
+              <div className="p-4"><EtatVide message="Aucune absence prévue (30 j)." /></div>
             ) : (
               <ul className="divide-y">
                 {absencesAVenir.map((a) => (
@@ -274,7 +275,7 @@ export default async function AccueilPage() {
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-5 py-3"><h2 className="font-semibold">Anniversaires à venir</h2></div>
             {anniversaires.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucun anniversaire (30 j).</p>
+              <div className="p-4"><EtatVide message="Aucun anniversaire (30 j)." /></div>
             ) : (
               <ul className="divide-y">
                 {anniversaires.map((a) => (
@@ -292,7 +293,7 @@ export default async function AccueilPage() {
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-5 py-3"><h2 className="font-semibold">Contrats à échéance (30 j)</h2></div>
             {contratsEcheance.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucun contrat à échéance.</p>
+              <div className="p-4"><EtatVide message="Aucun contrat à échéance." /></div>
             ) : (
               <ul className="divide-y">
                 {contratsEcheance.map((c) => {

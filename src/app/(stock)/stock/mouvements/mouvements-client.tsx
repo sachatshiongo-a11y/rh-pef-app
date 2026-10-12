@@ -20,6 +20,7 @@ import { lireNombreSaisi } from "@/lib/nombre";
 import { similairesEnStock } from "@/lib/article-proche";
 import { contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 import { mentionSansPrix, sommeValeurs } from "@/lib/valeur-stock";
+import { EtatVide } from "@/components/etat-vide";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -267,7 +268,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
             </details>
           );
         })}
-        {mouvements.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun mouvement.</p>}
+        {mouvements.length === 0 && <EtatVide message="Aucun mouvement." />}
       </div>
     </div>
   );

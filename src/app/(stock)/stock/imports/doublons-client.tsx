@@ -11,6 +11,7 @@ import type { ApercuDoublons, LotImport, MvtDoublon } from "@/lib/doublons-impor
 import { ListePaginee } from "@/components/liste-paginee";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche } from "@/lib/pagination";
+import { EtatVide } from "@/components/etat-vide";
 
 // Outil « Retirer les mouvements en double » (Direction). Règle : on GARDE la copie de l'import de
 // MOUVEMENTS, on RETIRE celle de l'import d'INVENTAIRE. Le stock ne bouge pas : l'inventaire l'a
@@ -153,7 +154,7 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
           )}
 
           {paires.length === 0 ? (
-            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Aucun mouvement en double entre ces imports.</p>
+            <EtatVide message="Aucun mouvement en double entre ces imports." />
           ) : (
             <>
               {/* « Tout sélectionner » = la page ; « Sélectionner les N paires » = toutes (la même liste d'identifiants part à l'action). */}

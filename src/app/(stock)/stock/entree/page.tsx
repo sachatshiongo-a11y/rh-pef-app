@@ -16,6 +16,7 @@ import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } 
 import { bornesGroupe } from "@/lib/groupes-periode";
 import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 import { liensParArticle } from "@/lib/fournisseurs-article";
+import { EtatVide } from "@/components/etat-vide";
 
 type SP = { periode?: string; page?: string; par?: string };
 
@@ -123,7 +124,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         </div>
 
         {groupes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucune entrée enregistrée pour le moment.</p>
+          <EtatVide message="Aucune entrée enregistrée pour le moment." />
         ) : (
           <div className="space-y-2">
             {groupes.map((g) => (

@@ -16,6 +16,7 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
 import { MAX_EXPORT_SELECTION } from "@/lib/export-selection";
 import { ErreurAction } from "@/components/erreur-action";
+import { EtatVide } from "@/components/etat-vide";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
@@ -206,7 +207,7 @@ export function FournisseursClient({ fournisseurs, estDirection, pageInit = 1, p
             </Link>
           </div>
         ))}
-        {visibles.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun fournisseur.</p>}
+        {visibles.length === 0 && <EtatVide message="Aucun fournisseur." />}
       </div>
       <Pagination className="pt-2" total={visibles.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="fournisseurs" />
     </div>

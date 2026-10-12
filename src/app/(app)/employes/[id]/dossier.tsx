@@ -44,6 +44,7 @@ import { LIBELLE_TYPE_CONTRAT, libelleTypeContrat, type Classement } from "@/lib
 import { BoutonMarquerExpire } from "../../paie/marquer-expire";
 // Libellés des types de document : source unique partagée avec l'espace salarié (« Mes documents »).
 import { libelleTypeDocument } from "@/lib/libelles-espace";
+import { EtatVide } from "@/components/etat-vide";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -618,7 +619,7 @@ export function DossierEmploye({
           </div>
         )}
         {attestations.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucune attestation délivrée ni demandée.</p>
+          <EtatVide message="Aucune attestation délivrée ni demandée." />
         ) : (
           <ul className="divide-y rounded-lg border">
             {attestations.map((a) => (
@@ -681,7 +682,7 @@ export function DossierEmploye({
       {/* Prêts au personnel */}
       <Section title="Prêts au personnel">
         {prets.length === 0 ? (
-          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt.</p>
+          <div className="mb-4"><EtatVide message="Aucun prêt." /></div>
         ) : (
           <ul className="mb-4 divide-y">
             {prets.map((p) => {
@@ -864,9 +865,7 @@ export function DossierEmploye({
       {/* Dossier disciplinaire */}
       <Section title="Dossier disciplinaire">
         {disciplinaire.length === 0 ? (
-          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Aucune sanction ni avertissement. ✔
-          </p>
+          <div className="mb-4"><EtatVide message="Aucune sanction ni avertissement." /></div>
         ) : (
           <div className="mb-4 space-y-2">
             {disciplinaire.map((s) => (

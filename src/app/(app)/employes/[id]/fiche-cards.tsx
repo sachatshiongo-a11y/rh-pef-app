@@ -1,5 +1,6 @@
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import type { SourceReference } from "@/lib/paie-reference";
+import { EtatVide } from "@/components/etat-vide";
 
 // Cartes graphiques de la fiche employé (façon Factorial) : absences colorées + jauge d'heures.
 
@@ -55,11 +56,7 @@ const LIBELLE_STATUT: Record<string, { texte: string; classe: string }> = {
 /** Liste graphique des absences (barre de couleur + type + jours + plage de dates). */
 export function AbsencesCard({ absences }: { absences: AbsenceItem[] }) {
   if (absences.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-        Aucune demande de congé enregistrée.
-      </div>
-    );
+    return <EtatVide message="Aucune demande de congé enregistrée." />;
   }
   return (
     <div className="space-y-2">

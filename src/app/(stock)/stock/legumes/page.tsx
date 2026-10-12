@@ -12,6 +12,7 @@ import { TelechargerLien, TelechargerFormulaire } from "@/components/telecharger
 import { Pagination } from "@/components/pagination";
 import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { bornesGroupe } from "@/lib/groupes-periode";
+import { EtatVide } from "@/components/etat-vide";
 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -108,7 +109,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
         </div>
 
         {groupes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun achat enregistré.</p>
+          <EtatVide message="Aucun achat enregistré." />
         ) : (
           <div className="space-y-2">
             {groupes.map((g) => (

@@ -8,6 +8,7 @@ import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import type { EtatSignatureUI } from "@/components/bouton-signer";
 import { libelleTypeContrat } from "@/lib/contrats-classement";
 import { BoutonMarquerExpire } from "./marquer-expire";
+import { EtatVide } from "@/components/etat-vide";
 
 export type ContratRow = {
   id: string;
@@ -37,11 +38,7 @@ export function SuiviContrats({
   const echus = contrats.filter((c) => c.expireNonMarque);
 
   if (contrats.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-        Aucun contrat à échéance, entrée ou fin de période d&apos;essai ce mois-ci.
-      </div>
-    );
+    return <EtatVide message="Aucun contrat à échéance, entrée ou fin de période d'essai ce mois-ci." />;
   }
 
   return (

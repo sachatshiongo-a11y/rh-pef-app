@@ -27,6 +27,7 @@ import { messageConfirmationValidation } from "./avertissements-validation";
 import { exigerPageRH } from "@/lib/garde-page";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { reactiverEmploye } from "../employes/actions";
+import { EtatVide } from "@/components/etat-vide";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -553,7 +554,7 @@ export default async function PaiePage({
               </div>
             </div>
             {pretsRecap.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt en cours.</p>
+              <EtatVide message="Aucun prêt en cours." />
             ) : (
               <ul className="divide-y">
                 {pretsRecap.map((p) => (
