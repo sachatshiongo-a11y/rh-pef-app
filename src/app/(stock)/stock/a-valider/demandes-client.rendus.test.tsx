@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// Écrans des demandes à valider : la file (actions groupées Valider / Refuser avec motif, bilan des
+// Écrans des demandes à valider : la file (actions groupées Approuver / Refuser avec motif, bilan des
 // demandes non traitées, date de paiement corrigible, vue du demandeur) et l'Inventaire en lecture
 // hors Direction. Ce que ces tests ne voient pas : le rendu réel à 375 px (vérifié à l'œil).
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -58,17 +58,17 @@ describe("File de la Direction", () => {
     expect(t).toContain("Réconciliations du stock (1)");
     expect(t).toContain("Modifications d'articles (1)");
     expect(t).toContain("(aujourd'hui : 2,5)");
-    expect(t).toMatch(/ne peut plus être validée telle quelle/);
+    expect(t).toMatch(/ne peut plus être approuvée telle quelle/);
     expect(t).toContain("(4,00 $)"); // valeur d'écart négative : parenthèses, jamais « − »
   });
 
-  it("actions groupées : Valider envoie la sélection (et la date de paiement) ; le bilan nomme la demande non traitée", async () => {
+  it("actions groupées : Approuver envoie la sélection (et la date de paiement) ; le bilan nomme la demande non traitée", async () => {
     A.valider.mockResolvedValueOnce({ traitees: ["p1"], echecs: [{ id: "m1", erreur: "Prix changé — rien n'a été écrit" }] });
     monter(h(DemandesAValider, { demandes: DEMANDES, estDirection: true }));
     const cases = [...conteneur.querySelectorAll<HTMLInputElement>('li input[type="checkbox"]')];
     expect(cases).toHaveLength(3);
     await clic(cases[0]); await clic(cases[2]);
-    await clic(boutons("Valider (2)")[0]);
+    await clic(boutons("Approuver (2)")[0]);
     expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" }, { p1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" }, {}); // la version VUE part avec la décision
     expect(conteneur.textContent).toContain("1 demande approuvée.");
     expect(conteneur.textContent).toContain("« « Riz » : Prix unitaire USD 2 → 3 » : Prix changé — rien n'a été écrit");
@@ -88,10 +88,10 @@ describe("File de la Direction", () => {
 });
 
 describe("Vue du demandeur", () => {
-  it("ni case ni Valider : ses demandes, « En attente de la Direction », et Retirer", async () => {
+  it("ni case ni Approuver : ses demandes, « En attente de la Direction », et Retirer", async () => {
     monter(h(DemandesAValider, { demandes: DEMANDES.slice(0, 1), estDirection: false }));
     expect(conteneur.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(boutons("Valider")).toHaveLength(0);
+    expect(boutons("Approuver")).toHaveLength(0);
     expect(conteneur.textContent).toContain("En attente de la Direction");
     (window as unknown as { confirm: () => boolean }).confirm = () => true;
     await clic(boutons("Retirer ma demande")[0]);
@@ -99,17 +99,17 @@ describe("Vue du demandeur", () => {
   });
 });
 
-describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valider (2026-10-07)", () => {
+describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour l'approuver (2026-10-07)", () => {
   const sortie: ApercuDemande = { ...base, id: "s1", nature: "MOUVEMENT_MANUEL", resume: "Sortie manuelle « Sortie / consommation » : Riz 3 Kg",
     mouvement: { type: "SORTIE", origine: "Sortie / consommation", date: "2026-10-05T00:00:00.000Z", saisisDepuis: [], lignes: [{ articleId: "a1", designation: "Riz", unite: "Kg", quantite: "3", actuel: "10", apres: "7", valeur: -6 }] } };
   const entree: ApercuDemande = { ...sortie, id: "e1", resume: "Entrée manuelle « Correction » : Riz 3 Kg", mouvement: { ...sortie.mouvement!, type: "ENTREE", origine: "Correction", saisisDepuis: ["Riz"] } };
 
-  it("« Valider » reste grisé tant que le motif (et la raison d'une perte) manque ; puis le motif part avec la décision", async () => {
+  it("« Approuver » reste grisé tant que le motif (et la raison d'une perte) manque ; puis le motif part avec la décision", async () => {
     monter(h(DemandesAValider, { demandes: [sortie, entree], estDirection: true }));
     const select = conteneur.querySelector<HTMLSelectElement>("select")!;
     expect([...select.options].map((o) => o.textContent)).toEqual(["— motif —", "Livraison restaurant", "Perte"]);
     expect(conteneur.querySelectorAll("select")).toHaveLength(1); // l'entrée n'a pas de motif de sortie
-    const [validerSortie, validerEntree] = boutons("Valider").filter((b) => /^\W*Valider\s*$/.test(b.textContent ?? ""));
+    const [validerSortie, validerEntree] = boutons("Approuver").filter((b) => /^\W*Approuver\s*$/.test(b.textContent ?? ""));
     expect(validerSortie.disabled).toBe(true);
     expect(validerEntree.disabled).toBe(false);
     act(() => { select.value = "PERTE"; select.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -125,12 +125,12 @@ describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valide
     expect(conteneur.textContent).toContain("Une entrée manuelle a été saisie en direct depuis cette demande sur « Riz »");
   });
 
-  it("actions groupées : « Valider (n) » grisé tant qu'une sortie cochée n'a pas de motif ; le motif en lot part pour chacune", async () => {
+  it("actions groupées : « Approuver (n) » grisé tant qu'une sortie cochée n'a pas de motif ; le motif en lot part pour chacune", async () => {
     const sortie2: ApercuDemande = { ...sortie, id: "s2" };
     monter(h(DemandesAValider, { demandes: [sortie, sortie2, entree], estDirection: true }));
     const cases = [...conteneur.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].filter((c) => c.getAttribute("aria-label")?.startsWith("Sélectionner :"));
     for (const c of cases) await clic(c);
-    const lot = () => boutons("Valider (3)")[0];
+    const lot = () => boutons("Approuver (3)")[0];
     expect(lot().disabled).toBe(true);
     const motifLot = conteneur.querySelector<HTMLSelectElement>('select[aria-label^="Motif des 2 sortie"]')!;
     act(() => { motifLot.value = "LIVRAISON_RESTAURANT"; motifLot.dispatchEvent(new Event("change", { bubbles: true })); });

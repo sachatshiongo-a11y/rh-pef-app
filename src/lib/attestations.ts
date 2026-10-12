@@ -121,7 +121,7 @@ export async function instantaneAttestation(
         ok: false,
         motif: depuis === null
           ? "Aucune paie validée : l'attestation de salaire reprend la dernière paie validée ou payée."
-          : `Aucune paie validée depuis ${MOIS_FR[(depuis % 100) - 1]} ${Math.floor(depuis / 100)} : la Direction doit d'abord valider la paie.`,
+          : `Aucune paie validée depuis ${MOIS_FR[(depuis % 100) - 1]} ${Math.floor(depuis / 100)} : la Direction doit d'abord approuver la paie.`,
       };
     }
     donnees.salaire = {

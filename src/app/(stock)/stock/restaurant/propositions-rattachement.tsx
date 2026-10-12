@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
-import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver } from "@/components/action-buttons";
 import { estErreur } from "@/lib/action-lisible";
 import { ALERTE_UNITE_LABEL, type Proposition } from "@/lib/fiches/rattachement-resto";
 import { accepterPropositions } from "./actions";
@@ -50,7 +50,7 @@ export function PropositionsRattachement({ propositions }: { propositions: Propo
       {message && <p className={`text-xs ${message.erreur ? "text-destructive" : "text-emerald-800"}`}>{message.texte}</p>}
       <BulkBar count={sel.size} total={parDefaut.length} onAll={(on) => setAll(parDefaut, on)}>
         {/* Un rattachement est une DÉCISION : bouton de la famille unique (action-buttons). */}
-        <BoutonValider disabled={isPending} onClick={accepter}>Rattacher ({sel.size})</BoutonValider>
+        <BoutonApprouver disabled={isPending} onClick={accepter}>Rattacher ({sel.size})</BoutonApprouver>
         <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
       </BulkBar>
       <ul className="divide-y rounded-md border bg-card text-sm">

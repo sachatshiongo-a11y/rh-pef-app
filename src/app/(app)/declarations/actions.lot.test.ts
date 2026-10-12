@@ -51,7 +51,7 @@ describe("marquerDeclarationsEnLot", () => {
     m.bordereau.mockResolvedValue({ provisoire: true, nbNonValides: 2, nbBulletins: 5, lignes: [ligne("CNSS")] });
     const r = await marquerDeclarationsEnLot(["CNSS"], 10, 2026, "DECLARE");
     expect(r).toMatchObject({ traitees: 0 });
-    expect((r as { echecs: string[] }).echecs[0]).toContain("Validez la paie du mois d'abord");
+    expect((r as { echecs: string[] }).echecs[0]).toContain("Approuvez la paie du mois d'abord");
     expect(m.upsert).not.toHaveBeenCalled();
   });
 

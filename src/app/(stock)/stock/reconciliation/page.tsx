@@ -89,7 +89,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               <li key={d.id}>{d.resume} <span className="text-xs text-amber-800/80">— {d.auteurNom}, le {d.createdAt.toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}</span></li>
             ))}
           </ul>
-          <Link href="/stock/a-valider" className="mt-1 inline-block text-xs font-medium text-amber-800 underline">{estDirection ? "Valider ou refuser" : "Voir mes demandes"}</Link>
+          <Link href="/stock/a-valider" className="mt-1 inline-block text-xs font-medium text-amber-800 underline">{estDirection ? "Approuver ou refuser" : "Voir mes demandes"}</Link>
         </div>
       )}
 

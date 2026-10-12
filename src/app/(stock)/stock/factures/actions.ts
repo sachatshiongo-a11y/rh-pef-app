@@ -226,7 +226,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
   // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
   if (montantRegle !== 0 && !estDirection(user)) {
-    throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant payé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
+    throw new Error("Un règlement doit être approuvé par la Direction : enregistrez la facture sans montant payé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
   // Un réglé SUPÉRIEUR au montant est refusé (avant : ramené à 0 reste en silence, l'excédent s'évaporait).
   if (montantRegle < 0) throw new Error("Le montant déjà payé ne peut pas être négatif.");
@@ -435,7 +435,7 @@ export const supprimerFacture = actionLisible(async (id: string) => {
 
 /** Réponse d'un geste de règlement fait par un compte qui n'est pas la Direction : rien n'est payé. */
 export type DemandeEnvoyee = { demande: true; message: string };
-const MESSAGE_DEMANDE = "Paiement demandé : il sera enregistré quand la Direction l'aura validé.";
+const MESSAGE_DEMANDE = "Paiement demandé : il sera enregistré quand la Direction l'aura approuvé.";
 
 function rafraichirFactures(ids: string[]) {
   revalidatePath("/stock/factures");
@@ -524,7 +524,7 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
       reglement: { type, montantUSD: devise === "USD" ? texteDecimal(saisi) : null, montantCDF: devise === "CDF" ? texteDecimal(saisi) : null, taux: null, modePaiement: mode, note },
     });
     rafraichirFactures([id]);
-    return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
+    return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura approuvé." : MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
     await verrouillerFacture(tx, id); // avant la lecture des demandes (voir marquerPayee)

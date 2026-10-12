@@ -108,7 +108,7 @@ beforeAll(async () => {
 afterAll(async () => { await fermer?.(); });
 
 describe("Paie : plus aucun geste de décision sur les bulletins, quel que soit le rôle", () => {
-  const GESTES = /Valider\b|Marquer payé|Rouvrir|Annuler le paiement|name="versStatut"|type="checkbox"|Tout sélectionner|actions groupées|sélectionné/;
+  const GESTES = /Approuver\b|Marquer payé|Rouvrir|Annuler le paiement|name="versStatut"|type="checkbox"|Tout sélectionner|actions groupées|sélectionné/;
 
   it.each(["DIR", "MGR", "VIEW"] as Compte[])("%s : la liste des bulletins s'affiche (noms, statuts, téléchargements) sans bouton ni case ni formulaire de décision", async (c) => {
     en(c);
@@ -170,7 +170,7 @@ describe("À valider : tous les gestes de Paie y sont, au rôle qui les avait", 
     expect(t).toContain("Salarie Marque A-valider");
     expect(t).toContain("Bulletins à valider (1)");
     expect(t).toContain("Bulletins à payer (2)");
-    expect(t).toMatch(/✓ Valider|Valider/); // valider (ligne)
+    expect(t).toMatch(/✓ Approuver/); // approuver (ligne)
     expect(t).toContain("Marquer payé");
     expect(t).toContain("↩ Rouvrir");
     expect(html).toContain('type="checkbox"'); // lots
@@ -201,14 +201,14 @@ describe("À valider : tous les gestes de Paie y sont, au rôle qui les avait", 
     expect(html).not.toContain('id="bulletins-payes"');
     expect(t).not.toContain("Salarie Marque A-valider");
     expect(t).not.toContain("Salarie Marque Paye");
-    expect(t).not.toMatch(/✓ Valider|\bValider\b/);
+    expect(t).not.toMatch(/✓ Approuver|\bApprouver\b/);
   });
 
   it("consultation : rien du tout", async () => {
     en("VIEW");
     const html = await aValider();
     expect(html).not.toContain('type="checkbox"');
-    expect(texte(html)).not.toMatch(/Marquer payé|Rouvrir|Annuler le paiement|Valider|Salarie Marque/);
+    expect(texte(html)).not.toMatch(/Marquer payé|Rouvrir|Annuler le paiement|Approuver|Salarie Marque/);
   });
 });
 

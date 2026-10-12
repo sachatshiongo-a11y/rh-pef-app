@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { modifierEnteteFacture } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
-import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver } from "@/components/action-buttons";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
 
@@ -73,7 +73,7 @@ export function CorrigerEntete({ id, numero, date, echeance, fournisseurId, mont
       </div>
       <p className="text-[11px] text-muted-foreground">La date d&apos;une facture qui a fait entrer du stock ne se corrige pas ici (refus expliqué) ; une date n&apos;entre ni ne sort d&apos;un mois clôturé. Le libellé des mouvements déjà écrits n&apos;est pas réécrit.</p>
       <div className="flex flex-wrap items-center gap-2">
-        <BoutonValider onClick={enregistrer} disabled={isPending}>{isPending ? "…" : "Enregistrer la correction"}</BoutonValider>
+        <BoutonApprouver onClick={enregistrer} disabled={isPending}>{isPending ? "…" : "Enregistrer la correction"}</BoutonApprouver>
         <BoutonNeutre onClick={() => { setOuvert(false); setErreur(null); }}>Annuler</BoutonNeutre>
         {erreur && <span className="text-xs text-destructive" role="alert">{erreur}</span>}
       </div>

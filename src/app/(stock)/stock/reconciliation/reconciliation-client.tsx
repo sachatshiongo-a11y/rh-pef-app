@@ -207,7 +207,7 @@ export function ReconciliationForm({ articles, domaineInit = "", estDirection = 
         ok: true,
         texte: r.applique
           ? r.nbEcarts > 0 ? "Comptage appliqué : le stock a été ajusté au réel." : "Comptage archivé : aucun écart, le stock était juste."
-          : `Comptage envoyé à la Direction (${r.nbEcarts} écart${r.nbEcarts > 1 ? "s" : ""}) : le stock sera ajusté quand elle l'aura validé.`,
+          : `Comptage envoyé à la Direction (${r.nbEcarts} écart${r.nbEcarts > 1 ? "s" : ""}) : le stock sera ajusté quand elle l'aura approuvé.`,
       });
       viderSaisis();
       setCle((c) => c + 1);

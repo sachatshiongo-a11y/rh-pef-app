@@ -11,7 +11,7 @@ import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
 import { STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import { libelleTotalGroupe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { estErreur } from "@/lib/action-lisible";
-import { BoutonValider, BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -62,7 +62,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
               Sélectionner les {commandes.length} bons du filtre
             </button>
           )}
-          <BoutonValider disabled={isPending || brouillons.length === 0} onClick={() => run(() => validerBonsEnLot(brouillons))}>{`Valider (${brouillons.length})`}</BoutonValider>
+          <BoutonApprouver disabled={isPending || brouillons.length === 0} onClick={() => run(() => validerBonsEnLot(brouillons))}>{`Approuver (${brouillons.length})`}</BoutonApprouver>
           <BoutonDanger disabled={isPending} onClick={() => { if (confirm(`Supprimer ${sel.size} bon(s) de commande ?`)) run(() => supprimerBonsEnLot(ids)); }}>✕ Supprimer ({sel.size})</BoutonDanger>
           <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
         </BulkBar>

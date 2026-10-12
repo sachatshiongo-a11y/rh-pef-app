@@ -59,13 +59,13 @@ describe("Bons de commande paginés", () => {
     expect(window.location.search).toBe("?par=tout");
   });
 
-  it("« Tout sélectionner » = la page ; le lien = les 120 ; Valider reçoit les 120 brouillons", async () => {
+  it("« Tout sélectionner » = la page ; le lien = les 120 ; Approuver reçoit les 120 brouillons", async () => {
     monter();
     clic(conteneur.querySelector('label input[type="checkbox"]')!);
     expect(texte()).toContain("50 sélectionné(s)");
     clic(conteneur.querySelector('[data-tout-le-filtre="proposer"]')!);
     expect(texte()).toContain("120 sélectionné(s)");
-    await act(async () => { [...conteneur.querySelectorAll("button")].find((b) => b.textContent?.includes("Valider"))!.click(); });
+    await act(async () => { [...conteneur.querySelectorAll("button")].find((b) => b.textContent?.includes("Approuver"))!.click(); });
     expect(appels.validerBonsEnLot.mock.calls[0][0]).toHaveLength(120);
   });
 

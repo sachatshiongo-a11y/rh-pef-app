@@ -57,17 +57,17 @@ export const MESSAGE_VALIDATION_OCCUPEE =
 export const MESSAGE_TAUX_CHANGE =
   "Les montants en francs ont changé (taux de change modifié depuis l'affichage) : rechargez la page.";
 
-/** Valider sans les montants affichés (jeton obligatoire pour valider et payer, 2026-10-01). */
+/** Approuver sans les montants affichés (jeton obligatoire pour approuver et payer, 2026-10-01). */
 export const MESSAGE_VALIDATION_SANS_JETON =
-  "Les montants affichés n'ont pas été transmis : rechargez la page Paie avant de valider.";
+  "Les montants affichés n'ont pas été transmis : rechargez la page Paie avant d'approuver.";
 
 export const MESSAGE_LIGNE_RECALCULEE =
-  "La paie a été recalculée depuis l'affichage de cette page : rechargez la page Paie avant de valider.";
+  "La paie a été recalculée depuis l'affichage de cette page : rechargez la page Paie avant d'approuver.";
 
 /** Salarié qui n'est plus calculé (fiche désactivée, passé en intérim) mais dont la ligne rouverte
  *  reste (le recalcul ne supprime jamais une ligne qui a un historique) : dire comment en sortir. */
 export function messageNonCalcules(noms: string[]): string {
-  return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée, passage en intérim, ou embauche postérieure au mois) : sa ligne ne peut pas être validée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), elle est « hors calcul » : elle ne compte nulle part et la clôture la laisse de côté — pour la payer, réactivez la fiche le temps de valider la paie du mois en cours (une paie d'un mois passé déjà clôturé ne bouge plus).`;
+  return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée, passage en intérim, ou embauche postérieure au mois) : sa ligne ne peut pas être approuvée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), elle est « hors calcul » : elle ne compte nulle part et la clôture la laisse de côté — pour la payer, réactivez la fiche le temps d'approuver la paie du mois en cours (une paie d'un mois passé déjà clôturé ne bouge plus).`;
 }
 
 /** Clôture demandée par la RH alors que la Direction n'a pas tout validé (décision du 2026-10-01). */
@@ -79,11 +79,11 @@ export function messageAttenteDirection(n: number): string {
  *  (`netNonValidable`, paie-avertissements-mois.ts). */
 export function messageNetNonPositif(lignes: { nom: string; net: number; acompte: number; pret: number }[]): string {
   const detail = lignes.map((l) => `${l.nom} (total versé ${usdSigne(l.net)} ; acompte ${usdSigne(l.acompte)}, échéance de prêt ${usdSigne(l.pret)})`).join(", ");
-  return `Total versé (net à payer) négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant de valider — le logiciel ne plafonne rien de lui-même.`;
+  return `Total versé (net à payer) négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant d'approuver — le logiciel ne plafonne rien de lui-même.`;
 }
 
 export function messagePaieChangee(noms: string[]): string {
-  return `La paie de ${noms.join(", ")} a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant de valider.`;
+  return `La paie de ${noms.join(", ")} a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant d'approuver.`;
 }
 
 /** Refus d'une validation : message destiné à l'écran, renvoyé comme une valeur par les actions. */

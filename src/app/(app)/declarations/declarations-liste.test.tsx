@@ -75,7 +75,7 @@ describe("DeclarationsListe — actions groupées", () => {
 
   it("paie provisoire : on ne déclare pas, on le dit sur la ligne", () => {
     monter({ provisoire: true });
-    expect(conteneur.textContent).toContain("Validez la paie d'abord");
+    expect(conteneur.textContent).toContain("Approuvez la paie d'abord");
     act(() => casesTableau()[0].click());
     expect(bouton(barre(), /Marquer déclaré/).textContent).toBe("Marquer déclaré (0)");
     expect((bouton(barre(), /Marquer déclaré/) as HTMLButtonElement).disabled).toBe(true);

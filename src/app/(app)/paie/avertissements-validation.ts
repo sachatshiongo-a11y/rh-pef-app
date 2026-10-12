@@ -1,5 +1,5 @@
 // Confirmation AVANT validation de la paie — module PUR. Décision Direction 2026-09-23 : les
-// avertissements ne bloquent jamais ; ils sont montrés une fois, clairement, au moment de valider.
+// avertissements ne bloquent jamais ; ils sont montrés une fois, clairement, au moment d'approuver.
 import type { AvertissementPaie } from "@/lib/paie-reference";
 
 export type LigneAAvertir = { nom: string; avertissements: AvertissementPaie[] };
@@ -8,7 +8,7 @@ export type LigneAAvertir = { nom: string; avertissements: AvertissementPaie[] }
 export const MAX_SALARIES_CONFIRMATION = 10;
 
 /**
- * Message de la boîte de confirmation, ou `null` s'il n'y a rien à signaler (validation directe).
+ * Message de la boîte de confirmation, ou `null` s'il n'y a rien à signaler (approbation directe).
  * Au plus MAX_SALARIES_CONFIRMATION salariés sont détaillés (tous leurs avertissements, chaque
  * message ENTIER — jamais coupé au milieu) ; les suivants sont comptés dans « … et N autres ».
  */
@@ -21,12 +21,12 @@ export function messageConfirmationValidation(lignes: LigneAAvertir[]): string |
   if (reste > 0) {
     puces.push(`… et ${reste} ${reste === 1 ? "autre salarié" : "autres salariés"} avec des avertissements`);
   }
-  return `Avant de valider (la validation reste possible) :\n\n${puces.join("\n")}\n\nValider quand même ?`;
+  return `Avant d'approuver (l'approbation reste possible) :\n\n${puces.join("\n")}\n\nApprouver quand même ?`;
 }
 
 /**
  * Lignes d'un lot qui vont RÉELLEMENT être validées : cochées ET « pas validé » (le serveur
- * ignore les autres ; « Valider » sur une ligne payée serait une réouverture, pas une validation).
+ * ignore les autres ; « Approuver » sur une ligne payée serait une réouverture, pas une approbation).
  * À appeler sur TOUTES les lignes, pas seulement celles du filtre affiché : une ligne cochée
  * puis masquée par le filtre part aussi au lot.
  */

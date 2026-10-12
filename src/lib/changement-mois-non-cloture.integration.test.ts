@@ -55,7 +55,7 @@ describe("quitter un mois non clôturé", () => {
 
   it("paie calculée, bulletin non validé : refusé, le mois ne bouge pas", async () => {
     await calculerPaieDuMois();
-    expect(await changerMois(10)).toBe("/parametres?erreur=La paie du mois en cours n'est pas clôturée et 1 bulletin(s) ne sont pas validés (Bea Bureau) : validez-les et clôturez la paie, ou réinitialisez-la s'il ne s'agit que de brouillons, avant de changer de mois.");
+    expect(await changerMois(10)).toBe("/parametres?erreur=La paie du mois en cours n'est pas clôturée et 1 bulletin(s) ne sont pas validés (Bea Bureau) : approuvez-les et clôturez la paie, ou réinitialisez-la s'il ne s'agit que de brouillons, avant de changer de mois.");
     expect(await moisRH()).toBe("9/2026");
   });
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { WHERE_LIGNE_SANS_PRIX, libelleTotalBon } from "@/lib/bon-commande-devise";
 import { validerBonCommande } from "../commandes/actions";
-import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { BoutonApprouver, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { exigerPageStock } from "@/lib/garde-page";
 import { apercusDemandes } from "@/lib/validations-stock/apercu";
 import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
@@ -52,7 +52,7 @@ export default async function AValiderPage() {
                 <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>
                 {estDirection ? (
                   <form action={validerBonCommande.bind(null, bc.id)}>
-                    <BoutonValider type="submit" />
+                    <BoutonApprouver type="submit" />
                   </form>
                 ) : (
                   <span className="text-xs text-amber-700">En attente Direction</span>
@@ -75,7 +75,7 @@ export default async function AValiderPage() {
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">À valider</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {estDirection ? "Demandes en attente de votre décision" : "Vos demandes en attente de la Direction : rien n'est payé ni modifié tant qu'elle ne les a pas validées"}
+            {estDirection ? "Demandes en attente de votre décision" : "Vos demandes en attente de la Direction : rien n'est payé ni modifié tant qu'elle ne les a pas approuvées"}
           </p>
         </div>
         <div className="rounded-xl border bg-card px-6 py-4 shadow-sm">

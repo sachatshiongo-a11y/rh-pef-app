@@ -1,6 +1,6 @@
 // GARDE-FOU « UN BULLETIN SE DÉCIDE DANS À VALIDER, JAMAIS DEPUIS PAIE » (plan d'ergonomie, lot 8, V5).
 //
-// Valider, payer, rouvrir et annuler un paiement passent par deux actions serveur : `changerStatutPaie` (une
+// Approuver (état « Validé »), payer, rouvrir et annuler un paiement passent par deux actions serveur : `changerStatutPaie` (une
 // ligne, formulaire) et `changerStatutEnLot` (un lot). Avant le lot 8 elles étaient appelées par l'écran Paie ET
 // par À valider (deux listes pour un même geste, audit D8). Désormais seul « À valider » les appelle : si un
 // écran de Paie (ou n'importe quel autre) se remet à les appeler, ce test échoue.

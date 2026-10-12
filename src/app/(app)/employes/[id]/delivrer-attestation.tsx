@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { estErreur } from "@/lib/action-lisible";
 import { LIBELLE_TYPE_ATTESTATION, type TypeAttestationCode } from "@/lib/attestations-donnees";
@@ -26,7 +26,7 @@ export function DelivrerAttestation({ employeeId }: { employeeId: string }) {
           <option key={t} value={t}>{LIBELLE_TYPE_ATTESTATION[t]}</option>
         ))}
       </select>
-      <BoutonValider
+      <BoutonApprouver
         type="button"
         disabled={enCours}
         onClick={() => {
@@ -40,7 +40,7 @@ export function DelivrerAttestation({ employeeId }: { employeeId: string }) {
         }}
       >
         {enCours ? "Délivrance…" : "Délivrer une attestation"}
-      </BoutonValider>
+      </BoutonApprouver>
       {resultat && (
         <span className="text-sm">
           {resultat.numero} délivrée —{" "}

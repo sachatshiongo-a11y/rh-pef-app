@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
-import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver } from "@/components/action-buttons";
 import { estErreur } from "@/lib/action-lisible";
 import { formaterNombre } from "@/lib/montant";
 import { marquerDeclarationsEnLot, type RapportMarquageLot } from "./actions";
@@ -71,9 +71,9 @@ export function DeclarationsListe({ lignes, mois, annee, periode, provisoire, es
 
   const actionsLigne = (l: LigneDeclarationEcran) => (
     <>
-      {provisoire && l.statut === "A_DECLARER" && <span className="text-xs italic text-muted-foreground">Validez la paie d&apos;abord</span>}
+      {provisoire && l.statut === "A_DECLARER" && <span className="text-xs italic text-muted-foreground">Approuvez la paie d&apos;abord</span>}
       {peutDeclarer(l) && <BoutonNeutre disabled={enCours} onClick={() => marquer([l], "DECLARE")}>Marquer déclaré</BoutonNeutre>}
-      {peutPayer(l) && <BoutonValider disabled={enCours} onClick={() => marquer([l], "PAYE")}>Marquer payé</BoutonValider>}
+      {peutPayer(l) && <BoutonApprouver disabled={enCours} onClick={() => marquer([l], "PAYE")}>Marquer payé</BoutonApprouver>}
       {l.statut === "PAYE" && <span className="text-xs text-muted-foreground">—</span>}
     </>
   );
@@ -92,7 +92,7 @@ export function DeclarationsListe({ lignes, mois, annee, periode, provisoire, es
       {estAdmin && (
         <BulkBar count={sel.size} total={lignes.length} onAll={(on) => setAll(lignes.map((l) => l.type), on)}>
           <BoutonNeutre disabled={enCours || aDeclarer.length === 0} onClick={() => marquer(aDeclarer, "DECLARE")}>Marquer déclaré ({aDeclarer.length})</BoutonNeutre>
-          <BoutonValider disabled={enCours || aPayer.length === 0} onClick={() => marquer(aPayer, "PAYE")}>Marquer payé ({aPayer.length})</BoutonValider>
+          <BoutonApprouver disabled={enCours || aPayer.length === 0} onClick={() => marquer(aPayer, "PAYE")}>Marquer payé ({aPayer.length})</BoutonApprouver>
           <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
         </BulkBar>
       )}

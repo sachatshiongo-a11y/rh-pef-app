@@ -55,7 +55,7 @@ export async function ClotureStockSection() {
                 </form>
               ) : (
                 <form action={cloturerMoisStock.bind(null, m.annee, m.mois)}>
-                  <ConfirmSubmitButton variante="valider" message={`Clôturer ${m.label} ? L'inventaire d'AUJOURD'HUI est figé (stock au moment de la clôture), et plus aucun mouvement daté dans ce mois ou avant ne pourra être créé ni supprimé tant qu'il n'est pas rouvert.`}>Clôturer</ConfirmSubmitButton>
+                  <ConfirmSubmitButton variante="approuver" message={`Clôturer ${m.label} ? L'inventaire d'AUJOURD'HUI est figé (stock au moment de la clôture), et plus aucun mouvement daté dans ce mois ou avant ne pourra être créé ni supprimé tant qu'il n'est pas rouvert.`}>Clôturer</ConfirmSubmitButton>
                 </form>
               )}
             </div>

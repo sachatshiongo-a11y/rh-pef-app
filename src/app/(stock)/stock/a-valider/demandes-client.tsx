@@ -17,7 +17,7 @@ const quand = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-d
 
 /**
  * File des demandes en attente, regroupées par nature. Direction : cases à cocher + barre d'actions
- * groupées (Valider / Refuser avec UN motif), et les mêmes gestes ligne par ligne. Autre compte : ses
+ * groupées (Approuver / Refuser avec UN motif), et les mêmes gestes ligne par ligne. Autre compte : ses
  * propres demandes, qu'il peut retirer. Chaque demande est décidée dans SA transaction : le bilan
  * nomme celles qui n'ont pas pu l'être (demande périmée…) au lieu de vider la sélection en silence.
  */
@@ -101,7 +101,7 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
                   )}
                 </>
               )}
-              <BoutonApprouver disabled={isPending || sortiesCochees.some(motifIncomplet)} title={sortiesCochees.some(motifIncomplet) ? "Choisissez le motif des sorties cochées" : undefined} onClick={() => decider(() => validerDemandes(ids, datesDe(ids), versionsDe(ids), motifsDe(ids)), "approuvée")}>Valider ({sel.size})</BoutonApprouver>
+              <BoutonApprouver disabled={isPending || sortiesCochees.some(motifIncomplet)} title={sortiesCochees.some(motifIncomplet) ? "Choisissez le motif des sorties cochées" : undefined} onClick={() => decider(() => validerDemandes(ids, datesDe(ids), versionsDe(ids), motifsDe(ids)), "approuvée")}>Approuver ({sel.size})</BoutonApprouver>
               <BoutonRefuser disabled={isPending} onClick={() => setRefusLot(true)}>Refuser ({sel.size})</BoutonRefuser>
               <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
             </>
@@ -158,7 +158,7 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
                       )}
                       {estDirection && refusUn !== d.id && (
                         <>
-                          <BoutonApprouver disabled={isPending || d.illisible || motifIncomplet(d)} onClick={() => decider(() => validerDemandes([d.id], datesDe([d.id]), versionsDe([d.id]), motifsDe([d.id])), "approuvée")}>Valider</BoutonApprouver>
+                          <BoutonApprouver disabled={isPending || d.illisible || motifIncomplet(d)} onClick={() => decider(() => validerDemandes([d.id], datesDe([d.id]), versionsDe([d.id]), motifsDe([d.id])), "approuvée")}>Approuver</BoutonApprouver>
                           <BoutonRefuser disabled={isPending} onClick={() => { setRefusUn(d.id); setMotifUn(""); }}>Refuser</BoutonRefuser>
                         </>
                       )}

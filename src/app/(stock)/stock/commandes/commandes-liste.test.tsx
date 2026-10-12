@@ -43,10 +43,10 @@ afterEach(() => {
 });
 
 describe("actions groupées sur les bons", () => {
-  it("après « Valider » réussi, l'écran est actualisé", async () => {
+  it("après « Approuver » réussi, l'écran est actualisé", async () => {
     rendre({ commandes: COMMANDES, estDirection: true, sansFournisseur: true });
     act(() => (conteneur.querySelector('label input[type="checkbox"]') as HTMLElement).click());
-    await act(async () => { bouton("Valider").click(); });
+    await act(async () => { bouton("Approuver").click(); });
     expect(appels.validerBonsEnLot).toHaveBeenCalledWith(["a"]);
     expect(refresh).toHaveBeenCalledTimes(1);
   });

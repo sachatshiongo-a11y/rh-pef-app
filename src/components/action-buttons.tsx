@@ -2,7 +2,7 @@
 // Avant : la même décision (approuver/refuser une demande) était peinte de six façons
 // différentes selon l'écran — aplat, pastille, contour, couleurs en dur. Ici, l'icône et
 // la forme sont DANS le composant : un écran ne peut plus les faire dériver.
-// Vert = approuver/valider, rouge = refuser (toujours un APLAT, jamais un contour — à
+// Vert = approuver, rouge = refuser (toujours un APLAT, jamais un contour — à
 // côté d'un aplat vert, un contour se lit comme secondaire alors que les deux décisions
 // ont le même poids). rounded-md et non rounded-full : c'est la forme de tous les autres
 // boutons du logiciel, la cohérence d'ensemble prime sur celle d'un écran.
@@ -29,7 +29,7 @@ const BASE_CLASSES = CLASSES_GEOMETRIE;
 // <form>. Même géométrie que BASE_CLASSES : c'est la norme, et une barre
 // d'actions qui contient un bouton de la famille doit être homogène jusqu'au dernier élément.
 // À réserver aux étapes intermédiaires qui ne sont ni une approbation ni un refus — pour
-// approuver/refuser/valider, toujours un composant ci-dessous.
+// approuver/refuser, toujours un composant ci-dessous.
 export const CLASSES_NEUTRE = `${BASE_CLASSES} border hover:bg-accent`;
 // Contour destructif PLEIN, jamais atténué : ces boutons effacent (une paie calculée, une
 // sélection de commandes). Une bordure à 40 % les faisait passer pour anodins — l'action, elle,
@@ -45,7 +45,13 @@ function fusionner(...classes: (string | undefined)[]) {
   return classes.filter(Boolean).join(" ");
 }
 
-/** Bouton d'approbation — aplat vert (bg-success), icône ✓, libellé « Approuver » par défaut. */
+/**
+ * Bouton d'approbation — aplat vert (bg-success), icône ✓, libellé « Approuver » par défaut.
+ * C'est LE bouton vert de la famille : avec un refus en vis-à-vis (une demande) ou seul (un bon de
+ * commande, un bulletin, un lot), et avec un libellé propre quand le geste a un verbe plus juste
+ * (« Clôturer », « Délivrer », « Marquer payé »). « Valider » n'est plus un libellé de décision
+ * (décision de la Direction du 2026-10-12) ; « Validé » reste un ÉTAT, jamais un bouton.
+ */
 export function BoutonApprouver({ children, className, ...props }: BoutonActionProps) {
   return (
     <button
@@ -75,23 +81,6 @@ export function BoutonRefuser({ children, className, ...props }: BoutonActionPro
 }
 
 /**
- * Bouton de validation à sens unique (pas de « refus » en vis-à-vis) — même aplat vert que
- * BoutonApprouver, mais pour les écrans où l'action n'a pas d'opposé (valider un bon de
- * commande, valider/marquer payé un bulletin de paie...). Icône ✓, libellé « Valider » par défaut.
- */
-export function BoutonValider({ children, className, ...props }: BoutonActionProps) {
-  return (
-    <button
-      {...props}
-      className={fusionner(BASE_CLASSES, "bg-success text-success-foreground hover:bg-success/90", className)}
-    >
-      <span aria-hidden="true">✓</span>
-      {children ?? "Valider"}
-    </button>
-  );
-}
-
-/**
  * Bouton neutre — pour une étape intermédiaire qui n'est ni une approbation ni un refus
  * (ex. « Rouvrir » un bulletin déjà validé, « Désélectionner »). Pas d'icône imposée : le
  * libellé la porte au besoin (« ↩ Rouvrir »).
@@ -108,7 +97,7 @@ export function BoutonNeutre({ children, className, ...props }: BoutonActionProp
  * Bouton destructif — une SUPPRESSION, pas un refus : le libellé « Refuser » mentirait, donc
  * il a sa propre entrée dans la famille. Contour rouge (jamais un aplat : un aplat rouge est
  * réservé au refus d'une demande, qui pèse autant qu'une approbation), mais MÊME GÉOMÉTRIE
- * que les autres — c'est tout l'objet de son existence : il vit à côté d'un BoutonValider
+ * que les autres — c'est tout l'objet de son existence : il vit à côté d'un BoutonApprouver
  * dans une barre d'actions groupées, et une barre d'actions doit être homogène.
  * Couleurs reprises telles quelles de l'existant, seule la géométrie est normalisée.
  */

@@ -11,7 +11,7 @@ import { symboleDevise } from "@/lib/facture-devise";
 import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 import { LierFacture } from "./lier-facture";
-import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { BoutonApprouver, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
@@ -93,7 +93,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
               <Link href={`/stock/commandes/${bc.id}/modifier`} className={CLASSES_NEUTRE}>Modifier le brouillon</Link>
               {estDirection ? (
                 <form action={validerBonCommande.bind(null, bc.id)}>
-                  <BoutonValider type="submit">Valider le bon de commande</BoutonValider>
+                  <BoutonApprouver type="submit">Approuver le bon de commande</BoutonApprouver>
                 </form>
               ) : (
                 <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">En attente de validation par la Direction</span>
@@ -119,8 +119,8 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
 
       {estBrouillon && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Ce bon est un <strong>brouillon</strong>. Vérifiez l&apos;aperçu ci-dessous, puis <strong>validez-le</strong> :
-          l&apos;export PDF, l&apos;impression et l&apos;envoi ne sont possibles qu&apos;après validation.
+          Ce bon est un <strong>brouillon</strong>. Vérifiez l&apos;aperçu ci-dessous, puis <strong>approuvez-le</strong> :
+          l&apos;export PDF, l&apos;impression et l&apos;envoi ne sont possibles qu&apos;après approbation.
         </p>
       )}
 

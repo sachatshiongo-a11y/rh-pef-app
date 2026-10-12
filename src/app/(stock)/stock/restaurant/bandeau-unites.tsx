@@ -32,7 +32,7 @@ export function BandeauUnites({ ecarts, estDirection }: { ecarts: EcartAffiche[]
       if (estErreur(r)) { setApercu(null); setRetour({ texte: r.erreur, erreur: true }); return; }
       if ("aConfirmer" in r && r.aConfirmer) { setApercu({ ids, message: r.message }); return; }
       setApercu(null);
-      setRetour({ texte: "enAttente" in r && r.enAttente ? "Demande envoyée à la Direction : l'unité ne change qu'une fois validée (Stock → À valider)." : `Unité alignée sur l'Inventaire (${"modifies" in r ? r.modifies : 0} article(s)).`, erreur: false });
+      setRetour({ texte: "enAttente" in r && r.enAttente ? "Demande envoyée à la Direction : l'unité ne change qu'une fois approuvée (Stock → À valider)." : `Unité alignée sur l'Inventaire (${"modifies" in r ? r.modifies : 0} article(s)).`, erreur: false });
     });
   };
 

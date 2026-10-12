@@ -1,6 +1,6 @@
 "use client";
 
-import { BoutonApprouver, BoutonNeutre, BoutonRefuser, BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonNeutre, BoutonRefuser } from "@/components/action-buttons";
 
 /**
  * Bouton de formulaire qui demande une confirmation navigateur avant de soumettre.
@@ -16,7 +16,6 @@ import { BoutonApprouver, BoutonNeutre, BoutonRefuser, BoutonValider } from "@/c
  */
 
 const VARIANTES = {
-  valider: BoutonValider,
   approuver: BoutonApprouver,
   refuser: BoutonRefuser,
   neutre: BoutonNeutre,

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { marquerPayee } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonNeutre } from "@/components/action-buttons";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { BasculeDevise, SaisieDollars, SaisieFrancs, dollarsProposes, francsProposes, type DevisePaiement } from "../devise-paiement";
 import type { DeviseFacture } from "@/lib/facture-devise";
@@ -49,7 +49,7 @@ export function MarquerPayeeBtn({ id, estDirection = true, reste = 0, taux = 0, 
     return (
       <div className="flex items-center gap-2">
         {/* Hors Direction, le geste DEMANDE le paiement (validé ensuite par la Direction). */}
-        <BoutonValider onClick={() => setOuvert(true)}>{estDirection ? "Marquer payée" : "Demander le paiement"}</BoutonValider>
+        <BoutonApprouver onClick={() => setOuvert(true)}>{estDirection ? "Marquer payée" : "Demander le paiement"}</BoutonApprouver>
         {erreur && <span className="text-xs text-destructive">{erreur}</span>}
       </div>
     );
@@ -65,7 +65,7 @@ export function MarquerPayeeBtn({ id, estDirection = true, reste = 0, taux = 0, 
       </div>
       {!enFC && devise === "CDF" && <SaisieFrancs francs={francs} onFrancs={setFrancs} reste={reste} taux={taux} demande={!estDirection} />}
       {enFC && devise === "USD" && <SaisieDollars dollars={dollars} onDollars={setDollars} reste={reste} taux={taux} demande={!estDirection} />}
-      <BoutonValider onClick={confirmer} disabled={isPending || montantManquant}>{isPending ? "…" : estDirection ? "Confirmer" : "Envoyer la demande"}</BoutonValider>
+      <BoutonApprouver onClick={confirmer} disabled={isPending || montantManquant}>{isPending ? "…" : estDirection ? "Confirmer" : "Envoyer la demande"}</BoutonApprouver>
       <BoutonNeutre onClick={() => { setOuvert(false); setErreur(null); }}>Annuler</BoutonNeutre>
       {erreur && <span className="w-full text-xs text-destructive">{erreur}</span>}
     </div>

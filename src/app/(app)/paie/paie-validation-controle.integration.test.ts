@@ -104,7 +104,7 @@ describe("valider une ligne revérifie son montant", () => {
     // faites ce jour-là restent), donc un autre taux et un autre net.
     await prisma.planningCreneau.delete({ where: { employeeId_date: { employeeId: ids.beatrice, date: d(16) } } });
     await expect(changerStatutPaie(avant.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, avant.id) }))).rejects.toThrow(
-      redirection("La paie de Béatrice Mbuyi a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant de valider."),
+      redirection("La paie de Béatrice Mbuyi a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant d'approuver."),
     );
     const apres = await rienEcrit(ids.beatrice);
     // Jamais réécrite en silence : la ligne garde le montant affiché.

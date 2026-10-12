@@ -17,7 +17,7 @@ describe("messageConfirmationValidation", () => {
   });
   it("liste chaque avertissement avec le nom, et laisse valider", () => {
     expect(messageConfirmationValidation([MARTINE, RACHEL])).toBe(
-      "Avant de valider (la validation reste possible) :\n\n• Rachel Lunda — Travail hors planning (2 j) : 28/09, 30/09\n\nValider quand même ?",
+      "Avant d'approuver (l'approbation reste possible) :\n\n• Rachel Lunda — Travail hors planning (2 j) : 28/09, 30/09\n\nApprouver quand même ?",
     );
   });
   it("liste longue : au plus une dizaine de salariés, puis « … et N autres », sans couper un message", () => {
@@ -42,7 +42,7 @@ describe("messageConfirmationValidation", () => {
     expect(puces[10]).toBe(`• Salarié 10 — ${long(10).message}`);
     expect(msg).not.toContain("Salarié 11 —");
     expect(msg).toContain("\n… et 15 autres salariés avec des avertissements\n");
-    expect(msg.endsWith("\n\nValider quand même ?")).toBe(true);
+    expect(msg.endsWith("\n\nApprouver quand même ?")).toBe(true);
   });
   it("exactement dix salariés : tous montrés, pas de « … et 0 autres »", () => {
     const lignes = Array.from({ length: 10 }, (_, i) => ({ nom: `S${i}`, avertissements: RACHEL.avertissements }));

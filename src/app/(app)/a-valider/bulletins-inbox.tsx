@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "../paie/actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonNeutre } from "@/components/action-buttons";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie } from "@/lib/paie-reference";
@@ -94,8 +94,8 @@ export function BulletinsInbox({
       if (ids.length === 0) { setErreur("Un bulletin d'un mois clôturé ne se rouvre pas : il reste à payer."); return; }
       const n = ids.length;
       const question = (n > 1
-        ? `Rouvrir ces ${n} bulletins validés ? Ils repassent « pas validé » et devront être validés de nouveau.`
-        : "Rouvrir ce bulletin validé ? Il repasse « pas validé » et devra être validé de nouveau.")
+        ? `Rouvrir ces ${n} bulletins validés ? Ils repassent « pas validé » et devront être approuvés de nouveau.`
+        : "Rouvrir ce bulletin validé ? Il repasse « pas validé » et devra être approuvé de nouveau.")
         + (autresMois > 0 ? `\n\n${autresMois} bulletin${autresMois > 1 ? "s" : ""} d'un mois clôturé ${autresMois > 1 ? "restent" : "reste"} à payer (il${autresMois > 1 ? "s" : ""} ne se rouvre${autresMois > 1 ? "nt" : ""} pas).` : "");
       if (!window.confirm(question)) return;
     }
@@ -150,7 +150,7 @@ export function BulletinsInbox({
         {idsSelection.length > 0 && (
           <>
             <span className="text-xs font-medium">{idsSelection.length} sélectionné(s) :</span>
-            <BoutonValider onClick={() => lancer(idsSelection)} disabled={isPending}>{actionLabel}</BoutonValider>
+            <BoutonApprouver onClick={() => lancer(idsSelection)} disabled={isPending}>{actionLabel}</BoutonApprouver>
             {peutRouvrir && <BoutonNeutre onClick={() => lancer(idsSelection, "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
             {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
           </>
@@ -180,7 +180,7 @@ export function BulletinsInbox({
                 <span className="text-muted-foreground">{lectureSeule}</span>
               ) : (
                 <>
-                  <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
+                  <BoutonApprouver onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonApprouver>
                   {peutRouvrir && !r.periode && <BoutonNeutre onClick={() => lancer([r.id], "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
                 </>
               )}

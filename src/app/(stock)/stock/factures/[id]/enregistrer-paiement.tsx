@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { enregistrerPaiement } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver } from "@/components/action-buttons";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
@@ -39,7 +39,7 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
 
   if (!ouvert) {
     // Hors Direction, le formulaire DEMANDE le règlement (validé ensuite par la Direction).
-    return <BoutonValider onClick={() => setOuvert(true)}>{estDirection ? "+ Paiement / Avoir" : "+ Demander un paiement / avoir"}</BoutonValider>;
+    return <BoutonApprouver onClick={() => setOuvert(true)}>{estDirection ? "+ Paiement / Avoir" : "+ Demander un paiement / avoir"}</BoutonApprouver>;
   }
 
   const saisi = lireNombreSaisi(montant); // null = vide ou illisible (le champ le dit en rouge)
