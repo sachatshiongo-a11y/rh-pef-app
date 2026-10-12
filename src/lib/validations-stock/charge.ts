@@ -13,13 +13,14 @@ import Decimal from "decimal.js";
 /** Nombre → chaîne décimale en notation simple (« 0.0000001 », jamais « 1e-7 »), lisible par la charge. */
 export const texteDecimal = (n: number): string => new Decimal(n).toFixed();
 
-export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE" | "MOUVEMENT_MANUEL";
+export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE" | "MOUVEMENT_MANUEL" | "LIEN_RESTO";
 
 export const NATURE_LIBELLE: Record<NatureDemande, string> = {
   PAIEMENT_FACTURE: "Paiements de factures",
   RECONCILIATION: "Réconciliations du stock",
   MODIF_ARTICLE: "Modifications d'articles",
   MOUVEMENT_MANUEL: "Entrées et sorties manuelles",
+  LIEN_RESTO: "Rattachements au restaurant",
 };
 
 // ── Cibles (verrou « une demande en attente par cible », voir CibleDemandeStock) ──────────────
@@ -27,6 +28,8 @@ export const cleFacture = (id: string) => `FACTURE:${id}`;
 export const cleArticle = (id: string) => `ARTICLE:${id}`;
 export const cleComptage = (articleId: string) => `COMPTAGE:${articleId}`;
 export const cleMouvement = (articleId: string) => `MOUVEMENT:${articleId}`;
+/** Un couple (article du restaurant, article du catalogue) : au plus une demande de rattachement en attente. */
+export const cleLien = (articleRestoId: string, articleStockId: string) => `LIEN:${articleRestoId}:${articleStockId}`;
 
 // ── Paiement de facture ─────────────────────────────────────────────────────
 /**
@@ -143,7 +146,19 @@ export type ChargeMouvement = {
   lignes: LigneMouvementDemande[];
 };
 
-export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement;
+// ── Rattachement d'un article du restaurant à un article du catalogue ───────
+/**
+ * Une opération : AJOUT = poser le lien (article du catalogue ← article du restaurant), RETRAIT = le retirer.
+ * Les désignations sont figées à la demande (lisibles même si l'article est renommé depuis).
+ */
+export type OperationLien = {
+  op: "AJOUT" | "RETRAIT";
+  articleRestoId: string; articleRestoDesignation: string; espace: "CUISINE" | "BAR";
+  articleStockId: string; articleStockDesignation: string;
+};
+export type ChargeLienResto = { v: 1; operations: OperationLien[] };
+
+export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement | ChargeLienResto;
 
 /** Domaines d'un article (enum `DomaineStock`) et leur libellé — jamais une autre valeur. */
 export const DOMAINES_ARTICLE = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
@@ -297,10 +312,24 @@ function lireMouvement(o: Record<string, unknown>): ChargeMouvement {
   return { v: 1, type: o.type, date, origine: chaine(o.origine, "origine"), raisonSortie: chaineOuNull(o.raisonSortie, "raisonSortie"), lignes };
 }
 
+function lireLien(o: Record<string, unknown>): ChargeLienResto {
+  const operations = liste(o.operations, "operations").map((x, i) => {
+    if (!estObjet(x) || (x.op !== "AJOUT" && x.op !== "RETRAIT") || (x.espace !== "CUISINE" && x.espace !== "BAR")) throw new ChargeIllisible(`opération ${i + 1}`);
+    return {
+      op: x.op as OperationLien["op"], espace: x.espace as OperationLien["espace"],
+      articleRestoId: chaine(x.articleRestoId, "articleRestoId"), articleRestoDesignation: chaine(x.articleRestoDesignation, "articleRestoDesignation"),
+      articleStockId: chaine(x.articleStockId, "articleStockId"), articleStockDesignation: chaine(x.articleStockDesignation, "articleStockDesignation"),
+    };
+  });
+  if (new Set(operations.map((x) => `${x.articleRestoId}:${x.articleStockId}`)).size !== operations.length) throw new ChargeIllisible("lien en double");
+  return { v: 1, operations };
+}
+
 export function lireCharge(nature: "PAIEMENT_FACTURE", brut: unknown): ChargePaiement;
 export function lireCharge(nature: "MOUVEMENT_MANUEL", brut: unknown): ChargeMouvement;
 export function lireCharge(nature: "RECONCILIATION", brut: unknown): ChargeComptage;
 export function lireCharge(nature: "MODIF_ARTICLE", brut: unknown): ChargeArticle;
+export function lireCharge(nature: "LIEN_RESTO", brut: unknown): ChargeLienResto;
 export function lireCharge(nature: NatureDemande, brut: unknown): Charge;
 /** Relit et VALIDE la charge d'une demande ; lève « Demande illisible » si elle n'est pas conforme. */
 export function lireCharge(nature: NatureDemande, brut: unknown): Charge {
@@ -308,6 +337,7 @@ export function lireCharge(nature: NatureDemande, brut: unknown): Charge {
   if (nature === "PAIEMENT_FACTURE") return lirePaiement(brut);
   if (nature === "RECONCILIATION") return lireComptage(brut);
   if (nature === "MOUVEMENT_MANUEL") return lireMouvement(brut);
+  if (nature === "LIEN_RESTO") return lireLien(brut);
   return lireArticle(brut);
 }
 

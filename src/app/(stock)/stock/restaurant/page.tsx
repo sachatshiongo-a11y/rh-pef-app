@@ -8,6 +8,7 @@ import { formaterNombre } from "@/lib/montant";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
 import { planRattachementAuto } from "@/lib/rattachement-auto";
 import { LIBELLE_SIGNALEMENT, recuDuDepot, stockRestaurantTheorique, type SignalementLivraison } from "@/lib/stock-restaurant";
+import { lireChargeOuNull } from "@/lib/validations-stock/charge";
 import { CHAMPS_LIBELLE, libelleArticle, rechercheContenance } from "@/lib/libelle-article";
 
 const q3 = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
@@ -54,6 +55,13 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     // Entrées du stock théorique (requêtes groupées, jamais par article) : lecture seule.
     chargerEntreesStockResto({ depuis: jours[0].iso, jusquA: aujourdhui > jours[6].iso ? aujourdhui : jours[6].iso }),
   ]);
+  // Rattachements / détachements demandés à la Direction et pas encore décidés : affichés « en attente de validation ».
+  const enAttentePar = new Map<string, { id: string; designation: string; op: "AJOUT" | "RETRAIT" }[]>();
+  for (const d of await prisma.demandeValidationStock.findMany({ where: { nature: "LIEN_RESTO", statut: "EN_ATTENTE" }, select: { charge: true } })) {
+    const c = lireChargeOuNull("LIEN_RESTO", d.charge);
+    if (!c || !("operations" in c)) continue;
+    for (const o of c.operations) enAttentePar.set(o.articleRestoId, [...(enAttentePar.get(o.articleRestoId) ?? []), { id: o.articleStockId, designation: o.articleStockDesignation, op: o.op }]);
+  }
   const theorique = stockRestaurantTheorique(entrees, aujourdhui).parArticle;
   // Livraisons de la semaine qui n'alimentent pas le restaurant : signalées, jamais réparties.
   const nonRattachees = stockRestaurantTheorique(entrees, jours[6].iso).nonRattachees.filter((l) => l.date >= jours[0].iso);
@@ -90,6 +98,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
       id: a.id, actif: a.actif, categorie: a.categorie, designation: a.designation, unite: a.unite,
       base: a.stockBaseJournalier !== null ? Number(a.stockBaseJournalier).toString() : "",
       comptages,
+      liensEnAttente: enAttentePar.get(a.id) ?? [],
       articlesStock: a.liens.map((l) => ({ id: l.articleStock.id, designation: libelleArticle(l.articleStock), unite: l.articleStock.unite })),
       recus, signauxJour,
       theorique: {

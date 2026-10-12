@@ -7,6 +7,8 @@ import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { planifierRattachementsAuto, type CibleAuto, type DecisionAuto, type RestoAuto } from "@/lib/fiches/rattachement-resto";
 import { notifierGesteStock, type AuteurGeste } from "@/lib/validations-stock/geste-notifie";
 import { libelleArticle } from "@/lib/libelle-article";
+import { demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
+import type { OperationLien } from "@/lib/validations-stock/charge";
 
 // RATTACHEMENT AUTOMATIQUE des livraisons au restaurant — demande de Sacha (2026-10-08) : « je veux
 // un rattachement automatique ». La RÈGLE est pure (lib/fiches/rattachement-resto.ts,
@@ -23,6 +25,8 @@ export type CompteRenduAuto = {
   rattaches: { designationResto: string; designationCatalogue: string; espace: "CUISINE" | "BAR" }[];
   crees: { designation: string; espace: "CUISINE" | "BAR"; unite: string; categorie: string }[];
   laisses: { designationCatalogue: string; raison: string }[];
+  /** Compte non-Direction : rattachements PROPOSÉS à la Direction (demande à valider), rien n'est écrit. */
+  proposes?: { designationResto: string; designationCatalogue: string; espace: "CUISINE" | "BAR" }[];
   /** Panne pendant le rattachement : rien n'a été écrit (transaction annulée). */
   erreur?: string;
 };
@@ -87,14 +91,15 @@ export async function rattacherAutomatiquement(
 ): Promise<CompteRenduAuto> {
   let cr: CompteRenduAuto;
   try {
-    cr = await prisma.$transaction(async (tx) => {
+    const r = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('stock.rattachement-resto-auto'))`;
       const ids = await livres(tx, articleStockIds);
-      if (ids.length === 0) return VIDE;
+      if (ids.length === 0) return { out: VIDE, aProposer: [] as OperationLien[] };
       const { cibles, restos, catalogue } = await lireEtat(tx, ids);
       const decisions = planifierRattachementsAuto(cibles, restos, catalogue);
       const nom = new Map(cibles.map((c) => [c.id, libelleArticle(c)])); // nom AFFICHÉ du compte rendu (contenance comprise)
       const out: CompteRenduAuto = { rattaches: [], crees: [], laisses: [] };
+      const aProposer: OperationLien[] = [];
       const journal: EntreeJournal[] = [];
       const ordres = new Map<"CUISINE" | "BAR", number>();
       const ordreSuivant = async (espace: "CUISINE" | "BAR") => {
@@ -107,6 +112,13 @@ export async function rattacherAutomatiquement(
         const designationCatalogue = nom.get(d.articleStockId) ?? "";
         if (d.action === "LAISSER") { out.laisses.push({ designationCatalogue, raison: d.raison }); continue; }
         if (d.action === "RATTACHER") {
+          // Compte non-Direction : le rattachement automatique est une PROPOSITION que la Direction accepte (À valider).
+          if (!estDirection(auteur)) {
+            const libre = await tx.articleResto.count({ where: { id: d.articleRestoId, actif: true, liens: { none: {} } } });
+            if (libre !== 1) { out.laisses.push({ designationCatalogue, raison: `« ${d.designationResto} » a changé entre-temps : rechargez la page` }); continue; }
+            aProposer.push({ op: "AJOUT", articleRestoId: d.articleRestoId, articleRestoDesignation: d.designationResto, espace: d.espace, articleStockId: d.articleStockId, articleStockDesignation: designationCatalogue });
+            continue;
+          }
           // Garde « encore libre et actif » relue SOUS le verrou (comme accepterPropositions) : un lien posé entre-temps n'est pas doublé.
           const libre = await tx.articleResto.count({ where: { id: d.articleRestoId, actif: true, liens: { none: {} } } });
           if (libre !== 1) { out.laisses.push({ designationCatalogue, raison: `« ${d.designationResto} » a changé entre-temps : rechargez la page` }); continue; }
@@ -128,8 +140,20 @@ export async function rattacherAutomatiquement(
         out.crees.push({ designation: d.designation, espace: d.espace, unite: d.unite, categorie: d.categorie });
       }
       await journaliserPlusieurs(tx, journal);
-      return out;
+      return { out, aProposer };
     }, { timeout: 30_000 }); // un arriéré de plusieurs dizaines d'articles, requêtes en série vers la base distante
+    cr = r.out;
+    // Compte non-Direction : les rattachements retenus par la règle deviennent UNE demande à valider (hors transaction :
+    // la demande a la sienne). Un obstacle (déjà demandé, article disparu) laisse la ligne à la main, avec sa raison.
+    if (r.aProposer.length > 0) {
+      try {
+        await demanderLiensResto(auteur, r.aProposer);
+        cr.proposes = r.aProposer.map((o) => ({ designationResto: o.articleRestoDesignation, designationCatalogue: o.articleStockDesignation, espace: o.espace }));
+      } catch (e) {
+        const raison = e instanceof Error ? e.message : "la demande n'a pas pu être déposée";
+        for (const o of r.aProposer) cr.laisses.push({ designationCatalogue: o.articleStockDesignation, raison });
+      }
+    }
   } catch (e) {
     console.error("[stock] rattachement automatique au restaurant en échec (rien n'a été écrit) :", e);
     return { ...VIDE, erreur: "Le rattachement automatique n'a pas pu se faire (rien n'a été écrit) : réessayez avec le bouton du bandeau, dans Stock → Restaurant." };
@@ -143,6 +167,7 @@ export async function rattacherAutomatiquement(
 /** Ce qui a été ÉCRIT, en une phrase : « « Sel » rattaché au stock du restaurant ; « Farfalle » (Cuisine) ajouté… ». */
 export function resumeEcritures(cr: CompteRenduAuto): string {
   const parties: string[] = [];
+  if (cr.proposes?.length) parties.push(`${cr.proposes.map((r) => `« ${r.designationCatalogue} » → « ${r.designationResto} »`).join(", ")} proposé${cr.proposes.length > 1 ? "s" : ""} à la Direction (à valider)`);
   if (cr.rattaches.length) parties.push(`${cr.rattaches.map((r) => `« ${r.designationResto} »`).join(", ")} rattaché${cr.rattaches.length > 1 ? "s" : ""} au stock du restaurant`);
   if (cr.crees.length) parties.push(`${cr.crees.map((c) => `« ${c.designation} » (${c.espace === "BAR" ? "Bar" : "Cuisine"})`).join(", ")} ajouté${cr.crees.length > 1 ? "s" : ""} au stock du restaurant`);
   return parties.join(" ; ");

@@ -1900,6 +1900,7 @@ enum NatureDemandeStock {
   RECONCILIATION
   MODIF_ARTICLE
   MOUVEMENT_MANUEL // entrée/sortie manuelle hors flux libre (ni livraison restaurant, ni perte, ni retour restaurant)
+  LIEN_RESTO // rattacher / détacher un article du catalogue à un article du restaurant (2026-10-12)
 
   @@schema("stock")
 }

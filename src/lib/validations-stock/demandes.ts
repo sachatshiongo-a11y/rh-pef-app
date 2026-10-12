@@ -25,9 +25,10 @@ import { envoyerPush } from "@/lib/push";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
-  CHAMPS_ARTICLE, NATURE_LIBELLE, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
-  type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
+  CHAMPS_ARTICLE, NATURE_LIBELLE, cleLien, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
+  type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargeLienResto, type ChargePaiement, type NatureDemande, type OperationLien, type ReglementDemande,
 } from "./charge";
+import { ecrireLiensTx, obstaclesLiens, resumeLiens } from "./lien-resto";
 import { lireTauxReglement, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit, type VerseLot } from "./reglement";
 import { imputation } from "./conversion-francs";
 import { deviseFacture, formaterMontantFacture, libelleTotal, montantsFacture, resteFacture, totalFactures, type DeviseFacture } from "@/lib/facture-devise";
@@ -86,7 +87,7 @@ async function exigerCiblesLibres(tx: Tx, cles: string[], quoi: (cle: string) =>
   }
 }
 
-async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle; cles: string[]; auteur: Acteur }) {
+async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle | ChargeLienResto; cles: string[]; auteur: Acteur }) {
   // La charge doit se relire EXACTEMENT comme elle sera relue à la validation : une charge que
   // `lireCharge` refuserait ne doit jamais être enregistrée (elle bloquerait sa cible pour rien).
   lireCharge(p.nature, JSON.parse(JSON.stringify(p.charge)));
@@ -512,6 +513,37 @@ async function executerModifArticleTx(tx: Tx, decideur: Acteur, c: ChargeArticle
   }
 }
 
+// ── Rattachement au restaurant (article du restaurant ↔ articles du catalogue) ─────────────────
+export type ResultatDemandeLien = { demandeId: string };
+
+/**
+ * Demande de rattachement / détachement (compte non-Direction) : rien n'est écrit. Les opérations sont
+ * contrôlées DÈS LA SAISIE par les mêmes constats que la validation (`obstaclesLiens`), et chaque couple
+ * n'a qu'une demande en attente (verrou `CibleDemandeStock`, « LIEN:<resto>:<article> »).
+ */
+export async function demanderLiensResto(auteur: Acteur, operations: OperationLien[]): Promise<ResultatDemandeLien> {
+  if (operations.length === 0) throw new Error("Rien à rattacher ni à détacher.");
+  const d = await prisma.$transaction(async (tx) => {
+    const obstacles = await obstaclesLiens(tx, operations);
+    if (obstacles.length > 0) throw new Error(`${obstacles.join(" ; ")}. Rien n'a été demandé.`);
+    const cles = operations.map((o) => cleLien(o.articleRestoId, o.articleStockId));
+    await exigerCiblesLibres(tx, cles, (cle) => {
+      const o = operations.find((x) => cleLien(x.articleRestoId, x.articleStockId) === cle);
+      return o ? `« ${o.articleStockDesignation} » ↔ « ${o.articleRestoDesignation} »` : "Ce rattachement";
+    });
+    return creerDemandeTx(tx, { nature: "LIEN_RESTO", resume: resumeLiens(operations), charge: { v: 1, operations }, cles, auteur });
+  }).catch(traduireConflitCible);
+  await apresCommit(() => notifierNouvelleDemande(d));
+  return { demandeId: d.id };
+}
+
+/** Validation : périmée si un lien a été posé / retiré entre-temps (rien n'est écrit), sinon le MÊME cœur que le geste direct. */
+async function executerLienRestoTx(tx: Tx, decideur: Acteur, c: ChargeLienResto) {
+  const obstacles = await obstaclesLiens(tx, c.operations);
+  if (obstacles.length > 0) throw new ConflitDemande(obstacles.join(" ; "));
+  await ecrireLiensTx(tx, decideur.id, c.operations, " (proposition validée)");
+}
+
 // ── Entrée / sortie manuelle (ANCIENNES demandes) ──────────────────────────────
 // Depuis le 2026-10-07, une entrée/sortie manuelle est écrite tout de suite pour tout compte Stock et
 // notifiée à la Direction (mouvement.ts → appliquerMouvementManuel) : plus aucune demande
@@ -580,6 +612,7 @@ function clesAttendues(nature: NatureDemande, brut: unknown): string[] {
   if (nature === "PAIEMENT_FACTURE") return lireCharge(nature, brut).factures.map((f) => cleFacture(f.id));
   if (nature === "MODIF_ARTICLE") return lireCharge(nature, brut).articles.map((a) => cleArticle(a.id));
   if (nature === "MOUVEMENT_MANUEL") return lireCharge(nature, brut).lignes.map((l) => cleMouvement(l.articleId));
+  if (nature === "LIEN_RESTO") return lireCharge(nature, brut).operations.map((o) => cleLien(o.articleRestoId, o.articleStockId));
   return lireCharge("RECONCILIATION", brut).lignes.filter((l) => aUnEcart({ ecart: Number(l.physique) - Number(l.theorique) })).map((l) => cleComptage(l.articleId));
 }
 
@@ -607,7 +640,7 @@ function lienCible(nature: NatureDemande, charge: unknown): string {
     if (nature === "PAIEMENT_FACTURE") { const c = lireCharge(nature, charge); return c.factures.length === 1 ? `/stock/factures/${c.factures[0].id}` : "/stock/factures"; }
     if (nature === "MODIF_ARTICLE") { const c = lireCharge(nature, charge); return c.articles.length === 1 ? `/stock/catalogue/${c.articles[0].id}` : "/stock/catalogue"; }
   } catch { /* charge illisible : lien générique */ }
-  return nature === "RECONCILIATION" ? "/stock/reconciliation" : nature === "MOUVEMENT_MANUEL" ? "/stock/mouvements" : "/stock/a-valider";
+  return nature === "LIEN_RESTO" ? "/stock/restaurant" : nature === "RECONCILIATION" ? "/stock/reconciliation" : nature === "MOUVEMENT_MANUEL" ? "/stock/mouvements" : "/stock/a-valider";
 }
 
 export type ResultatValidation = { id: string; nature: NatureDemande; resume: string };
@@ -629,6 +662,7 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     if (d.nature === "PAIEMENT_FACTURE") reglements = await executerPaiementTx(tx, decideur, d, lireCharge("PAIEMENT_FACTURE", d.charge), opts.date);
     else if (d.nature === "RECONCILIATION") comptage = await executerComptageTx(tx, decideur, d, lireCharge("RECONCILIATION", d.charge));
     else if (d.nature === "MOUVEMENT_MANUEL") mouvement = await executerMouvementTx(tx, d, lireCharge("MOUVEMENT_MANUEL", d.charge), opts.motif);
+    else if (d.nature === "LIEN_RESTO") await executerLienRestoTx(tx, decideur, lireCharge("LIEN_RESTO", d.charge));
     else await executerModifArticleTx(tx, decideur, lireCharge("MODIF_ARTICLE", d.charge));
     await tx.demandeValidationStock.update({ where: { id }, data: { statut: "VALIDEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: new Date() } });
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });

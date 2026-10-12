@@ -17,6 +17,8 @@ export const optionsCatalogue = (catalogue: readonly OptionCatalogue[]): OptionC
 
 /** Un article du catalogue déjà rattaché (nom affiché, contenance comprise). */
 export type ArticleRattache = { id: string; designation: string; unite: string | null };
+/** Un rattachement ou un détachement DEMANDÉ, en attente de validation de la Direction. */
+export type LienEnAttente = { id: string; designation: string; op: "AJOUT" | "RETRAIT" };
 
 /**
  * « Articles du catalogue » d'une ligne du restaurant : UN OU PLUSIEURS (plusieurs marques de beurre
@@ -25,9 +27,10 @@ export type ArticleRattache = { id: string; designation: string; unite: string |
  * Les livraisons de n'importe lequel alimentent le stock de la ligne.
  */
 export function ChoixArticleCatalogue({
-  rattaches, options, onAjouter, onRetirer, nomLigne,
+  rattaches, enAttente = [], options, onAjouter, onRetirer, nomLigne,
 }: {
   rattaches: ArticleRattache[];
+  enAttente?: LienEnAttente[];
   options: OptionChoix[];
   onAjouter: (articleStockIds: string[]) => void;
   onRetirer: (articleStockIds: string[]) => void;
@@ -36,13 +39,16 @@ export function ChoixArticleCatalogue({
   const [ouvert, setOuvert] = useState(false);
   return (
     <div className="min-w-0 space-y-1 text-xs">
-      {rattaches.length === 0 && <p className="text-muted-foreground">Non rattaché</p>}
+      {rattaches.length === 0 && enAttente.length === 0 && <p className="text-muted-foreground">Non rattaché</p>}
       {rattaches.length > 0 && (
         <ul className="space-y-0.5">
           {rattaches.map((a) => (
             <li key={a.id} className="flex min-w-0 items-center gap-1" data-article-rattache={a.id}>
               <Link href={`/stock/catalogue/${a.id}`} className="min-w-0 truncate text-primary hover:underline">{a.designation}</Link>
               <span className="shrink-0 text-muted-foreground">({a.unite || "unité ?"})</span>
+              {enAttente.some((e) => e.id === a.id && e.op === "RETRAIT") ? (
+                <span className="shrink-0 rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-900" data-en-attente="RETRAIT">retrait en attente de validation</span>
+              ) : (
               <button
                 type="button"
                 onClick={() => { if (confirm(`Détacher « ${a.designation} » de « ${nomLigne} » ? Ses livraisons n'alimenteront plus le stock du restaurant, et il ne comptera plus dans la disponibilité des plats.`)) onRetirer([a.id]); }}
@@ -51,6 +57,17 @@ export function ChoixArticleCatalogue({
               >
                 ✕
               </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {enAttente.filter((e) => e.op === "AJOUT").length > 0 && (
+        <ul className="space-y-0.5">
+          {enAttente.filter((e) => e.op === "AJOUT").map((e) => (
+            <li key={e.id} className="flex min-w-0 items-center gap-1 text-muted-foreground" data-article-en-attente={e.id}>
+              <span className="min-w-0 truncate">{e.designation}</span>
+              <span className="shrink-0 rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-900" data-en-attente="AJOUT">en attente de validation</span>
             </li>
           ))}
         </ul>

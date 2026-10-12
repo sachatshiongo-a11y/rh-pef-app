@@ -5,11 +5,15 @@ import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
-import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
+import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
 import { libelleArticle } from "@/lib/libelle-article";
+import { demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
+import { obstaclesLiens, poserLiensTx, retirerLiensTx } from "@/lib/validations-stock/lien-resto";
+import type { OperationLien } from "@/lib/validations-stock/charge";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
 import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { normaliserUnite } from "@/lib/fiches/conversion";
@@ -181,7 +185,6 @@ const revaliderRattachement = () => {
   revalidatePath("/stock/fiches");
 };
 
-const CHAMP_LIEN = "lien article du catalogue";
 const MAX_LIENS_PAR_GESTE = 50;
 const idsDistincts = (ids: unknown): string[] => (Array.isArray(ids) ? [...new Set(ids.map(String).filter(Boolean))] : []);
 
@@ -190,6 +193,7 @@ const idsDistincts = (ids: unknown): string[] => (Array.isArray(ids) ? [...new S
  * rattaché est ignoré. Refusé, nommément et sans rien écrire : un article du catalogue déjà rattaché à un
  * AUTRE article du restaurant du MÊME espace (ses livraisons seraient « à répartir » entre les deux) —
  * Cuisine et Bar peuvent chacun avoir le leur, l'espace se lit au domaine de l'article.
+ * DIRECTION : écrit tout de suite. Autre compte : dépose une DEMANDE À VALIDER (rien n'est rattaché avant).
  */
 export const ajouterLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
   const user = await garde();
@@ -203,72 +207,87 @@ export const ajouterLiensResto = actionLisible(async (articleRestoId: string, ar
   const inactif = articles.find((a) => !a.actif);
   if (inactif) return { erreur: `« ${libelleArticle(inactif)} » est désactivé au catalogue : choisissez un article actif.` };
   const dejaLies = new Set(resto.liens.map((l) => l.articleStockId));
-  const nouveaux = articles.filter((a) => !dejaLies.has(a.id));
-  if (nouveaux.length === 0) return { n: 0 };
-  const ailleurs = await prisma.articleRestoStock.findMany({
-    where: { articleStockId: { in: nouveaux.map((a) => a.id) }, articleRestoId: { not: resto.id }, articleResto: { espace: resto.espace } },
-    select: { articleStockId: true, articleResto: { select: { designation: true } } },
-  });
-  if (ailleurs.length > 0) {
-    const nom = new Map(articles.map((a) => [a.id, libelleArticle(a)]));
-    const detail = ailleurs.map((x) => `« ${nom.get(x.articleStockId)} » est déjà rattaché à « ${x.articleResto.designation} » (${resto.espace === "BAR" ? "Bar" : "Cuisine"})`).join(" ; ");
-    return { erreur: `${detail}. Détachez-le d'abord de cet article du restaurant : ses livraisons iraient sinon aux deux. Rien n'a été rattaché.` };
+  const operations: OperationLien[] = articles.filter((a) => !dejaLies.has(a.id)).map((a) => ({
+    op: "AJOUT", articleRestoId: resto.id, articleRestoDesignation: resto.designation, espace: resto.espace, articleStockId: a.id, articleStockDesignation: libelleArticle(a),
+  }));
+  if (operations.length === 0) return { n: 0 };
+  const obstacles = await obstaclesLiens(prisma, operations);
+  if (obstacles.length > 0) return { erreur: `${obstacles.join(" ; ")}. Rien n'a été rattaché.` };
+  if (!estDirection(user)) {
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length };
   }
-  await prisma.$transaction(async (tx) => {
-    await tx.articleRestoStock.createMany({ data: nouveaux.map((a) => ({ articleRestoId: resto.id, articleStockId: a.id })), skipDuplicates: true });
-    await journaliserPlusieurs(tx, nouveaux.map((a) => ({ entite: "ArticleResto", entiteId: resto.id, champ: CHAMP_LIEN, ancienneValeur: null, nouvelleValeur: libelleArticle(a), userId: user.id })));
-  });
+  await prisma.$transaction((tx) => poserLiensTx(tx, user.id, operations));
   revaliderRattachement();
-  return { n: nouveaux.length };
+  return { n: operations.length };
 });
 
-/** Détache d'un article du restaurant un ou PLUSIEURS articles du catalogue (lot). Un lien absent est ignoré. */
+/**
+ * Détache d'un article du restaurant un ou PLUSIEURS articles du catalogue (lot). Un lien absent est ignoré.
+ * DIRECTION : retire tout de suite. Autre compte : DEMANDE À VALIDER (le lien reste, « retrait en attente »).
+ */
 export const retirerLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
   const user = await garde();
   const ids = idsDistincts(articleStockIds);
   if (ids.length === 0) return { erreur: "Choisissez au moins un article à détacher." };
   const liens = await prisma.articleRestoStock.findMany({
     where: { articleRestoId, articleStockId: { in: ids } },
-    select: { articleStockId: true, articleStock: { select: { designation: true, contenance: true, contenanceUnite: true } } },
+    select: { articleStockId: true, articleStock: { select: { designation: true, contenance: true, contenanceUnite: true } }, articleResto: { select: { designation: true, espace: true } } },
   });
   if (liens.length === 0) return { n: 0 };
-  await prisma.$transaction(async (tx) => {
-    await tx.articleRestoStock.deleteMany({ where: { articleRestoId, articleStockId: { in: liens.map((l) => l.articleStockId) } } });
-    await journaliserPlusieurs(tx, liens.map((l) => ({ entite: "ArticleResto", entiteId: articleRestoId, champ: CHAMP_LIEN, ancienneValeur: libelleArticle(l.articleStock), nouvelleValeur: null, userId: user.id })));
-  });
+  const operations: OperationLien[] = liens.map((l) => ({
+    op: "RETRAIT", articleRestoId, articleRestoDesignation: l.articleResto.designation, espace: l.articleResto.espace, articleStockId: l.articleStockId, articleStockDesignation: libelleArticle(l.articleStock),
+  }));
+  if (!estDirection(user)) {
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length };
+  }
+  exigerDirectionPourSupprimer(user); // défense en profondeur : seule la Direction retire un lien en direct
+  await prisma.$transaction((tx) => retirerLiensTx(tx, user.id, operations));
   revaliderRattachement();
-  return { n: liens.length };
+  return { n: operations.length };
 });
 
 /**
  * Accepte les propositions COCHÉES. Le serveur recalcule les propositions sur les seules lignes
  * reçues : une ligne déjà rattachée entre-temps, renommée, ou dont le nom n'est plus unique au
- * catalogue n'est pas écrite. N'écrit jamais au-delà des cases cochées.
+ * catalogue n'est pas écrite. N'écrit jamais au-delà des cases cochées. Direction : écrit ; autre
+ * compte : une demande à valider pour les propositions cochées.
  */
 export const accepterPropositions = actionLisible(async (articleRestoIds: string[]) => {
   const user = await garde();
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
-    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, unite: true, liens: { select: { articleStockId: true } } } }),
+    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, unite: true, espace: true, liens: { select: { articleStockId: true } } } }),
     prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
   ]);
   const propositions = proposerRattachements(restos.map((r) => ({ id: r.id, designation: r.designation, unite: r.unite, articleStockIds: r.liens.map((l) => l.articleStockId) })), catalogue);
   if (propositions.length === 0) {
     return { erreur: "Aucune des lignes cochées n'est encore une proposition valable (déjà rattachée ou renommée). Rechargez la page." };
   }
-
-  const entrees: EntreeJournal[] = [];
+  const espace = new Map(restos.map((r) => [r.id, r.espace]));
+  const operations: OperationLien[] = propositions.map((p) => ({
+    op: "AJOUT", articleRestoId: p.articleRestoId, articleRestoDesignation: p.designationResto, espace: espace.get(p.articleRestoId)!, articleStockId: p.articleStockId, articleStockDesignation: p.designationCatalogue,
+  }));
+  if (!estDirection(user)) {
+    // Une demande par ligne qui a un obstacle ne passerait pas : les obstacles sont dits, rien n'est demandé.
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length, ignores: articleRestoIds.length - operations.length };
+  }
+  const ecrites: OperationLien[] = [];
   await prisma.$transaction(async (tx) => {
-    for (const p of propositions) {
+    for (const o of operations) {
       // Garde « encore libre » relue dans la transaction : un rattachement posé entre-temps n'est pas doublé.
-      if ((await tx.articleRestoStock.count({ where: { articleRestoId: p.articleRestoId } })) > 0) continue;
-      await tx.articleRestoStock.create({ data: { articleRestoId: p.articleRestoId, articleStockId: p.articleStockId } });
-      entrees.push({ entite: "ArticleResto", entiteId: p.articleRestoId, champ: CHAMP_LIEN, ancienneValeur: null, nouvelleValeur: p.designationCatalogue, userId: user.id });
+      if ((await tx.articleRestoStock.count({ where: { articleRestoId: o.articleRestoId } })) > 0) continue;
+      ecrites.push(o);
     }
-    await journaliserPlusieurs(tx, entrees);
+    await poserLiensTx(tx, user.id, ecrites);
   });
   revaliderRattachement();
-  return { n: entrees.length, ignores: articleRestoIds.length - entrees.length };
+  return { n: ecrites.length, ignores: articleRestoIds.length - ecrites.length };
 });
 
 /**

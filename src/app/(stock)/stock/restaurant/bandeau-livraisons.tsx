@@ -29,6 +29,8 @@ type CompteRendu = {
   rattaches: { designationResto: string; designationCatalogue: string; espace: "CUISINE" | "BAR" }[];
   crees: { designation: string; espace: "CUISINE" | "BAR"; unite: string; categorie: string }[];
   laisses: { designationCatalogue: string; raison: string }[];
+  /** Compte non-Direction : proposés à la Direction (demande à valider), rien n'est rattaché. */
+  proposes?: { designationResto: string; designationCatalogue: string; espace: "CUISINE" | "BAR" }[];
 };
 
 /** Où agir pour une ligne laissée : la grille (choisir), la fiche catalogue, ou les désactivés (Direction). */
@@ -157,11 +159,12 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
       {compteRendu && (
         <div role="status" className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
           <p className="font-semibold">
-            {compteRendu.rattaches.length + compteRendu.crees.length + compteRendu.laisses.length === 0
+            {compteRendu.rattaches.length + compteRendu.crees.length + compteRendu.laisses.length + (compteRendu.proposes?.length ?? 0) === 0
               ? "Rattachement automatique : rien à faire (déjà rattaché entre-temps)."
-              : `Rattachement automatique : ${pl(compteRendu.rattaches.length, "rattaché")} · ${pl(compteRendu.crees.length, "créé")} · ${pl(compteRendu.laisses.length, "laissé")}`}
+              : `Rattachement automatique : ${compteRendu.proposes?.length ? `${pl(compteRendu.proposes.length, "proposé")} à la Direction · ` : ""}${pl(compteRendu.rattaches.length, "rattaché")} · ${pl(compteRendu.crees.length, "créé")} · ${pl(compteRendu.laisses.length, "laissé")}`}
           </p>
           <ul className="space-y-0.5">
+            {compteRendu.proposes?.map((r, i) => <li key={`p${i}`}>« {r.designationCatalogue} » → proposé pour « {r.designationResto} » ({NOM_ESPACE[r.espace]}) : en attente de validation de la Direction</li>)}
             {compteRendu.rattaches.map((r, i) => <li key={`r${i}`}>« {r.designationCatalogue} » → rattaché à « {r.designationResto} » ({NOM_ESPACE[r.espace]})</li>)}
             {compteRendu.crees.map((c, i) => <li key={`c${i}`}>« {c.designation} » ajouté au stock du restaurant ({NOM_ESPACE[c.espace]}, {c.unite}, {c.categorie}) — stock de base à renseigner</li>)}
             {compteRendu.laisses.map((l, i) => <li key={`l${i}`} className="text-amber-900">« {l.designationCatalogue} » laissé : {l.raison}</li>)}

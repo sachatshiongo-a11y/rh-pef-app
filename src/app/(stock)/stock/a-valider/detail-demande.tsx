@@ -166,6 +166,22 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
     );
   }
 
+  if (a.lien) {
+    return (
+      <ul className="divide-y rounded-md border text-sm">
+        {a.lien.operations.map((o) => (
+          <li key={`${o.articleRestoDesignation}:${o.articleStockId}:${o.op}`} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+            <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${o.op === "AJOUT" ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}>{o.op === "AJOUT" ? "Rattacher" : "Détacher"}</span>
+            <Link href={`/stock/catalogue/${o.articleStockId}`} className="font-medium text-primary hover:underline">{o.articleStockDesignation}</Link>
+            <span className="text-muted-foreground">{o.op === "AJOUT" ? "à" : "de"}</span>
+            <b>{o.articleRestoDesignation}</b>
+            <span className="text-xs text-muted-foreground">({o.espace === "BAR" ? "Bar" : "Cuisine"})</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   if (a.article) {
     return (
       <div className="space-y-2 text-sm">

@@ -5,7 +5,7 @@ import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleR
 import type { JourResto } from "./semaine";
 import { estErreur } from "@/lib/action-lisible";
 import type { OptionChoix } from "@/lib/recherche-options";
-import { ChoixArticleCatalogue, optionsCatalogue, type ArticleRattache, type OptionCatalogue } from "./choix-article";
+import { ChoixArticleCatalogue, optionsCatalogue, type ArticleRattache, type LienEnAttente, type OptionCatalogue } from "./choix-article";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { useJourAffiche } from "@/components/selecteur-jour";
@@ -21,6 +21,8 @@ import { MENTION_AUCUN_COMPTAGE } from "@/lib/stock-restaurant";
 const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 export type Jour = JourResto;
+
+const MESSAGE_DEMANDE = "Demande envoyée à la Direction : le rattachement ne change qu'une fois validé (Stock → À valider).";
 export type LigneResto = {
   id: string;
   /** Désactivé : affiché seulement sur « Afficher les désactivés », grisé, sans saisie. */
@@ -28,6 +30,8 @@ export type LigneResto = {
   base: string; comptages: Record<string, string>; // iso → quantité
   /** Articles du catalogue rattachés (une ou plusieurs marques ; disponibilité des plats, livraisons) — posés par un geste, jamais devinés. */
   articlesStock: ArticleRattache[];
+  /** Rattachements / détachements demandés à la Direction, pas encore décidés. */
+  liensEnAttente?: LienEnAttente[];
   /** Reçu du dépôt par jour (iso → quantité, unité du restaurant) : LECTURE SEULE, dérivé des sorties. */
   recus: Record<string, string>;
   /** Livraisons du jour non additionnées (à répartir, unité incompatible), en clair. */
@@ -49,6 +53,7 @@ export function RestaurantGrille({
   catalogue: OptionCatalogue[];
 }) {
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
   const [isPending, start] = useTransition();
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -85,14 +90,16 @@ export function RestaurantGrille({
     return r;
   };
   const ajouterLiens = async (id: string, articleStockIds: string[]) => {
-    setErreur(null);
+    setErreur(null); setInfo(null);
     const r = await ajouterLiensResto(id, articleStockIds);
     if (estErreur(r)) setErreur(r.erreur);
+    else if ("enAttente" in r && r.enAttente) setInfo(MESSAGE_DEMANDE);
   };
   const retirerLiens = async (id: string, articleStockIds: string[]) => {
-    setErreur(null);
+    setErreur(null); setInfo(null);
     const r = await retirerLiensResto(id, articleStockIds);
     if (estErreur(r)) setErreur(r.erreur);
+    else if ("enAttente" in r && r.enAttente) setInfo(MESSAGE_DEMANDE);
   };
   // Liste de recherche des articles du catalogue : calculée UNE fois, partagée par toutes les lignes.
   const optionsArt = useMemo(() => optionsCatalogue(catalogue), [catalogue]);
@@ -101,6 +108,7 @@ export function RestaurantGrille({
   return (
     <div className="space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info}</p>}
 
       <datalist id={listeId}>{categories.map((c) => <option key={c} value={c} />)}</datalist>
 
@@ -214,6 +222,7 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, options, selec
       <td>
         <ChoixArticleCatalogue
           rattaches={ligne.articlesStock}
+          enAttente={ligne.liensEnAttente}
           options={options}
           nomLigne={ligne.designation}
           onAjouter={(ids) => { setBusy(true); onAjouterLiens(ligne.id, ids).finally(() => setBusy(false)); }}

@@ -279,11 +279,18 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     await livraisonPassee(riz, 1); await livraisonPassee(sel, 1);
     en("resp");
     await rattacherLivraisonsAutomatiquement([riz, sel]);
+    // Compte Stock : « Sel » (libre, un seul candidat) n'est PAS rattaché — il est PROPOSÉ à la Direction (demande à valider) ;
+    // « Riz » (aucun article du restaurant) est créé, comme avant. La Direction reçoit les deux notifications.
     const n = await prisma.notification.findMany();
-    expect(n.map((x) => [x.destinataireUserId, x.lien])).toEqual([[U.dir.id, "/stock/restaurant"]]);
-    expect(n[0]!.message).toBe("Rattachement automatique au stock du restaurant par Jean — 1 article rattaché (« Sel »), 1 article créé (« Riz »)");
+    expect(n.map((x) => [x.destinataireUserId, x.lien]).sort()).toEqual([[null, "/stock/a-valider"], [U.dir.id, "/stock/restaurant"]].sort());
+    expect(n.find((x) => x.lien === "/stock/restaurant")!.message).toBe("Rattachement automatique au stock du restaurant par Jean — 1 article créé (« Riz »)");
+    expect(n.find((x) => x.lien === "/stock/a-valider")!.message).toContain("Rattacher « Sel » à « Sel »");
     expect((await journal()).every((j) => j.userId === U.resp.id)).toBe(true);
-    expect((await rattacheA(sel)).map((x) => x.id)).toEqual([rs.id]);
+    expect((await rattacheA(sel)).map((x) => x.id)).toEqual([]);
+    const demande = await prisma.demandeValidationStock.findMany({ where: { nature: "LIEN_RESTO", statut: "EN_ATTENTE" } });
+    expect(demande).toHaveLength(1);
+    expect(demande[0]!.auteurId).toBe(U.resp.id);
+    expect(rs.id).toBeTruthy();
 
     await prisma.notification.deleteMany();
     const poivre = await article("Poivre");

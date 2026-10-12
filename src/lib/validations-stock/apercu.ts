@@ -11,6 +11,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull, valeursEgales, type NatureDemande } from "./charge";
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
+import { obstaclesLiens } from "./lien-resto";
 import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
@@ -54,6 +55,8 @@ export type ApercuDemande = {
   };
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
+  /** Rattachement au restaurant : les opérations demandées (AJOUT / RETRAIT d'une marque). */
+  lien?: null | { operations: { op: "AJOUT" | "RETRAIT"; articleRestoDesignation: string; espace: "CUISINE" | "BAR"; articleStockId: string; articleStockDesignation: string }[] };
   mouvement: null | {
     type: "ENTREE" | "SORTIE"; origine: string; date: string;
     /** Articles sur lesquels un mouvement manuel du même sens a été saisi DEPUIS la demande (double saisie possible). */
@@ -74,7 +77,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
     const base: ApercuDemande = {
       id: d.id, nature: d.nature, statut: d.statut, resume: d.resume, version: ISO(d.updatedAt), auteurId: d.auteurId, auteurNom: d.auteurNom, creeLe: ISO(d.createdAt),
       decideurNom: d.decideurNom, decideLe: d.decideLe ? ISO(d.decideLe) : null, motifRefus: d.motifRefus,
-      illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null,
+      illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null, lien: null,
     };
     const charge = lireChargeOuNull(d.nature, d.charge);
     if (!charge) { res.push({ ...base, illisible: true, alertes: ["Demande illisible : elle ne peut pas être exécutée — refusez-la."] }); continue; }
@@ -190,6 +193,10 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         return { ...l, designation: libelle(l.articleId, l.designation), ecart: ecart.toString(), valeur, actuel: a.toString(), final: e.etat === "conflit" ? null : e.final.toString(), etat: e.etat, raison: e.etat === "conflit" ? e.raison : null };
       });
       base.comptage = { origine: charge.origine, nbLignes: charge.lignes.length, valeurTotale, lignes };
+    } else if (d.nature === "LIEN_RESTO" && "operations" in charge) {
+      base.lien = { operations: charge.operations.map((o) => ({ op: o.op, articleRestoDesignation: o.articleRestoDesignation, espace: o.espace, articleStockId: o.articleStockId, articleStockDesignation: o.articleStockDesignation })) };
+      // Demande périmée ? Les MÊMES constats que la validation (lien déjà posé / déjà retiré, article disparu…).
+      if (d.statut === "EN_ATTENTE") base.alertes.push(...(await obstaclesLiens(prisma, charge.operations)));
     } else if ("articles" in charge) {
       const ids = charge.articles.map((a) => a.id);
       const [arts, cats, fours] = await Promise.all([

@@ -142,4 +142,28 @@ describe("grille du restaurant — plusieurs articles du catalogue par ligne (pl
     await choisirEnTapant(champ, "lurpak");
     expect(m.ajouterLiensResto).toHaveBeenCalledWith("beurre", ["lurpak"]);
   });
+
+  it("un rattachement ou un détachement demandé à la Direction s'affiche « en attente de validation » (le lien posé reste visible, sans ✕ pour le retrait demandé)", () => {
+    montes([ligne({
+      id: "beurre", designation: "Beurre", unite: "kg",
+      articlesStock: [{ id: "president", designation: "Beurre Président 250 g", unite: "Pièce" }, { id: "lurpak", designation: "Beurre Lurpak 500 g", unite: "Pièce" }],
+      liensEnAttente: [{ id: "lurpak", designation: "Beurre Lurpak 500 g", op: "RETRAIT" }, { id: "vache", designation: "Beurre La Vache qui rit", op: "AJOUT" }],
+    })]);
+    const lurpak = conteneur.querySelector('[data-article-rattache="lurpak"]')!;
+    expect(lurpak.querySelector('[data-en-attente="RETRAIT"]')!.textContent).toBe("retrait en attente de validation");
+    expect(lurpak.querySelector("button")).toBeNull(); // pas de second détachement pendant la demande
+    expect(conteneur.querySelector('[data-article-rattache="president"] button')).not.toBeNull();
+    const vache = conteneur.querySelector('[data-article-en-attente="vache"]')!;
+    expect(vache.textContent).toContain("Beurre La Vache qui rit");
+    expect(vache.querySelector('[data-en-attente="AJOUT"]')!.textContent).toBe("en attente de validation");
+    expect(conteneur.querySelector('[data-article-rattache="vache"]')).toBeNull(); // pas encore rattaché
+  });
+
+  it("la réponse « demande envoyée » de l'action est annoncée à l'écran (Direction pas encore passée)", async () => {
+    m.ajouterLiensResto.mockResolvedValueOnce({ n: 0, enAttente: 1 } as never);
+    montes([ligne({ id: "beurre", designation: "Beurre", unite: "kg" })]);
+    await act(async () => { [...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Rattacher")!.click(); });
+    await choisirEnTapant(champChoix(conteneur, "Article du catalogue à rattacher à Beurre"), "lurpak");
+    expect(conteneur.querySelector('[role="status"]')!.textContent).toContain("Demande envoyée à la Direction");
+  });
 });
