@@ -20,7 +20,12 @@ import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
 import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
-import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
+import { anneesAvecDonnees, lireAnneeFiche } from "@/lib/fiche-annees";
+import {
+  anneesDesMouvements, bornesPeriode, consommationDuMois, effectifsParAnnee, effectifsPeriode, groupesParMois, libelleMois, libelleMoisAnnee,
+  lienPdfArticle, lireMoisMouvements, moisAvecMouvements, moisEnCours, nbDuMois, totauxDuMois, type AgregatMouvement, type PeriodeMouvements,
+} from "@/lib/mouvements-article-mois";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { classePastilleDlc, joursAvantDlc, libelleJoursDlc } from "@/lib/achats-doublons";
 import { complementLibelle, incoherenceContenance, libelleArticle } from "@/lib/libelle-article";
@@ -49,7 +54,7 @@ export default async function ArticleFichePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string; onglet?: string | string[]; filtre?: string | string[] }>;
+  searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string; onglet?: string | string[]; filtre?: string | string[]; annee?: string | string[]; mois?: string | string[] }>;
 }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
@@ -60,8 +65,7 @@ export default async function ArticleFichePage({
   // Toujours lus, et peu coûteux : la fiche, les comptes des libellés d'onglets et des filtres (agrégats SQL,
   // aucune ligne rapatriée), les chiffres des cartes. Le CONTENU de l'onglet Mouvements et la comparaison de prix des
   // fournisseurs, eux, ne sont lus que pour l'onglet affiché (même principe que la fiche fournisseur).
-  const debutMois = new Date(`${jourCourantKinshasaISO().slice(0, 7)}-01T00:00:00Z`);
-  const [a, toutesCategories, fournisseurs, proposition, taux, effectifsTypes, entreesSansFacture, sortiesDuMois, ingredients] = await Promise.all([
+  const [a, toutesCategories, fournisseurs, proposition, taux, groupesMouvements, entreesSansFacture, ingredients] = await Promise.all([
     prisma.articleStock.findUnique({
       where: { id },
       include: {
@@ -79,15 +83,15 @@ export default async function ArticleFichePage({
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     demandeSurCible(cleArticle(id)), // proposition de modification en attente de la Direction ?
     tauxDuJour(),
-    prisma.mouvementStock.groupBy({ by: ["type"], where: { articleId: id }, _count: { _all: true } }),
+    // Un seul agrégat (jour × type × motif) : les effectifs des pastilles, les années et mois proposés, les totaux de chaque mois
+    // ET la carte « Consommation du mois » en découlent (lib/mouvements-article-mois.ts) — une seule règle pour les deux.
+    prisma.mouvementStock.groupBy({ by: ["date", "type", "categorieSortie"], where: { articleId: id }, _count: { _all: true }, _sum: { quantite: true } }),
     // Entrées payées hors facture (liste d'achat…) : des achats quand même, pour l'évolution du prix (les 500 plus récentes).
     prisma.mouvementStock.findMany({
       where: { articleId: id, type: "ENTREE", factureId: null, montantUSD: { not: null } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 500,
       select: { articleId: true, montantUSD: true, quantite: true, date: true, origine: true },
     }),
-    // Consommation du mois : les sorties du mois en cours (jour de Kinshasa), par motif — les pertes sont dites à part.
-    prisma.mouvementStock.groupBy({ by: ["categorieSortie"], where: { articleId: id, type: "SORTIE", date: { gte: debutMois } }, _sum: { quantite: true } }),
     // Fiches techniques où l'article est un ingrédient (une fiche peut le citer plusieurs fois).
     prisma.ingredientFiche.findMany({
       where: { articleId: id }, orderBy: { fiche: { nom: "asc" } },
@@ -98,13 +102,18 @@ export default async function ArticleFichePage({
   // Catégories ARCHIVÉES : plus proposées dans le choix, sauf celle que l'article porte déjà (il reste rattaché).
   const categories = toutesCategories.filter((c) => c.actif || c.id === a.categorieId);
 
-  // Mouvements : effectifs des pastilles (comptes SQL exacts), puis le contenu du seul filtre affiché.
-  const nbDuType = (t: string) => effectifsTypes.find((g) => g.type === t)?._count._all ?? 0;
-  const effectifsMouvements: Record<FiltreMouvements, number> = {
-    entrees: nbDuType("ENTREE"), sorties: nbDuType("SORTIE"), ajustements: nbDuType("AJUSTEMENT"),
-    tous: effectifsTypes.reduce((n, g) => n + g._count._all, 0),
-  };
-  const nbMouvements = effectifsMouvements.tous;
+  // Mouvements : l'année (celle en cours par défaut) et le mois (tous par défaut) viennent de l'adresse ; les effectifs des
+  // pastilles de type suivent ce choix. Le libellé de l'onglet, lui, garde le TOTAL de l'article.
+  const agregats: AgregatMouvement[] = groupesMouvements.map((g) => ({ date: g.date, type: g.type, categorieSortie: g.categorieSortie, nb: g._count._all, quantite: Number(g._sum.quantite ?? 0) }));
+  const anneeCourante = anneeCouranteKinshasa();
+  const annees = anneesAvecDonnees(anneesDesMouvements(agregats), anneeCourante);
+  const anneeVue = lireAnneeFiche(sp.annee, annees, anneeCourante, true);
+  const moisDispo = anneeVue === "toutes" ? [] : moisAvecMouvements(agregats, anneeVue);
+  const moisVue = lireMoisMouvements(sp.mois, moisDispo);
+  const periode: PeriodeMouvements = { annee: anneeVue, mois: moisVue };
+  const effectifsMouvements = effectifsPeriode(agregats, periode);
+  const effectifsAnnees = effectifsParAnnee(agregats, annees);
+  const nbMouvements = effectifsParAnnee(agregats, []).toutes;
   const nbFiltre = effectifsMouvements[filtre];
   const nbFichesUtilisant = new Set(ingredients.map((i) => i.fiche.id)).size;
   // Onglet « Fiches techniques » : seulement si l'article y est utilisé ; un lien vers lui sans fiche retombe sur Mouvements.
@@ -115,7 +124,7 @@ export default async function ArticleFichePage({
   const [mouvementsDb, entreesDlc, comparaison] = await Promise.all([
     onglet === "mouvements"
       ? prisma.mouvementStock.findMany({
-          where: { articleId: id, ...(typeDuFiltre(filtre) ? { type: typeDuFiltre(filtre) } : {}) },
+          where: { articleId: id, ...(typeDuFiltre(filtre) ? { type: typeDuFiltre(filtre) } : {}), ...(bornesPeriode(periode) ? { date: bornesPeriode(periode)! } : {}) },
           orderBy: [{ date: "desc" }, { createdAt: "desc" }],
           take: MOUVEMENTS_CHARGES,
           include: {
@@ -177,9 +186,10 @@ export default async function ArticleFichePage({
   const prixHisto = analyse.points;
   const { min: prixMin, max: prixMax, variation, hausse } = analyse;
 
-  // Consommation du mois : somme des sorties du mois (pertes comprises, dites à part).
-  const sortiesMois = sortiesDuMois.reduce((t, g) => t + Number(g._sum.quantite ?? 0), 0);
-  const pertesMois = Number(sortiesDuMois.find((g) => g.categorieSortie === "PERTE")?._sum.quantite ?? 0);
+  // Consommation du mois en cours : LA règle de lib/mouvements-article-mois.ts (toutes les sorties du mois, pertes comprises et dites
+  // à part) — la même que l'en-tête de chaque mois de l'onglet Mouvements.
+  const enCours = moisEnCours();
+  const { total: sortiesMois, pertes: pertesMois } = consommationDuMois(agregats, enCours.annee, enCours.mois);
   const uniteTxt = a.unite?.trim() ? ` ${a.unite.trim()}` : "";
 
   // Affichage progressif (sans défilement interne) : l'état « tout voir » vit dans l'adresse.
@@ -215,7 +225,15 @@ export default async function ArticleFichePage({
     { o: "prix", label: `Prix (${prixHisto.length})` },
     { o: "informations", label: "Informations" },
   ];
-  const lienFiltre = (v: FiltreMouvements) => lienFicheArticle(a.id, "mouvements", { filtre: v });
+  const lienFiltre = (v: FiltreMouvements) => lienFicheArticle(a.id, "mouvements", { filtre: v, annee: anneeVue, mois: moisVue });
+  const lienAnnee = (v: string) => lienFicheArticle(a.id, "mouvements", { filtre, annee: v === "toutes" ? "toutes" : Number(v) });
+  const lienMois = (v: string) => lienFicheArticle(a.id, "mouvements", { filtre, annee: anneeVue, mois: v === "tous" ? null : Number(v) });
+  const effectifsMois: Record<string, number> = { tous: effectifsAnnees[String(anneeVue)] ?? 0 };
+  if (anneeVue !== "toutes") for (const m of moisDispo) effectifsMois[String(m)] = effectifsPeriode(agregats, { annee: anneeVue, mois: m }).tous;
+  // Mouvements affichés, groupés par mois ; chaque mois porte les totaux du mois ENTIER (jamais ceux de la page).
+  const mois = groupesParMois(mouvementsAffiches);
+  const quand = anneeVue === "toutes" ? "" : moisVue ? ` en ${libelleMoisAnnee(anneeVue, moisVue).toLowerCase()}` : ` en ${anneeVue}`;
+  const prixConso = (q: number) => valeurEnUSD(a, q, taux);
   const infos: [string, ReactNode][] = [
     ["Désignation enregistrée", a.designation],
     ["Nom court", a.nomCourt],
@@ -256,7 +274,7 @@ export default async function ArticleFichePage({
         </div>
         {/* Les boutons passent à la ligne sur téléphone : à 375 px, les trois côte à côte débordaient. */}
         <div className="flex flex-wrap items-center gap-2">
-          <TelechargerLien href={`/stock/catalogue/${a.id}/pdf`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+          <TelechargerLien href={onglet === "mouvements" ? lienPdfArticle(a.id, periode, filtre) : `/stock/catalogue/${a.id}/pdf`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Exporter PDF
           </TelechargerLien>
           <EditerArticle
@@ -344,9 +362,19 @@ export default async function ArticleFichePage({
         onglets={onglets.map(({ o, label }) => ({ href: lienOnglet(o), label, actif: o === onglet }))}
       />
 
-      {/* Historique des mouvements : filtre Entrées / Sorties / Ajustements / Tous */}
+      {/* Historique des mouvements : année, mois, puis type (Entrées / Sorties / Ajustements / Tous) — trois choix qui se combinent */}
       {onglet === "mouvements" && (
         <section id="mouvements" className="space-y-3">
+          <PastillesFiltre
+            libelle="Année des mouvements" actif={String(anneeVue)} effectifs={effectifsAnnees} lien={lienAnnee}
+            valeurs={[...annees.map((an) => [String(an), String(an)] as const), ["toutes", "Toutes"] as const]}
+          />
+          {anneeVue !== "toutes" && moisDispo.length > 0 && (
+            <PastillesFiltre
+              libelle={`Mois de ${anneeVue}`} actif={moisVue === null ? "tous" : String(moisVue)} effectifs={effectifsMois} lien={lienMois}
+              valeurs={[["tous", "Tous les mois"] as const, ...moisDispo.map((m) => [String(m), libelleMois(m)] as const)]}
+            />
+          )}
           <PastillesFiltre
             libelle="Filtrer les mouvements" actif={filtre} effectifs={effectifsMouvements} lien={lienFiltre}
             valeurs={[["entrees", "Entrées"], ["sorties", "Sorties"], ["ajustements", "Ajustements"], ["tous", "Tous"]] as const}
@@ -372,43 +400,79 @@ export default async function ArticleFichePage({
           )}
           {mouvements.length === 0 ? (
             <EtatVide
-              message={nbMouvements === 0 ? "Aucun mouvement de stock pour cet article." : `Aucun mouvement de ce type (${nbMouvements} au total).`}
-              action={nbMouvements > 0 ? <Link href={lienFiltre("tous")} className="text-primary underline">Voir tous les mouvements ({nbMouvements})</Link> : undefined}
+              message={nbMouvements === 0 ? "Aucun mouvement de stock pour cet article." : `Aucun mouvement${filtre === "tous" ? "" : " de ce type"}${quand} (${nbMouvements} au total pour cet article).`}
+              action={nbMouvements > 0 ? <Link href={lienFicheArticle(a.id, "mouvements", { annee: "toutes" })} className="text-primary underline">Voir tous les mouvements ({nbMouvements})</Link> : undefined}
             />
           ) : (
             <>
-            <div className="rounded-lg border">
-              <div className="divide-y">
-                {mouvementsAffiches.map((m) => {
-                  const sortie = m.type === "SORTIE";
-                  const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
-                  const src = source(m);
-                  const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
-                  return (
-                    <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium capitalize">{new Date(m.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" })}</div>
-                        {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                          {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
-                          {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
-                          {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
-                          {/* Mêmes pastilles que l'écran Mouvements : le type (vert Entrée, rouge Sortie, gris Ajustement), puis le motif d'une sortie. */}
-                          <PastilleType type={m.type} />
-                          {sortie && <PastilleMotif motif={m.categorieSortie} />}
-                          {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
+            <div className="space-y-4">
+              {mois.map((g) => {
+                const t = totauxDuMois(agregats, g.annee, g.mois);
+                const valeur = prixConso(t.consommation.total);
+                // La page ne montre qu'une partie du mois : les totaux, eux, restent ceux du mois entier.
+                const nbDuMoisFiltre = nbDuMois(agregats, g.annee, g.mois, filtre);
+                const partiel = g.lignes.length < nbDuMoisFiltre;
+                return (
+                  <section key={`${g.annee}-${g.mois}`} aria-label={libelleMoisAnnee(g.annee, g.mois)} data-mois={`${g.annee}-${g.mois}`} className="rounded-lg border">
+                    <div className="border-b bg-muted/40 px-3 py-2">
+                      <h3 className="text-sm font-semibold">{libelleMoisAnnee(g.annee, g.mois)}</h3>
+                      <dl data-totaux-mois={`${g.annee}-${g.mois}`} className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 text-sm sm:grid-cols-3">
+                        <div className="flex items-baseline justify-between gap-2 sm:block">
+                          <dt className="text-xs text-muted-foreground">Entrées du mois</dt>
+                          <dd data-entrees-mois className="font-semibold tabular-nums text-emerald-700">+{qte(t.entrees)} <span className="text-xs font-normal">{uniteAffichee(a.unite)}</span></dd>
                         </div>
-                      </div>
-                      <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-slate-600" : "text-emerald-700"}`}>
-                        {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
-                      </div>
+                        <div className="flex items-baseline justify-between gap-2 sm:block">
+                          <dt className="text-xs text-muted-foreground">Sorties du mois</dt>
+                          <dd data-sorties-mois className="font-semibold tabular-nums text-red-700">−{qte(t.sorties)} <span className="text-xs font-normal">{uniteAffichee(a.unite)}</span></dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 sm:block">
+                          <dt className="text-xs text-muted-foreground">Consommation totale du mois</dt>
+                          <dd data-consommation-mois className="font-semibold tabular-nums">
+                            {qte(t.consommation.total)} <span className="text-xs font-normal">{uniteAffichee(a.unite)}</span>
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              · {valeur ? `${valeur.approx ? "≈ " : ""}${usd(valeur.valeur)}` : "valeur —"}
+                              {t.consommation.pertes > 0 && ` · dont ${qte(t.consommation.pertes)}${uniteTxt} de pertes`}
+                            </span>
+                          </dd>
+                        </div>
+                      </dl>
+                      {valeur?.approx && <p className="mt-1 text-[11px] text-muted-foreground">Valeur au prix de référence actuel de l&apos;article, au taux du jour.</p>}
+                      {partiel && <p data-mois-partiel className="mt-1 text-[11px] text-muted-foreground">{g.lignes.length} mouvement{g.lignes.length > 1 ? "s" : ""} affiché{g.lignes.length > 1 ? "s" : ""} sur {nbDuMoisFiltre} ce mois-ci — les totaux ci-dessus sont ceux du mois entier.</p>}
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="divide-y">
+                      {g.lignes.map((m) => {
+                        const sortie = m.type === "SORTIE";
+                        const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
+                        const src = source(m);
+                        const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
+                        return (
+                          <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium capitalize">{new Date(m.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" })}</div>
+                              {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
+                                {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
+                                {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
+                                {/* Mêmes pastilles que l'écran Mouvements : le type (vert Entrée, rouge Sortie, gris Ajustement), puis le motif d'une sortie. */}
+                                <PastilleType type={m.type} />
+                                {sortie && <PastilleMotif motif={m.categorieSortie} />}
+                                {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
+                              </div>
+                            </div>
+                            <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-slate-600" : "text-emerald-700"}`}>
+                              {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
             {mouvementsChargesEnPlus > 0 && (
-              <Link href={lienFicheArticle(a.id, "mouvements", { filtre, tousMouvements: true })} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
+              <Link href={lienFicheArticle(a.id, "mouvements", { filtre, annee: anneeVue, mois: moisVue, tousMouvements: true })} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
                 Voir les {mouvementsChargesEnPlus} mouvements plus anciens
               </Link>
             )}
