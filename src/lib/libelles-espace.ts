@@ -35,6 +35,18 @@ export function libelleTypeDocument(type: string): string {
   return LIBELLE_TYPE_DOCUMENT[type] ?? "Document";
 }
 
+/** Type d'une mesure du dossier disciplinaire (DossierDisciplinaire.type). */
+export const LIBELLE_TYPE_SANCTION: Record<string, string> = {
+  AVERTISSEMENT: "Avertissement",
+  SANCTION: "Sanction",
+  MISE_A_PIED: "Mise à pied",
+  MESURE: "Mesure",
+};
+
+export function libelleTypeSanction(type: string): string {
+  return LIBELLE_TYPE_SANCTION[type] ?? "Mesure";
+}
+
 /** Ce qu'on a signé, pour une phrase (« Votre bulletin de paie a été signé. »). */
 export const NOM_CIBLE_SIGNATURE: Record<string, string> = {
   CONTRAT: "contrat",

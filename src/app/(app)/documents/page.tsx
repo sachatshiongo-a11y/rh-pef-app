@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { LIBELLE_STATUT_CONGE, type StatutConge } from "@/lib/conges-liste";
+import { libelleTypeDocument } from "@/lib/libelles-espace";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
@@ -362,9 +364,9 @@ export default async function DocumentsPage({
             <div className="mt-1.5 text-xs text-muted-foreground">{libelleTypeContrat(c.type)} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               {signatureContrat(c)}
-              <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+              <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${libelleTypeContrat(c.type)} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
               <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
-              {c.documentUrl && <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Pièce jointe" className="text-muted-foreground underline" />}
+              {c.documentUrl && <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${libelleTypeContrat(c.type)} · ${c.employee.nom}`} libelle="Pièce jointe" className="text-muted-foreground underline" />}
             </div>
           </div>
         ))}
@@ -372,7 +374,7 @@ export default async function DocumentsPage({
           <div key={d.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
-              <span className="shrink-0 text-xs text-muted-foreground">{d.type}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{libelleTypeDocument(d.type)}</span>
             </div>
             <div className="mt-1 text-sm font-medium">{d.nom}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -385,7 +387,7 @@ export default async function DocumentsPage({
           <div key={c.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
-              <Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge>
+              <Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{LIBELLE_STATUT_CONGE[c.statut as StatutConge] ?? "Statut inconnu"}</Badge>
             </div>
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</span>
@@ -485,11 +487,11 @@ export default async function DocumentsPage({
                     <td className="whitespace-nowrap px-3 py-2">{signatureContrat(c)}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-3">
-                        <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+                        <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${libelleTypeContrat(c.type)} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
                         <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
                       </div>
                     </td>
-                    <td className="px-3 py-2">{c.documentUrl ? <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
+                    <td className="px-3 py-2">{c.documentUrl ? <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${libelleTypeContrat(c.type)} · ${c.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
                 ))}
                 <Vide n={contrats.length} cols={8} />
@@ -505,7 +507,7 @@ export default async function DocumentsPage({
                   <tr key={d.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{d.nom}</td>
-                    <td className="px-3 py-2">{d.type}</td>
+                    <td className="px-3 py-2">{libelleTypeDocument(d.type)}</td>
                     <td className="px-3 py-2">{fr(d.dateExpiration)}</td>
                     <td className="px-3 py-2">{d.fichierUrl ? <ApercuDocumentBouton href={d.fichierUrl} titre={`${d.nom} — ${d.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
@@ -525,7 +527,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{c.type}</td>
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
-                    <td className="px-3 py-2"><Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge></td>
+                    <td className="px-3 py-2"><Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{LIBELLE_STATUT_CONGE[c.statut as StatutConge] ?? "Statut inconnu"}</Badge></td>
                     <td className="px-3 py-2"><TelechargerLien href={`/conges/demande/${c.id}`} className="text-primary underline">PDF</TelechargerLien></td>
                   </tr>
                 ))}
