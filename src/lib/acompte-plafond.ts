@@ -10,6 +10,11 @@
 // 100 % passeraient une par une. Les demandes EN_ATTENTE comptent au même titre que les
 // APPROUVÉES — sinon la Direction pourrait approuver un lot dont chaque ligne, prise seule,
 // tenait dans le plafond.
+//
+// L'ÉCHÉANCE DE PRÊT du mois est réservée sur le même plafond (audit du 2026-10-10) : elle sera
+// retenue sur le même bulletin. Sans elle, un acompte au plafond + l'échéance donnaient un net
+// négatif (net du mois précédent 200 $, acompte 200 $, prêt 50 $ → -50 $). L'échéance n'est jamais
+// plafonnée ici : elle diminue ce qu'il reste à avancer, et la validation refuse un net négatif.
 
 // Pas de garde `server-only` ici, volontairement : le cœur de la règle doit rester testable
 // unitairement sans base ni runtime Next. Le seul accès aux données (`chargerPlafondAcompte`, en
@@ -18,6 +23,7 @@
 import type { Prisma } from "@prisma/client";
 import { formaterUSD } from "@/lib/montant";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { calculerEcheancePret } from "@/lib/prets";
 
 /** D'où vient le plafond retenu — repris tel quel dans les messages affichés à l'utilisateur. */
 export type SourcePlafond = "NET_MOIS_PRECEDENT" | "SALAIRE_FICHE";
@@ -27,7 +33,9 @@ export type PlafondAcompte = {
   source: SourcePlafond;
   /** Somme des acomptes du mois déjà demandés ou approuvés (hors celui qu'on est en train d'examiner). */
   dejaEngageUSD: number;
-  /** Ce qu'il reste réellement disponible : max(0, plafond − déjà engagé). */
+  /** Échéance(s) de prêt retenue(s) sur le bulletin du même mois — réservée(s) sur le plafond. */
+  echeancePretUSD: number;
+  /** Ce qu'il reste réellement disponible : max(0, plafond − déjà engagé − échéance de prêt). */
   disponibleUSD: number;
 };
 
@@ -46,6 +54,8 @@ export function calculerPlafondAcompte(entrees: {
   salaireFicheUSD: number;
   /** Montants des acomptes du mois déjà EN_ATTENTE ou APPROUVÉS (hors celui examiné). */
   acomptesEngagesUSD: number[];
+  /** Échéance de prêt du même mois (0 ou absent : aucun prêt en cours). */
+  echeancePretUSD?: number;
 }): PlafondAcompte {
   // Un net négatif ou nul n'est pas une référence exploitable : on retombe sur la fiche.
   const netUtilisable =
@@ -56,12 +66,14 @@ export function calculerPlafondAcompte(entrees: {
   const source: SourcePlafond = netUtilisable !== null ? "NET_MOIS_PRECEDENT" : "SALAIRE_FICHE";
   const plafondUSD = Math.max(0, netUtilisable ?? entrees.salaireFicheUSD);
   const dejaEngageUSD = entrees.acomptesEngagesUSD.reduce((s, m) => s + m, 0);
+  const echeancePretUSD = Math.max(0, entrees.echeancePretUSD ?? 0);
 
   return {
     plafondUSD,
     source,
     dejaEngageUSD,
-    disponibleUSD: Math.max(0, plafondUSD - dejaEngageUSD),
+    echeancePretUSD,
+    disponibleUSD: Math.max(0, plafondUSD - dejaEngageUSD - echeancePretUSD),
   };
 }
 
@@ -93,10 +105,11 @@ export function verifierMontantAcompte(montantUSD: number, plafond: PlafondAcomp
 
   if (montantUSD > plafond.disponibleUSD + EPSILON_USD) {
     const reference = `${formaterUSD(plafond.plafondUSD)} (${libelleSourcePlafond(plafond.source)})`;
-    const dejaEngage =
-      plafond.dejaEngageUSD > 0
-        ? ` ${formaterUSD(plafond.dejaEngageUSD)} déjà engagé ce mois, il reste ${formaterUSD(plafond.disponibleUSD)}.`
-        : "";
+    const engages = [
+      plafond.dejaEngageUSD > 0 ? `${formaterUSD(plafond.dejaEngageUSD)} déjà engagé ce mois` : null,
+      plafond.echeancePretUSD > 0 ? `${formaterUSD(plafond.echeancePretUSD)} d'échéance de prêt retenue ce mois` : null,
+    ].filter(Boolean);
+    const dejaEngage = engages.length > 0 ? ` ${engages.join(", ")}, il reste ${formaterUSD(plafond.disponibleUSD)}.` : "";
     return {
       ok: false,
       message: `Acompte plafonné à ${reference}.${dejaEngage}`,
@@ -137,7 +150,7 @@ export async function chargerPlafondAcompte(
 ): Promise<PlafondAcompte> {
   const precedent = moisPrecedent(params.mois, params.annee);
 
-  const [employe, lignePrecedente, engages] = await Promise.all([
+  const [employe, lignePrecedente, engages, prets] = await Promise.all([
     client.employee.findUnique({
       where: { id: params.employeeId },
       select: { salaireMensuel: true },
@@ -159,11 +172,34 @@ export async function chargerPlafondAcompte(
       },
       select: { montantUSD: true },
     }),
+    // Prêts dont une échéance tombe sur ce mois : en cours, ou déjà soldés PAR l'échéance de ce mois
+    // (bulletin du mois validé). Même règle que la paie (`calculerEcheancePret`).
+    client.pretPersonnel.findMany({
+      where: {
+        employeeId: params.employeeId,
+        OR: [{ statut: "EN_COURS" }, { retenues: { some: { mois: params.mois, annee: params.annee } } }],
+      },
+      select: { montantUSD: true, retenueMensuelleUSD: true, retenues: { select: { mois: true, annee: true, montantUSD: true } } },
+    }),
   ]);
+
+  const echeancePretUSD = prets.reduce(
+    (s, p) =>
+      s +
+      calculerEcheancePret(
+        Number(p.montantUSD),
+        Number(p.retenueMensuelleUSD),
+        p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+        params.mois,
+        params.annee,
+      ).echeanceUSD,
+    0,
+  );
 
   return calculerPlafondAcompte({
     netMoisPrecedentUSD: lignePrecedente ? salaireNetUSD(lignePrecedente) : null,
     salaireFicheUSD: employe ? Number(employe.salaireMensuel) : 0,
     acomptesEngagesUSD: engages.map((a) => Number(a.montantUSD)),
+    echeancePretUSD,
   });
 }

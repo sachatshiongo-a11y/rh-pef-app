@@ -13,6 +13,7 @@ import { calculerEcheancePret } from "@/lib/prets";
 import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
 import type { ModePaiement, PaymentStatus, Prisma, Role } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import {
   ATTENTE_VERROU_VALIDATION,
   messageAttenteDirection,
@@ -241,6 +242,36 @@ async function appliquerTransitionPaie(
         champ: "fraisMedicauxMoisCourant",
         ancienneValeur: Number(apres.fraisMedicauxMoisCourant) - aRestituer,
         nouvelleValeur: Number(apres.fraisMedicauxMoisCourant),
+        userId,
+      });
+    }
+
+    // Prêt (audit 2026-10-10) : l'échéance que la validation de CE mois avait enregistrée est annulée,
+    // dans la même transaction. Sans cela, le recalcul ne retrouvait plus le prêt (passé SOLDÉ par
+    // sa dernière échéance) et la retenue disparaissait de la paie : 100 $ versés en trop. Le prêt
+    // repasse EN COURS seulement s'il avait été soldé PAR SES RETENUES (un prêt soldé autrement, au
+    // solde de tout compte, ou annulé, garde son statut). La revalidation réenregistre l'échéance.
+    // Rouvrir est réservé à la Direction (roleRequisPour, transitionPermise) : la garde est redite ici,
+    // au plus près de la seule suppression de ce fichier (garde-fou « seule la Direction supprime »).
+    exigerDirectionPourSupprimer(acteur, "Rouvrir un bulletin est réservé à la Direction.");
+    const { mois: moisLigne, annee: anneeLigne } = ligne.payrollRun;
+    const retenuesDuMois = await tx.retenuePret.findMany({
+      where: { mois: moisLigne, annee: anneeLigne, pret: { employeeId: ligne.employeeId } },
+      include: { pret: { include: { retenues: { select: { montantUSD: true } } } } },
+      orderBy: { pretId: "asc" },
+    });
+    for (const r of retenuesDuMois) {
+      const montant = Number(r.pret.montantUSD);
+      const totalRetenu = r.pret.retenues.reduce((s, x) => s + Number(x.montantUSD), 0);
+      await tx.retenuePret.delete({ where: { id: r.id } });
+      const rouvrir = r.pret.statut === "SOLDE" && totalRetenu >= montant - 0.001 && montant - (totalRetenu - Number(r.montantUSD)) > 0.001;
+      if (rouvrir) await tx.pretPersonnel.update({ where: { id: r.pretId }, data: { statut: "EN_COURS" } });
+      await journaliser(tx, {
+        entite: "PretPersonnel",
+        entiteId: r.pretId,
+        champ: "retenue",
+        ancienneValeur: `${moisLigne}/${anneeLigne} : ${Number(r.montantUSD)} $${rouvrir ? " (prêt soldé)" : ""}`,
+        nouvelleValeur: `annulée — bulletin rouvert${rouvrir ? " ; prêt repassé en cours" : ""}`,
         userId,
       });
     }

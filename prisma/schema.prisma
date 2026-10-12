@@ -1273,6 +1273,10 @@ model FinContrat {
   indemniteLicenciementUSD Decimal  @default(0) @db.Decimal(12, 2)
   autresUSD                Decimal  @default(0) @db.Decimal(12, 2)
   totalUSD                 Decimal  @default(0) @db.Decimal(12, 2)
+  /// Reste des prêts en cours repris sur le solde (audit 2026-10-10). Net versé = total − reprises.
+  reprisePretUSD           Decimal  @default(0) @db.Decimal(12, 2)
+  /// Acomptes approuvés non retenus par un bulletin validé/payé, repris sur le solde.
+  repriseAcomptesUSD       Decimal  @default(0) @db.Decimal(12, 2)
   commentaire              String?
   createdAt                DateTime @default(now())
   creeParId                String?

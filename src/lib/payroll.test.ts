@@ -242,6 +242,64 @@ describe("calculerHeuresSupp — seuil hebdo et majorations paramétrés", () =>
   });
 });
 
+describe("calculerHeuresSupp — semaine à cheval sur deux mois (28/09 → 03/10/2026, audit 2026-10-10)", () => {
+  // Contrat 48 h/sem, 10 h par jour du lundi 28/09 au samedi 03/10 : 60 h dans la semaine civile,
+  // 12 h supp. (6 à +30 %, 6 à +60 %). Avant le correctif, chaque mois ne voyait que ses 30 h : 0 HS.
+  const jour = (iso: string, h: number) => ({ date: new Date(iso + "T00:00:00Z"), heuresTravaillees: h });
+  const sept = [jour("2026-09-28", 10), jour("2026-09-29", 10), jour("2026-09-30", 10)];
+  const oct = [jour("2026-10-01", 10), jour("2026-10-02", 10), jour("2026-10-03", 10)];
+  const base = { heuresParJourContrat: 8, heuresHebdoContrat: 48, salaireHoraire: 1, joursFeries: new Set<string>(), params };
+
+  it("septembre (seuil non franchi dans ses jours) : 0 HS, que le mois suivant soit connu ou non", () => {
+    const r = calculerHeuresSupp({ ...base, jours: sept });
+    expect(r.totalHS).toBe(0);
+    expect(r.heuresTotalesMois).toBe(30);
+  });
+
+  it("octobre, avec les jours de septembre de la semaine : les 12 HS sont payées en octobre (jour qui franchit le seuil)", () => {
+    const r = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: sept });
+    expect(r.hs30).toBe(6);
+    expect(r.hs60).toBe(6);
+    expect(r.hsValorisee).toBeCloseTo(6 * 1.3 + 6 * 1.6, 9);
+    // Les heures de septembre ne sont pas payées une 2e fois : seules les 30 h d'octobre comptent au mois.
+    expect(r.heuresTotalesMois).toBe(30);
+    expect(r.semaines).toHaveLength(1);
+    expect(r.semaines[0].semaine).toBe(1);
+  });
+
+  it("les deux mois additionnés = la semaine de 60 h évaluée d'un bloc : 6 + 6 HS, ni perte ni double paiement", () => {
+    const s = calculerHeuresSupp({ ...base, jours: sept });
+    const o = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: sept });
+    expect(s.hs30 + o.hs30).toBe(6);
+    expect(s.hs60 + o.hs60).toBe(6);
+    expect(s.heuresTotalesMois + o.heuresTotalesMois).toBe(60);
+  });
+
+  it("seuil déjà franchi en septembre : septembre paie ses HS, octobre poursuit la tranche sans les recompter", () => {
+    const septLong = [jour("2026-09-28", 20), jour("2026-09-29", 20), jour("2026-09-30", 10)]; // 50 h : 2 HS à +30 %
+    const s = calculerHeuresSupp({ ...base, jours: septLong });
+    const o = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: septLong });
+    expect([s.hs30, s.hs60]).toEqual([2, 0]);
+    expect([o.hs30, o.hs60]).toEqual([4, 26]); // 80 h - 48 = 32 HS dans la semaine : 6 à +30 %, 26 à +60 %
+  });
+
+  it("dimanche et férié d'avant le mois : hors seuil, ils ne déclenchent rien en octobre", () => {
+    const avant = [jour("2026-09-27", 12)]; // dimanche de la semaine PRÉCÉDENTE : autre semaine
+    const ferie = [jour("2026-09-30", 40)];
+    const r1 = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: avant });
+    const r2 = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: ferie, joursFeries: new Set(["2026-09-30"]) });
+    expect(r1.totalHS).toBe(0);
+    expect(r2.totalHS).toBe(0);
+  });
+
+  it("sans jours d'avant le mois : résultat identique à l'ancien calcul", () => {
+    const a = calculerHeuresSupp({ ...base, jours: oct });
+    const b = calculerHeuresSupp({ ...base, jours: oct, joursAvantMois: [] });
+    expect(b).toEqual(a);
+    expect(a.totalHS).toBe(0);
+  });
+});
+
 describe("numeroSemaineDuMois — vraies semaines lundi→dimanche", () => {
   const j = (iso: string) => new Date(iso + "T00:00:00Z");
   it("mois commençant un lundi (juin 2026) : 1-7 = sem.1, 8 = sem.2", () => {

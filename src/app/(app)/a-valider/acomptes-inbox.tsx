@@ -46,7 +46,7 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
       // autres ne le sont pas, plutôt que de laisser l'écran se rafraîchir en silence.
       setAvis(
         r.bloques > 0
-          ? `${r.traites} acompte(s) traité(s), ${r.bloques} bloqué(s) par le plafond. ${r.message ?? ""}`.trim()
+          ? `${r.traites} acompte(s) traité(s), ${r.bloques} bloqué(s) (plafond, ou bulletin du mois déjà validé). ${r.message ?? ""}`.trim()
           : null
       );
     });
