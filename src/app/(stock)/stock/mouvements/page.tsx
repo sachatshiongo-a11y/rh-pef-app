@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
@@ -111,6 +112,9 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
       </div>
 
+      {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
+
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
         <select name="mois" defaultValue={mois ?? "tous"} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="tous">Tous les mois</option>
@@ -122,12 +126,9 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           {Object.entries(FILTRES_MOTIF).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois !== moisCourant || articleId || filtreMotif) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        {(mois !== moisCourant || articleId || filtreMotif) && <Link href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</Link>}
         <span className="ml-auto text-xs text-muted-foreground">{nbTotal} mouvement(s)</span>
       </form>
-
-      {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
-      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       {nbTotal > PLAFOND && <BandeauPlafond affiches={mouvements.length} total={nbTotal} estDirection={estDirection} />}
 
