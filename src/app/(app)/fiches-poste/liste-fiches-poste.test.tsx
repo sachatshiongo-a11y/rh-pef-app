@@ -18,7 +18,7 @@ import { lignesFichesPoste, type FicheDePoste } from "@/lib/fiches-poste-liste";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const fiche = (poste: string, extra: Partial<FicheDePoste> = {}): FicheDePoste => ({
-  id: `id-${poste.length}`, poste, descriptionPoste: null, description: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
+  id: `id-${poste.length}`, poste, descriptionPoste: null, description: null, risquesContraintes: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
   superieurHierarchique: null, tempsTravail: null, competencesTechniques: null, savoirEtre: null, formationsRequises: null, diplomesRequis: null,
   experiencesExigees: null, fichierUrl: null, fichierNom: null, ...extra,
 });
@@ -92,7 +92,7 @@ describe("liste des fiches de poste", () => {
     const noms = [...form.querySelectorAll("[name]")].map((e) => e.getAttribute("name")).sort();
     expect(noms).toEqual([
       "categorieProfessionnelle", "competencesTechniques", "description", "descriptionPoste", "diplomesRequis", "echelleSalariale",
-      "experiencesExigees", "fichier", "formationsRequises", "poste", "savoirEtre", "superieurHierarchique", "tempsTravail", "typeContrat",
+      "experiencesExigees", "fichier", "formationsRequises", "poste", "risquesContraintes", "savoirEtre", "superieurHierarchique", "tempsTravail", "typeContrat",
     ]);
     expect((form.querySelector('[name="typeContrat"]') as HTMLInputElement).value).toBe("CDI");
     expect((form.querySelector('[name="poste"]') as HTMLInputElement).value).toBe("Cuisinière");

@@ -25,7 +25,7 @@ export default async function FichesPostePage({
     prisma.employee.findMany({ where: { actif: true }, select: { id: true, nom: true, photoUrl: true, poste: true, secteur: true } }),
     prisma.fichePoste.findMany({
       select: {
-        id: true, poste: true, descriptionPoste: true, description: true, typeContrat: true, echelleSalariale: true, categorieProfessionnelle: true,
+        id: true, poste: true, descriptionPoste: true, description: true, risquesContraintes: true, typeContrat: true, echelleSalariale: true, categorieProfessionnelle: true,
         superieurHierarchique: true, tempsTravail: true, competencesTechniques: true, savoirEtre: true, formationsRequises: true, diplomesRequis: true,
         experiencesExigees: true, fichierUrl: true, fichierNom: true,
       },

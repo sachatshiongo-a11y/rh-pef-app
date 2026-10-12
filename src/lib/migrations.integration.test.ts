@@ -304,6 +304,40 @@ describe("migrations rejouées sur une base Supabase neuve", () => {
     }
   });
 
+  it("fiche de poste : « Risques et contraintes » est une colonne TEXT facultative, ajoutée sans rien casser, migration rejouable", async () => {
+    const col = await lignes<{ data_type: string; is_nullable: string }>(
+      `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'FichePoste' AND column_name = 'risquesContraintes'`,
+    );
+    expect(col).toEqual([{ data_type: "text", is_nullable: "YES" }]);
+    // Migration additive et idempotente : un 2e passage ne change rien et n'échoue pas.
+    const sql = fs.readFileSync(path.join(MIGRATIONS, "20261013130000_fiche_poste_risques", "migration.sql"), "utf8");
+    const instructions = sql.split("\n").filter((l) => !l.trim().startsWith("--") && l.trim() !== "");
+    expect(instructions.every((l) => /^ALTER TABLE "public"\."FichePoste" ADD COLUMN IF NOT EXISTS "risquesContraintes" TEXT;$/.test(l))).toBe(true);
+    await sb.client.query(sql);
+    // Les fiches déjà saisies gardent leurs champs : la colonne neuve est NULL, pas vide.
+    await sb.client.query(`INSERT INTO public."FichePoste" (id, poste, "updatedAt") VALUES ('fp-test', 'Poste test migration', now())`);
+    try {
+      expect((await lignes<{ r: string | null }>(`SELECT "risquesContraintes" AS r FROM public."FichePoste" WHERE id = 'fp-test'`))[0].r).toBeNull();
+    } finally {
+      await sb.client.query(`DELETE FROM public."FichePoste" WHERE id = 'fp-test'`);
+    }
+  });
+
+  it("bon de commande : « Adresse de livraison » et « Contact acheteur » sont des colonnes TEXT facultatives de ParamEntreprise, migration additive et rejouable", async () => {
+    const cols = await lignes<{ column_name: string; data_type: string; is_nullable: string }>(
+      `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ParamEntreprise' AND column_name IN ('adresseLivraison', 'contactAchats') ORDER BY 1`,
+    );
+    expect(cols).toEqual([
+      { column_name: "adresseLivraison", data_type: "text", is_nullable: "YES" },
+      { column_name: "contactAchats", data_type: "text", is_nullable: "YES" },
+    ]);
+    const sql = fs.readFileSync(path.join(MIGRATIONS, "20261013130100_param_entreprise_livraison_contact", "migration.sql"), "utf8");
+    const instructions = sql.split("\n").filter((l) => !l.trim().startsWith("--") && l.trim() !== "");
+    expect(instructions).toHaveLength(2);
+    expect(instructions.every((l) => /^ALTER TABLE "public"\."ParamEntreprise" ADD COLUMN IF NOT EXISTS "(adresseLivraison|contactAchats)" TEXT;$/.test(l))).toBe(true);
+    await sb.client.query(sql); // 2e passage : sans effet, sans erreur
+  });
+
   it("ne laissent AUCUN droit effectif à anon/authenticated (nommément ou via PUBLIC)", async () => {
     const droits = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
     expect(droits.map((d) => d.droit)).toEqual([]);

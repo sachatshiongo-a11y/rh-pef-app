@@ -61,7 +61,7 @@ export async function mettreAJourEntreprise(formData: FormData) {
     const data = {
       nom: t("nom"), enseigne: t("enseigne"), telephone: t("telephone"), email: t("email"), site: t("site"),
       adresse: t("adresse"), lieuTravail: t("lieuTravail"), pays: t("pays"), compteBancaire: t("compteBancaire"),
-      rccm: t("rccm"), idNat: t("idNat"), numImpot: t("numImpot"), logoUrl, logoNom, signatureUrl, signatureNom,
+      rccm: t("rccm"), idNat: t("idNat"), numImpot: t("numImpot"), adresseLivraison: t("adresseLivraison"), contactAchats: t("contactAchats"), logoUrl, logoNom, signatureUrl, signatureNom,
     };
     await prisma.paramEntreprise.upsert({ where: { id: "singleton" }, create: { id: "singleton", ...data }, update: data });
 

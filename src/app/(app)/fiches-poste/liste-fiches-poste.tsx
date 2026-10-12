@@ -228,7 +228,7 @@ function PanneauFiche({ ligne: l, peutGerer, estAdmin }: { ligne: LigneFichePost
 
       {!peutGerer ? (
         <div className="space-y-2 text-sm">
-          {!f?.descriptionPoste && !f?.description && <p className="text-muted-foreground">Fiche pas encore rédigée.</p>}
+          {!f?.descriptionPoste && !f?.description && !f?.risquesContraintes && <p className="text-muted-foreground">Fiche pas encore rédigée.</p>}
           {f?.descriptionPoste && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground">Missions principales du poste</p>
@@ -239,6 +239,12 @@ function PanneauFiche({ ligne: l, peutGerer, estAdmin }: { ligne: LigneFichePost
             <div>
               <p className="text-xs font-semibold text-muted-foreground">Activités et tâches principales</p>
               <p className="whitespace-pre-line">{f.description}</p>
+            </div>
+          )}
+          {f?.risquesContraintes && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground">Risques et contraintes du poste</p>
+              <p className="whitespace-pre-line">{f.risquesContraintes}</p>
             </div>
           )}
         </div>
@@ -256,6 +262,10 @@ function PanneauFiche({ ligne: l, peutGerer, estAdmin }: { ligne: LigneFichePost
                 <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                   <span>Activités et tâches principales <span className="font-normal">(une par ligne)</span></span>
                   <textarea name="description" defaultValue={f?.description ?? ""} rows={6} placeholder="Les activités et tâches concrètes (avant / pendant / après le service…)…" className={zoneCls} />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                  <span>Risques et contraintes du poste <span className="font-normal">(une par ligne)</span></span>
+                  <textarea name="risquesContraintes" defaultValue={f?.risquesContraintes ?? ""} rows={3} placeholder="ex. station debout prolongée, manutention de charges…" className={zoneCls} />
                 </label>
               </div>
               {/* Champs du générateur de fiche de poste (PDF). */}
