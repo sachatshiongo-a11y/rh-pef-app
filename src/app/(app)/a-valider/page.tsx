@@ -7,6 +7,8 @@ import { libellePeriode } from "@/lib/changement-mois";
 import { jetonLigne } from "@/lib/paie-jeton";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
+import { FichesInbox, type FicheRow } from "./fiches-inbox";
+import { lireChangements, ligneChangement } from "@/lib/fiche-sensible";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { Avatar } from "@/components/avatar";
@@ -51,7 +53,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};
 
-  const [conges, prepare, valide, acomptes, changements, echanges, attestations] = await Promise.all([
+  const [conges, prepare, valide, acomptes, changements, echanges, attestations, modifsFiche] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -92,7 +94,21 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { demandeLe: "asc" },
     }),
+    // Modifications de champs sensibles d'une fiche (salaire, contrat, versement…) saisies par la RH.
+    prisma.demandeModifFiche.findMany({
+      where: { statut: "EN_ATTENTE" },
+      include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+  const ficheRows: FicheRow[] = modifsFiche.map((d) => {
+    let lignes: string[];
+    try { lignes = lireChangements(d.changements).map(ligneChangement); } catch { lignes = ["Demande illisible : refusez-la."]; }
+    return {
+      id: d.id, employeeId: d.employee.id, nom: d.employee.nom, photoUrl: d.employee.photoUrl, lignes,
+      auteurNom: d.auteurNom, demandeLe: jourKinshasa(d.createdAt), motif: d.motif,
+    };
+  });
   const attestationRows: AttestationRow[] = attestations.map((a) => ({
     id: a.id,
     employeeId: a.employee.id,
@@ -154,7 +170,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     motif: a.motif ?? null,
     demandeLe: new Date(a.dateDemande).toLocaleDateString("fr-FR"),
   }));
-  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length + echanges.length + attestationRows.length;
+  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length + echanges.length + attestationRows.length + ficheRows.length;
 
   return (
     <div className="max-w-5xl">
@@ -186,6 +202,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
           Demandes de congé ({congeRows.length})
         </h2>
         <CongesInbox rows={congeRows} peutValider={peutValider} />
+      </section>
+
+      <section id="modifications-fiches" className="mb-8 scroll-mt-24">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Modifications de fiches ({ficheRows.length})
+        </h2>
+        <FichesInbox rows={ficheRows} peutValider={peutValider} />
       </section>
 
       <section className="mb-8">
