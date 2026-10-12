@@ -9,6 +9,9 @@ import { actionLisible } from "@/lib/action-lisible";
 import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { televerserPhotoFiche } from "@/lib/fiches/photo-fiche-serveur";
 import { prixArticleEnUSD } from "@/lib/prix-article";
+import { decisionArticle } from "@/lib/article-proche";
+import { cleArticleExacte, type ArticleCandidat } from "@/lib/achats-doublons";
+import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import {
   planifierImportBar, rattacherFiches, rattacherIngredients, validerChoix, validerFichesLues,
@@ -56,15 +59,41 @@ async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fic
   };
 }
 
+/**
+ * Un article de CE NOM existe déjà au catalogue — INACTIFS COMPRIS (la liste d'import ne lit que les
+ * actifs : sans ce contrôle, l'import recréait un doublon d'un article mis de côté, audit du
+ * 10/10/2026). Même décision que la Liste d'achat et la création au catalogue (`decisionArticle`).
+ * Rend le message de refus, ou null : rien n'empêche la création (aucun article de ce nom ; des noms
+ * seulement PROCHES restent un « Créer quand même » explicite, déjà montré à l'écran).
+ */
+function refusHomonyme(designation: string, catalogue: readonly ArticleCandidat[]): string | null {
+  const d = decisionArticle(designation, catalogue);
+  if (d.type === "auto") {
+    return d.article.actif
+      ? `« ${d.article.designation} » existe déjà au catalogue sous ce nom : choisissez-le au lieu de le recréer.`
+      : `« ${d.article.designation} » existe déjà au catalogue sous ce nom, mais il est INACTIF : demandez à la Direction de le réactiver (Catalogue) plutôt que de créer un doublon, puis relancez l'import.`;
+  }
+  if (d.type === "choix" && !d.creationPossible) return `« ${designation} » existe déjà plusieurs fois au catalogue sous ce nom : choisissez l'un d'eux, ne créez pas un de plus.`;
+  return null;
+}
+
 /** Simulation SANS écriture : fiche proposée pour chaque feuille, article pour chaque ingrédient. */
 export const analyserFichesBar = actionLisible(async (brut: FicheBarLue[]) => {
   await direction();
   const lues = validerFichesLues(brut);
   const { articles, fiches } = await lireBase(prisma);
+  // Un nom déjà pris au catalogue (inactif compris) : « Créer l'article » n'est plus proposé, la
+  // raison est dite sur la ligne (`doute`) — la même vérification est refaite à l'écriture.
+  const catalogue = await catalogueCandidats();
+  const ingredients = rattacherIngredients(lues, articles).map((p) => {
+    if (p.articleId || !p.creation || p.doute) return p;
+    const refus = refusHomonyme(p.creation.designation, catalogue);
+    return refus ? { ...p, doute: refus } : p;
+  });
   return {
     ok: true as const,
     fiches: rattacherFiches(lues, fiches),
-    ingredients: rattacherIngredients(lues, articles),
+    ingredients,
     articles,
     fichesBar: fiches,
   };
@@ -129,6 +158,24 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
     //    l'Inventaire les montre à 0, la fiche article « — », la disponibilité « pas de stock »
     //    (à vérifier), jamais une rupture inventée ; le premier mouvement crée la ligne.
     const idArticle = new Map<string, string>();
+    // Anti-doublon à l'ÉCRITURE : verrou sur la clé de chaque nom à créer (triées : pas d'interblocage
+    // avec une Liste d'achat ou un autre import), puis catalogue relu UNE fois sous ces verrous, inactifs
+    // compris. Un nom déjà pris refuse tout l'import (tout ou rien), avec le chemin à suivre.
+    const aCreer = new Map<string, string>(); // clé de ligne → désignation
+    for (const p of prets) for (const l of p.lignes) {
+      if (l.statut !== "OK" || !l.article || l.article.id || aCreer.has(l.cle)) continue;
+      const valeurs = propositions.find((x) => x.cle === l.cle)?.creation;
+      if (valeurs) aCreer.set(l.cle, valeurs.designation);
+    }
+    if (aCreer.size > 0) {
+      const cles = [...new Set([...aCreer.values()].map((d) => cleArticleExacte(d) || d))].sort();
+      for (const cle of cles) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`article:${cle}`}))::text AS verrou`;
+      const catalogue = await catalogueCandidats(tx);
+      for (const designation of aCreer.values()) {
+        const refus = refusHomonyme(designation, catalogue);
+        if (refus) throw new Error(`${refus} Rien n'a été écrit.`);
+      }
+    }
     for (const p of prets) {
       for (const l of p.lignes) {
         if (l.statut !== "OK" || !l.article || l.article.id || idArticle.has(l.cle)) continue;

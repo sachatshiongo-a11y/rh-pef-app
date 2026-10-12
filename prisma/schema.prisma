@@ -653,6 +653,7 @@ model CommandeResto {
   article   ArticleStock @relation(fields: [articleId], references: [id], onDelete: Cascade)
   date      DateTime     @db.Date
   quantite  Decimal      @db.Decimal(14, 3)
+  saisiParId String? // dernière saisie : User.id (pas de FK cross-schéma) ; null = avant ce suivi
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -668,6 +669,7 @@ model CommandeLegumeResto {
   legume    String
   date      DateTime @db.Date
   quantite  Decimal  @db.Decimal(14, 3)
+  saisiParId String? // dernière saisie : User.id (pas de FK cross-schéma) ; null = avant ce suivi
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1791,6 +1793,9 @@ model ComptageResto {
   article        ArticleResto @relation(fields: [articleRestoId], references: [id], onDelete: Cascade)
   date           DateTime     @db.Date
   quantite       Decimal      @db.Decimal(14, 3)
+  // Dernière saisie (audit 2026-10-10) : qui et quand. Null = ligne saisie avant ce suivi (« inconnu »).
+  saisiParId     String? // User.id (pas de FK cross-schéma)
+  saisiLe        DateTime?
 
   @@unique([articleRestoId, date])
   @@index([date])

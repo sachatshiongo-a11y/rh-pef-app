@@ -327,7 +327,7 @@ function libellePointMortRapport(pointMortDate: string | null, pointMortAtteint:
  */
 export async function genererRapportExploitation(type: TypeRapportExploitation, debut: Date, fin: Date): Promise<DonneesRapport> {
   const horizon = type === "ANNUEL" ? "annuel" : "mensuel";
-  const { resultat: r, totalCouverts } = await chargerExploitation(jourIso(debut), jourIso(fin), horizon);
+  const { resultat: r, totalCouverts, couvertsSaisis } = await chargerExploitation(jourIso(debut), jourIso(fin), horizon);
   const titre = TYPES_RAPPORT_EXPLOITATION[type];
 
   const lignes: (string | number)[][] = [
@@ -367,10 +367,15 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
   ]);
   lignesTable2.push(
     ["Jours ouvrés", r.nbJoursOuvres, "—", "—"],
-    ["Recette journalière moyenne (USD)", r.recetteJournaliereMoyenne === null ? "—" : arr(r.recetteJournaliereMoyenne), "—", "—"],
+    [`Recette journalière moyenne (USD${r.recetteMoyenneADate ? ", à date" : ""})`, r.recetteJournaliereMoyenne === null ? "—" : arr(r.recetteJournaliereMoyenne), "—", "—"],
     ["Ticket moyen (USD)", r.ticketMoyen === null ? "—" : arr(r.ticketMoyen), "—", "—"],
-    ["Couverts (période)", totalCouverts, "—", "—"],
   );
+  // Ticket partiel : annoncé, jamais présenté comme complet (il ne repose que sur les jours qui ont des couverts).
+  if (r.ticketMoyenPartiel && r.ticketMoyenJours) {
+    lignesTable2.push(["Ticket moyen : jours retenus", `partiel (${r.ticketMoyenJours.avecCouverts}/${r.ticketMoyenJours.avecCA} jours)`, "—", "—"]);
+  }
+  // Couverts jamais saisis sur la période : « — », pas un 0 inventé.
+  lignesTable2.push(["Couverts (période)", couvertsSaisis ? totalCouverts : "—", "—", "—"]);
 
   return {
     titre,

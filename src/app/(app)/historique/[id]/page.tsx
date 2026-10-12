@@ -36,7 +36,24 @@ export default async function HistoriqueDetailPage({
       <Link href="/paie?vue=historique" className="text-sm text-primary underline">
         ← Retour à l&apos;historique
       </Link>
-      <h1 className="mt-2 mb-6 text-xl font-semibold sm:text-2xl capitalize">Paie — {periode}</h1>
+      <h1 className="mt-2 mb-4 text-xl font-semibold sm:text-2xl capitalize">Paie — {periode}</h1>
+
+      {/* Les documents du mois : mêmes routes et mêmes gardes que sur l'écran Paie, pour CE mois
+          (`?mois=&annee=`) — un mois clôturé garde sa liasse, son ZIP et son livre de paie. */}
+      <div className="mb-6 flex flex-wrap gap-2">
+        {([
+          ["Bulletins en un PDF ($)", `/paie/bulletins-pdf?mois=${run.mois}&annee=${run.annee}&devise=USD`],
+          ["Bulletins en un PDF (CDF)", `/paie/bulletins-pdf?mois=${run.mois}&annee=${run.annee}&devise=CDF`],
+          ["Bulletins en ZIP ($)", `/paie/bulletins-zip?mois=${run.mois}&annee=${run.annee}&devise=USD`],
+          ["Bulletins en ZIP (CDF)", `/paie/bulletins-zip?mois=${run.mois}&annee=${run.annee}&devise=CDF`],
+          ["Livre de paie (PDF)", `/paie/export-pdf?mois=${run.mois}&annee=${run.annee}`],
+          ["Livre de paie (Excel)", `/paie/export?mois=${run.mois}&annee=${run.annee}`],
+        ] as const).map(([libelle, href]) => (
+          <TelechargerLien key={href} href={href} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+            {libelle}
+          </TelechargerLien>
+        ))}
+      </div>
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">

@@ -15,7 +15,7 @@ import { ongletFiche } from "@/lib/fiches/famille-boisson";
 import { formaterNombre, montantSigne } from "@/lib/montant";
 import type { ChiffresFichePdf, FichePdf, IndicateurPdf, PhotoPdf } from "@/lib/pdf/fiche-technique";
 import {
-  MOTIF_LABEL, TYPE_LABEL, coef, etiquettePrix, noteCoutIncomplet, nomLigne, pct,
+  MOTIF_LABEL, TYPE_LABEL, coef, coutEnFrancsConvertis, etiquettePrix, noteCoutIncomplet, nomLigne, pct,
   type ArticleOption, type FicheVue,
 } from "./fiche-calc";
 
@@ -24,6 +24,12 @@ export type ContexteFichePdf = {
   contexte: ContexteCout;
   articles: Map<string, ArticleOption>;
   noms: Map<string, { nom: string }>;
+  /**
+   * Toutes les fiches, pour savoir si un coût passe par un article au prix en FRANCS converti au taux
+   * du jour : le coût est alors « ≈ » dans le PDF, comme à l'écran (audit du 10/10/2026). Absent, aucune
+   * fiche n'est qualifiée.
+   */
+  vues?: Map<string, FicheVue>;
 };
 
 /** Montant USD pour le PDF ; `null` → « — » (jamais 0). */
@@ -99,14 +105,20 @@ function chiffresDe(vue: FicheVue, ctx: ContexteFichePdf, { bar, portionsInvalid
   const coutPartiel = r.ingredientsSansPrix.length > 0 || r.cycle;
   const aucunIngredient = vue.lignes.length === 0;
   const noteCout = noteCoutIncomplet(r.incomplet, vue.lignes.length);
-  const minore = (n: number) => `${coutPartiel ? "≥ " : ""}${montant(n)}`;
+  // « ≈ » : le coût passe par un prix en francs converti au taux du jour (comme à l'écran, « ≥ » prime).
+  const approx = ctx.vues ? coutEnFrancsConvertis(vue.id, ctx.vues, ctx.articles) : false;
+  const minore = (n: number) => `${coutPartiel ? "≥ " : approx ? "≈ " : ""}${montant(n)}`;
+  const sousApprox = (v: string) => (approx && v !== "—" ? `≈ ${v}` : v);
 
   const lignes = vue.lignes.map((l, i) => {
     const lc = r.lignes[i];
     const art = l.articleId ? ctx.articles.get(l.articleId) : undefined;
     const prixAchat = art ? prixCatalogue(art) : l.sousFicheId ? "sous-recette" : "—";
+    const ligneApprox = ctx.vues
+      ? (l.articleId ? art?.prixApprox === true : l.sousFicheId ? coutEnFrancsConvertis(l.sousFicheId, ctx.vues, ctx.articles) : false)
+      : false;
     return lc && lc.cout !== null
-      ? { prixAchat, cout: `${lc.partiel ? "≥ " : ""}${montant(arrondirCentime(lc.cout))}`, motif: null }
+      ? { prixAchat, cout: `${lc.partiel ? "≥ " : ligneApprox ? "≈ " : ""}${montant(arrondirCentime(lc.cout))}`, motif: null }
       : { prixAchat, cout: "—", motif: lc?.motif ? MOTIF_LABEL[lc.motif] : "Coût indéterminé" };
   });
 
@@ -117,6 +129,7 @@ function chiffresDe(vue: FicheVue, ctx: ContexteFichePdf, { bar, portionsInvalid
         "Ils ne sont pas comptés pour zéro, ils ne sont pas comptés du tout : le coût affiché est un minorant.",
     );
   }
+  if (approx) avertissements.push("≈ Un ingrédient au moins a son prix en francs : il est converti en dollars au taux du jour. Les coûts marqués ≈ bougent avec le taux.");
   if (portionsInvalides) avertissements.push("Nombre de portions inexploitable : le coût par portion est calculé sur 1 portion. Corrigez la fiche.");
   if (!coutConnu) {
     avertissements.push(aucunIngredient
@@ -149,18 +162,19 @@ function chiffresDe(vue: FicheVue, ctx: ContexteFichePdf, { bar, portionsInvalid
           } : ils ne sont pas fiables. N'arrêtez pas un prix de vente là-dessus.`
         : null,
       indicateurs: [
-        { libelle: et("Prix de vente TTC"), valeur: montant(r.prixVenteTTC), alerte },
-        { libelle: et("Prix de vente HT"), valeur: montant(r.prixVenteHT), alerte },
+        // Un prix DÉCIDÉ ne dépend pas du coût ; un prix conseillé, si.
+        { libelle: et("Prix de vente TTC"), valeur: r.prixEstConseille ? sousApprox(montant(r.prixVenteTTC)) : montant(r.prixVenteTTC), alerte },
+        { libelle: et("Prix de vente HT"), valeur: r.prixEstConseille ? sousApprox(montant(r.prixVenteHT)) : montant(r.prixVenteHT), alerte },
         // Le taux de TVA est un PARAMÈTRE de la fiche, pas un résultat : jamais qualifié.
         { libelle: "Taux de TVA", valeur: Number.isFinite(tva) ? pct(tva) : "—" },
-        { libelle: et("Coefficient"), valeur: coef(r.coefficient), alerte },
-        { libelle: et("Taux de marque"), valeur: pct(r.tauxMarque), alerte },
-        { libelle: et("Marge brute"), valeur: montant(r.margeBrute), alerte },
-        { libelle: et("Taux de marge"), valeur: pct(r.tauxMarge), alerte },
-        { libelle: et("Ratio matière"), valeur: pct(r.ratioMatiere), alerte },
+        { libelle: et("Coefficient"), valeur: sousApprox(coef(r.coefficient)), alerte },
+        { libelle: et("Taux de marque"), valeur: sousApprox(pct(r.tauxMarque)), alerte },
+        { libelle: et("Marge brute"), valeur: sousApprox(montant(r.margeBrute)), alerte },
+        { libelle: et("Taux de marge"), valeur: sousApprox(pct(r.tauxMarge)), alerte },
+        { libelle: et("Ratio matière"), valeur: sousApprox(pct(r.ratioMatiere)), alerte },
       ],
       prixConseille: r.prixConseille
-        ? `Prix conseillé (coefficient cible) : ${r.prixConseille.minorant ? "≥ " : ""}${montant(r.prixConseille.ht)} HT (${r.prixConseille.minorant ? "≥ " : ""}${montant(r.prixConseille.ttc)} TTC)${
+        ? `Prix conseillé (coefficient cible) : ${r.prixConseille.minorant ? "≥ " : approx ? "≈ " : ""}${montant(r.prixConseille.ht)} HT (${r.prixConseille.minorant ? "≥ " : approx ? "≈ " : ""}${montant(r.prixConseille.ttc)} TTC)${
             r.prixConseille.minorant ? " — coût partiel : ce n'est pas un prix, c'est un plancher." : ""
           }`
         : null,

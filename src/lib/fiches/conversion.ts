@@ -33,11 +33,36 @@ const ALIAS_UNITE: Record<string, string> = {
   paquets: "paquet",
 };
 
-/** Normalise une unité pour comparaison : minuscules, espaces superflus retirés, variantes
- * d'écriture courantes ramenées à l'unité canonique (ex. « Litres » → « l »). */
+const sansAccent = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+// Même table, clés SANS accent : « Piece » = « pièce », « Boite » = « boîte ». Les formes canoniques
+// (sorties) gardent leurs accents, comme avant.
+const ALIAS_SANS_ACCENT: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(ALIAS_UNITE).map(([k, v]) => [sansAccent(k), v])),
+  piece: "pièce",
+  unite: "unité",
+  boite: "boîte",
+};
+
+/**
+ * Normalise une unité pour comparaison — UNE SEULE normalisation pour la conversion (`facteur`), le
+ * coût des fiches, les livraisons du restaurant et `estUniteComptage` (audit 2026-10-10 : « Bouteille »,
+ * « Bouteille(s) » et « bouteilles » n'étaient pas la même unité pour le coût mais l'étaient pour la
+ * liste des unités de comptage). Casse, espaces, accents (« Piece » = « pièce »), « (s) » final et
+ * pluriel simple en « s » (« Bottes » = « botte ») sont de l'ORTHOGRAPHE : variantes ramenées à la
+ * forme canonique (ex. « Litres » → « l »). Une unité inconnue est rendue en minuscules, accents
+ * conservés, jamais devinée.
+ */
 export function normaliserUnite(unite: string): string {
-  const brut = unite.trim().toLowerCase();
-  return ALIAS_UNITE[brut] ?? brut;
+  const brut = unite.trim().toLowerCase().replace(/\s+/g, " ").replace(/\s*\(s\)$/, "");
+  const direct = ALIAS_SANS_ACCENT[sansAccent(brut)];
+  if (direct) return direct;
+  // Pluriel simple : un mot d'au moins 4 lettres terminé par un seul « s » (« bottes », « sachets »).
+  if (/^\p{L}{3,}s$/u.test(brut) && !brut.endsWith("ss")) {
+    const singulier = brut.slice(0, -1);
+    return ALIAS_SANS_ACCENT[sansAccent(singulier)] ?? singulier;
+  }
+  return brut;
 }
 
 // Facteurs vers l'unité de référence de chaque grandeur (base = gramme pour la masse,
@@ -133,10 +158,7 @@ const COMPTAGE_STOCK = new Set(["bouteille", "piece", "unite", "boite", "paquet"
 
 /** Vrai si l'article se compte à l'unité (« Bouteille », « Bouteille(s) », « Pièces »…). */
 export function estUniteComptage(unite: string | null | undefined): boolean {
-  const u = normaliserUnite(unite ?? "")
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/\(s\)$/, "").replace(/s$/, "");
-  return COMPTAGE_STOCK.has(u);
+  return COMPTAGE_STOCK.has(sansAccent(normaliserUnite(unite ?? "")));
 }
 
 /** Unités admises pour une contenance : une grandeur convertible (volume ou masse). */

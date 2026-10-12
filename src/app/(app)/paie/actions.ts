@@ -28,6 +28,7 @@ import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecri
 import { jourDuVersement, lireDateVersementPaie } from "@/lib/date-paiement";
 import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH, notifierPaiementAnnule, retirerRappelSiRienAPayer } from "@/lib/paie-notifications";
 import { libellePeriode, memePeriode, messageClotureReussie, passerAuMoisSuivantApresCloture, revaliderApresChangementDeMois, verrouillerMoisCourant, type Periode } from "@/lib/changement-mois";
+import { figerCongesDuMois } from "@/lib/conges-bulletin-donnees";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -164,7 +165,8 @@ async function appliquerTransitionPaie(
       data: {
         payrollLineId,
         numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
-        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun, validation })),
+        // `conges` : la période de congé du mois, figée avec le reste (le bulletin remis la garde).
+        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun, validation, conges: await figerCongesDuMois(tx, ligne.employeeId, ligne.payrollRun.mois, ligne.payrollRun.annee) })),
         genreParId: userId,
       },
     });
