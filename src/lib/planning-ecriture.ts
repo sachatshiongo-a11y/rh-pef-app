@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { dureeShift } from "@/lib/duree-shift";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { resynchroniserHeuresPlanifiees } from "@/lib/presences-lot";
 import { ErreurMetier } from "@/lib/erreur-metier";
 
 /** `shiftId: null` = effacer le créneau de ce jour. */
@@ -265,6 +266,12 @@ export async function ecrireCreneaux(
     });
   }
   await journaliserPlusieurs(tx, journal);
+  // Présences déjà posées sur ces jours : leurs heures PRÉ-REMPLIES suivent le nouveau planning ;
+  // des heures saisies ne sont jamais écrasées (journalisées « gardées », et la paie le signale).
+  const changes = [...aEffacer, ...aCreer, ...aModifier];
+  if (changes.length > 0) {
+    await resynchroniserHeuresPlanifiees(tx, changes.map((o) => ({ employeeId: o.employeeId, date: o.date, ancienShiftId: avant.get(cle(o.employeeId, o.date)) ?? null })), userId);
+  }
   return journal.length;
 }
 

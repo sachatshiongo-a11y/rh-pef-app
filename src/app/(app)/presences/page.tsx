@@ -8,14 +8,13 @@ import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
 import { BarreVuePresences, PresencesVueProvider, type VuePresences } from "./vue-presences";
 import { semaineParDefaut, semainesDuMois } from "./semaines";
 import { peutSupprimer } from "@/lib/suppression-direction";
-import { pariteSemaine } from "../planning/creneaux";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { COULEUR_CODE } from "./attendance-colors";
 import { ImportPointage } from "./import-pointage";
 import { rattraperCodesConges } from "@/lib/conges-presences";
 import { WeeklyBreakdownTable } from "../heures-supp/weekly-breakdown-table";
 import { exigerPageRH } from "@/lib/garde-page";
-import { POINTAGE_VALABLE } from "@/lib/pointage-annulation";
+import { chargerHorairesDuMois } from "@/lib/horaires-presences";
 import { PAUSE_PAR_DEFAUT_MIN } from "@/lib/pointage-qr";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { jourCourantKinshasaISO, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -58,64 +57,16 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
 
   // Salariés SORTIS dans le mois (fin de contrat) : gardés pour leurs jours actifs (audit RH 2026-10-10).
   const inactifsGardes = await inactifsDeLaPeriode(prisma, debutMois, finMois);
-  const [employees, attendances, entries, joursFeriesDuMois, pointages, creneauxMois, modeles, shifts] = await Promise.all([
+  const [employees, attendances, entries, joursFeriesDuMois] = await Promise.all([
     prisma.employee.findMany({ where: { OR: [{ actif: true }, { id: { in: inactifsGardes } }] }, orderBy: { nom: "asc" } }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-    // Un pointage dont l'arrivée a été annulée par le salarié (« Annuler ce pointage ») n'est pas
-    // un pointage réel : le créneau planifié reste affiché (rien n'est effacé en base).
-    prisma.pointage.findMany({
-      where: { AND: [{ date: { gte: debutMois, lte: finMois } }, POINTAGE_VALABLE] },
-      select: { employeeId: true, date: true, heureDebut: true, heureFin: true, pauseParDefaut: true },
-    }),
-    prisma.planningCreneau.findMany({
-      where: { date: { gte: debutMois, lte: finMois } },
-      select: { employeeId: true, date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true } } },
-    }),
-    prisma.planningModele.findMany({ select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
-    prisma.shift.findMany({ select: { id: true, nom: true, heureDebut: true, heureFin: true } }),
   ]);
 
-  // Shift du jour par case (façon planning) : pointage RÉEL (heures horodatées) > créneau
-  // PLANIFIÉ (onglet Planning) > MODÈLE hebdo — même hiérarchie que les heures auto des P.
-  // On transmet début et fin SÉPARÉMENT (« HH:MM ») pour que la grille puisse recalculer une
-  // heure de fin effective quand la journée déborde en heures supplémentaires.
-  const fmtHeure = (x: Date) =>
-    new Date(x).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Kinshasa" });
-  const shiftParId = new Map(shifts.map((s) => [s.id, s]));
-  const modeleParCle = new Map<string, string>(); // `${empId}|${jour}|${semaine}` -> shiftId
-  for (const m of modeles) modeleParCle.set(`${m.employeeId}|${m.jour}|${m.semaine}`, m.shiftId);
-
-  const shiftMap: Record<string, InfoShift> = {};
-  for (const e of employees) {
-    for (const d of days) {
-      const dt = new Date(Date.UTC(annee, mois - 1, d));
-      const jour = dt.getUTCDay();
-      const sid =
-        modeleParCle.get(`${e.id}|${jour}|${pariteSemaine(dt)}`) ?? modeleParCle.get(`${e.id}|${jour}|0`);
-      const s = sid ? shiftParId.get(sid) : undefined;
-      if (s) shiftMap[`${e.id}_${d}`] = { debut: s.heureDebut, fin: s.heureFin, reel: false };
-    }
-  }
-  for (const c of creneauxMois) {
-    shiftMap[`${c.employeeId}_${new Date(c.date).getUTCDate()}`] = {
-      debut: c.shift.heureDebut,
-      fin: c.shift.heureFin,
-      reel: false,
-    };
-  }
-  for (const p of pointages) {
-    const k = `${p.employeeId}_${new Date(p.date).getUTCDate()}`;
-    shiftMap[k] = {
-      debut: fmtHeure(p.heureDebut),
-      fin: p.heureFin ? fmtHeure(p.heureFin) : null,
-      reel: true,
-      // La pause posée d'office au départ scanné (30 min, NON déduite), jamais confondue avec une
-      // pause saisie. Les heures de la case viennent d'OvertimeEntry, écrites par `heuresPayables`.
-      pauseParDefaut: !!p.heureFin && p.pauseParDefaut,
-    };
-  }
+  // Horaire du jour par case : pointage RÉEL > horaire par défaut (créneau de travail planifié >
+  // modèle hebdo) — la MÊME fonction que les heures pré-remplies d'un P (lib/horaire-par-defaut).
+  const shiftMap: Record<string, InfoShift> = await chargerHorairesDuMois(prisma, annee, mois, employees.map((e) => e.id));
 
   const joursFeries = new Set(
     joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10))
