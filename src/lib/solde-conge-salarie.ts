@@ -3,7 +3,8 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { chargerDroitsCongesAnnuel } from "@/lib/config";
 import { ancienneteEnMois, congeDeductibleDuSolde } from "@/lib/payroll";
-import { typeSansConges } from "@/lib/regles-contrats";
+import { moisOuvreDroit, periodesSansConges, trousDeContrat, type PeriodeSansConges } from "@/lib/conges-periodes";
+import { resoudreDateSortie } from "@/lib/sortie-salarie";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /**
@@ -63,7 +64,13 @@ const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
  *   instant. Une acquisition qui le ferait dépasser est perdue pour la part au-delà, le jour même.
  *   Un salarié qui prend ses 18 j reportés en janvier réacquiert ensuite 1,5 j par mois (13,5 j en
  *   octobre) : ce n'est PAS « report + acquis de l'année ≤ 18 ».
- * - Salarié sans congés (stage, intérim) : rien d'acquis, ce qui est pris se décompte quand même.
+ * - Salarié sans congés (stage, intérim) : rien d'acquis PENDANT ses périodes de stage ou d'intérim (règles par
+ *   période : lib/conges-periodes — un mois partiellement couvert n'acquiert pas) ; ce qui est pris se décompte
+ *   quand même. Un stagiaire passé en CDI acquiert dès son CDI.
+ * - SORTIE (décision Direction du 2026-10-12) : l'acquisition s'arrête à la date de sortie (dernier jour de
+ *   présence, inclus). Le mois qui s'achève CE jour-là est révolu et crédité ce jour-là ; plus rien ensuite.
+ *   Le bilan s'arrête à l'année de la sortie : `annee` vaut alors l'année de la sortie, jamais l'année en cours
+ *   (les années d'après n'ont plus de bilan), et le solde est celui de la sortie.
  *
  * Le compte se rejoue jour par jour depuis l'embauche : acquisitions jusqu'à aujourd'hui, jours pris
  * jusqu'au 31 décembre de l'année en cours (un congé approuvé à venir cette année est déjà déduit ;
@@ -74,19 +81,29 @@ export function calculerSoldeAnneeCivile(p: {
   /** Jour civil de Kinshasa (date pure, minuit UTC). */
   aujourdhui: Date;
   droitsAnnuels: number;
-  sansConges: boolean;
+  /** Sans congés sur TOUTE la période (fiche sans historique de contrat dont le type est stage/intérim). */
+  sansConges?: boolean;
+  /** Périodes de stage / d'intérim (voir `periodesSansConges`) : les mois qu'elles touchent n'acquièrent rien. */
+  periodesSansConges?: PeriodeSansConges[];
+  /** Dernier jour de présence d'un salarié parti (date pure), ou null/absent. */
+  dateSortie?: Date | null;
   /** Jours pris, jour par jour (voir `repartirCongeParJour`). */
   prisParJour: { date: Date; jours: number }[];
   /** « C » de la grille sans demande approuvée (voir `joursCSansDemande`) : un jour chacun. */
   cSansDemande?: Date[];
 }): Omit<SoldeConge, "typesDeduits"> {
-  const annee = p.aujourdhui.getUTCFullYear();
   const embauche = new Date(p.dateEmbauche);
   const parMois = p.droitsAnnuels / 12;
   const auCent = (x: number) => Math.round(x * 100) / 100;
+  const JOUR = 86_400_000;
+  const sortie = p.dateSortie ? Date.UTC(new Date(p.dateSortie).getUTCFullYear(), new Date(p.dateSortie).getUTCMonth(), new Date(p.dateSortie).getUTCDate()) : Infinity;
+  // Un salarié parti ne vieillit plus : la date de référence ne dépasse pas sa sortie, donc l'année non plus.
+  const reference = Math.min(p.aujourdhui.getTime(), sortie);
+  const annee = new Date(reference).getUTCFullYear();
+  const sansConges: PeriodeSansConges[] = p.sansConges ? [{ debut: null, fin: null, type: "SANS_CONGES" }] : (p.periodesSansConges ?? []);
   const debutAnnee = Date.UTC(annee, 0, 1);
   const finAnnee = Date.UTC(annee, 11, 31);
-  const auj = p.aujourdhui.getTime();
+  const auj = reference;
   const pris = new Map<number, number>();
   const ajouter = (t: number, j: number) => { if (t <= finAnnee) pris.set(t, (pris.get(t) ?? 0) + j); };
   for (const x of p.prisParJour) ajouter(new Date(x.date).getTime(), x.jours);
@@ -100,13 +117,19 @@ export function calculerSoldeAnneeCivile(p: {
   let acquisAnnee = 0;
   let perdu = 0;
   let prisAnnee = 0;
-  for (let t = premier; t <= finAnnee; t += 86_400_000) {
+  let debutMois = Date.UTC(embauche.getUTCFullYear(), embauche.getUTCMonth(), embauche.getUTCDate()); // premier jour du mois en cours d'accomplissement
+  for (let t = premier; t <= finAnnee; t += JOUR) {
     if (t === debutAnnee) report = auCent(solde);
-    if (!p.sansConges && t <= auj) {
-      const m = ancienneteEnMois(embauche, new Date(t));
+    if (t <= auj && t <= sortie) {
+      // Fin de journée du dernier jour de présence : le mois qui s'achève ce jour-là est révolu (sinon il
+      // serait crédité le lendemain du départ, hors de l'année et hors de l'emploi).
+      const ref = t === sortie ? t + JOUR : t;
+      const m = ancienneteEnMois(embauche, new Date(ref));
       if (m > mois) {
-        const gagne = (m - mois) * parMois;
+        // Le mois [debutMois, ref − 1] n'acquiert que si TOUS ses jours sont en régime « avec congés ».
+        const gagne = moisOuvreDroit(new Date(debutMois), new Date(ref - JOUR), sansConges) ? (m - mois) * parMois : 0;
         mois = m;
+        debutMois = ref;
         const apres = Math.min(p.droitsAnnuels, solde + gagne);
         if (t >= debutAnnee) { acquisAnnee += gagne; perdu += solde + gagne - apres; }
         solde = auCent(apres);
@@ -181,12 +204,23 @@ export function joursCSansDemande(
   });
 }
 
+/** Ce que le chargement sait d'un salarié en plus des entrées du calcul : de quoi le dire à l'écran. */
+type ContexteSortieContrats = {
+  /** Dernier jour de présence d'un salarié parti ; null s'il est en poste ou si la date est inconnue. */
+  dateSortie: Date | null;
+  /** Fiche INACTIVE dont la date de sortie manque : le solde court encore, la Direction doit la compléter. */
+  sortieInconnue: boolean;
+  periodesSansConges: PeriodeSansConges[];
+  /** Plages couvertes par aucun contrat (le régime du contrat précédent s'y poursuit). */
+  trous: { debut: Date; fin: Date | null }[];
+};
+
 /** Ce que `calculerSoldeAnneeCivile` demande, pour un salarié (sans la date de référence). */
 type EntreesSolde = Omit<Parameters<typeof calculerSoldeAnneeCivile>[0], "aujourdhui">;
 
 /**
- * LES ENTRÉES DU SOLDE de plusieurs salariés, en lot : 6 requêtes quel que soit leur nombre (salariés,
- * droits annuels de l'exercice actif, types, demandes approuvées, « C » de la grille, fériés).
+ * LES ENTRÉES DU SOLDE de plusieurs salariés, en lot : 8 requêtes quel que soit leur nombre (salariés,
+ * contrats, fins de contrat, droits annuels de l'exercice actif, types, demandes approuvées, « C » de la grille, fériés).
  * Une seule lecture, deux usages : le solde d'aujourd'hui (`chargerSoldesCongeSalaries`) et le bilan
  * année par année de la fiche (`chargerCongesParAnnee`) — le second ne recalcule rien d'autre.
  *
@@ -199,8 +233,12 @@ async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: st
   // (1,5 j de plus) et l'année des congés avaient encore un jour de retard avec l'horloge UTC.
   const aujourdhui = jourCivilKinshasa(maintenant);
   const finAnnee = new Date(Date.UTC(aujourdhui.getUTCFullYear(), 11, 31));
-  const [emps, droitsCongesAnnuel, types, approuvees, joursC, feries] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true } }),
+  const [emps, contrats, fins, droitsCongesAnnuel, types, approuvees, joursC, feries] = await Promise.all([
+    db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true, actif: true, dateSortie: true } }),
+    // L'HISTORIQUE des contrats : le régime « sans congés » (stage, intérim) se lit PAR PÉRIODE, pas sur le contrat actuel.
+    db.contrat.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, type: true, dateDebut: true, dateFin: true } }),
+    // Les fins de contrat : leur date est la date de sortie (lib/sortie-salarie.ts), jamais recopiée ailleurs.
+    db.finContrat.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, dateFin: true } }),
     // Les SEULS droits annuels, pas toute la paie : une clé CNSS absente ou un barème IPR vide ne
     // doit ni vider un écran de congé ni bloquer une approbation (2026-09-29).
     chargerDroitsCongesAnnuel(db),
@@ -226,22 +264,32 @@ async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: st
   const compteDansSolde = new Map(types.map((t) => [t.nom, t.compteDansSolde]));
   const typesDeduits = types.filter((t) => t.actif && t.compteDansSolde).map((t) => t.nom);
   const entrees = new Map<string, EntreesSolde>();
+  const contextes = new Map<string, ContexteSortieContrats>();
   for (const emp of emps) {
     const demandes = approuvees.filter((l) => l.employeeId === emp.id);
+    const sesContrats = contrats.filter((c) => c.employeeId === emp.id).map((c) => ({ type: String(c.type), dateDebut: c.dateDebut, dateFin: c.dateFin }));
+    const dateSortie = resoudreDateSortie(emp, fins.filter((f) => f.employeeId === emp.id));
+    const periodes = periodesSansConges(sesContrats, emp.contrat);
     const prisParJour = demandes
       .filter((l) => congeDeductibleDuSolde(compteDansSolde.get(l.type)))
       .flatMap((l) => repartirCongeParJour({ dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours) }, feriesIso));
     entrees.set(emp.id, {
       dateEmbauche: new Date(emp.dateEmbauche),
       droitsAnnuels: droitsCongesAnnuel,
-      sansConges: typeSansConges(emp.contrat),
+      periodesSansConges: periodes,
+      dateSortie,
       prisParJour,
       cSansDemande: joursCSansDemande(joursC.filter((a) => a.employeeId === emp.id).map((a) => a.date), demandes, feriesIso),
     });
+    // Les trous qui comptent : ceux qui touchent la vie professionnelle (de l'embauche à la sortie, ou à aujourd'hui).
+    const finVie = Math.min(aujourdhui.getTime(), dateSortie ? dateSortie.getTime() : Infinity);
+    const trous = trousDeContrat(sesContrats).filter((x) => x.debut.getTime() <= finVie && (x.fin === null || x.fin.getTime() >= new Date(emp.dateEmbauche).getTime()));
+    contextes.set(emp.id, { dateSortie, sortieInconnue: !emp.actif && dateSortie === null, periodesSansConges: periodes, trous: sesContrats.length > 0 ? trous : [] });
   }
   return {
     aujourdhui,
     entrees,
+    contextes,
     typesDeduits,
     feriesIso,
     entameLeSolde: (type: string) => congeDeductibleDuSolde(compteDansSolde.get(type)),
@@ -277,6 +325,26 @@ export async function chargerSoldeCongeSalarie(
   return solde;
 }
 
+/**
+ * LE SOLDE DE CONGÉ AU JOUR D'UNE SORTIE — la proposition de l'indemnité de congés non pris du solde de tout compte
+ * (décision de la Direction du 2026-10-12 : l'acquisition s'arrête à la date de sortie, l'indemnité aussi). Même
+ * calcul que partout (`calculerSoldeAnneeCivile`), avec la sortie CHOISIE à l'écran : le salarié est encore actif
+ * en base, sa date n'y est pas encore. Une date future est admise (départ annoncé) : les mois jusque-là comptent.
+ */
+export async function chargerSoldeCongeALaSortie(
+  db: Prisma.TransactionClient,
+  employeeId: string,
+  dateSortie: Date,
+  maintenant: Date = new Date(),
+): Promise<SoldeConge> {
+  const { aujourdhui, entrees, typesDeduits } = await chargerEntreesSolde(db, [employeeId], maintenant);
+  const e = entrees.get(employeeId);
+  if (!e) throw new Error(`Salarié introuvable : ${employeeId}`);
+  const sortie = new Date(Date.UTC(dateSortie.getUTCFullYear(), dateSortie.getUTCMonth(), dateSortie.getUTCDate()));
+  const jusque = new Date(Math.max(aujourdhui.getTime(), sortie.getTime())); // les mois jusqu'à la sortie, même future
+  return { ...calculerSoldeAnneeCivile({ ...e, dateSortie: sortie, aujourdhui: jusque }), typesDeduits };
+}
+
 /** Le bilan d'UNE année civile : ce que `calculerSoldeAnneeCivile` rend pour cette année. */
 export type BilanAnneeConge = Omit<SoldeConge, "typesDeduits"> & {
   /** Année en cours : le solde est « à date » (jusqu'au 31 décembre pour les jours pris, aujourd'hui pour les acquis). */
@@ -285,24 +353,30 @@ export type BilanAnneeConge = Omit<SoldeConge, "typesDeduits"> & {
 
 /**
  * LE BILAN ANNÉE PAR ANNÉE, de l'embauche (ou du premier jour pris, s'il est plus ancien) à l'année en
- * cours. PUR. Rien n'est recalculé d'une autre façon : chaque année passe par
+ * cours — ou à l'année de la SORTIE pour un salarié parti : les années d'après n'ont plus de bilan. PUR.
+ * Rien n'est recalculé d'une autre façon : chaque année passe par
  * `calculerSoldeAnneeCivile`, avec pour date de référence le 31 décembre de cette année (le compte se
  * rejoue jusque-là, les congés d'après ne comptent pas) ; l'année en cours, elle, est celle du solde
  * d'aujourd'hui, au jour près. Le solde de fin d'une année est donc le report de la suivante.
  * Les années à venir n'ont pas de bilan (elles attendent leur 1er janvier).
  */
 export function bilansParAnnee(e: EntreesSolde & { aujourdhui: Date }): BilanAnneeConge[] {
+  const sortie = e.dateSortie ? new Date(e.dateSortie) : null;
+  // Une sortie annoncée (date future) ne borne rien tant qu'elle n'est pas passée.
+  const partie = sortie !== null && sortie.getTime() <= e.aujourdhui.getTime() ? sortie : null;
   const courante = e.aujourdhui.getUTCFullYear();
+  const derniere = partie ? Math.min(courante, partie.getUTCFullYear()) : courante;
   const premieres = [
     new Date(e.dateEmbauche).getUTCFullYear(),
     ...e.prisParJour.map((x) => new Date(x.date).getUTCFullYear()),
     ...(e.cSansDemande ?? []).map((d) => new Date(d).getUTCFullYear()),
-  ].filter((a) => a <= courante);
-  const debut = Math.min(courante, ...premieres);
+  ].filter((a) => a <= derniere);
+  const debut = Math.min(derniere, ...premieres);
   const bilans: BilanAnneeConge[] = [];
-  for (let annee = debut; annee <= courante; annee++) {
-    const enCours = annee === courante;
-    const r = calculerSoldeAnneeCivile({ ...e, aujourdhui: enCours ? e.aujourdhui : new Date(Date.UTC(annee, 11, 31)) });
+  for (let annee = debut; annee <= derniere; annee++) {
+    const sortieCetteAnnee = partie !== null && partie.getUTCFullYear() === annee;
+    const enCours = annee === courante && !sortieCetteAnnee;
+    const r = calculerSoldeAnneeCivile({ ...e, aujourdhui: annee === courante ? e.aujourdhui : new Date(Date.UTC(annee, 11, 31)) });
     bilans.push({ ...r, enCours });
   }
   return bilans;
@@ -333,10 +407,20 @@ export async function chargerCongesParAnnee(
   db: Prisma.TransactionClient,
   employeeId: string,
   maintenant: Date = new Date(),
-): Promise<{ bilans: BilanAnneeConge[]; demandes: DemandeCongeFiche[]; sansConges: boolean }> {
-  const { aujourdhui, entrees, feriesIso, entameLeSolde } = await chargerEntreesSolde(db, [employeeId], maintenant);
+): Promise<{
+  bilans: BilanAnneeConge[];
+  demandes: DemandeCongeFiche[];
+  /** Aucune période avec congés sur toute la vie du salarié (stage ou intérim seulement). */
+  sansConges: boolean;
+  periodesSansConges: PeriodeSansConges[];
+  trous: { debut: Date; fin: Date | null }[];
+  dateSortie: Date | null;
+  sortieInconnue: boolean;
+}> {
+  const { aujourdhui, entrees, contextes, feriesIso, entameLeSolde } = await chargerEntreesSolde(db, [employeeId], maintenant);
   const e = entrees.get(employeeId);
-  if (!e) throw new Error(`Salarié introuvable : ${employeeId}`);
+  const ctx = contextes.get(employeeId);
+  if (!e || !ctx) throw new Error(`Salarié introuvable : ${employeeId}`);
   const lues = await db.leaveRequest.findMany({
     where: { employeeId },
     orderBy: { dateDebut: "desc" },
@@ -353,5 +437,6 @@ export async function chargerCongesParAnnee(
     }
     return { id: l.id, type: l.type, dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours), statut: l.statut, motifRefus: l.motifRefus, entameLeSolde: entame, joursParAnnee };
   });
-  return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: e.sansConges };
+  const tousSansConges = ctx.periodesSansConges.some((p) => p.debut === null && p.fin === null);
+  return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: tousSansConges, periodesSansConges: ctx.periodesSansConges, trous: ctx.trous, dateSortie: ctx.dateSortie, sortieInconnue: ctx.sortieInconnue };
 }

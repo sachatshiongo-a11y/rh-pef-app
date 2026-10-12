@@ -39,6 +39,7 @@ import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { chargerSoldeCongeSalarie, chargerCongesParAnnee } from "@/lib/solde-conge-salarie";
+import { chargerSortieFiche } from "@/lib/sortie-salarie";
 import { anneesAvecDonnees, anneesDeConges, lireAnneeFiche, redirectionAncienOnglet } from "@/lib/fiche-annees";
 import { lirePagination } from "@/lib/pagination";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
@@ -265,7 +266,9 @@ export default async function FicheEmployePage({
   // (même source que le solde d'en-tête, lib/solde-conge-salarie).
   const anneeHorloge = anneeCouranteKinshasa();
   const congesAnnees = tab === "conges" ? await chargerCongesParAnnee(prisma, id) : null;
-  const anneeVueConges = congesAnnees ? lireAnneeFiche(sp.annee, anneesDeConges(congesAnnees.bilans, congesAnnees.demandes, anneeHorloge), anneeHorloge) as number : anneeHorloge;
+  // Salarié parti : la dernière année du bilan est celle de sa sortie (les années d'après n'ont plus de bilan).
+  const anneeFinConges = congesAnnees && congesAnnees.dateSortie && congesAnnees.bilans.length > 0 ? congesAnnees.bilans[congesAnnees.bilans.length - 1].annee : anneeHorloge;
+  const anneeVueConges = congesAnnees ? lireAnneeFiche(sp.annee, anneesDeConges(congesAnnees.bilans, congesAnnees.demandes, anneeFinConges), anneeFinConges) as number : anneeHorloge;
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
     tab === "contrats"
@@ -375,6 +378,10 @@ export default async function FicheEmployePage({
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
   const soldeConges = soldeConge.solde;
+  // Sortie (décision de la Direction du 2026-10-12) : la date arrête l'acquisition des congés. Une fiche
+  // désactivée SANS date est signalée en tête — l'outil signale, la Direction tranche (jamais de date devinée).
+  const sortie = await chargerSortieFiche(prisma, id);
+  const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -508,6 +515,20 @@ export default async function FicheEmployePage({
               📁 {documents.length} document{documents.length > 1 ? "s" : ""}
             </Link>
           </div>
+          {sortie.inconnue && (
+            <p role="alert" className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">Date de sortie manquante</span>
+              Fiche désactivée sans date de sortie : le solde de congés continue de s&apos;acquérir tant qu&apos;elle manque.{" "}
+              <Link href={`/employes/${employee.id}/modifier`} className="font-medium underline">
+                {estAdmin ? "Saisir la date de sortie" : "Proposer la date de sortie (la Direction validera)"}
+              </Link>
+            </p>
+          )}
+          {sortie.dateSortie && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sorti(e) le {jjmmaaaa(sortie.dateSortie)}{sortie.source === "FIN_CONTRAT" ? " (fin de contrat)" : ""} — solde de congés arrêté à cette date.
+            </p>
+          )}
           {liensReembauche?.ancienneFiche && (
             <p className="mt-2 text-xs text-muted-foreground">
               Réembauche — <Link href={`/employes/${liensReembauche.ancienneFiche.id}`} className="font-medium text-primary underline">ancienne fiche : {liensReembauche.ancienneFiche.nom} ({liensReembauche.ancienneFiche.matricule})</Link>
@@ -758,10 +779,13 @@ export default async function FicheEmployePage({
         <CongesParAnnee
           employeeId={employee.id}
           annee={anneeVueConges}
-          anneeCourante={anneeHorloge}
+          anneeCourante={anneeFinConges}
           bilans={congesAnnees.bilans}
           demandes={congesAnnees.demandes}
           sansConges={congesAnnees.sansConges}
+          periodesSansConges={congesAnnees.periodesSansConges}
+          trous={congesAnnees.trous}
+          dateSortie={congesAnnees.dateSortie}
         />
       </Section>
       )}

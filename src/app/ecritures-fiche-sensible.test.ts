@@ -6,7 +6,7 @@ import { CHAMPS_SENSIBLES } from "@/lib/fiche-sensible";
 /**
  * GARDE-FOU : AUCUNE ÉCRITURE D'UN CHAMP SENSIBLE DE LA FICHE HORS D'UNE LISTE BLANCHE NOMMÉE.
  *
- * Décision de Sacha (2026-10-12) : la RH modifie, la Direction valide. Les 18 champs de
+ * Décision de Sacha (2026-10-12) : la RH modifie, la Direction valide. Les champs de
  * `lib/fiche-sensible` (salaire, heures, transport, frais médicaux, enfants, CNSS, embauche, contrat,
  * national/expatrié, catégories, versement) ne s'écrivent donc que par les chemins qui appliquent la
  * règle « Direction = écriture directe, autre rôle = demande ». Le 2026-10-12, la relecture a trouvé

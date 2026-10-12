@@ -15,6 +15,8 @@
 //   enfants ................... allocations familiales et IPR (personnes à charge) ;
 //   cnssMontant ............... affiliation CNSS saisie sur la fiche ;
 //   dateEmbauche .............. ancienneté (congés acquis), mois d'embauche (repli de la paie) ;
+//   dateSortie ................ dernier jour de présence d'une fiche désactivée sans fin de contrat : arrête
+//                               l'acquisition des congés, donc le solde et l'indemnité qu'on en tire (2026-10-12) ;
 //   contrat ................... régime de paie (stage, journalier, intérim hors paie, congés) ;
 //   type (national/expatrié) .. nationalité inscrite au contrat de travail ;
 //   categorie (brigade/back-office)  choisit le moteur de paie (aux heures ou au salaire fixe) ;
@@ -28,7 +30,7 @@
 export const CHAMPS_SENSIBLES = [
   "salaireMensuel", "heuresParJour", "heuresHebdomadaires",
   "transportJourCDF", "transportMoisCDF", "transportMoisUSD", "fraisMedicauxMoisCourant", "enfants", "cnssMontant",
-  "dateEmbauche", "contrat", "type", "categorie", "categorieProfessionnelle",
+  "dateEmbauche", "dateSortie", "contrat", "type", "categorie", "categorieProfessionnelle",
   "modePaiement", "banque", "compteBancaire", "mobileMoney",
 ] as const;
 export type ChampSensible = (typeof CHAMPS_SENSIBLES)[number];
@@ -47,6 +49,7 @@ const DEF: Record<ChampDemande, { libelle: string; genre: Genre; libelles?: Reco
   enfants: { libelle: "Enfants à charge", genre: "entier" },
   cnssMontant: { libelle: "CNSS", genre: "usd" },
   dateEmbauche: { libelle: "Date d'embauche", genre: "date" },
+  dateSortie: { libelle: "Date de sortie", genre: "date" },
   contrat: { libelle: "Type de contrat", genre: "texte" },
   type: { libelle: "National / expatrié", genre: "texte", libelles: { NATIONAL: "National", EXPATRIE: "Expatrié" } },
   categorie: { libelle: "Catégorie", genre: "texte", libelles: { BRIGADE: "Brigade", BACKOFFICE: "Back-office" } },
@@ -79,7 +82,7 @@ export function canonique(champ: ChampDemande, v: unknown): string | null {
 /** Valeur à écrire en base depuis la forme canonique. */
 export function versDonnee(champ: ChampDemande, c: string | null): unknown {
   const g = DEF[champ].genre;
-  if (c === null) return g === "texte" ? null : 0;
+  if (c === null) return g === "texte" || g === "date" ? null : 0; // une date effacée s'efface (null), elle ne devient pas 0
   if (g === "date") return new Date(`${c}T00:00:00.000Z`);
   if (g === "texte") return c;
   return Number(c);

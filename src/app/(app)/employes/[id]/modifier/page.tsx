@@ -18,6 +18,7 @@ import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doub
 import { fichesPourEcran } from "../../fiches-doublon";
 import { demandesFicheEnAttente } from "@/lib/demandes-fiche";
 import { ModifsEnAttente } from "../../modifs-en-attente";
+import { chargerSortieFiche } from "@/lib/sortie-salarie";
 
 export default async function ModifierEmployePage({
   params,
@@ -63,6 +64,7 @@ export default async function ModifierEmployePage({
       : null;
 
   const action = modifierEmploye.bind(null, employee.id);
+  const sortie = await chargerSortieFiche(prisma, employee.id);
 
   return (
     <div>
@@ -106,6 +108,7 @@ export default async function ModifierEmployePage({
         impact={impact}
         doublons={{ fiches: fichesPourEcran(identites), ecartees: [...ecartees], peutReactiver: user.role === "ADMIN" }}
         champsDirection={user.role === "ADMIN" ? "modifiables" : "validation"}
+        dateSortieFinContrat={sortie.source === "FIN_CONTRAT" && sortie.dateSortie ? sortie.dateSortie.toISOString().slice(0, 10) : null}
         famille={
           // Composition familiale — modifiable uniquement ici, comme la photo (ses propres formulaires : hors du formulaire principal).
           <CompositionFamiliale

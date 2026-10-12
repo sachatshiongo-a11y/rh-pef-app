@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { chargerDatesSortie } from "@/lib/sortie-salarie";
 
 // SALARIÉS SORTIS PENDANT LA PÉRIODE (audit RH 2026-10-10). La fin de contrat désactive la fiche
 // (`actif=false`) : la grille Présences et l'import IVMS ne lisaient que les fiches actives, et le
@@ -8,28 +9,19 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 // plus, et ses pointages tombaient en « non apparié ». Il reste désormais visible, pour ses SEULS
 // jours actifs (jusqu'à la date de fin de contrat, incluse).
 //
-// La date de sortie est celle de la DERNIÈRE fin de contrat enregistrée (`FinContrat.dateFin`). Une
-// fiche désactivée sans fin de contrat n'a pas de date de sortie connue : elle n'entre dans la grille
-// que si elle a déjà des données dans le mois (pour qu'elles se voient), sans borne de jours.
+// La date de sortie est celle de la DERNIÈRE fin de contrat enregistrée (`FinContrat.dateFin`), à défaut la
+// date saisie sur la fiche (`Employee.dateSortie`). Une fiche désactivée sans aucune des deux n'a pas de date de
+// sortie connue : elle n'entre dans la grille que si elle a déjà des données dans le mois (pour qu'elles se
+// voient), sans borne de jours.
 
 type Db = PrismaClient | Prisma.TransactionClient;
 const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
 
-/** Date de sortie (AAAA-MM-JJ) des fiches INACTIVES parmi `employeeIds` qui ont une fin de contrat.
- *  (`FinContrat` n'a pas de relation Prisma vers `Employee` : deux lectures.) */
+/** Date de sortie (AAAA-MM-JJ) des fiches INACTIVES parmi `employeeIds` dont la date est connue : fin de contrat, sinon
+ *  date saisie sur la fiche (`lib/sortie-salarie.ts`, la même réponse que pour le solde de congés). */
 export async function datesDeSortie(db: Db, employeeIds: string[]): Promise<Map<string, string>> {
-  if (employeeIds.length === 0) return new Map();
-  const [inactifs, fins] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: employeeIds }, actif: false }, select: { id: true } }),
-    db.finContrat.findMany({
-      where: { employeeId: { in: employeeIds } },
-      orderBy: [{ dateFin: "asc" }, { createdAt: "asc" }],
-      select: { employeeId: true, dateFin: true },
-    }),
-  ]);
-  const estInactif = new Set(inactifs.map((e) => e.id));
   const m = new Map<string, string>();
-  for (const f of fins) if (estInactif.has(f.employeeId)) m.set(f.employeeId, iso(f.dateFin)); // la dernière l'emporte
+  for (const [id, d] of await chargerDatesSortie(db, employeeIds)) m.set(id, iso(d));
   return m;
 }
 

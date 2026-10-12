@@ -11,6 +11,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 import { canonique, changementsProposes, valeurRefusee, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement, type ChampSensible } from "@/lib/fiche-sensible";
 import { ErreurMetier } from "@/lib/erreur-metier";
+import { exigerSortieSaisissable } from "@/lib/sortie-salarie";
 
 // DEMANDES DE MODIFICATION DE FICHE SALARIÉ (2026-10-12) — création, approbation, refus.
 //
@@ -161,6 +162,12 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
       if (actuel !== c.avant) {
         throw new DemandePerimee(`${libelleChamp(c.champ)} vaut maintenant ${libelleValeur(c.champ, actuel)} (${libelleValeur(c.champ, c.avant)} au moment de la demande)`);
       }
+    }
+    // La date de sortie est revérifiée À L'APPROBATION : la fiche a pu être réactivée, ou recevoir une fin de contrat, depuis la demande.
+    const sortie = ch.find((c) => c.champ === "dateSortie");
+    if (sortie) {
+      try { await exigerSortieSaisissable(tx, fiche, sortie.apres, ch.find((c) => c.champ === "dateEmbauche")?.apres ?? null); }
+      catch (e) { throw new Error(`${e instanceof Error ? e.message.replace(/ Rien n'a été enregistré\.$/, "") : "date de sortie refusée"} — refusez la demande.`); }
     }
     const salaire = ch.find((c) => c.champ === "salaireMensuel");
     const poste = ch.find((c) => c.champ === "poste");

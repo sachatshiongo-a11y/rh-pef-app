@@ -3,6 +3,7 @@ import { PastillesFiltre } from "@/components/pastilles-filtre";
 import { anneesDeConges, lienFicheAnnee } from "@/lib/fiche-annees";
 import { formaterNombre } from "@/lib/montant";
 import type { BilanAnneeConge, DemandeCongeFiche } from "@/lib/solde-conge-salarie";
+import type { PeriodeSansConges } from "@/lib/conges-periodes";
 import { AbsencesCard, type AbsenceItem } from "./fiche-cards";
 
 /** Jours, au dixième, à la française ; « — » quand la valeur n'a pas de sens (jamais 0 pour « inconnu »). */
@@ -17,6 +18,9 @@ function Carte({ label, valeur, rouge = false }: { label: string; valeur: string
   );
 }
 
+/** AAAA-MM-JJ → JJ/MM/AAAA. */
+const fr = (iso: string) => iso.split("-").reverse().join("/");
+const frDate = (d: Date) => fr(new Date(d).toISOString().slice(0, 10));
 const anneeDe = (d: Date) => new Date(d).getUTCFullYear();
 
 /** Une demande touche l'année si elle commence au plus tard, et finit au plus tôt, cette année-là. */
@@ -28,17 +32,25 @@ const touche = (d: DemandeCongeFiche, annee: number) => anneeDe(d.dateDebut) <= 
  * les années. Les chiffres viennent de `calculerSoldeAnneeCivile` (via `chargerCongesParAnnee`) : la
  * source du solde de l'en-tête de la fiche, de l'espace salarié et des PDF. Rien n'est recalculé ici.
  */
-export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, demandes, sansConges }: {
+export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, demandes, sansConges, periodesSansConges = [], trous = [], dateSortie = null }: {
   employeeId: string;
   annee: number;
   anneeCourante: number;
   bilans: BilanAnneeConge[];
   demandes: DemandeCongeFiche[];
   sansConges: boolean;
+  /** Périodes de stage / d'intérim : aucun jour ne s'acquiert pendant (un mois partiellement couvert n'acquiert pas). */
+  periodesSansConges?: PeriodeSansConges[];
+  /** Plages couvertes par aucun contrat : le régime du contrat précédent s'y poursuit (signalé, à trancher par la Direction). */
+  trous?: { debut: Date; fin: Date | null }[];
+  /** Dernier jour de présence d'un salarié parti : le bilan s'arrête à son année. */
+  dateSortie?: Date | null;
 }) {
   const annees = anneesDeConges(bilans, demandes, anneeCourante);
   const effectifs: Record<string, number> = Object.fromEntries(annees.map((a) => [String(a), demandes.filter((d) => touche(d, a)).length]));
   const bilan = bilans.find((b) => b.annee === annee);
+  // Année de la sortie : le bilan s'arrête là, et son solde est « à la sortie » (les années d'après n'ont plus de bilan).
+  const sortieLe = dateSortie ? new Date(dateSortie).toISOString().slice(0, 10) : null;
   const delAnnee = demandes.filter((d) => touche(d, annee));
 
   const absences: AbsenceItem[] = delAnnee.map((d) => {
@@ -72,10 +84,24 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
             <Carte label={`Acquis en ${annee}`} valeur={jours(sansConges ? null : bilan.acquisAnnee)} />
             <Carte label={`Pris en ${annee}`} valeur={jours(bilan.pris)} />
             <Carte label="Perdus au plafond" valeur={jours(sansConges ? null : bilan.perdu)} />
-            <Carte label={bilan.enCours ? "Solde à date" : `Solde au 31 décembre ${annee}`} valeur={jours(bilan.solde)} rouge={bilan.solde < 0} />
+            <Carte label={!bilan.enCours && bilan.annee === Number(sortieLe?.slice(0, 4)) ? `Solde à la sortie (${fr(sortieLe!)})` : bilan.enCours ? "Solde à date" : `Solde au 31 décembre ${annee}`} valeur={jours(bilan.solde)} rouge={bilan.solde < 0} />
           </dl>
           {sansConges && (
             <p className="-mt-2 mb-4 text-xs text-muted-foreground">Contrat sans congés : rien ne s&apos;acquiert, les jours pris sont seulement comptés.</p>
+          )}
+          {!sansConges && periodesSansConges.length > 0 && (
+            // Stage puis CDI (ou l'inverse) : le régime se lit par période de contrat, et un mois n'acquiert que s'il est entièrement avec congés.
+            <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+              Sans congés ({periodesSansConges.map((p) => `${p.type === "INTERIM" ? "intérim" : "stage"} ${p.debut ? `du ${frDate(p.debut)}` : "depuis l'embauche"}${p.fin ? ` au ${frDate(p.fin)}` : ""}`).join(" ; ")}) :
+              rien ne s&apos;acquiert, et un mois à cheval sur une de ces périodes n&apos;acquiert pas.
+            </p>
+          )}
+          {trous.length > 0 && (
+            <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Contrat manquant</span>
+              Aucun contrat enregistré {trous.map((t) => `${t.fin ? `du ${frDate(t.debut)} au ${frDate(t.fin)}` : `depuis le ${frDate(t.debut)}`}`).join(" ; ")} : les congés suivent le régime du contrat précédent.
+              Ajoutez le contrat manquant pour corriger.
+            </p>
           )}
           {bilan.cSansDemande > 0 && (
             // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
@@ -87,7 +113,7 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
           )}
         </>
       ) : (
-        <p className="mb-4 text-sm text-muted-foreground">Pas de bilan pour {annee} : {annee > anneeCourante ? "cette année n'a pas encore commencé" : "le salarié n'était pas encore dans l'entreprise"}.</p>
+        <p className="mb-4 text-sm text-muted-foreground">Pas de bilan pour {annee} : {annee > anneeCourante ? (sortieLe ? `le salarié est parti le ${fr(sortieLe)}, les années suivantes n'ont plus de bilan` : "cette année n'a pas encore commencé") : "le salarié n'était pas encore dans l'entreprise"}.</p>
       )}
 
       <AbsencesCard absences={absences} messageVide={`Aucune demande de congé en ${annee}.`} />

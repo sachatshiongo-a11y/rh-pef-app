@@ -10,6 +10,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { CHAMPS_SENSIBLES, CHAMP_ORIGINES, changementsDeLUtilisateur, estChampSensible, libelleValeur, lireOrigines, messagePerime, versDonnee, type ChampSensible } from "@/lib/fiche-sensible";
+import { controlerDateSortie, exigerSortieSaisissable, lireDateSortieSaisie, resoudreDateSortie } from "@/lib/sortie-salarie";
 import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, verrouillerFiche } from "@/lib/demandes-fiche";
 import {
   clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
@@ -143,7 +144,9 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     // Ce que la personne a RÉELLEMENT changé (valeur soumise ≠ valeur d'origine du formulaire) : un champ
     // laissé tel quel n'écrase jamais une valeur changée entre-temps (formulaire périmé → refus lisible).
     // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
-    const soumis: Partial<Record<ChampSensible, unknown>> = Object.fromEntries(sensiblesEnvoyes.map((c) => [c, c === "modePaiement" ? String(formData.get("modePaiement") ?? "") : complet[c]]));
+    // `dateSortie` n'est pas dans `toEmployeeInput` (la création n'en a pas) : lue ici, vide = effacée.
+    const lu = (c: ChampSensible) => c === "modePaiement" ? String(formData.get("modePaiement") ?? "") : c === "dateSortie" ? String(formData.get("dateSortie") ?? "").trim() : complet[c];
+    const soumis: Partial<Record<ChampSensible, unknown>> = Object.fromEntries(sensiblesEnvoyes.map((c) => [c, lu(c)]));
     const origines = lireOrigines(formData.get(CHAMP_ORIGINES));
 
     // Champs non sensibles ET (Direction) écriture directe des sensibles, ou (autres rôles) demande à
@@ -155,6 +158,10 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
       const { changements, perimes, invalides } = changementsDeLUtilisateur(fiche as unknown as Record<string, unknown>, soumis, origines);
       if (invalides.length > 0) throw new Error(`${invalides.join(" ")} Rien n'a été enregistré.`);
       if (perimes.length > 0) throw new Error(messagePerime(perimes));
+      // DATE DE SORTIE : seulement sur une fiche désactivée (une fiche active n'est pas partie), jamais avant
+      // l'embauche — même à l'écran qu'à l'approbation. Une fin de contrat enregistrée fait foi : pas de seconde date.
+      const sortie = changements.find((c) => c.champ === "dateSortie");
+      if (sortie) await exigerSortieSaisissable(tx, fiche, sortie.apres, changements.find((c) => c.champ === "dateEmbauche")?.apres ?? null);
       await tx.employee.update({ where: { id: employeeId }, data: commun });
       if (changements.length === 0) return null;
       if (!direction) {
@@ -304,14 +311,36 @@ export async function ecarterDoublon(idA: string, idB: string) {
   revalidatePath("/employes");
 }
 
-export async function desactiverEmploye(employeeId: string) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+/**
+ * Désactive une fiche SANS passer par « Fin de contrat » (Direction). Date de sortie OBLIGATOIRE (décision du
+ * 2026-10-12) : si une fin de contrat est déjà enregistrée, sa date est reprise telle quelle (jamais deux dates) ;
+ * sinon `dateSortie` (dernier jour de présence) est exigée, lue sur le formulaire, et écrite sur la fiche en même
+ * temps que la désactivation — tout ou rien.
+ */
+export async function desactiverEmploye(employeeId: string, formData: FormData) {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
-  // Journalisé comme la réactivation : une fiche qui sort du calcul de la paie se retrouve au journal.
-  await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: "actif", ancienneValeur: "true", nouvelleValeur: "false", userId: user.id });
+    await prisma.$transaction(async (tx) => {
+      await verrouillerFiche(tx, employeeId);
+      const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      if (!fiche.actif) return; // déjà désactivée (double clic) : rien de plus
+      const fins = await tx.finContrat.findMany({ where: { employeeId }, select: { dateFin: true } });
+      const deLaFinDeContrat = resoudreDateSortie({ actif: false, dateEmbauche: fiche.dateEmbauche, dateSortie: null }, fins);
+      let dateSortie: Date | null = null;
+      if (!deLaFinDeContrat) {
+        dateSortie = lireDateSortieSaisie(formData.get("dateSortie"));
+        const refus = controlerDateSortie(fiche.dateEmbauche, dateSortie);
+        if (refus) throw new Error(`${refus} Rien n'a été enregistré.`);
+      }
+      await tx.employee.update({ where: { id: employeeId }, data: dateSortie ? { actif: false, dateSortie } : { actif: false } });
+      // Journalisé comme la réactivation : une fiche qui sort du calcul de la paie se retrouve au journal.
+      await journaliser(tx, { entite: "Employee", entiteId: employeeId, champ: "actif", ancienneValeur: "true", nouvelleValeur: `false — sortie le ${(dateSortie ?? deLaFinDeContrat)!.toISOString().slice(0, 10).split("-").reverse().join("/")}${deLaFinDeContrat ? " (fin de contrat)" : ""}`, userId: user.id });
+    });
 
-  revalidatePath("/employes");
-  redirect("/employes");
+    revalidatePath("/employes");
+    revalidatePath(`/employes/${employeeId}`);
+    redirect("/employes");
+  });
 }

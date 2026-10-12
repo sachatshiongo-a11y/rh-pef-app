@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { terminerContrat } from "./dossier-actions";
+import { useRef, useState } from "react";
+import { proposerSoldeConges, terminerContrat } from "./dossier-actions";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 import { MOIS_FR } from "@/lib/dates-fr";
@@ -52,6 +52,21 @@ export function FinContratForm({
   const [motif, setMotif] = useState("DEMISSION");
   const [joursTravailles, setJoursTravailles] = useState(versSaisie(joursPresence));
   const [joursConges, setJoursConges] = useState(versSaisie(Math.max(0, soldeCongesInit)));
+  // Le solde de congés se recalcule À LA DATE DE SORTIE choisie (l'acquisition s'arrête ce jour-là) tant que la
+  // saisie n'a pas été retouchée à la main : une valeur tapée par la Direction n'est jamais écrasée.
+  const [soldeALaSortie, setSoldeALaSortie] = useState<{ jours: number; date: string } | { erreur: string } | null>(null);
+  const congesRetouches = useRef(false); // la logique lit la référence (réponse tardive), l'affichage lit l'état
+  const [retouche, setRetouche] = useState(false);
+  const dernierAppel = useRef(0);
+  async function changerDateFin(valeur: string) {
+    const appel = ++dernierAppel.current;
+    if (!valeur) { setSoldeALaSortie(null); return; }
+    const r = await proposerSoldeConges(employeeId, valeur);
+    if (appel !== dernierAppel.current) return; // une date plus récente a été choisie entre-temps
+    if ("erreur" in r) { setSoldeALaSortie({ erreur: r.erreur }); return; }
+    setSoldeALaSortie({ jours: r.jours, date: valeur });
+    if (!congesRetouches.current) setJoursConges(versSaisie(Math.max(0, r.jours)));
+  }
   const [preavis, setPreavis] = useState(versSaisie(preavisDemission ?? 0));
   const [licenciement, setLicenciement] = useState("0");
   const [autres, setAutres] = useState("0");
@@ -112,7 +127,7 @@ export function FinContratForm({
                   <option value="AUTRE">Autre</option>
                 </select>
               </Champ>
-              <Champ label="Date de fin"><input name="dateFin" type="date" required className={cls} /></Champ>
+              <Champ label="Date de sortie (dernier jour de présence)"><input name="dateFin" type="date" required onChange={(e) => void changerDateFin(e.target.value)} className={cls} /></Champ>
             </div>
           </div>
 
@@ -124,9 +139,14 @@ export function FinContratForm({
                 <ChampNombre name="joursTravaillesMois" suffixe="j" alerteMilliers value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Jours de congés non pris">
-                <ChampNombre name="joursCongesNonPris" suffixe="j" alerteMilliers value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
+                <ChampNombre name="joursCongesNonPris" suffixe="j" alerteMilliers value={joursConges} onChange={(e) => { congesRetouches.current = true; setRetouche(true); setJoursConges(e.target.value); }} className={cls} />
               </Champ>
             </div>
+            <p className="mt-2 text-xs text-emerald-700" role="status">
+              {soldeALaSortie === null && <>Solde d&apos;aujourd&apos;hui. Choisissez la date de sortie : les congés cessent de s&apos;acquérir ce jour-là et la proposition est recalculée.</>}
+              {soldeALaSortie !== null && "erreur" in soldeALaSortie && <span className="text-red-700">{soldeALaSortie.erreur}</span>}
+              {soldeALaSortie !== null && "jours" in soldeALaSortie && <>Solde de congés au {soldeALaSortie.date.split("-").reverse().join("/")} : {soldeALaSortie.jours.toLocaleString("fr-FR")} j (acquisition arrêtée à la sortie){retouche ? " — saisie modifiée à la main, conservée." : "."}</>}
+            </p>
           </div>
 
           <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
