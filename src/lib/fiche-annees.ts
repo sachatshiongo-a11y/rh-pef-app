@@ -74,6 +74,8 @@ export type TotauxAnnuelsPaie = {
   netUSD: number | null;
   netCDF: number | null;
   verseUSD: number | null;
+  /** Part de « verseUSD » portée par des bulletins validés mais pas encore payés (0 s'il n'y en a pas). */
+  restantAPayerUSD: number;
 };
 
 const auCentime = (x: number) => Math.round(x * 100) / 100;
@@ -89,7 +91,7 @@ export function totauxAnnuelsPaie(lignes: readonly LigneTotauxPaie[]): TotauxAnn
   const valides = lignes.filter((l) => l.statutPaiement === "VALIDE").length;
   const nonValides = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length;
   const figees = lignes.filter((l) => l.statutPaiement !== "PAS_VALIDE");
-  if (figees.length === 0) return { payes, valides, nonValides, comptes: 0, netUSD: null, netCDF: null, verseUSD: null };
+  if (figees.length === 0) return { payes, valides, nonValides, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 };
   const tauxConnus = figees.every((l) => Number.isFinite(l.taux) && l.taux > 0);
   return {
     payes,
@@ -99,5 +101,6 @@ export function totauxAnnuelsPaie(lignes: readonly LigneTotauxPaie[]): TotauxAnn
     netUSD: auCentime(figees.reduce((s, l) => s + salaireNetUSD(l), 0)),
     netCDF: tauxConnus ? figees.reduce((s, l) => s + Math.round(salaireNetCDF(l, l.taux)), 0) : null,
     verseUSD: auCentime(figees.reduce((s, l) => s + totalVerseUSD(l), 0)),
+    restantAPayerUSD: auCentime(figees.filter((l) => l.statutPaiement === "VALIDE").reduce((s, l) => s + totalVerseUSD(l), 0)),
   };
 }

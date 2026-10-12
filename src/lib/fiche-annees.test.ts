@@ -53,12 +53,12 @@ describe("totauxAnnuelsPaie — additionner dans la même devise, « — » si i
   const ligne = (statutPaiement: LigneTotauxPaie["statutPaiement"], salNetUSD: number, transportUSD: number, taux: number): LigneTotauxPaie => ({ statutPaiement, salNetUSD, transportUSD, taux });
   it("net = total versé − transport ; le CDF est la somme des lignes, chacune à son taux", () => {
     const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAYE", 310, 20, 2900), ligne("VALIDE", 200, 10, 2900)]);
-    expect(t).toMatchObject({ payes: 2, valides: 1, nonValides: 0, comptes: 3, netUSD: 760, verseUSD: 810 });
+    expect(t).toMatchObject({ payes: 2, valides: 1, nonValides: 0, comptes: 3, netUSD: 760, verseUSD: 810, restantAPayerUSD: 200 });
     expect(t.netCDF).toBe(280 * 2800 + 290 * 2900 + 190 * 2900);
   });
   it("un bulletin non validé est compté à part et jamais additionné", () => {
     const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAS_VALIDE", 999, 0, 2800)]);
-    expect(t).toMatchObject({ payes: 1, nonValides: 1, comptes: 1, netUSD: 280, verseUSD: 300, netCDF: 280 * 2800 });
+    expect(t).toMatchObject({ payes: 1, nonValides: 1, comptes: 1, netUSD: 280, verseUSD: 300, netCDF: 280 * 2800, restantAPayerUSD: 0 });
   });
   it("un taux inconnu sur un bulletin rend le total en francs inconnu — jamais complété, jamais 0", () => {
     const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAYE", 300, 20, 0)]);
@@ -66,7 +66,7 @@ describe("totauxAnnuelsPaie — additionner dans la même devise, « — » si i
     expect(t.netUSD).toBe(560); // les dollars n'ont pas besoin du taux
   });
   it("aucun bulletin validé ou payé : tout est inconnu (null), pas 0", () => {
-    expect(totauxAnnuelsPaie([ligne("PAS_VALIDE", 100, 0, 2800)])).toEqual({ payes: 0, valides: 0, nonValides: 1, comptes: 0, netUSD: null, netCDF: null, verseUSD: null });
+    expect(totauxAnnuelsPaie([ligne("PAS_VALIDE", 100, 0, 2800)])).toEqual({ payes: 0, valides: 0, nonValides: 1, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 });
     expect(totauxAnnuelsPaie([])).toMatchObject({ netUSD: null, netCDF: null, verseUSD: null, comptes: 0 });
   });
   it("les centimes ne dérivent pas (flottants)", () => {

@@ -144,6 +144,9 @@ export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, lignes, a
               <div className="rounded-md bg-muted/40 p-3">
                 <dt className="text-xs text-muted-foreground">Total versé $</dt>
                 <dd className="text-lg font-semibold"><Usd valeur={t.verseUSD} /></dd>
+                {t.restantAPayerUSD > 0 && (
+                  <dd data-restant-a-payer className="text-xs text-muted-foreground">dont <Usd valeur={t.restantAPayerUSD} /> pas encore payés</dd>
+                )}
               </div>
               <div className="rounded-md bg-muted/40 p-3">
                 <dt className="text-xs text-muted-foreground">Bulletins</dt>
