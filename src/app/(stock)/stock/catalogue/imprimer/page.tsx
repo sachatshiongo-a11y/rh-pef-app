@@ -41,6 +41,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     return [
       libelleArticle(a),
       qte,
+      a.unite ?? "",
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
       a.categorie?.nom ?? "",
@@ -54,8 +55,8 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     <PrintDoc
       titre="Inventaire — Stock & Achats"
       sousTitre={jourKinshasa(new Date())}
-      entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix", "Valeur USD"]}
-      aligneDroite={[1, 3, 6, 7]}
+      entete={["Désignation", "Stock", "Unité", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix", "Valeur USD"]}
+      aligneDroite={[1, 4, 7, 8]}
       lignes={lignes}
     />
   );

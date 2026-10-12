@@ -50,8 +50,6 @@ export type ArticleRow = {
   /** Contenance enregistrée (« 75 » + « cl ») : s'ajoute au nom AFFICHÉ (`libelleArticle`). */
   contenance?: string | null;
   contenanceUnite?: string | null;
-  /** Nom court imprimé sur la fiche « Commande journalière ». */
-  nomCourt?: string | null;
   /** Coché « Sur la fiche commande ». */
   surFicheCommande?: boolean;
   domaine: Domaine;
@@ -587,13 +585,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <th className="w-8"><input type="checkbox" checked={pageToutCochee} ref={(el) => { if (el) el.indeterminate = !pageToutCochee && page.some((a) => sel.has(a.id)); }} onChange={(e) => toutSel(e.target.checked)} aria-label={`Tout sélectionner (${page.length} de cette page)`} title="Sélectionne les articles de cette page" /></th>
               <ThTri col="code" tri={tri} onTri={trierPar}>Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
-              <th title="Nom imprimé sur la fiche Commande journalière">Nom court</th>
               <ThTri col="stock" tri={tri} onTri={trierPar} align="right">Stock</ThTri>
+              <th className="!pl-0">Unité</th>
               <ThTri col="alerte" tri={tri} onTri={trierPar} >Alerte</ThTri>
               <ThTri col="min" tri={tri} onTri={trierPar} align="right">Min</ThTri>
               <ThTri col="categorie" tri={tri} onTri={trierPar}>Catégorie</ThTri>
               <ThTri col="fournisseur" tri={tri} onTri={trierPar}>Fournisseur</ThTri>
-              <th>Unité</th>
               <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" title="Prix × stock">Valeur</ThTri>
               <ThTri col="prix" tri={tri} onTri={trierPar} align="right" title="Prix de référence dans sa devise de saisie ($ ou FC) ; l'autre devise au taux du jour">Prix</ThTri>
               <th className="text-right" title="Nombre d'unités par carton">Par carton</th>
@@ -604,7 +601,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <Fragment key={a.id}>
                 {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
                   <tr>
-                    <td colSpan={13} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    <td colSpan={12} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
@@ -612,12 +609,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 <LigneArticle a={a} categorie={a.categorieId ? catNom.get(a.categorieId) ?? null : null} fournisseur={a.fournisseurId ? fourPar.get(a.fournisseurId) ?? null : null} selected={sel.has(a.id)} onToggle={toggle} />
               </Fragment>
             ))}
-            {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
             <tfoot className="bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={10} className="text-right">Valeur totale du stock filtré{pagination.nbPages > 1 ? ` (${affichees.length} articles, toutes les pages)` : ""}</td>
+                <td colSpan={9} className="text-right">Valeur totale du stock filtré{pagination.nbPages > 1 ? ` (${affichees.length} articles, toutes les pages)` : ""}</td>
                 <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>
                 <td colSpan={2}></td>
               </tr>
@@ -678,13 +675,12 @@ const LigneArticle = memo(function LigneArticle({
           {a.propositionEnAttente && <BadgeProposition />}
         </div>
       </td>
-      <td>{texteOuTiret(a.nomCourt)}</td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}</td>
+      <td className="whitespace-nowrap !pl-1 text-muted-foreground" title="Unité du stock">{texteOuTiret(a.unite)}</td>
       <td className="whitespace-nowrap">{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
       <td className="whitespace-nowrap text-right tabular-nums" title="Seuil minimum (alerte de réappro)">{nombreOuTiret(a.stockMinimum)}</td>
       <td className={categorie ? "" : "text-muted-foreground"}>{categorie ?? "—"}</td>
       <td><LienFournisseur f={fournisseur} /></td>
-      <td className="whitespace-nowrap">{texteOuTiret(a.unite)}</td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">{texteValeur(a)}</td>
       <td className="whitespace-nowrap text-right tabular-nums">
         {/* Prix dans SA devise de saisie ; l'autre devise « ≈ » au taux du jour, en petit dessous. */}
@@ -740,7 +736,6 @@ export const CarteArticle = memo(function CarteArticle({
   const unite = (a.unite ?? "").trim();
   const min = Number(a.stockMinimum);
   const idChamps = `champs-article-${a.id}`;
-  const sousNom = [a.nomCourt?.trim(), categorieNom].filter(Boolean).join(" · ");
 
   return (
     <div ref={racine} data-article={a.id} className={`scroll-mb-24 scroll-mt-16 rounded-xl border ${selected ? "bg-primary/10" : TON_RANGEE[etat.ton]}`}>
@@ -756,7 +751,7 @@ export const CarteArticle = memo(function CarteArticle({
             {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
             {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
             {a.propositionEnAttente && <BadgeProposition />}
-            {sousNom && <span className="truncate">{sousNom}</span>}
+            {categorieNom && <span className="truncate">{categorieNom}</span>}
           </span>
         </div>
         <button
@@ -782,7 +777,6 @@ export const CarteArticle = memo(function CarteArticle({
         <div id={idChamps} className="border-t px-3 pb-3 pt-2">
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm [&_dd]:min-w-0 [&_dd]:break-words">
             <div><dt className={champLabel}>Code article</dt><dd>{texteOuTiret(a.code)}</dd></div>
-            <div><dt className={champLabel}>Nom court (fiche commande)</dt><dd>{texteOuTiret(a.nomCourt)}</dd></div>
             <div><dt className={champLabel}>Catégorie</dt><dd>{categorie ?? "—"}</dd></div>
             <div><dt className={champLabel}>Fournisseur</dt><dd><LienFournisseur f={fournisseur} /></dd></div>
             <div><dt className={champLabel}>Unité</dt><dd>{texteOuTiret(a.unite)}</dd></div>

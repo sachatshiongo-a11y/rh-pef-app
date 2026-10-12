@@ -44,7 +44,6 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       code: a.code,
       designation: a.designation,
       ...contenancePourClient(a), // libellé affiché (désignation + contenance) : `libelleArticle`, côté écran
-      nomCourt: a.nomCourt,
       surFicheCommande: a.surFicheCommande,
       domaine: a.domaine,
       categorieId: a.categorieId,

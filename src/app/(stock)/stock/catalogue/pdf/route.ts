@@ -51,6 +51,7 @@ export async function GET(req: Request) {
     lignes.push([
       libelleArticle(a),
       qte,
+      a.unite ?? "",
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
       a.fournisseur?.nom ?? "",
@@ -61,13 +62,14 @@ export async function GET(req: Request) {
   }
 
   const colonnes: Colonne[] = [
-    { header: "Désignation", width: "26%" },
-    { header: "Stock", width: "9%", align: "right" },
-    { header: "Alerte", width: "13%" },
-    { header: "Min", width: "7%", align: "right" },
+    { header: "Désignation", width: "24%" },
+    { header: "Stock", width: "8%", align: "right" },
+    { header: "Unité", width: "7%" },
+    { header: "Alerte", width: "12%" },
+    { header: "Min", width: "6%", align: "right" },
     { header: "Fournisseur", width: "15%" },
-    { header: "Prix", width: "17%", align: "right" },
-    { header: "Valeur USD", width: "9%", align: "right" },
+    { header: "Prix", width: "18%", align: "right" },
+    { header: "Valeur USD", width: "10%", align: "right" },
   ];
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Tous domaines";

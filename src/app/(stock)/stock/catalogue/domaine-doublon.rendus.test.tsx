@@ -20,7 +20,7 @@ vi.mock("./actions", () => ({
 
 const { CatalogueTable } = await import("./catalogue-table");
 type ArticleRow = Parameters<typeof CatalogueTable>[0]["articles"][number];
-const base = { code: null, nomCourt: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null, unite: "Kg", stockMinimum: "0", niveau: "OK" as const };
+const base = { code: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null, unite: "Kg", stockMinimum: "0", niveau: "OK" as const };
 const ARTICLES: ArticleRow[] = [{ ...base, id: "jus", designation: "Jus d'orange", quantite: "3" }, { ...base, id: "steak", designation: "Steak", quantite: "1" }];
 const CATS = [{ id: "c1", nom: "Jus", domaine: "NOURRITURE" }, { id: "c2", nom: "Jus", domaine: "BOISSON" }, { id: "c3", nom: "Sodas", domaine: "BOISSON" }];
 

@@ -20,10 +20,10 @@ vi.mock("./actions", () => ({
 const { CatalogueTable, etatStock } = await import("./catalogue-table");
 type ArticleRow = Parameters<typeof CatalogueTable>[0]["articles"][number];
 
-const base = { code: null, nomCourt: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null };
+const base = { code: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null };
 const ARTICLES: ArticleRow[] = [
   { ...base, id: "ok", designation: "Riz", unite: "Kg", quantite: "78", stockMinimum: "20", niveau: "OK" },
-  { ...base, id: "bas", designation: "Farine", nomCourt: "Farine T55", unite: "Kg", quantite: "4.83", stockMinimum: "5", niveau: "APPRO" },
+  { ...base, id: "bas", designation: "Farine", unite: "Kg", quantite: "4.83", stockMinimum: "5", niveau: "APPRO" },
   { ...base, id: "rupture", designation: "Beurre", unite: "Kg", quantite: "0", stockMinimum: "3", niveau: "URGENT" },
   { ...base, id: "negatif", designation: "Sucre", unite: "Kg", quantite: "-2.5", stockMinimum: "0", niveau: "OK" },
   { ...base, id: "inconnu", designation: "Amidon", unite: null, quantite: "0", stockMinimum: "0", niveau: null },
@@ -66,9 +66,8 @@ describe("rangée compacte — le stock en évidence", () => {
     expect(rangee("ok").textContent).not.toMatch(/Satisfaisant|Urgent|réapprovisionner/);
   });
 
-  it("montre le seuil en petit et le nom court sous le nom", () => {
+  it("montre le seuil en petit", () => {
     expect(rangee("bas").textContent).toContain("min. 5");
-    expect(rangee("bas").textContent).toContain("Farine T55");
     expect(rangee("negatif").textContent).toContain("sans seuil");
   });
 
@@ -109,7 +108,7 @@ describe("dépliage des détails (lecture seule)", () => {
     clic(bouton("bas"));
     expect(bouton("bas").getAttribute("aria-expanded")).toBe("true");
     const details = rangee("bas").querySelector<HTMLElement>("dl")!;
-    expect(details.textContent).toContain("Farine T55"); // nom court
+    expect(details.textContent).not.toMatch(/nom court/i);
     expect(details.textContent).toContain("Farines"); // catégorie
     expect(rangee("bas").querySelector("input:not([type=checkbox]), select, textarea")).toBeNull();
     expect(rangee("bas").querySelector('a[aria-label="Fiche article — Farine"][href="/stock/catalogue/bas"]')).not.toBeNull();
@@ -117,14 +116,15 @@ describe("dépliage des détails (lecture seule)", () => {
     expect(rangee("bas").querySelector("dl")).toBeNull();
   });
 
-  it("une valeur absente s'affiche « — », jamais 0 (code, nom court, fournisseur, unités par carton, seuil)", () => {
+  it("une valeur absente s'affiche « — », jamais 0 (code, fournisseur, unité, unités par carton, seuil)", () => {
     clic(bouton("inconnu"));
     const valeurs = [...rangee("inconnu").querySelectorAll("dd")].map((d) => d.textContent);
-    expect(valeurs.slice(0, 2)).toEqual(["—", "—"]); // code, nom court
-    expect(valeurs[3]).toBe("—"); // fournisseur
-    expect(valeurs[4]).toBe("—"); // unité
-    expect(valeurs[5]).toBe("—"); // stock min. 0 = pas de seuil
-    expect(valeurs[7]).toBe("—"); // unités par carton
+    // code, catégorie, fournisseur, unité, stock min., prix, unités / carton, valeur
+    expect(valeurs[0]).toBe("—"); // code
+    expect(valeurs[2]).toBe("—"); // fournisseur
+    expect(valeurs[3]).toBe("—"); // unité
+    expect(valeurs[4]).toBe("—"); // stock min. 0 = pas de seuil
+    expect(valeurs[6]).toBe("—"); // unités par carton
   });
 
   it("un seul article déplié à la fois", () => {
@@ -180,27 +180,37 @@ describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", (
     expect(lignes().every((tr, i) => tr.querySelector(`a[href="/stock/catalogue/${ARTICLES[i].id}"]`))).toBe(true);
   });
 
-  it("valeurs en texte : nom court, catégorie, unité ; « — » pour une absence, jamais 0", () => {
+  it("valeurs en texte : catégorie, unité ; « — » pour une absence, jamais 0", () => {
     const cellules = (i: number) => [...lignes()[i].querySelectorAll("td")].map((td) => td.textContent);
-    // case, code, désignation, nom court, stock, alerte, min, catégorie, fournisseur, unité, valeur, prix, par carton
+    // case, code, désignation, stock, unité, alerte, min, catégorie, fournisseur, valeur, prix, par carton
     const farine = cellules(1);
-    expect(farine[3]).toBe("Farine T55");
-    expect(farine[4]).toBe("4,83");
+    expect(farine[3]).toBe("4,83");
+    expect(farine[4]).toBe("Kg");
     expect(farine[6]).toBe("5");
     expect(farine[7]).toBe("Farines");
-    expect(farine[9]).toBe("Kg");
     const amidon = cellules(4);
     expect(amidon[1]).toBe("—"); // code
-    expect(amidon[3]).toBe("—"); // nom court
+    expect(amidon[4]).toBe("—"); // unité
     expect(amidon[6]).toBe("—"); // seuil 0 = sans seuil
     expect(amidon[8]).toBe("—"); // fournisseur
-    expect(amidon[9]).toBe("—"); // unité
-    expect(amidon[12]).toBe("—"); // par carton
+    expect(amidon[11]).toBe("—"); // par carton
+  });
+
+  it("plus de colonne « Nom court » : l'unité suit immédiatement le stock, sur ordinateur comme sur téléphone", () => {
+    const entetes = [...bloc().querySelectorAll("thead th")].map((th) => th.textContent!.replace(/[▲▼]/g, "").trim());
+    expect(entetes).toEqual(["", "Code", "Désignation", "Stock", "Unité", "Alerte", "Min", "Catégorie", "Fournisseur", "Valeur", "Prix", "Par carton"]);
+    expect(entetes.indexOf("Unité")).toBe(entetes.indexOf("Stock") + 1);
+    expect(conteneur.textContent).not.toMatch(/nom court/i);
+    // Téléphone : la quantité PUIS l'unité, dans le même bloc.
+    expect(stock("bas").textContent).toBe("4,83Kg");
+    // Même une donnée qui porterait encore un nom court ne le montre pas à l'écran.
+    act(() => racine.render(h(CatalogueTable, { articles: [{ ...ARTICLES[1], nomCourt: "Farine T55" } as unknown as ArticleRow], categories: [], fournisseurs: [] })));
+    expect(conteneur.textContent).not.toContain("Farine T55");
   });
 
   it("nombres alignés à droite (stock, min, valeur, prix, par carton)", () => {
     const tds = [...lignes()[0].querySelectorAll("td")];
-    for (const i of [4, 6, 10, 11, 12]) expect(tds[i].className, `colonne ${i}`).toContain("text-right");
+    for (const i of [3, 6, 9, 10, 11]) expect(tds[i].className, `colonne ${i}`).toContain("text-right");
   });
 
   it("le prix s'affiche dans sa devise de saisie, l'autre devise en petit dessous", () => {
@@ -209,7 +219,7 @@ describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", (
       { ...base, id: "fc", designation: "Sel", unite: "Kg", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null, devisePrix: "CDF", prixCDF: "7000", prixAutre: "≈ 2,50 $" },
       { ...base, id: "rien", designation: "Eau", unite: "L", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null },
     ], categories: [], fournisseurs: [] })));
-    const prix = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[11];
+    const prix = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[10];
     expect(prix("usd").firstChild!.textContent).toBe("2,50 $");
     expect(prix("usd").querySelector("span")!.textContent).toBe("≈ 7 000 FC");
     expect(prix("fc").firstChild!.textContent).toBe("7 000 FC");
