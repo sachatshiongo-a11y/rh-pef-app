@@ -8,6 +8,7 @@ import { usd } from "@/lib/stock";
 import { formaterMontantFacture, libelleTotal } from "@/lib/facture-devise";
 import { ListePaginee } from "@/components/liste-paginee";
 import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
+import { Indicateur } from "@/components/indicateur";
 
 export function ImportFacturesClient() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -72,11 +73,11 @@ export function ImportFacturesClient() {
         <div className="space-y-3 rounded-lg border p-4">
           <h3 className="font-semibold">Aperçu — rien n&apos;est encore écrit</h3>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
-            <Kpi label="Factures à ajouter" val={String(preview.resume.aInserer)} />
-            <Kpi label="Refusées (numéro déjà saisi)" val={String(preview.resume.doublons)} />
-            <Kpi label="À confirmer (probable doublon)" val={String(preview.resume.aConfirmer)} accent={preview.resume.aConfirmer > 0} />
-            <Kpi label="Fournisseurs créés" val={String(preview.resume.fournisseursCrees)} accent={preview.resume.fournisseursCrees > 0} />
-            <Kpi label="Total à ajouter" val={libelleTotal(preview.resume.total, usd(0), usd)} />
+            <Indicateur libelle="Factures à ajouter" valeur={String(preview.resume.aInserer)} />
+            <Indicateur libelle="Refusées (numéro déjà saisi)" valeur={String(preview.resume.doublons)} />
+            <Indicateur libelle="À confirmer (probable doublon)" valeur={String(preview.resume.aConfirmer)} teinte={preview.resume.aConfirmer > 0 ? "attention" : undefined} />
+            <Indicateur libelle="Fournisseurs créés" valeur={String(preview.resume.fournisseursCrees)} teinte={preview.resume.fournisseursCrees > 0 ? "attention" : undefined} />
+            <Indicateur libelle="Total à ajouter" valeur={String(libelleTotal(preview.resume.total, usd(0), usd))} />
           </div>
 
           {preview.erreurs.length > 0 && (
@@ -146,11 +147,3 @@ export function ImportFacturesClient() {
   );
 }
 
-function Kpi({ label, val, accent }: { label: string; val: string; accent?: boolean }) {
-  return (
-    <div className="rounded-md border bg-card p-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-lg font-semibold tabular-nums ${accent ? "text-amber-700" : ""}`}>{val}</p>
-    </div>
-  );
-}

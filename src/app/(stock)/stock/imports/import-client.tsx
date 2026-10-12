@@ -9,6 +9,7 @@ import { ChoixArticleProche } from "@/components/stock/choix-article-proche";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 import { ListePaginee } from "@/components/liste-paginee";
+import { Indicateur } from "@/components/indicateur";
 
 export function ImportInventaireClient() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -82,13 +83,13 @@ export function ImportInventaireClient() {
           <h3 className="font-semibold">Aperçu — rien n&apos;est encore écrit</h3>
           <MotifSortiesApercu />
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-            <Kpi label="Articles mis à jour" val={preview.resume.maj} />
-            <Kpi label="Articles créés" val={preview.resume.crees} accent={preview.resume.crees > 0} />
-            <Kpi label="Sans correspondance" val={preview.resume.sansMatch} accent={preview.resume.sansMatch > 0} />
-            <Kpi label="Entrées ajoutées au journal" val={preview.resume.mvEntree} />
-            <Kpi label="Sorties ajoutées au journal" val={preview.resume.mvSortie} />
-            <Kpi label="Déjà présents, ignorés" val={preview.resume.dejaPresents} />
-            <Kpi label="Achats légumes" val={preview.resume.legumes} />
+            <Indicateur libelle="Articles mis à jour" valeur={String(preview.resume.maj)} />
+            <Indicateur libelle="Articles créés" valeur={String(preview.resume.crees)} teinte={preview.resume.crees > 0 ? "attention" : undefined} />
+            <Indicateur libelle="Sans correspondance" valeur={String(preview.resume.sansMatch)} teinte={preview.resume.sansMatch > 0 ? "attention" : undefined} />
+            <Indicateur libelle="Entrées ajoutées au journal" valeur={String(preview.resume.mvEntree)} />
+            <Indicateur libelle="Sorties ajoutées au journal" valeur={String(preview.resume.mvSortie)} />
+            <Indicateur libelle="Déjà présents, ignorés" valeur={String(preview.resume.dejaPresents)} />
+            <Indicateur libelle="Achats légumes" valeur={String(preview.resume.legumes)} />
           </div>
 
           {sansMatch.length > 0 && (
@@ -150,11 +151,3 @@ export function ImportInventaireClient() {
   );
 }
 
-function Kpi({ label, val, accent }: { label: string; val: number; accent?: boolean }) {
-  return (
-    <div className="rounded-md border bg-card p-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-lg font-semibold tabular-nums ${accent ? "text-amber-700" : ""}`}>{val}</p>
-    </div>
-  );
-}

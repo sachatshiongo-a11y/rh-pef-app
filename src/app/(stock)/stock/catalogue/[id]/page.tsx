@@ -32,6 +32,7 @@ import {
   lireOngletArticle, lireFiltreMouvements, typeDuFiltre, lienFicheArticle,
   type FiltreMouvements, type OngletArticle,
 } from "@/lib/fiche-article";
+import { Indicateur } from "@/components/indicateur";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -320,21 +321,21 @@ export default async function ArticleFichePage({
       {/* Les quatre chiffres de l'article — au-dessus des onglets, visibles quel que soit l'onglet. L'alerte de stock
           (OK / À réapprovisionner / Urgent) et les seuils vivent dans la carte « Stock actuel ». */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi
-          label="Stock actuel" valeur={a.stock ? `${qte(a.stock.quantite)}${uniteTxt}` : "—"}
-          sous={niv && a.stock ? `${ALERTE_LABEL[niv]} · minimum ${qte(a.stock.stockMinimum)}${Number(a.stock.seuilUrgent) > 0 ? ` · urgent ${qte(a.stock.seuilUrgent)}` : ""}` : undefined}
-          accent={stockQte < 0 || niv === "URGENT" ? "red" : niv === "APPRO" ? "amber" : niv === "OK" ? "green" : undefined}
+        <Indicateur
+          libelle="Stock actuel" valeur={a.stock ? `${qte(a.stock.quantite)}${uniteTxt}` : "—"}
+          sousTexte={niv && a.stock ? `${ALERTE_LABEL[niv]} · minimum ${qte(a.stock.stockMinimum)}${Number(a.stock.seuilUrgent) > 0 ? ` · urgent ${qte(a.stock.seuilUrgent)}` : ""}` : undefined}
+          teinte={stockQte < 0 || niv === "URGENT" ? "alerte" : niv === "APPRO" ? "attention" : niv === "OK" ? "entree" : undefined}
         />
-        <Kpi label="Valeur du stock" valeur={valeurC ? `${valeurC.approx ? "≈ " : ""}${usd(valeurC.valeur)}` : "—"} sous={valeurC?.approx ? "au taux du jour" : undefined} />
-        <Kpi
-          label="Dernier prix d'achat"
+        <Indicateur libelle="Valeur du stock" valeur={valeurC ? `${valeurC.approx ? "≈ " : ""}${usd(valeurC.valeur)}` : "—"} sousTexte={valeurC?.approx ? "au taux du jour" : undefined} />
+        <Indicateur
+          libelle="Dernier prix d'achat"
           valeur={analyse.dernier ? (analyse.dernier.prixCDF !== undefined ? formaterFC(analyse.dernier.prixCDF) : usd(analyse.dernier.prix)) : "—"}
-          sous={analyse.dernier ? `${analyse.dernier.prixCDF !== undefined ? `≈ ${usd(analyse.dernier.prix)} · ` : ""}le ${dCourt(analyse.dernier.date)}${hausse ? ` · +${formaterDecimales(hausse.pct, 0)} % vs moyenne` : ""}` : "aucun achat chiffré"}
-          accent={hausse ? "red" : undefined}
+          sousTexte={analyse.dernier ? `${analyse.dernier.prixCDF !== undefined ? `≈ ${usd(analyse.dernier.prix)} · ` : ""}le ${dCourt(analyse.dernier.date)}${hausse ? ` · +${formaterDecimales(hausse.pct, 0)} % vs moyenne` : ""}` : "aucun achat chiffré"}
+          teinte={hausse ? "alerte" : undefined}
         />
-        <Kpi
-          label="Consommation du mois" valeur={`${qte(sortiesMois)}${uniteTxt}`}
-          sous={pertesMois > 0 ? `dont ${qte(pertesMois)}${uniteTxt} de pertes` : "sorties du mois en cours"}
+        <Indicateur
+          libelle="Consommation du mois" valeur={`${qte(sortiesMois)}${uniteTxt}`}
+          sousTexte={pertesMois > 0 ? `dont ${qte(pertesMois)}${uniteTxt} de pertes` : "sorties du mois en cours"}
         />
       </div>
 
@@ -534,17 +535,6 @@ export default async function ArticleFichePage({
           <p className="mt-3 text-xs text-muted-foreground">Le stock ne se modifie pas ici : il évolue par les mouvements, l&apos;inventaire (comptage) ou la correction d&apos;un stock négatif.</p>
         </section>
       )}
-    </div>
-  );
-}
-
-function Kpi({ label, valeur, accent, sous }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; sous?: string }) {
-  const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  return (
-    <div className={`min-w-0 rounded-lg border p-3 ${cls}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 break-words text-lg font-semibold tabular-nums">{valeur}</p>
-      {sous && <p className="text-xs tabular-nums text-muted-foreground">{sous}</p>}
     </div>
   );
 }

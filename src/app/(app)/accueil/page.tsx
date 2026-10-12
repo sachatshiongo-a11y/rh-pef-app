@@ -8,6 +8,7 @@ import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
 import { exigerPageRH } from "@/lib/garde-page";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { EtatVide } from "@/components/etat-vide";
+import { Indicateur } from "@/components/indicateur";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -123,23 +124,23 @@ export default async function AccueilPage() {
   const maxSerie = Math.max(1, ...historique.flatMap((h) => [h.net, h.cout]));
 
   const cartes = [
-    { label: "Effectif brigade", value: String(effectifBrigade) },
-    { label: "Effectif backoffice", value: String(effectifBackoffice) },
+    { libelle: "Effectif brigade", valeur: String(effectifBrigade) },
+    { libelle: "Effectif backoffice", valeur: String(effectifBackoffice) },
     ...(nbStagiaires + nbInterimaires > 0
-      ? [{ label: "Dont stagiaires / intérim", value: `${nbStagiaires} · ${nbInterimaires}` }]
+      ? [{ libelle: "Dont stagiaires / intérim", valeur: `${nbStagiaires} · ${nbInterimaires}` }]
       : []),
-    { label: "Masse salariale nette", value: usd(masseNette) },
-    { label: "Coût total employeur", value: usd(coutTotal) },
-    { label: "Heures supp. valorisées", value: usd(hsValoriseeTotal) },
-    { label: "Frais de transport", value: usd(transportTotal) },
-    { label: "Frais médicaux (mois)", value: usd(fraisMedicaux) },
-    { label: "Congés en cours", value: String(congesEnCours) },
+    { libelle: "Masse salariale nette", valeur: usd(masseNette) },
+    { libelle: "Coût total employeur", valeur: usd(coutTotal) },
+    { libelle: "Heures supp. valorisées", valeur: usd(hsValoriseeTotal) },
+    { libelle: "Frais de transport", valeur: usd(transportTotal) },
+    { libelle: "Frais médicaux (mois)", valeur: usd(fraisMedicaux) },
+    { libelle: "Congés en cours", valeur: String(congesEnCours) },
   ];
 
   const dateDuJour = jourCivilKinshasa(maintenant).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
-    <div className="max-w-6xl">
+    <div className="w-full">
       {/* Bandeau d'accueil */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-center gap-4">
@@ -169,12 +170,7 @@ export default async function AccueilPage() {
 
       {/* Indicateurs */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {cartes.map((c) => (
-          <div key={c.label} className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground">{c.label}</p>
-            <p className="mt-1 text-xl font-semibold">{c.value}</p>
-          </div>
-        ))}
+        {cartes.map((c) => <Indicateur key={c.libelle} libelle={c.libelle} valeur={c.valeur} />)}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -328,17 +324,19 @@ export default async function AccueilPage() {
 function VariationBloc({ label, valeur, variation }: { label: string; valeur: string; variation: number | null }) {
   const hausse = (variation ?? 0) >= 0;
   return (
-    <div className="rounded-xl border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold">{valeur}</p>
-      {variation === null ? (
-        <p className="mt-1 text-xs text-muted-foreground">— vs mois précédent</p>
-      ) : (
-        <p className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium ${hausse ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
-          {hausse ? "▲" : "▼"} {hausse ? "+" : ""}{variation.toFixed(1).replace(".", ",")} % vs mois préc.
-        </p>
-      )}
-    </div>
+    <Indicateur
+      libelle={label}
+      valeur={valeur}
+      sousTexte={
+        variation === null ? (
+          "— vs mois précédent"
+        ) : (
+          <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium ${hausse ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {hausse ? "▲" : "▼"} {hausse ? "+" : ""}{variation.toFixed(1).replace(".", ",")} % vs mois préc.
+          </span>
+        )
+      }
+    />
   );
 }
 

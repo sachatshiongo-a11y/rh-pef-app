@@ -62,7 +62,7 @@ export async function EcranSuivi({ date: dateDemandee }: { date?: string }) {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Pointages</h1>

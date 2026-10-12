@@ -29,6 +29,7 @@ import { envoyerPhotoFiche, supprimerPhotoFiche } from "../photo-actions";
 import { dejaLeger, reduireImage } from "./reduire-photo";
 import { libelleArticle } from "@/lib/libelle-article";
 import { alternativeMoinsChere, type AlternativeMoinsChere } from "@/lib/fiches/moins-cher";
+import { Indicateur } from "@/components/indicateur";
 
 type AutreFiche = { id: string; nom: string; estSousRecette: boolean };
 
@@ -423,10 +424,10 @@ export function EditerFiche({
         )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Kpi label={coutPartiel ? "Coût total HT (partiel)" : "Coût total HT"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutTotal))}` : "—"} accent={coutPartiel ? "amber" : undefined} />
-          <Kpi label={coutPartiel ? "Coût / portion (partiel)" : "Coût / portion"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutParPortion))}` : "—"} accent={coutPartiel || portionsInvalides ? "amber" : undefined} />
-          <Kpi label="Portions" valeur={portionsInvalides ? "—" : `${calc.nbPortions}`} accent={portionsInvalides ? "amber" : undefined} />
-          {ent.estSousRecette && <Kpi label="Rendement" valeur={calc.rendementQuantite ? `${qte(calc.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} accent={calc.rendementQuantite ? undefined : "amber"} />}
+          <Indicateur libelle={coutPartiel ? "Coût total HT (partiel)" : "Coût total HT"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutTotal))}` : "—"} teinte={coutPartiel ? "attention" : undefined} />
+          <Indicateur libelle={coutPartiel ? "Coût / portion (partiel)" : "Coût / portion"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutParPortion))}` : "—"} teinte={coutPartiel || portionsInvalides ? "attention" : undefined} />
+          <Indicateur libelle="Portions" valeur={portionsInvalides ? "—" : `${calc.nbPortions}`} teinte={portionsInvalides ? "attention" : undefined} />
+          {ent.estSousRecette && <Indicateur libelle="Rendement" valeur={calc.rendementQuantite ? `${qte(calc.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} teinte={calc.rendementQuantite ? undefined : "attention"} />}
         </div>
 
         {!coutConnu && (
@@ -468,27 +469,21 @@ export function EditerFiche({
           )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Kpi label={etiquette("Prix de vente HT", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteHT)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Prix de vente TTC", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteTTC)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} accent={resultat.incomplet ? "amber" : "green"} />
-            <Kpi label={etiquette("Coefficient", resultat.prixEstConseille, noteCout)} valeur={coef(resultat.coefficient)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} accent={resultat.incomplet ? "amber" : undefined} hint="part de mon prix de vente" />
-            <Kpi label={etiquette("Taux de marge", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarge)} accent={resultat.incomplet ? "amber" : undefined} hint="ajouté à mon coût" />
-            <Kpi label={etiquette("Ratio matière", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.ratioMatiere)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Indicateur libelle={etiquette("Prix de vente HT", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteHT)} teinte={resultat.incomplet ? "attention" : undefined} />
+            <Indicateur libelle={etiquette("Prix de vente TTC", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteTTC)} teinte={resultat.incomplet ? "attention" : undefined} />
+            <Indicateur libelle={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} teinte={resultat.incomplet ? "attention" : resultat.margeBrute === null ? undefined : resultat.margeBrute < 0 ? "alerte" : "entree"} />
+            <Indicateur libelle={etiquette("Coefficient", resultat.prixEstConseille, noteCout)} valeur={coef(resultat.coefficient)} teinte={resultat.incomplet ? "attention" : undefined} />
+            <Indicateur libelle={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} teinte={resultat.incomplet ? "attention" : undefined} sousTexte="part de mon prix de vente" />
+            <Indicateur libelle={etiquette("Taux de marge", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarge)} teinte={resultat.incomplet ? "attention" : undefined} sousTexte="ajouté à mon coût" />
+            <Indicateur libelle={etiquette("Ratio matière", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.ratioMatiere)} teinte={resultat.incomplet ? "attention" : undefined} />
             {resultat.prixConseille && (
-              <div className="col-span-2 rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Prix conseillé (coefficient cible)</p>
-                <p className="mt-0.5 text-lg font-semibold tabular-nums">
-                  {resultat.prixConseille.minorant ? "≥ " : ""}{usd(resultat.prixConseille.ht)} HT
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({resultat.prixConseille.minorant ? "≥ " : ""}{usd(resultat.prixConseille.ttc)} TTC)
-                  </span>
-                </p>
-                {resultat.prixConseille.minorant && (
-                  <p className="mt-1 text-xs text-amber-800">
-                    Coût partiel : {resultat.ingredientsSansPrix.length} ingrédient(s) non valorisé(s) — ce n&apos;est pas un prix, c&apos;est un plancher.
-                  </p>
-                )}
+              <div className="col-span-2">
+                <Indicateur
+                  libelle="Prix conseillé (coefficient cible)"
+                  valeur={`${resultat.prixConseille.minorant ? "≥ " : ""}${usd(resultat.prixConseille.ht)} HT (${resultat.prixConseille.minorant ? "≥ " : ""}${usd(resultat.prixConseille.ttc)} TTC)`}
+                  sousTexte={resultat.prixConseille.minorant ? `Coût partiel : ${resultat.ingredientsSansPrix.length} ingrédient(s) non valorisé(s) — ce n'est pas un prix, c'est un plancher.` : undefined}
+                  teinte={resultat.prixConseille.minorant ? "attention" : undefined}
+                />
               </div>
             )}
           </div>
@@ -704,15 +699,3 @@ function BandeauPartiel({ resultat }: { resultat: ReturnType<typeof calculerCout
   );
 }
 
-function Kpi({ label, valeur, accent, hint }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; hint?: string }) {
-  const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  return (
-    <div className={`rounded-lg border p-3 ${cls}`} title={hint}>
-      <p className="text-xs text-muted-foreground">
-        {label}
-        {hint && <span className="ml-1 text-muted-foreground/70">({hint})</span>}
-      </p>
-      <p className="mt-0.5 text-lg font-semibold tabular-nums">{valeur}</p>
-    </div>
-  );
-}

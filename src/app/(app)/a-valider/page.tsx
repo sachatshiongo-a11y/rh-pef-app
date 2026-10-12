@@ -266,7 +266,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   ]);
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full">
       {erreur && (
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>
       )}
