@@ -1407,6 +1407,10 @@ model ArticleStock {
   id              String          @id @default(uuid())
   code            String? // « Code article » du fichier (non fiable comme clé → optionnel)
   designation     String
+  // Marque (2026-10-14), facultative : « Président », « Lurpak ». Affichée dans le nom (`libelleArticle`) avant la
+  // contenance, sans jamais réécrire la désignation ; deux articles de même désignation ne sont pas des doublons si
+  // leurs marques (toutes deux renseignées) diffèrent.
+  marque          String?
   // Nom court imprimé sur la fiche « Commande journalière » (« Carré d'agneau » plutôt que la
   // désignation du fournisseur). Saisi par la Direction ; null = repli (article du restaurant
   // rattaché, sinon désignation). Jamais déduit.

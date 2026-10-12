@@ -44,7 +44,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
   "src/app/(stock)/stock/catalogue/_view.tsx": { n: 1, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/catalogue/actions.ts": { n: 10, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 9, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
@@ -52,9 +52,9 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/entree/actions.ts": { n: 24, raisons: ["AUDIT_ACTION"] },
+  "src/app/(stock)/stock/entree/actions.ts": { n: 23, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/entree/alertes-ligne.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // nom tapé d'un nouvel article
-  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 5, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 6, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/entree-telephone.tsx": { n: 5, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/[id]/page.tsx": { n: 5, raisons: ["CLE", "FIGE"] }, // clé du rapprochement bon/facture, ligne libre
@@ -187,7 +187,7 @@ function selectsSansContenance(src: string): string[] {
     const sel = selectDe(bloc(s, m.index! + m[0].length));
     if (sel) blocs.push(sel);
   }
-  return blocs.map(premierNiveau).filter((haut) => /\bdesignation\s*:\s*true\b/.test(haut) && !/contenance|CHAMPS_LIBELLE/.test(haut));
+  return blocs.map(premierNiveau).filter((haut) => /\bdesignation\s*:\s*true\b/.test(haut) && !(/CHAMPS_LIBELLE/.test(haut) || (/contenance/.test(haut) && /\bmarque\b/.test(haut))));
 }
 /** Variables qui reçoivent un libellé (« const nom = libelleArticle(a) ») : elles ne s'écrivent jamais dans `designation`. */
 function ecritLeLibelle(src: string): boolean {
@@ -214,7 +214,7 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     for (const v of Object.values(RECENSES)) for (const r of v.raisons) expect(RAISONS[r]).toBeTruthy();
   }, 60_000);
 
-  it("une sélection Prisma de la désignation d'un article lit aussi sa contenance (sauf clés recensées, nombre exact)", () => {
+  it("une sélection Prisma de la désignation d'un article lit aussi sa contenance ET sa marque (sauf clés recensées, nombre exact)", () => {
     const releve: Record<string, number> = {};
     for (const p of fichiers(path.join(RACINE, "src"))) {
       const n = selectsSansContenance(readFileSync(p, "utf8")).length;
@@ -258,7 +258,9 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     expect(ecritLeLibelle("const designation = libelleArticle(a); await tx.articleStock.create({ data: { designation, domaine } });")).toBe(true);
     expect(ecritLeLibelle("const t = libelleArticle(a); await tx.articleStock.create({ data: { designation: d } });")).toBe(false);
     expect(selectsSansContenance("include: { article: { select: { ...CHAMPS_LIBELLE, unite: true } } }")).toHaveLength(0);
-    expect(selectsSansContenance("include: { article: { select: { designation: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(0);
+    expect(selectsSansContenance("include: { article: { select: { designation: true, marque: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(0);
+    // Sans la marque, le libellé ne peut pas la porter : la sélection est signalée (contenance seule ne suffit plus).
+    expect(selectsSansContenance("include: { article: { select: { designation: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(1);
     expect(selectsSansContenance("include: { article: { select: { unite: true } } }")).toHaveLength(0);
     expect(appelleLeLibelle("const t = libelleArticle(a);")).toBe(true);
     expect(appelleLeLibelle("// libelleArticle(a)\nconst t = a.designation;")).toBe(false);

@@ -9,7 +9,7 @@
 //
 // Le DOUBLON D'ACHAT (même achat saisi deux fois) reste un AVERTISSEMENT non bloquant : même article
 // sur deux lignes de la liste (signalé sur les deux), et le contrôle à ±14 jours de toujours.
-import { cleAlnum } from "@/lib/texte";
+import { cleAlnum, normTexte } from "@/lib/texte";
 import { contenanceCanonique, contenanceDansNom, sansContenance } from "@/lib/fiches/conversion";
 import { jjmmaaaa } from "@/lib/achats-liste";
 
@@ -47,11 +47,32 @@ export function memeDesignation(a: string, b: string): boolean {
   return !!sa && sa === cleAlnum(sansLigatures(b));
 }
 
+/** Deux marques RENSEIGNÉES qui diffèrent (casse, accents et espaces ignorés) : « Président » ≠ « Lurpak ». Une marque absente d'un côté ne différencie rien. */
+export function marquesDifferentes(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normTexte(a ?? "").replace(/\s+/g, " ").trim(), nb = normTexte(b ?? "").replace(/\s+/g, " ").trim();
+  return na !== "" && nb !== "" && na !== nb;
+}
+
+/** Clé d'une désignation + marque pour regrouper des lignes d'une même liste : « Beurre » Président et « Beurre » Lurpak sont deux clés. */
+export function cleArticleMarque(designation: string, marque?: string | null): string {
+  const m = normTexte(marque ?? "").replace(/\s+/g, " ").trim();
+  return `${cleArticleExacte(designation)}${m ? `|${m}` : ""}`;
+}
+
+/**
+ * Le MÊME article : même désignation (`memeDesignation`) ET pas deux marques renseignées différentes
+ * (2026-10-14 : « Beurre doux » Président et « Beurre doux » Lurpak sont deux articles, pas un doublon).
+ * Une marque absente d'un côté garde la règle d'avant : même désignation = même article.
+ */
+export function memeArticle(designation: string, marque: string | null | undefined, candidat: { designation: string; marque?: string | null }): boolean {
+  return memeDesignation(designation, candidat.designation) && !marquesDifferentes(marque, candidat.marque);
+}
+
 // ── Types échangés entre le serveur et l'écran ────────────────────────────────────────────────────
 
 /** Un article du catalogue proposé à la place d'une ligne libre (assez pour en faire une ligne du catalogue). */
 /** `prix` : prix de référence dans sa devise `devisePrix` (absente = USD). */
-export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean; contenance?: string | null; contenanceUnite?: string | null };
+export type ArticleCandidat = { id: string; designation: string; marque?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean; contenance?: string | null; contenanceUnite?: string | null };
 
 /**
  * Sort d'une ligne au catalogue :
@@ -79,12 +100,12 @@ export type AnalyseLigne = { article: DecisionArticle };
  * concernée (indice), les indices des AUTRES lignes. Les lignes `ignoree` (rien d'enregistrable)
  * ne comptent pas. Avertissement seulement : deux sacs de farine à deux prix restent possibles.
  */
-export function doublonsDansListe(lignes: readonly { articleId: string; designation: string; ignoree?: boolean }[], resolu: (i: number) => string | null = () => null): Map<number, number[]> {
+export function doublonsDansListe(lignes: readonly { articleId: string; designation: string; marque?: string | null; ignoree?: boolean }[], resolu: (i: number) => string | null = () => null): Map<number, number[]> {
   const parCle = new Map<string, number[]>();
   lignes.forEach((l, i) => {
     if (l.ignoree) return;
     const id = l.articleId || resolu(i);
-    const cle = id ? `id:${id}` : cleArticleExacte(l.designation) ? `libre:${cleArticleExacte(l.designation)}` : "";
+    const cle = id ? `id:${id}` : cleArticleExacte(l.designation) ? `libre:${cleArticleMarque(l.designation, l.marque)}` : "";
     if (!cle) return;
     parCle.set(cle, [...(parCle.get(cle) ?? []), i]);
   });

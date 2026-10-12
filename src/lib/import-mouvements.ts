@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { cleAlnum } from "./texte";
+import { cleAlnum, normTexte } from "./texte";
 import { meilleurArticle } from "./article-match";
 import { exigerPeriodesOuvertes } from "./cloture-stock";
 import { niveauxActuels, notifierNouvellesAlertes } from "./alerte-stock";
@@ -30,18 +30,20 @@ export type PreviewMouvements = {
   erreurs: string[];
 };
 
-type ArticleRef = { id: string; designation: string; code: string | null };
+type ArticleRef = { id: string; designation: string; marque?: string | null; code: string | null };
+const cleMarque = (m: string | null | undefined) => normTexte(m ?? "").replace(/\s+/g, " ").trim();
 
 function indexer(articles: ArticleRef[]) {
   const parCode = new Map<string, ArticleRef[]>(); // un code peut être porté par PLUSIEURS articles
-  const parNom = new Map<string, ArticleRef>();
+  // PLUSIEURS articles peuvent porter le même nom (marques différentes, 2026-10-14) : jamais de choix au hasard.
+  const parNom = new Map<string, ArticleRef[]>();
   for (const a of articles) {
     if (a.code && a.code.trim()) {
       const k = a.code.trim();
       (parCode.get(k) ?? parCode.set(k, []).get(k)!).push(a);
     }
     const k = cleAlnum(a.designation);
-    if (k && !parNom.has(k)) parNom.set(k, a);
+    if (k) (parNom.get(k) ?? parNom.set(k, []).get(k)!).push(a);
   }
   return { parCode, parNom };
 }
@@ -58,7 +60,17 @@ function indexer(articles: ArticleRef[]) {
  */
 function rapprocher(l: MouvementCsv, idx: ReturnType<typeof indexer>, candidats: { id: string; designation: string }[]): { article: ArticleRef | null; type: Rapprochement } {
   const k = cleAlnum(l.designation);
-  if (k && idx.parNom.has(k)) return { article: idx.parNom.get(k)!, type: "nom" };
+  let nomAmbigu = false;
+  if (k && idx.parNom.has(k)) {
+    const memes = idx.parNom.get(k)!;
+    const marque = cleMarque(l.marque);
+    // Marque du fichier : elle départage ; sans elle, un nom porté par plusieurs articles reste ambigu.
+    const retenus = marque ? memes.filter((a) => !cleMarque(a.marque) || cleMarque(a.marque) === marque) : memes;
+    const exacts = marque ? retenus.filter((a) => cleMarque(a.marque) === marque) : retenus;
+    const choix = exacts.length > 0 ? exacts : retenus;
+    if (choix.length === 1) return { article: choix[0], type: "nom" };
+    nomAmbigu = true;
+  }
 
   if (l.code && idx.parCode.has(l.code.trim())) {
     const porteurs = idx.parCode.get(l.code.trim())!;
@@ -66,17 +78,39 @@ function rapprocher(l: MouvementCsv, idx: ReturnType<typeof indexer>, candidats:
     const m = l.designation
       ? meilleurArticle(l.designation, porteurs.map((a) => ({ id: a.id, designation: a.designation })), 0.5)
       : null;
-    if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "code" };
+    if (m) {
+      const r = departager(m, l, idx);
+      if (r) return { article: r, type: "code" };
+      return { article: null, type: "inconnu" }; // jumeaux de même nom, aucune marque pour trancher
+    }
     // Collision sans nom proche : on n'attribue PAS au hasard, le repli flou tranchera (ou inconnu).
   }
 
+  // Nom porté par plusieurs articles et rien pour les départager : « inconnu » (à préciser par la colonne Marque), pas un choix au hasard.
+  if (nomAmbigu) return { article: null, type: "inconnu" };
   const m = l.designation ? meilleurArticle(l.designation, candidats, 0.6) : null;
-  if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "flou" };
+  if (m) {
+    const r = departager(m, l, idx);
+    if (r) return { article: r, type: "flou" };
+  }
   return { article: null, type: "inconnu" };
 }
 
+/**
+ * Le meilleur article trouvé (par code en collision ou par ressemblance) a-t-il des JUMEAUX (même nom, marques différentes) ?
+ * Alors la marque du fichier tranche s'il y en a une qui désigne UN jumeau ; sinon null : jamais le premier de la liste.
+ * Sans jumeau : l'article trouvé, comme avant.
+ */
+function departager(m: { id: string; designation: string }, l: MouvementCsv, idx: ReturnType<typeof indexer>): ArticleRef | null {
+  const jumeaux = idx.parNom.get(cleAlnum(m.designation)) ?? [];
+  if (jumeaux.length <= 1) return { id: m.id, designation: m.designation, code: null };
+  const marque = cleMarque(l.marque);
+  const memes = marque ? jumeaux.filter((a) => cleMarque(a.marque) === marque) : [];
+  return memes.length === 1 ? memes[0] : null;
+}
+
 async function chargerArticles(): Promise<ArticleRef[]> {
-  return prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, code: true } });
+  return prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, marque: true, code: true } });
 }
 
 type Candidat = { ligne: number; sens: "entree" | "sortie"; articleId: string; date: string; type: "ENTREE" | "SORTIE"; quantite: number };

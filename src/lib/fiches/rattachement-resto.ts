@@ -110,7 +110,7 @@ export function proposerRattachements(restos: RestoPourProposition[], catalogue:
 
 /** Article du catalogue LIVRÉ au restaurant (sortie « Livraison restaurant »), tel que la règle le lit. */
 export type CibleAuto = {
-  id: string; designation: string; nomCourt: string | null; actif: boolean;
+  id: string; designation: string; marque?: string | null; nomCourt: string | null; actif: boolean;
   domaine: "NOURRITURE" | "BOISSON" | "AUTRE" | string;
   unite: string | null; contenance: string | null; contenanceUnite: string | null;
   /** Nom de la catégorie du catalogue (null : « À classer »). */

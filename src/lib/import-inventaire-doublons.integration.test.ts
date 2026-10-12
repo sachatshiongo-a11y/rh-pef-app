@@ -101,3 +101,59 @@ describe("import d'inventaire — un stock final négatif est refusé", () => {
     expect(await prisma.importBatch.count()).toBe(0);
   });
 });
+
+/** Comme `classeur`, avec une colonne « Marque » (en-tête en ligne 11, colonne 5) : facultative dans le vrai classeur. */
+async function classeurMarque(lignes: { code: string; nom: string; marque: string; sinit: number }[]): Promise<ArrayBuffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Nourriture");
+  ws.getRow(11).getCell(5).value = "Marque";
+  lignes.forEach((l, i) => {
+    const row = ws.getRow(13 + i);
+    row.getCell(1).value = l.code; row.getCell(2).value = l.nom; row.getCell(3).value = "Kg"; row.getCell(5).value = l.marque; row.getCell(6).value = l.sinit;
+    row.commit();
+  });
+  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+describe("import d'inventaire — colonne Marque facultative (2026-10-14)", () => {
+  it("même désignation qu'un article d'une autre marque : article NOUVEAU, créé avec sa marque", async () => {
+    await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Amora", domaine: "NOURRITURE" } });
+    const buf = await classeurMarque([{ code: "910", nom: "Moutarde forte", marque: "Maille", sinit: 3 }]);
+    const p = await analyserInventaire(buf);
+    expect(p.articles[0]).toMatchObject({ marque: "Maille", match: "aucun" });
+    expect(p.articles[0].proches).toBeUndefined();
+    await appliquerInventaire(buf, "Inv", userId);
+    const marques = (await prisma.articleStock.findMany({ where: { designation: "Moutarde forte" } })).map((a) => a.marque).sort();
+    expect(marques).toEqual(["Amora", "Maille"]);
+  });
+
+  it("même désignation et même marque : rattaché par le nom, stock posé sur l'article existant", async () => {
+    const amora = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Amora", domaine: "NOURRITURE" } })).id;
+    const buf = await classeurMarque([{ code: "911", nom: "moutarde forte", marque: "amora", sinit: 6 }]);
+    const p = await analyserInventaire(buf);
+    expect(p.articles[0]).toMatchObject({ match: "nom", articleId: amora });
+    await appliquerInventaire(buf, "Inv", userId);
+    expect(Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: amora } })).quantite)).toBe(6);
+    expect(await prisma.articleStock.count()).toBe(1);
+  });
+
+  it("sans colonne Marque : comportement d'avant (même nom = même article)", async () => {
+    const amora = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Amora", domaine: "NOURRITURE" } })).id;
+    const p = await analyserInventaire(await classeur([{ code: "912", nom: "Moutarde forte", sinit: 2 }]));
+    expect(p.articles[0]).toMatchObject({ match: "nom", articleId: amora });
+    expect(p.articles[0].marque).toBeUndefined();
+  });
+  it("sans colonne Marque et DEUX articles de même nom (marques différentes) : jamais le premier venu, la Direction choisit", async () => {
+    const amora = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Amora", domaine: "NOURRITURE" } })).id;
+    const maille = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Maille", domaine: "NOURRITURE" } })).id;
+    const buf = await classeur([{ code: "913", nom: "Moutarde forte", sinit: 2 }]);
+    const p = await analyserInventaire(buf);
+    expect(p.articles[0]).toMatchObject({ match: "aucun", articleId: null, creationPossible: false });
+    expect(p.articles[0].proches?.map((x) => x.id).sort()).toEqual([amora, maille].sort());
+    await expect(appliquerInventaire(buf, "Inv", userId)).rejects.toThrow(/Moutarde forte/);
+    expect(await prisma.importBatch.count()).toBe(0);
+    // Le classeur nomme la marque : rattaché à la bonne.
+    const p2 = await analyserInventaire(await classeurMarque([{ code: "913", nom: "Moutarde forte", marque: "Maille", sinit: 2 }]));
+    expect(p2.articles[0]).toMatchObject({ match: "nom", articleId: maille });
+  });
+});

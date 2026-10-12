@@ -22,13 +22,15 @@
 // Garde-fou de source : `libelle-article.garde-fou.test.ts`.
 
 import Decimal from "decimal.js";
-import { contenanceCanonique, contenanceDansNom, contenancesDansNom, normaliserUnite, sansContenance, UNITES_CONTENANCE, type UniteContenance } from "@/lib/fiches/conversion";
+import { contenanceCanonique, contenanceDansNom, contenancesDansNom, normaliserUnite, positionContenanceDansNom, sansContenance, UNITES_CONTENANCE, type UniteContenance } from "@/lib/fiches/conversion";
 import { normTexte } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
 
 /** Ce dont le libellé a besoin : la désignation et la contenance enregistrée (Decimal Prisma, texte ou nombre). */
 export type ArticleLibelle = {
   designation: string;
+  /** Marque (facultative) : insérée dans le libellé avant la contenance, sauf si le nom la porte déjà. */
+  marque?: string | null;
   contenance?: Decimal.Value | { toString(): string } | null;
   contenanceUnite?: string | null;
 };
@@ -66,20 +68,45 @@ type Analyse = {
   incoherence: { dansNom: string; enregistree: string } | null;
 };
 
+/** La marque, nettoyée ; null si absente. */
+const marqueDe = (a: Pick<ArticleLibelle, "marque">): string | null => a.marque?.trim().replace(/\s+/g, " ") || null;
+
+/**
+ * Le nom porte-t-il DÉJÀ cette marque ? Casse, accents et ponctuation ignorés, mots entiers :
+ * « Beurre Président 250 g » porte « Président » ; « Presidente » ne porte pas « Président ».
+ */
+export function nomPorteLaMarque(designation: string, marque: string): boolean {
+  const mots = (t: string) => normTexte(t).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const nom = ` ${mots(designation).join(" ")} `;
+  const m = mots(marque).join(" ");
+  return m !== "" && nom.includes(` ${m} `);
+}
+
+/** La désignation avec la marque glissée AVANT la contenance qu'elle porte (sinon à la fin) ; inchangée si elle porte déjà la marque. */
+function avecMarque(designation: string, marque: string | null): string {
+  if (!marque || nomPorteLaMarque(designation, marque)) return designation;
+  const pos = positionContenanceDansNom(designation);
+  if (pos === null) return designation.trimEnd() ? `${designation.trimEnd()} ${marque}` : marque;
+  // « Vodka-70cl » : le tiret de liaison tombe, la marque prend sa place (« Vodka Pernod 70cl »).
+  const avant = designation.slice(0, pos).replace(/[\s\-–—]+$/u, "");
+  return `${avant ? `${avant} ` : ""}${marque} ${designation.slice(pos)}`;
+}
+
 function analyser(a: ArticleLibelle): Analyse {
   const designation = a.designation ?? "";
+  const marque = marqueDe(a);
   const enregistree = contenanceEnregistree(a);
-  if (!enregistree) return { libelle: designation, ajout: null, incoherence: null };
+  if (!enregistree) return { libelle: avecMarque(designation, marque), ajout: null, incoherence: null };
   const mentions = contenancesDansNom(designation);
   const cle = contenanceCanonique(enregistree);
-  if (mentions.some((m) => contenanceCanonique(m) === cle)) return { libelle: designation, ajout: null, incoherence: null };
+  if (mentions.some((m) => contenanceCanonique(m) === cle)) return { libelle: avecMarque(designation, marque), ajout: null, incoherence: null };
   if (mentions.length > 0) {
     // La DERNIÈRE mention est celle que le reste du logiciel lit (`contenanceDansNom` : « 12 X 1KG » = 1 kg).
     const dit = contenanceDansNom(designation) ?? mentions[mentions.length - 1]!;
-    return { libelle: designation, ajout: null, incoherence: { dansNom: formaterContenance(dit), enregistree: formaterContenance(enregistree) } };
+    return { libelle: avecMarque(designation, marque), ajout: null, incoherence: { dansNom: formaterContenance(dit), enregistree: formaterContenance(enregistree) } };
   }
   const ajout = formaterContenance(enregistree);
-  const base = designation.trimEnd();
+  const base = avecMarque(designation, marque).trimEnd();
   return { libelle: base ? `${base} ${ajout}` : ajout, ajout, incoherence: null };
 }
 
@@ -126,15 +153,18 @@ export function rechercheContenance(a: Pick<ArticleLibelle, "contenance" | "cont
 }
 
 /** Champs Prisma qu'un libellé demande : `select: { article: { select: CHAMPS_LIBELLE } }`, ou à étaler. */
-export const CHAMPS_LIBELLE = { designation: true, contenance: true, contenanceUnite: true } as const;
+export const CHAMPS_LIBELLE = { designation: true, marque: true, contenance: true, contenanceUnite: true } as const;
 
 /**
  * Contenance prête à passer à un composant client (texte canonique « 0.75 », jamais un Decimal), à
  * étaler dans l'objet : `{ id, designation, ...contenancePourClient(a) }`. Rien du tout quand l'article
  * n'en a pas (les objets des articles sans contenance restent ce qu'ils étaient).
  */
-export function contenancePourClient(a: Pick<ArticleLibelle, "contenance" | "contenanceUnite">): { contenance?: string; contenanceUnite?: string } {
-  return a.contenance === null || a.contenance === undefined || !a.contenanceUnite ? {} : { contenance: String(a.contenance), contenanceUnite: a.contenanceUnite };
+export function contenancePourClient(a: Pick<ArticleLibelle, "contenance" | "contenanceUnite" | "marque">): { contenance?: string; contenanceUnite?: string; marque?: string } {
+  // La marque voyage avec la contenance : le libellé calculé côté client (liste, recherche) doit être le même que côté serveur.
+  const marque = marqueDe(a);
+  const contenance = a.contenance === null || a.contenance === undefined || !a.contenanceUnite ? {} : { contenance: String(a.contenance), contenanceUnite: a.contenanceUnite };
+  return marque ? { ...contenance, marque } : contenance;
 }
 
 /** Champs Prisma de la seule contenance (ligne de document qui porte déjà sa désignation figée). */
@@ -160,7 +190,7 @@ export function chercheurParContenance(q: string): ((a: ArticleLibelle) => boole
   if (!cible) return null;
   const mots = normTexte(sansContenance(q)).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   return (a) => {
-    const nom = normTexte(a.designation);
+    const nom = normTexte(`${a.designation} ${marqueDe(a) ?? ""}`);
     return mots.every((m) => nom.includes(m)) && contenancesDansNom(libelleArticle(a)).some((c) => contenanceCanonique(c) === cible);
   };
 }

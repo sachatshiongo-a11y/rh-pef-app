@@ -28,6 +28,7 @@ import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients
 import { envoyerPhotoFiche, supprimerPhotoFiche } from "../photo-actions";
 import { dejaLeger, reduireImage } from "./reduire-photo";
 import { libelleArticle } from "@/lib/libelle-article";
+import { alternativeMoinsChere, type AlternativeMoinsChere } from "@/lib/fiches/moins-cher";
 
 type AutreFiche = { id: string; nom: string; estSousRecette: boolean };
 
@@ -371,6 +372,7 @@ export function EditerFiche({
                   ligne={l}
                   cout={resultat.lignes[i]}
                   article={l.articleId ? mapArticles.get(l.articleId) : undefined}
+                  moinsCher={l.articleId && mapArticles.get(l.articleId) ? alternativeMoinsChere(mapArticles.get(l.articleId)!, l.unite, articles) : null}
                   sousFiche={l.sousFicheId ? autresFiches.find((f) => f.id === l.sousFicheId) : undefined}
                   optionsSource={optionsSource}
                   modifiee={ligneModifiee(l)}
@@ -595,7 +597,7 @@ function PhotoPlat({
 
 function LigneIngredient({
   ligne, cout, article, sousFiche, optionsSource, modifiee, selectionnee, onToggle, onChange,
-  dispoLigne, detailsArticles, limitante,
+  dispoLigne, detailsArticles, limitante, moinsCher,
 }: {
   ligne: LigneFiche;
   cout: LigneCout | undefined;
@@ -610,6 +612,8 @@ function LigneIngredient({
   dispoLigne: DetailLigneDispo | undefined;
   detailsArticles: Map<string, DetailArticleDispo>;
   limitante: boolean;
+  /** Autre marque du même article, moins chère pour CET ingrédient (signal discret). */
+  moinsCher?: AlternativeMoinsChere | null;
 }) {
   return (
     <tr className={`border-t align-top ${selectionnee ? "bg-primary/10" : modifiee ? "bg-amber-50/60" : ""}`}>
@@ -626,6 +630,13 @@ function LigneIngredient({
             <Link href={`/stock/catalogue/${article.id}`} className="text-primary hover:underline">{libelleArticle(article)}</Link>
             {" · "}{article.prixSaisi?.devise === "CDF" ? `${formaterFC(Number(article.prixSaisi.montant))} (${article.prixUnitaireUSD === null ? "≈ — : taux du jour non défini" : `≈ ${usd(article.prixUnitaireUSD)}`})` : usd(article.prixUnitaireUSD)} / {article.unite || "unité ?"}
             {!article.actif && " · article inactif"}
+          </div>
+        )}
+        {/* Signal seulement : l'article de la ligne n'est JAMAIS remplacé d'office, la personne décide. */}
+        {moinsCher && (
+          <div className="mt-0.5 text-[11px] text-muted-foreground" data-moins-cher>
+            <Link href={`/stock/catalogue/${moinsCher.articleId}`} className="text-primary hover:underline">{moinsCher.marque}</Link>
+            {` revient moins cher : ${moinsCher.approx ? "≈ " : ""}${usd(moinsCher.prix)} / ${moinsCher.unite} (contre ${usd(moinsCher.prixActuel)})`}
           </div>
         )}
         {sousFiche && (

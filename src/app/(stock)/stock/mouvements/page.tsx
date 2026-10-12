@@ -80,9 +80,9 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "SORTIES") }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true, stock: { select: { quantite: true } } } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true, stock: { select: { quantite: true } } } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
-    prisma.articleResto.findMany({ where: { actif: true, liens: { some: {} } }, select: { id: true, designation: true, espace: true, unite: true, liens: { select: { articleStock: { select: { id: true, unite: true, contenance: true, contenanceUnite: true } } } } } }),
+    prisma.articleResto.findMany({ where: { actif: true, liens: { some: {} } }, select: { id: true, designation: true, espace: true, unite: true, liens: { select: { articleStock: { select: { id: true, unite: true, marque: true, contenance: true, contenanceUnite: true } } } } } }),
   ]);
   const conseilsLivraison: Record<string, ConseilLivraison> = {};
   const restosSR = restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, rattaches: r.liens.map((l) => ({ id: l.articleStock.id, unite: l.articleStock.unite, contenance: l.articleStock.contenance?.toString() ?? null, contenanceUnite: l.articleStock.contenanceUnite })) }));

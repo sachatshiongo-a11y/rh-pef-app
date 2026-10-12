@@ -9,7 +9,7 @@ import { contenancePourClient } from "@/lib/libelle-article";
 export default async function NouveauBonPage() {
   const user = await exigerPageStock();
   const [articles, taux, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);

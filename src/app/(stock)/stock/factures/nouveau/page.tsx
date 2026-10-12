@@ -18,7 +18,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
   const user = await exigerPageStock();
   const { bc } = await searchParams;
   const [articles, taux, fournisseurs, bons] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
     prisma.bonDeCommande.findMany({

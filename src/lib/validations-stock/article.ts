@@ -37,6 +37,7 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   if (formData.has("code")) p.code = texte("code");
   if (formData.has("designation")) p.designation = String(formData.get("designation")).trim();
   if (formData.has("nomCourt")) p.nomCourt = texte("nomCourt");
+  if (formData.has("marque")) p.marque = texte("marque");
   if (formData.has("domaine")) p.domaine = lireDomaine(formData.get("domaine"));
   // Prix de référence : sa devise (« USD » / « CDF »), puis le prix dans cette devise. Un champ de
   // prix seul (case de l'Inventaire) garde la devise de l'article — `harmoniserPrix` le vérifie.
@@ -170,13 +171,19 @@ export type DoublonRenommage = { doublon: true; candidats: ArticleCandidat[]; cr
  * est libre ; n'écrit rien.
  */
 export async function doublonDeRenommage(tx: Tx, id: string, patch: PatchArticle): Promise<DoublonRenommage | null> {
-  if (!("designation" in patch) || typeof patch.designation !== "string") return null;
-  const nom = patch.designation.trim();
+  const designationChangee = "designation" in patch && typeof patch.designation === "string";
+  const marqueChangee = "marque" in patch;
+  if (!designationChangee && !marqueChangee) return null;
+  const actuel = await tx.articleStock.findUnique({ where: { id }, select: { designation: true, marque: true } });
+  if (!actuel) return null; // article disparu : l'écriture le dira
+  const nom = (designationChangee ? (patch.designation as string) : actuel.designation).trim();
   if (!nom) return null;
-  const actuel = await tx.articleStock.findUnique({ where: { id }, select: { designation: true } });
-  if (!actuel || actuel.designation === nom) return null; // inchangée (ou article disparu : l'écriture le dira)
+  const marque = marqueChangee ? ((patch.marque as string | null) ?? null) : actuel.marque;
+  // Seule une désignation OU une marque qui CHANGE est contrôlée : poser la marque « Lurpak » sur « Beurre doux » ne doit pas
+  // créer un doublon d'un autre « Beurre doux » Lurpak ; une marque différente de l'autre article, elle, n'en est pas un.
+  if (actuel.designation === nom && (marque ?? null) === (actuel.marque ?? null)) return null;
   const catalogue = (await catalogueCandidats(tx)).filter((a) => a.id !== id);
-  const d = decisionArticle(nom, catalogue);
+  const d = decisionArticle(nom, catalogue, marque);
   if (d.type !== "auto" && d.type !== "choix") return null; // nom libre
   const candidats = d.type === "auto" ? [d.article] : d.candidats;
   const creationPossible = d.type === "choix" && d.creationPossible;
@@ -291,7 +298,7 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
     categorieNom: a.categorie?.nom ?? null,
     fournisseurNom: a.fournisseur?.nom ?? null,
     valeurs: {
-      code: a.code, designation: a.designation, nomCourt: a.nomCourt, domaine: a.domaine, unite: a.unite,
+      code: a.code, designation: a.designation, nomCourt: a.nomCourt, marque: a.marque, domaine: a.domaine, unite: a.unite,
       contenance: dec(a.contenance), contenanceUnite: a.contenanceUnite,
       devisePrix: a.devisePrix, prixUnitaireUSD: dec(a.prixUnitaireUSD), prixUnitaireCDF: dec(a.prixUnitaireCDF), uniteParCarton: dec(a.uniteParCarton),
       categorieId: a.categorieId, fournisseurId: a.fournisseurId,

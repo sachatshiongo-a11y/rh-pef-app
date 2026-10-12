@@ -55,7 +55,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Plus les articles HORS de cette liste (inactifs) choisis par « Utiliser … » : visibles dans le champ, marqués « (inactif) ».
   const [horsListe, setHorsListe] = useState<ArticleCandidat[]>([]);
   const optionsArt = useMemo(
-    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, actif: c.actif, contenance: c.contenance, contenanceUnite: c.contenanceUnite })), { marquerInactifs: true })],
+    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, marque: c.marque, actif: c.actif, contenance: c.contenance, contenanceUnite: c.contenanceUnite })), { marquerInactifs: true })],
     [articles, horsListe],
   );
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
@@ -95,7 +95,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Anti-doublon d'ARTICLE vérifié PENDANT la saisie (Direction, 2026-10-08), ligne par ligne et dans
   // l'ordre : rattachement automatique au même nom, ou articles proches à choisir ; plus les
   // avertissements non bloquants (±14 jours, comptage postérieur). L'enregistrement revérifie tout.
-  const aVerifier = lignes.map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), quantite: nombreDeSaisie(l.qte) }));
+  const aVerifier = lignes.map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), marque: l.articleId ? "" : (l.marque ?? "").trim(), quantite: nombreDeSaisie(l.qte) }));
   const utiles = aVerifier.some((l) => (l.articleId || l.designation) && l.quantite > 0);
   const cleVerif = JSON.stringify([date, aVerifier]);
   useEffect(() => {
@@ -300,7 +300,11 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
               return (
                 <div key={i} data-ligne-achat className={`grid gap-1 ${COLONNES} @4xl:items-center @4xl:border-t @4xl:py-0.5`}>
                   <ChoixRecherche options={optionsArt} name="articleId" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={champ} />
-                  <input name="designation" placeholder="Désignation" aria-label={`Désignation, ligne ${i + 1}`} value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${champ} ${!libre ? "text-muted-foreground" : ""}`} />
+                  <div className="grid gap-1">
+                    <input name="designation" placeholder="Désignation" aria-label={`Désignation, ligne ${i + 1}`} value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${champ} ${!libre ? "text-muted-foreground" : ""}`} />
+                    {/* Marque du NOUVEL article (facultative) : pas de champ pour un article du catalogue, sa marque est dans son nom. */}
+                    {libre && l.designation.trim() ? <input name="marque" placeholder="Marque (facultatif)" aria-label={`Marque, ligne ${i + 1}`} value={l.marque ?? ""} onChange={(e) => majLigne(i, { marque: e.target.value })} className={champ} /> : <input type="hidden" name="marque" value="" />}
+                  </div>
                   <input name="unite" placeholder="Kg…" aria-label={`Unité, ligne ${i + 1}`} value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${champ} ${!libre ? "text-muted-foreground" : ""}`} />
                   {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}
                   <select name="domaine" value={l.domaine} onChange={(e) => majLigne(i, { domaine: e.target.value })} disabled={!libre} aria-label={`Domaine, ligne ${i + 1}`} className={`${champ} disabled:opacity-60`}>

@@ -24,6 +24,8 @@ import { libelleArticle, type ArticleLibelle } from "@/lib/libelle-article";
 export type ArticleOption = {
   id: string;
   designation: string;
+  /** Marque (facultative) : fait partie du nom affiché (`libelleArticle`) et de la recherche. */
+  marque?: string | null;
   unite: string;
   /** Prix en DOLLARS lu par le moteur (article en francs : converti au taux du jour, voir charger-fiche). */
   prixUnitaireUSD: string | null;

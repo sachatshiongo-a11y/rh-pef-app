@@ -212,7 +212,7 @@ export const ajouterLiensResto = actionLisible(async (articleRestoId: string, ar
   if (ids.length > MAX_LIENS_PAR_GESTE) return { erreur: `Trop d'articles d'un coup (${ids.length}) : ${MAX_LIENS_PAR_GESTE} au plus.` };
   const resto = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { id: true, espace: true, designation: true, liens: { select: { articleStockId: true } } } });
   if (!resto) return { erreur: "Article du restaurant introuvable : rechargez la page." };
-  const articles = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, actif: true } });
+  const articles = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, actif: true } });
   if (articles.length !== ids.length) return { erreur: "Article du catalogue introuvable : rechargez la page." };
   const inactif = articles.find((a) => !a.actif);
   if (inactif) return { erreur: `« ${libelleArticle(inactif)} » est désactivé au catalogue : choisissez un article actif.` };
@@ -243,7 +243,7 @@ export const retirerLiensResto = actionLisible(async (articleRestoId: string, ar
   if (ids.length === 0) return { erreur: "Choisissez au moins un article à détacher." };
   const liens = await prisma.articleRestoStock.findMany({
     where: { articleRestoId, articleStockId: { in: ids } },
-    select: { articleStockId: true, articleStock: { select: { designation: true, contenance: true, contenanceUnite: true } }, articleResto: { select: { designation: true, espace: true } } },
+    select: { articleStockId: true, articleStock: { select: { designation: true, marque: true, contenance: true, contenanceUnite: true } }, articleResto: { select: { designation: true, espace: true } } },
   });
   if (liens.length === 0) return { n: 0 };
   const operations: OperationLien[] = liens.map((l) => ({
@@ -271,7 +271,7 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
     prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, unite: true, espace: true, liens: { select: { articleStockId: true } } } }),
-    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, marque: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
   ]);
   const propositions = proposerRattachements(restos.map((r) => ({ id: r.id, designation: r.designation, unite: r.unite, articleStockIds: r.liens.map((l) => l.articleStockId) })), catalogue);
   if (propositions.length === 0) {

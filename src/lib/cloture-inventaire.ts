@@ -64,7 +64,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
   const articles = await prisma.articleStock.findMany({
     where: { actif: true },
     select: {
-      id: true, code: true, designation: true, domaine: true, unite: true, contenance: true, contenanceUnite: true,
+      id: true, code: true, designation: true, marque: true, domaine: true, unite: true, contenance: true, contenanceUnite: true,
       devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true,
       categorie: { select: { nom: true } },
       fournisseur: { select: { nom: true } },
@@ -87,6 +87,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
     // Article en dollars : à l'identique d'avant. En francs : converti au taux du jour (tracé sur la ligne).
     prixUnitaireUSD: a.devisePrix === "CDF" ? prixArticleEnUSD(a, taux)?.valeur ?? 0 : a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
     ...(a.devisePrix === "CDF" && a.prixUnitaireCDF !== null ? { prixUnitaireCDF: Number(a.prixUnitaireCDF), tauxChange: taux } : {}),
+    ...(a.marque ? { marque: a.marque } : {}),
     ...(a.contenance !== null && a.contenanceUnite ? { contenance: a.contenance.toString(), contenanceUnite: a.contenanceUnite } : {}),
   }));
   const valeurTotaleUSD = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));

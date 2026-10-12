@@ -210,13 +210,13 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
   // au taux, 1,70 $ × 2 800 = 4 760 FC), la ligne 2 reste en USD, la ligne 3 est saisie en FC.
   const ATTENDU = [
     ["date", "2026-09-30"], ["origine", ""],
-    ["articleId", "a2"], ["designation", "Huile de palme"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", "2026-10-15"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
-    ["articleId", ""], ["designation", "Sel gris"], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10,5"], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""], ["creerNouveau", ""],
-    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", "7"], ["montant", "24500"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
-    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", ""], ["montant", ""], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
+    ["articleId", "a2"], ["designation", "Huile de palme"], ["marque", ""], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", "2026-10-15"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", "Sel gris"], ["marque", ""], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10,5"], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", ""], ["marque", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", "7"], ["montant", "24500"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", ""], ["marque", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", ""], ["montant", ""], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
   ];
   // Depuis le 2026-10-08 : `dlc` (facultative) après la devise, `creerNouveau` (« Créer quand même ») en fin de ligne.
-  const NOMS_PAR_LIGNE = ["articleId", "designation", "unite", "domaine", "quantite", "montant", "devise", "dlc", "fournisseurNom", "fournisseurId", "creerNouveau"];
+  const NOMS_PAR_LIGNE = ["articleId", "designation", "marque", "unite", "domaine", "quantite", "montant", "devise", "dlc", "fournisseurNom", "fournisseurId", "creerNouveau"];
 
   async function scenario() {
     const L = (i: number) => lignes()[i];

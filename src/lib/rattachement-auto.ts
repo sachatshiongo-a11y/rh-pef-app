@@ -49,7 +49,7 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
     client.articleStock.findMany({
       where: { id: { in: ids } },
       orderBy: [{ designation: "asc" }, { id: "asc" }],
-      select: { id: true, designation: true, nomCourt: true, actif: true, domaine: true, unite: true, contenance: true, contenanceUnite: true, categorie: { select: { nom: true } } },
+      select: { id: true, designation: true, marque: true, nomCourt: true, actif: true, domaine: true, unite: true, contenance: true, contenanceUnite: true, categorie: { select: { nom: true } } },
     }),
     client.articleResto.findMany({
       orderBy: [{ espace: "asc" }, { ordre: "asc" }, { designation: "asc" }],
@@ -60,7 +60,7 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
   return {
     catalogue,
     cibles: cat.map((a) => ({
-      id: a.id, designation: a.designation, nomCourt: a.nomCourt, actif: a.actif, domaine: a.domaine, unite: a.unite,
+      id: a.id, designation: a.designation, marque: a.marque, nomCourt: a.nomCourt, actif: a.actif, domaine: a.domaine, unite: a.unite,
       contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite, categorie: a.categorie?.nom ?? null,
     })),
     restos: restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, actif: r.actif, articleStockIds: r.liens.map((l) => l.articleStock.id), rattacheA: r.liens.length > 0 ? r.liens.map((l) => l.articleStock.designation).join(", ") : null })),

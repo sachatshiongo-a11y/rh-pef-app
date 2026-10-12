@@ -4,8 +4,8 @@ import { normTexte } from "./texte";
 // par leur intitulé (Date, Code, Désignation, Entrées, Sorties) — tolère un fichier d'inventaire
 // à deux tableaux (le tableau des mouvements est repéré à partir de la colonne « Date »).
 
-export type MouvementCsv = { date: string | null; code: string; designation: string; entree: number; sortie: number; ligne: number };
-export type ParseMouvementsCsv = { lignes: MouvementCsv[]; erreurs: string[]; colonnes: { date: number; code: number; designation: number; entree: number; sortie: number } | null };
+export type MouvementCsv = { date: string | null; code: string; designation: string; /** Colonne « Marque » du fichier, si elle existe (facultative). */ marque?: string; entree: number; sortie: number; ligne: number };
+export type ParseMouvementsCsv = { lignes: MouvementCsv[]; erreurs: string[]; colonnes: { date: number; code: number; designation: number; marque?: number; entree: number; sortie: number } | null };
 
 /** Découpe un texte CSV en cellules, en gérant les champs entre guillemets (virgules internes). */
 export function decouperCsv(texte: string): string[][] {
@@ -61,10 +61,11 @@ export function parserMouvementsCsv(texte: string): ParseMouvementsCsv {
     const depuis = (pred: (c: string) => boolean) => { for (let j = dateCol; j < r.length; j++) if (pred(r[j])) return j; return -1; };
     const code = depuis((c) => contient(c, ["code"]));
     const designation = depuis((c) => contient(c, ["designation", "libelle", "article"]) && !contient(c, ["code"]));
+    const marque = depuis((c) => contient(c, ["marque"]));
     const entree = depuis((c) => contient(c, ["entree"]));
     const sortie = depuis((c) => contient(c, ["sortie"]));
     if (designation >= 0 && (entree >= 0 || sortie >= 0)) {
-      enteteIdx = i; cols = { date: dateCol, code, designation, entree, sortie }; break;
+      enteteIdx = i; cols = { date: dateCol, code, designation, ...(marque >= 0 ? { marque } : {}), entree, sortie }; break;
     }
   }
   if (!cols) return { lignes: [], erreurs: ["En-tête introuvable : le fichier doit contenir des colonnes Date, Désignation et Entrées/Sorties."], colonnes: null };
@@ -75,11 +76,12 @@ export function parserMouvementsCsv(texte: string): ParseMouvementsCsv {
     const at = (idx: number) => (idx >= 0 ? (r[idx] ?? "").trim() : "");
     const designation = at(cols.designation);
     const code = at(cols.code);
+    const marque = cols.marque !== undefined ? at(cols.marque).slice(0, 120) : "";
     const entree = parseNombre(at(cols.entree));
     const sortie = parseNombre(at(cols.sortie));
     if (!designation && !code) continue; // ligne vide du tableau
     if (entree <= 0 && sortie <= 0) continue; // rien à mouvementer
-    lignes.push({ date: parseDateFr(at(cols.date)), code, designation, entree, sortie, ligne: i + 1 });
+    lignes.push({ date: parseDateFr(at(cols.date)), code, designation, ...(marque ? { marque } : {}), entree, sortie, ligne: i + 1 });
   }
   if (lignes.length === 0) erreurs.push("Aucune ligne de mouvement (entrée ou sortie) trouvée.");
   return { lignes, erreurs, colonnes: cols };

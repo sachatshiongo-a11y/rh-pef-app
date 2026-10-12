@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const { chargerStocksDesFiches } = await import("./charger-fiche");
+const { disponibilitesDesFiches } = await import("./fiche-calc");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -102,5 +103,36 @@ describe("chargerStocksDesFiches", () => {
     // Rien n'est écrit : ni comptage, ni stock du dépôt.
     expect(await prisma.comptageResto.count({ where: { articleRestoId: t.id } })).toBe(1);
     expect((await prisma.stock.findUniqueOrThrow({ where: { articleId: tomate.id } })).quantite.toString()).toBe("5");
+  }, 60_000);
+});
+
+// MARQUE (2026-10-14) : « Beurre doux » Président et « Beurre doux » Lurpak sont deux articles du catalogue, rattachés
+// au MÊME article du restaurant. Une fiche qui nomme Président compte aussi le dépôt Lurpak (dépôt mutualisé) :
+// choisir une marque dans la fiche ne retire pas l'autre de la disponibilité.
+describe("disponibilité d'une fiche et marques", () => {
+  it("le stock de toutes les marques rattachées au même article du restaurant compte pour la fiche", async () => {
+    const mk = (marque: string) => prisma.articleStock.create({ data: { designation: "Beurre doux", marque, domaine: "NOURRITURE", unite: "kg" } });
+    const president = await mk("Président");
+    const lurpak = await mk("Lurpak");
+    await prisma.stock.create({ data: { articleId: president.id, quantite: "2" } });
+    await prisma.stock.create({ data: { articleId: lurpak.id, quantite: "3" } });
+    const r = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", liens: { create: [{ articleStockId: president.id }, { articleStockId: lurpak.id }] } } });
+    await prisma.comptageResto.create({ data: { articleRestoId: r.id, date: new Date("2026-10-10"), quantite: "1" } });
+
+    // Un mouvement récent du dépôt : la règle du stock figé ne rend pas l'article « jamais mis à jour ».
+    await prisma.mouvementStock.create({ data: { articleId: president.id, type: "ENTREE", quantite: "2", date: new Date("2026-10-09") } });
+    const stocks = await chargerStocksDesFiches("2026-10-11");
+    expect(stocks[president.id].depot).toBe("5"); // 2 + 3, pas 2
+    expect(stocks[lurpak.id].depot).toBe("5");
+
+    const vue = {
+      id: "f1", nom: "Brioche", categorie: "", type: "PLAT", nbPortions: 1, tauxTVA: "0", prixVenteTTC: "", coefficientMargeCible: "", estSousRecette: false,
+      rendementQuantite: "", rendementUnite: "", recette: "x", actif: true, photoUrl: null,
+      lignes: [{ id: "l1", articleId: president.id, sousFicheId: null, unite: "kg", quantite: "4", ordre: 0 }],
+    };
+    const articles = [{ id: president.id, designation: "Beurre doux", marque: "Président", unite: "kg" }];
+    const dispo = disponibilitesDesFiches([vue], articles, stocks, "2026-10-11").get("f1")!;
+    expect(dispo).toMatchObject({ etat: "DISPONIBLE", portions: 1 }); // 4 kg demandés : 2 kg de Président seul ne suffiraient pas
+    expect(dispo.limitant).toBe("Beurre doux Président"); // le nom affiché porte la marque
   }, 60_000);
 });

@@ -40,6 +40,8 @@ export function paramsFiltreInventaire(f: FiltreInventaire): URLSearchParams {
 /** Ce qu'il faut savoir d'un article pour le filtrer (l'écran et les exports le construisent de la même façon). */
 export type ArticleFiltrable = {
   designation: string;
+  /** Marque : la recherche la trouve (« président »), seule ou avec le nom (« beurre doux président »). */
+  marque?: string | null;
   /** Contenance enregistrée : la recherche lit aussi le libellé affiché (« Bacardi 1 l ») et ses écritures compactes. */
   contenance?: string | null;
   contenanceUnite?: string | null;
@@ -70,7 +72,7 @@ export function articleDansFiltre(a: ArticleFiltrable, f: FiltreInventaire): boo
     (!f.alerte || a.niveau === f.alerte) &&
     (!f.manque || manqueDe(a, f.manque)) &&
     (!f.hausse || (a.haussePct !== null && a.haussePct !== undefined)) &&
-    (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq) || correspondContenance(a, nq))
+    (!nq || norm(a.designation).includes(nq) || norm(a.marque ?? "").includes(nq) || norm(libelleArticle(a)).includes(nq) || (a.code ?? "").toLowerCase().includes(nq) || correspondContenance(a, nq))
   );
 }
 

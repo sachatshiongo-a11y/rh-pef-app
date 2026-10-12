@@ -14,6 +14,7 @@ import { PREFIXE_STOCK_POSTERIEUR } from "./annulation-import-texte";
 import { cleFacture } from "./validations-stock/charge";
 import { catalogueCandidats } from "./achats-liste-serveur";
 import { decisionArticle } from "./article-proche";
+import { marquesDifferentes } from "./achats-doublons";
 import { cleArticleImport } from "./import-inventaire-cle";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ import { cleArticleImport } from "./import-inventaire-cle";
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type MvtPreview = { code: string; nom: string; date: string; entree: number; sortie: number };
 export type ArtPreview = {
-  code: string; nom: string; domaine: Domaine; unite: string | null; prix: number | null; stockMin: number | null;
+  code: string; nom: string; /** Colonne « Marque » du classeur, si elle existe (facultative). */ marque?: string; domaine: Domaine; unite: string | null; prix: number | null; stockMin: number | null;
   stockFinal: number; entreeTot: number; sortieTot: number;
   match: "code" | "nom" | "aucun"; articleId: string | null; articleNom: string | null; articleDomaine: Domaine | null;
   /**
@@ -112,18 +113,27 @@ const FEUILLES: FeuilleCfg[] = [
 export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewInventaire> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
-  const db = (await prisma.articleStock.findMany({ select: { id: true, designation: true, domaine: true, code: true, unite: true, actif: true } }))
+  const db = (await prisma.articleStock.findMany({ select: { id: true, designation: true, marque: true, domaine: true, code: true, unite: true, actif: true } }))
     .map((r) => ({ ...r, ex: normEx(r.designation), tk: toks(r.designation) }));
   const parCode = new Map<string, typeof db[number]>();
   for (const a of db) if (a.code) parCode.set(a.domaine + "|" + a.code.trim(), a);
 
-  function matcher(code: string, nom: string, dom: Domaine): { m: ArtPreview["match"]; a: typeof db[number] | null; approx?: typeof db[number] } {
+  function matcher(code: string, nom: string, dom: Domaine, marque = ""): { m: ArtPreview["match"]; a: typeof db[number] | null; approx?: typeof db[number] } {
     const byCode = parCode.get(dom + "|" + code);
     if (byCode) return { m: "code", a: byCode };
     const ne = OVERRIDE[normEx(nom)] ? normEx(OVERRIDE[normEx(nom)]) : normEx(nom);
-    for (const d of [dom, "AUTRE", "NOURRITURE", "BOISSON"] as Domaine[]) { const e = db.find((a) => a.domaine === d && a.ex === ne); if (e) return { m: "nom", a: e }; }
+    for (const d of [dom, "AUTRE", "NOURRITURE", "BOISSON"] as Domaine[]) {
+      const memes = db.filter((a) => a.domaine === d && a.ex === ne && !marquesDifferentes(marque, a.marque));
+      if (memes.length === 0) continue;
+      // Plusieurs articles de même nom (marques différentes) : la marque du classeur départage ; sans elle, JAMAIS le premier venu —
+      // « aucun » : l'anti-doublon ci-dessous montre les articles et la Direction choisit.
+      const exacts = marque ? memes.filter((a) => a.marque && !marquesDifferentes(marque, a.marque)) : [];
+      const choix = exacts.length > 0 ? exacts : memes;
+      if (choix.length === 1) return { m: "nom", a: choix[0] };
+      return { m: "aucun", a: null };
+    }
     const t = toks(nom); let best: typeof db[number] | null = null, bs = 0;
-    for (const a of db) { const s = jac(t, a.tk); const sub = t.every((x) => a.tk.includes(x)) || a.tk.every((x) => t.includes(x)); if (sub && s >= 0.5 && s > bs) { bs = s; best = a; } }
+    for (const a of db) { if (marquesDifferentes(marque, a.marque)) continue; const s = jac(t, a.tk); const sub = t.every((x) => a.tk.includes(x)) || a.tk.every((x) => t.includes(x)); if (sub && s >= 0.5 && s > bs) { bs = s; best = a; } }
     // Nom seulement APPROCHANT : jamais rattaché d'office. Proposé à la Direction (voir `approxId`).
     return best ? { m: "aucun", a: null, approx: best } : { m: "aucun", a: null };
   }
@@ -133,6 +143,9 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
   for (const cfg of FEUILLES) {
     const ws = wb.worksheets.find((w) => cfg.nom.test(w.name));
     if (!ws) continue;
+    // Colonne « Marque » (facultative, 2026-10-14) : repérée par son en-tête dans le haut de la feuille ; absente = comme avant.
+    let colMarque = 0;
+    for (let r = 1; r < 13 && !colMarque; r++) for (let c = 1; c < cfg.detail.date && !colMarque; c++) if (/^marque$/i.test(txtAt(ws.getRow(r), c))) colMarque = c;
     // Journal détaillé : agrège entrées/sorties par code + collecte les mouvements datés.
     const eParCode = new Map<string, number>(), sParCode = new Map<string, number>();
     for (let r = 13; r <= ws.rowCount; r++) {
@@ -152,9 +165,10 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
       const sinit = numAt(row, cfg.main.sinit) || 0;
       const entreeTot = round3(eParCode.get(code) || 0), sortieTot = round3(sParCode.get(code) || 0);
       const stockFinal = round3(sinit + entreeTot - sortieTot);
-      const { m, a, approx } = matcher(code, nom, cfg.domaine);
+      const marque = colMarque ? txtAt(row, colMarque).slice(0, 120) : "";
+      const { m, a, approx } = matcher(code, nom, cfg.domaine, marque);
       articles.push({
-        code, nom, domaine: cfg.domaine, unite: cfg.main.unite != null ? (txtAt(row, cfg.main.unite) || null) : null,
+        code, nom, ...(marque ? { marque } : {}), domaine: cfg.domaine, unite: cfg.main.unite != null ? (txtAt(row, cfg.main.unite) || null) : null,
         prix: numAt(row, cfg.main.prix), stockMin: numAt(row, cfg.main.smin), stockFinal, entreeTot, sortieTot,
         match: m, articleId: a?.id ?? null, articleNom: a?.designation ?? null, articleDomaine: (a?.domaine as Domaine) ?? null,
         ...(approx ? { approxId: approx.id } : {}),
@@ -178,7 +192,7 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
     const catalogue = await catalogueCandidats();
     const parId = new Map(db.map((r) => [r.id, r]));
     for (const a of sansMatch) {
-      const d = decisionArticle(a.nom, catalogue);
+      const d = decisionArticle(a.nom, catalogue, a.marque);
       let proches: NonNullable<ArtPreview["proches"]> = [];
       let creationPossible = true;
       if (d.type === "auto") { proches = [{ id: d.article.id, designation: d.article.designation, unite: d.article.unite, actif: d.article.actif }]; creationPossible = false; }
@@ -280,7 +294,7 @@ export async function appliquerInventaire(
     for (const a of preview.articles) {
       let articleId = a.articleId;
       if (!articleId) {
-        const cree = await tx.articleStock.create({ data: { designation: a.nom, domaine: a.domaine, code: a.code, unite: a.unite, prixUnitaireUSD: a.prix ?? undefined } });
+        const cree = await tx.articleStock.create({ data: { designation: a.nom, marque: a.marque || null, domaine: a.domaine, code: a.code, unite: a.unite, prixUnitaireUSD: a.prix ?? undefined } });
         articleId = cree.id;
         ops.push({ batchId: batch.id, entite: "ArticleStock", entiteId: articleId, action: "CREATE", avant: Prisma.DbNull });
         codeToArticleId.set(a.domaine + "|" + a.code, articleId);

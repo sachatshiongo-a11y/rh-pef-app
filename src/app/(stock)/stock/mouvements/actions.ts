@@ -71,7 +71,7 @@ async function refusAvecProches(e: StockInsuffisant): Promise<RefusStock> {
   const catalogue = (await prisma.articleStock.findMany({
     where: { actif: true },
     orderBy: { designation: "asc" },
-    select: { id: true, designation: true, contenance: true, contenanceUnite: true, domaine: true, unite: true, actif: true, stock: { select: { quantite: true } } },
+    select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, domaine: true, unite: true, actif: true, stock: { select: { quantite: true } } },
   })).map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), domaine: a.domaine, unite: a.unite, actif: a.actif, quantite: Number(a.stock?.quantite ?? 0) }));
   const parId = new Map(catalogue.map((a) => [a.id, a]));
   return {

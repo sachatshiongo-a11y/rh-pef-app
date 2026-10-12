@@ -39,7 +39,7 @@ export async function plansAlignement(client: Tx | typeof prisma, opts: { ids?: 
     orderBy: [{ espace: "asc" }, { ordre: "asc" }, { designation: "asc" }],
     select: {
       id: true, designation: true, espace: true, unite: true, stockBaseJournalier: true,
-      liens: { select: { articleStock: { select: { id: true, designation: true, unite: true, contenance: true, contenanceUnite: true } } } },
+      liens: { select: { articleStock: { select: { id: true, designation: true, marque: true, unite: true, contenance: true, contenanceUnite: true } } } },
       _count: { select: { comptages: true } },
       comptages: { orderBy: { date: "desc" }, take: 1, select: { date: true, quantite: true } },
     },

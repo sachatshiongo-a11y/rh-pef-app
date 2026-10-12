@@ -56,7 +56,7 @@ export async function obstaclesLiens(tx: Tx | typeof prisma, ops: OperationLien[
     tx.articleRestoStock.findMany({ where: { articleStockId: { in: stockIds } }, select: { articleRestoId: true, articleStockId: true, articleResto: { select: { designation: true, espace: true } } } }),
   ]);
   const marquesLiees = ops.some((o) => o.op === "AJOUT")
-    ? await tx.articleRestoStock.findMany({ where: { articleRestoId: { in: restoIds } }, select: { articleRestoId: true, articleStock: { select: { id: true, designation: true, unite: true, contenance: true, contenanceUnite: true } } } })
+    ? await tx.articleRestoStock.findMany({ where: { articleRestoId: { in: restoIds } }, select: { articleRestoId: true, articleStock: { select: { id: true, designation: true, marque: true, unite: true, contenance: true, contenanceUnite: true } } } })
     : [];
   const retirees = new Set(ops.filter((o) => o.op === "RETRAIT").map((o) => `${o.articleRestoId}|${o.articleStockId}`));
   const reference = new Map<string, { nom: string; taille: string }>(); // marque déjà rattachée (ou ajoutée dans ce lot) par article du restaurant

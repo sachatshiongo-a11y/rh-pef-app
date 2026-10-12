@@ -23,7 +23,7 @@
 
 import { similariteNom } from "@/lib/fournisseur-match";
 import { sansContenance } from "@/lib/fiches/conversion";
-import { memeDesignation, sansLigatures, type ArticleCandidat, type DecisionArticle } from "@/lib/achats-doublons";
+import { marquesDifferentes, memeArticle, memeDesignation, sansLigatures, type ArticleCandidat, type DecisionArticle } from "@/lib/achats-doublons";
 
 /**
  * Seuil de ressemblance au-delà duquel on MONTRE un article existant avant de créer — celui de
@@ -64,6 +64,7 @@ export function articlesProches<T extends { designation: string }>(
 
 /**
  * Sort au catalogue d'une ligne LIBRE (désignation tapée). `articles` : TOUT le catalogue.
+ *  - (marque : deux marques renseignées différentes ne sont jamais un même article — 2026-10-14) ;
  *  - UN article du même nom exact (accents, casse, espaces, séparateurs, écriture de la contenance
  *    près — `memeDesignation`), même inactif : rattachement automatique (on ne recrée pas un article
  *    mis de côté) ;
@@ -72,10 +73,11 @@ export function articlesProches<T extends { designation: string }>(
  *    « Tomate » est légitime) ;
  *  - rien : nouvel article.
  */
-export function decisionArticle(designation: string, articles: readonly ArticleCandidat[]): DecisionArticle {
+export function decisionArticle(designation: string, articles: readonly ArticleCandidat[], marque?: string | null): DecisionArticle {
   const nom = (designation ?? "").trim();
   if (!nom) return { type: "nouveau" };
-  const exacts = articles.filter((a) => memeDesignation(nom, a.designation));
+  // Même désignation mais MARQUES différentes (toutes deux renseignées) : deux articles, pas un doublon.
+  const exacts = articles.filter((a) => memeArticle(nom, marque, a));
   if (exacts.length === 1) return { type: "auto", article: exacts[0] };
   if (exacts.length > 1) return { type: "choix", candidats: exacts.slice(0, MAX_PROCHES), creationPossible: false };
   const proches = articlesProches(nom, articles.filter((a) => a.actif)).map((p) => p.article);
@@ -90,11 +92,11 @@ export function decisionArticle(designation: string, articles: readonly ArticleC
  * exact ne crée qu'un article). La seconde ligne demande alors « Utiliser la ligne n » ou « Créer
  * quand même ». Rend, par indice de ligne, les indices des lignes proches qui la précèdent.
  */
-export function prochesDansListe(designations: readonly string[], creera: (i: number) => boolean): Map<number, number[]> {
+export function prochesDansListe(designations: readonly string[], creera: (i: number) => boolean, marques: readonly (string | null | undefined)[] = []): Map<number, number[]> {
   const res = new Map<number, number[]>();
   designations.forEach((nom, i) => {
     if (!creera(i) || !nom.trim()) return;
-    const avant = designations.slice(0, i).map((d, j) => ({ designation: d, j })).filter(({ designation, j }) => creera(j) && designation.trim() && !memeDesignation(nom, designation));
+    const avant = designations.slice(0, i).map((d, j) => ({ designation: d, j })).filter(({ designation, j }) => creera(j) && designation.trim() && !memeDesignation(nom, designation) && !marquesDifferentes(marques[i], marques[j]));
     const proches = articlesProches(nom, avant, { max: MAX_PROCHES }).map((p) => p.article.j);
     if (proches.length > 0) res.set(i, proches);
   });

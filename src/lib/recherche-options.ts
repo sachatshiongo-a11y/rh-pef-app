@@ -91,6 +91,8 @@ export type ArticleRecherchable = {
   id: string;
   designation: string;
   nomCourt?: string | null;
+  /** Marque : dans le libellé (`libelleArticle`) ET cherchable seule (« président »). */
+  marque?: string | null;
   code?: string | null;
   actif?: boolean;
   /** Contenance enregistrée (texte canonique « 0.75 », nombre ou Decimal) : s'ajoute au libellé (`libelleArticle`). */
@@ -111,7 +113,7 @@ export function optionsArticles(articles: readonly ArticleRecherchable[], opts: 
   return articles.map((a) => ({
     id: `${p}${a.id}`,
     libelle: `${libelleArticle(a)}${opts.marquerInactifs && a.actif === false ? " (inactif)" : ""}`,
-    recherche: [a.nomCourt, a.code, ...rechercheContenance(a)],
+    recherche: [a.nomCourt, a.marque, a.code, ...rechercheContenance(a)],
     ...(opts.groupe ? { groupe: opts.groupe } : {}),
     ...(opts.marquerInactifs && a.actif === false ? { attenue: true } : {}),
   }));

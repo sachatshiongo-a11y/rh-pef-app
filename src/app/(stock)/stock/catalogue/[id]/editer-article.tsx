@@ -23,6 +23,7 @@ export type ArticleEdit = {
   code: string | null;
   designation: string;
   nomCourt: string | null;
+  marque?: string | null;
   unite: string | null;
   /** Contenance d'une unité comptée à l'unité (« 75 » + « cl ») ; null = inconnue. */
   contenance?: string | null;
@@ -152,6 +153,9 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Désignation *
             <input name="designation" defaultValue={a.designation} required className={inp} />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Marque
+            <input name="marque" defaultValue={a.marque ?? ""} placeholder="ex. Président, Lurpak" className={inp} />
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Nom court (fiche Commande journalière)
             <input name="nomCourt" defaultValue={a.nomCourt ?? ""} placeholder="ex. Carré d'agneau" className={inp} />

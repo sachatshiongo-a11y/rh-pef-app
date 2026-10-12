@@ -223,7 +223,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           const art = parId.get(a.id);
           if (!art) base.alertes.push(`« ${a.designation} » n'existe plus.`);
           const valeurs: Record<string, string | boolean | null> | null = art ? {
-            code: art.code, designation: art.designation, nomCourt: art.nomCourt, domaine: art.domaine, unite: art.unite,
+            code: art.code, designation: art.designation, nomCourt: art.nomCourt, marque: art.marque, domaine: art.domaine, unite: art.unite,
             contenance: dec(art.contenance), contenanceUnite: art.contenanceUnite, devisePrix: art.devisePrix, prixUnitaireUSD: dec(art.prixUnitaireUSD), prixUnitaireCDF: dec(art.prixUnitaireCDF),
             uniteParCarton: dec(art.uniteParCarton), categorieId: art.categorieId, fournisseurId: art.fournisseurId,
             actif: art.actif, surFicheCommande: art.surFicheCommande,
@@ -231,7 +231,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           } : null;
           return {
             // Nom affiché (contenance comprise) ; les valeurs « avant → après » restent les vraies.
-            id: a.id, designation: art ? libelleArticle({ designation: a.designation, contenance: art.contenance, contenanceUnite: art.contenanceUnite }) : a.designation,
+            id: a.id, designation: art ? libelleArticle({ designation: a.designation, marque: art.marque, contenance: art.contenance, contenanceUnite: art.contenanceUnite }) : a.designation,
             changements: a.changements.map((c) => {
               let actuel: string | null = null;
               if (valeurs && !valeursEgales(c.champ, valeurs[c.champ], c.avant)) {
