@@ -314,7 +314,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                   {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}
                   <select name="domaine" value={l.domaine} onChange={(e) => majLigne(i, { domaine: e.target.value })} disabled={!libre} aria-label={`Domaine, ligne ${i + 1}`} className={`${champ} disabled:opacity-60`}>
                     <option value="NOURRITURE">Nourriture</option>
-                    <option value="BOISSON">Boisson</option>
+                    <option value="BOISSON">Boissons</option>
                     <option value="AUTRE">Autre</option>
                   </select>
                   {!libre && <input type="hidden" name="domaine" value={l.domaine} />}

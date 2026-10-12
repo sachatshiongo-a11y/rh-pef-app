@@ -533,7 +533,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <input name="marque" placeholder="Marque (facultatif)" className={cellCls} />
           <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
-            <option value="BOISSON">Boisson</option>
+            <option value="BOISSON">Boissons</option>
             <option value="AUTRE">Autre</option>
           </select>
           <select name="categorieId" defaultValue="" className={cellCls}>

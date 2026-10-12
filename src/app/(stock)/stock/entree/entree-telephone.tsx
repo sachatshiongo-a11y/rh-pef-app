@@ -266,7 +266,7 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
               <div>
                 <span className={ETIQUETTE}>Domaine du nouvel article</span>
                 <Segments label="Domaine" valeur={l.domaine} onChange={(v) => maj({ domaine: v })}
-                  options={[{ valeur: "NOURRITURE", libelle: "Nourriture" }, { valeur: "BOISSON", libelle: "Boisson" }, { valeur: "AUTRE", libelle: "Autre" }]} />
+                  options={[{ valeur: "NOURRITURE", libelle: "Nourriture" }, { valeur: "BOISSON", libelle: "Boissons" }, { valeur: "AUTRE", libelle: "Autre" }]} />
               </div>
             </>
           )}

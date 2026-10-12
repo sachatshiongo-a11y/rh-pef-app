@@ -218,7 +218,7 @@ describe("Liste d'achat — téléphone : ajouter par le panneau", () => {
     cliquer(texteBouton(panneau()!, "Saisir un nouvel article"));
     taper(panneau()!.querySelector<HTMLInputElement>('input[id$="-designation"]')!, "Sucre en poudre");
     taper(champ("Unité"), "sac");
-    cliquer(texteBouton(panneau()!, "Boisson"));
+    cliquer(texteBouton(panneau()!, "Boissons"));
     taper(champ("Quantité"), "4");
     cliquer(texteBouton(panneau()!, "Terminé"));
     expect(resume(cartes()[0])).toBe("Sucre en poudre 4 sac · prix non saisi");

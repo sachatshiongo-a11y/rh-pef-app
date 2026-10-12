@@ -34,7 +34,7 @@ type Analyse = { fiches: PropositionFiche[]; ingredients: PropositionIngredient[
 
 const inp = "rounded border border-input bg-background px-1.5 py-1 text-xs";
 const DOMAINES: { valeur: ChoixIngredient["domaine"]; libelle: string }[] = [
-  { valeur: "BOISSON", libelle: "Boisson" }, { valeur: "NOURRITURE", libelle: "Nourriture" }, { valeur: "AUTRE", libelle: "Autre" },
+  { valeur: "BOISSON", libelle: "Boissons" }, { valeur: "NOURRITURE", libelle: "Nourriture" }, { valeur: "AUTRE", libelle: "Autre" },
 ];
 const BADGE: Record<StatutFiche, { texte: string; classe: string }> = {
   PRETE: { texte: "prête", classe: "bg-emerald-100 text-emerald-800" },

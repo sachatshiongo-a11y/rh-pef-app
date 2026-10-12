@@ -53,7 +53,7 @@ describe("haut de la Conso. journalière", () => {
     monter("conso");
     const o = ordinateur();
     expect(o.className).toContain("max-lg:hidden");
-    for (const t of ["Semaine du 28/9 au 4/10", "Cette semaine", "Tous", "Cuisine (nourriture)", "Bar (boissons)", "Exporter", "PDF", "Excel", "Fiches (PDF / Excel)"]) expect(o.textContent).toContain(t);
+    for (const t of ["Semaine du 28/9 au 4/10", "Cette semaine", "Tous", "Cuisine", "Bar", "Exporter", "PDF", "Excel", "Fiches (PDF / Excel)"]) expect(o.textContent).toContain(t);
   });
 
   it("téléphone : la semaine sur une ligne (← libellé → Plus), « Plus » fermé au départ", () => {
@@ -72,7 +72,7 @@ describe("haut de la Conso. journalière", () => {
     monter("conso", undefined, "Importer");
     ouvrirPlus();
     const t = panneau()!.textContent!;
-    for (const attendu of ["Tous", "Cuisine (nourriture)", "Bar (boissons)", "Cette semaine", "Vue semaine", "Exporter", "PDF", "Excel", "Fiches (PDF / Excel)", "Note de l'onglet.", "Importer"]) expect(t).toContain(attendu);
+    for (const attendu of ["Tous", "Cuisine", "Bar", "Cette semaine", "Vue semaine", "Exporter", "PDF", "Excel", "Fiches (PDF / Excel)", "Note de l'onglet.", "Importer"]) expect(t).toContain(attendu);
     const pdf = [...panneau()!.querySelectorAll("a")].find((a) => a.textContent === "PDF" && a.getAttribute("href")!.includes("/pdf"))!;
     expect(pdf.getAttribute("href")).toBe("/stock/journalier/pdf?vue=conso&semaine=2026-09-28");
     for (const el of panneau()!.querySelectorAll("a, button")) if (el.tagName === "A" && !el.closest("details")) expect(el.className).toContain("min-h-11");

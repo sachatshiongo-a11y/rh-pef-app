@@ -15,7 +15,7 @@ export type VueJournalier = "commande" | "conso" | "comparaison" | "ventes" | "e
 export type DomaineJournalier = "NOURRITURE" | "BOISSON" | undefined;
 
 const VUES: [VueJournalier, string][] = [["commande", "Commande"], ["conso", "Consommation"], ["comparaison", "Comparaison"], ["ventes", "Rapport journalier"], ["ecarts", "Écarts ventes / consommation"]];
-const DOMAINES: [string, string][] = [["", "Tous"], ["NOURRITURE", "Cuisine (nourriture)"], ["BOISSON", "Bar (boissons)"]];
+const DOMAINES: [string, string][] = [["", "Tous"], ["NOURRITURE", "Cuisine"], ["BOISSON", "Bar"]];
 const LIBELLE_DOMAINE = { NOURRITURE: "Cuisine", BOISSON: "Bar" } as const;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
