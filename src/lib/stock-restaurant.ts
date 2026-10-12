@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { convertirDepuisUniteArticle, convertirVersUniteArticle, type StockRestaurant } from "@/lib/fiches/disponibilite";
 import { uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
+import type { ConsoVenteSR, VenteAVerifierSR } from "@/lib/ventes-consommation";
 
 // Stock et consommation du RESTAURANT, dérivés à l'affichage (spec 2026-09-28, « Livraisons du dépôt
 // au restaurant »). Fonctions PURES : ni Prisma, ni React, aucune exception.
@@ -11,6 +12,15 @@ import { uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 //                             + Σ des livraisons du dépôt vers R datées de (C, J], dans l'unité de R.
 //   2. Le jour du comptage, le comptage fait foi : on suppose qu'il est fait APRÈS les livraisons du
 //      jour, donc une livraison datée du jour C est déjà dans le chiffre compté (borne ouverte en C).
+//      VENTES (décision Direction du 2026-10-12) : depuis le dernier comptage, le stock théorique RETIRE aussi
+//      la consommation des ventes saisies × fiches techniques (`ventes-consommation.ts`) :
+//      stock théorique (R, J) = comptage (C) + livraisons (C, J] − ventes (C, J], unité de R.
+//      Le comptage du restaurant est celui de FIN DE JOURNÉE (la consommation réelle du jour J est
+//      « stock de la veille + reçu du jour − compté le jour J ») : les ventes du jour C sont déjà dans le
+//      chiffre compté, comme ses livraisons — borne ouverte en C pour les ventes aussi, jamais comptées
+//      deux fois. Une vente qu'on ne sait pas déduire (fiche incomplète, unité inconvertible, vente à
+//      répartir) rend le théorique « À vérifier » : jamais un faux chiffre, jamais 0. Sans comptage, le
+//      stock n'est qu'une estimation de livraisons : aucune vente n'en est retirée.
 //   3. Seules les sorties au motif « Livraison restaurant » alimentent le restaurant (décision de la
 //      Direction du 2026-09-28) ; une perte reste au dépôt.
 //   4. Rien n'est deviné : un article du catalogue non rattaché, rattaché à PLUSIEURS articles du
@@ -81,7 +91,13 @@ export function espaceDuDomaine(domaine: string | null | undefined): "CUISINE" |
  * celles d'après le dernier comptage de chaque article compté). Un article SANS comptage n'estime
  * donc son stock qu'à partir d'elle — jamais sur un historique chargé à moitié.
  */
-export type EntreesStockResto = { articles: ArticleRestoSR[]; comptages: ComptageSR[]; livraisons: LivraisonSR[]; debutLivraisons?: string };
+export type EntreesStockResto = {
+  articles: ArticleRestoSR[]; comptages: ComptageSR[]; livraisons: LivraisonSR[]; debutLivraisons?: string;
+  /** Consommation des ventes × fiches (voir `ventes-consommation.ts`) depuis le plus ancien comptage ; absent = ventes non chargées. */
+  consoVentes?: ConsoVenteSR[];
+  /** Ventes de fiches incomplètes : le théorique des articles concernés est « À vérifier ». */
+  ventesAVerifier?: VenteAVerifierSR[];
+};
 
 // ─── Sorties ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +131,17 @@ export type SignalementLivraison = {
 /** Livraison additionnée : `articleStockId` = la marque livrée ; `quantiteCatalogue` dans SON unité, `quantiteResto` dans celle du restaurant. */
 export type LivraisonRecue = { livraisonId: string; articleStockId: string; date: string; quantiteCatalogue: string; quantiteResto: string };
 
+/** Consommation des ventes retirée du stock : `quantiteResto` dans l'unité du restaurant. */
+export type VenteRetiree = { date: string; ficheId: string; ficheNom: string; articleStockId: string; quantiteCatalogue: string; quantiteResto: string };
+
+/** Vente non déductible du stock théorique d'un article du restaurant, et pourquoi. */
+export type SignalementVente = {
+  date: string; ficheNom: string;
+  motif: MotifUnite | "A_REPARTIR" | "FICHE_INCOMPLETE";
+  /** Texte lisible : « Brioche (12/10) : Crème : quantité non renseignée ». */
+  texte: string;
+};
+
 export type StockTheorique = {
   articleRestoId: string;
   /** Unité du restaurant ; null = inconnu (ni comptage ni livraison additionnable) — affiché « — ». */
@@ -127,6 +154,12 @@ export type StockTheorique = {
   aucunComptage: boolean;
   /** Livraisons de la même fenêtre NON additionnées (unité incompatible, à répartir). */
   signalements: SignalementLivraison[];
+  /** Consommation des ventes retirée depuis le dernier comptage (vide : aucune, ou ventes non chargées). */
+  ventesDepuis: VenteRetiree[];
+  /** Somme des ventes retirées, unité du restaurant ; null : aucune. */
+  vendu: string | null;
+  /** Ventes depuis le comptage qu'on ne sait pas déduire : le stock ci-dessus n'est alors PAS fiable — « À vérifier ». */
+  ventesAVerifier: SignalementVente[];
 };
 
 export type ResultatStockResto = { parArticle: Map<string, StockTheorique>; nonRattachees: LivraisonSR[] };
@@ -200,6 +233,8 @@ type Index = {
   recues: Map<string, LivraisonRecue[]>; // idem
   signalees: Map<string, SignalementLivraison[]>; // idem
   nonRattachees: LivraisonSR[];
+  ventes: Map<string, VenteRetiree[]>; // ventes × fiches, idem
+  ventesSignalees: Map<string, SignalementVente[]>; // idem
 };
 
 const INDEX = new WeakMap<EntreesStockResto, Index>();
@@ -209,7 +244,7 @@ const pousser = <T>(m: Map<string, T[]>, k: string, v: T) => { const l = m.get(k
 function indexer(e: EntreesStockResto): Index {
   const deja = INDEX.get(e);
   if (deja) return deja;
-  const idx: Index = { comptages: new Map(), recues: new Map(), signalees: new Map(), nonRattachees: [] };
+  const idx: Index = { comptages: new Map(), recues: new Map(), signalees: new Map(), nonRattachees: [], ventes: new Map(), ventesSignalees: new Map() };
   const noms = new Map(e.articles.map((a) => [a.id, a.designation]));
   const unites = new Map(e.articles.map((a) => [a.id, a.unite]));
   for (const c of e.comptages) if (noms.has(c.articleRestoId)) pousser(idx.comptages, c.articleRestoId, c);
@@ -231,7 +266,30 @@ function indexer(e: EntreesStockResto): Index {
       pousser(idx.recues, r.articleRestoId, { livraisonId: l.id, articleStockId: l.articleStockId, date: l.date, quantiteCatalogue: l.quantite, quantiteResto });
     }
   }
-  for (const m of [idx.comptages, idx.recues, idx.signalees] as Map<string, { date: string }[]>[]) for (const l of m.values()) l.sort(parDate);
+
+  // Ventes × fiches : même rattachement et mêmes conversions que les livraisons.
+  const jjmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  for (const c of e.consoVentes ?? []) {
+    const r = etatRattachementLivraison(c.articleStockId, articleCatalogue(c), e.articles, c.domaine);
+    const signal = (motif: SignalementVente["motif"], articleRestoId: string, detail: string) =>
+      pousser(idx.ventesSignalees, articleRestoId, { date: c.date, ficheNom: c.ficheNom, motif, texte: `${c.ficheNom} (${jjmm(c.date)}) : ${c.designation}, ${detail}` });
+    if (r.etat === "NON_RATTACHE") continue; // ingrédient sans stock au restaurant : rien à retirer
+    if (r.etat === "A_REPARTIR") { for (const id of r.articleRestoIds) signal("A_REPARTIR", id, LIBELLE_SIGNALEMENT.A_REPARTIR); continue; }
+    if (r.etat !== "OK") { signal(r.etat, r.articleRestoId, LIBELLE_SIGNALEMENT[r.etat]); continue; }
+    const quantiteResto = convertirDepuisUniteArticle(c.quantite, articleCatalogue(c), unites.get(r.articleRestoId) ?? "")!;
+    pousser(idx.ventes, r.articleRestoId, { date: c.date, ficheId: c.ficheId, ficheNom: c.ficheNom, articleStockId: c.articleStockId, quantiteCatalogue: c.quantite, quantiteResto });
+  }
+  for (const v of e.ventesAVerifier ?? []) {
+    for (const art of v.articles) {
+      const candidats = e.articles.filter((a) => estRattacheA(a, art.id));
+      const espace = espaceDuDomaine(art.domaine);
+      const dansEspace = espace ? candidats.filter((c) => c.espace === espace) : [];
+      for (const c of dansEspace.length === 1 ? dansEspace : candidats) {
+        pousser(idx.ventesSignalees, c.id, { date: v.date, ficheNom: v.ficheNom, motif: "FICHE_INCOMPLETE", texte: `${v.ficheNom} (${jjmm(v.date)}) : fiche incomplète${v.raisons.length > 0 ? ` — ${v.raisons.join(" ; ")}` : ""}` });
+      }
+    }
+  }
+  for (const m of [idx.comptages, idx.recues, idx.signalees, idx.ventes, idx.ventesSignalees] as Map<string, { date: string }[]>[]) for (const l of m.values()) l.sort(parDate);
   idx.nonRattachees.sort(parDate);
   INDEX.set(e, idx);
   return idx;
@@ -239,7 +297,7 @@ function indexer(e: EntreesStockResto): Index {
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
-function stockDe(idx: Index, articleRestoId: string, jour: string, debutLivraisons?: string): StockTheorique {
+function stockDe(idx: Index, articleRestoId: string, jour: string, debutLivraisons?: string, avecVentes = true): StockTheorique {
   const comptes = (idx.comptages.get(articleRestoId) ?? []).filter((c) => c.date <= jour);
   const dernier = comptes.at(-1) ?? null;
   // Fenêtre (C, J] : une livraison du jour du comptage est déjà dans le chiffre compté.
@@ -248,9 +306,15 @@ function stockDe(idx: Index, articleRestoId: string, jour: string, debutLivraiso
   const livraisonsDepuis = (idx.recues.get(articleRestoId) ?? []).filter((l) => dansFenetre(l.date));
   const signalements = (idx.signalees.get(articleRestoId) ?? []).filter((s) => dansFenetre(s.date));
 
+  // Ventes × fiches : seulement depuis un COMPTAGE (borne ouverte en C : le comptage de fin de journée les contient).
+  const fenetreVentes = (d: string) => dernier !== null && d > dernier.date && d <= jour;
+  const ventesDepuis = avecVentes ? (idx.ventes.get(articleRestoId) ?? []).filter((v) => fenetreVentes(v.date)) : [];
+  const ventesAVerifier = avecVentes ? (idx.ventesSignalees.get(articleRestoId) ?? []).filter((v) => fenetreVentes(v.date)) : [];
+  const vendu = ventesDepuis.length === 0 ? null : ventesDepuis.reduce((t, v) => t.plus(v.quantiteResto), new D(0)).toString();
+
   let stock: string | null = null;
   if (dernier !== null || livraisonsDepuis.length > 0) {
-    stock = livraisonsDepuis.reduce((t, l) => t.plus(l.quantiteResto), new D(dernier?.quantite ?? 0)).toString();
+    stock = livraisonsDepuis.reduce((t, l) => t.plus(l.quantiteResto), new D(dernier?.quantite ?? 0)).minus(vendu ?? 0).toString();
   }
   const derniereLivraison = livraisonsDepuis.at(-1)?.date ?? null;
   const derniereDate = [dernier?.date ?? null, derniereLivraison].filter((d): d is string => d !== null).sort().at(-1) ?? null;
@@ -262,6 +326,9 @@ function stockDe(idx: Index, articleRestoId: string, jour: string, debutLivraiso
     derniereDate,
     aucunComptage: dernier === null,
     signalements,
+    ventesDepuis,
+    vendu,
+    ventesAVerifier,
   };
 }
 
@@ -331,7 +398,8 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
   const idx = indexer(e);
   const compte = (idx.comptages.get(articleRestoId) ?? []).find((c) => c.date === jour);
   if (!compte) return { etat: "INCONNUE", raison: "PAS_DE_COMPTAGE" };
-  const veille = stockDe(idx, articleRestoId, veilleDe(jour), e.debutLivraisons);
+  // La consommation RÉELLE ne retire jamais les ventes : c'est précisément ce qu'on lui compare (contrôle des écarts).
+  const veille = stockDe(idx, articleRestoId, veilleDe(jour), e.debutLivraisons, false);
   if (veille.stock === null) return { etat: "INCONNUE", raison: "STOCK_VEILLE_INCONNU" };
   const recu = recuDuDepot(e, articleRestoId, jour);
   if (veille.signalements.length > 0 || recu.signalements.length > 0) return { etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE" };
@@ -364,6 +432,67 @@ export function mentionDepuis(c: Connue): string | null {
   return `depuis le ${c.depuis.slice(8, 10)}/${c.depuis.slice(5, 7)} (${c.nbJours} jours)`;
 }
 
+// ─── Contrôle : consommation RÉELLE vs THÉORIQUE (ventes × fiches) sur une période ──────────────────
+
+/**
+ * Consommation d'un article du restaurant sur une PÉRIODE [debut, fin] (dates pures, bornes incluses),
+ * mesurée entre deux comptages de FIN DE JOURNÉE :
+ *   C0 = dernier comptage ≤ veille de `debut` (à défaut, le premier de la période) ;
+ *   C1 = dernier comptage de la période ;
+ *   RÉELLE    = compté(C0) + livraisons additionnées (C0, C1] − compté(C1)   (jamais de ventes dedans) ;
+ *   THÉORIQUE = Σ ventes × fiches techniques (C0, C1]                          (unité du restaurant) ;
+ *   ÉCART     = réelle − théorique : positif = consommé en PLUS de ce que les ventes expliquent
+ *               (perte, gaspillage, vol, fiche trop économe) ; négatif = consommé en moins.
+ * Les deux grandeurs couvrent EXACTEMENT la même fenêtre (C0, C1], qui peut déborder la période si le
+ * comptage de départ est plus ancien : elle est rendue. Signal seulement — rien n'est écrit.
+ * Inconnue (jamais 0) : pas de comptage utilisable, livraison non additionnable, vente non déductible.
+ */
+export type EcartPeriode =
+  | {
+      etat: "CONNUE"; de: string; a: string; nbJours: number;
+      compteDebut: string; compteFin: string; recu: string; reelle: string; theorique: string; ecart: string;
+      /** Ventes retirées, par fiche (diagnostic : quelle fiche explique le théorique). */
+      parFiche: { ficheId: string; ficheNom: string; quantiteResto: string }[];
+    }
+  | { etat: "INCONNUE"; raison: "PAS_DE_COMPTAGE" | "UN_SEUL_COMPTAGE" | "LIVRAISON_NON_COMPTEE" | "VENTES_A_VERIFIER"; detail: string[] };
+
+export const LIBELLE_ECART_INCONNU: Record<Extract<EcartPeriode, { etat: "INCONNUE" }>["raison"], string> = {
+  PAS_DE_COMPTAGE: "aucun comptage dans la période",
+  UN_SEUL_COMPTAGE: "un seul comptage : rien à comparer",
+  LIVRAISON_NON_COMPTEE: "livraison non additionnée (à répartir ou unité incompatible)",
+  VENTES_A_VERIFIER: "ventes non déductibles (fiche incomplète ou unité inconvertible)",
+};
+
+export function ecartVentesConsommation(e: EntreesStockResto, articleRestoId: string, debut: string, fin: string): EcartPeriode {
+  const idx = indexer(e);
+  const comptes = idx.comptages.get(articleRestoId) ?? [];
+  const veille = veilleDe(debut);
+  const c1 = comptes.filter((c) => c.date >= debut && c.date <= fin).at(-1) ?? null;
+  if (c1 === null) return { etat: "INCONNUE", raison: "PAS_DE_COMPTAGE", detail: [] };
+  const c0 = comptes.filter((c) => c.date <= veille).at(-1) ?? comptes.find((c) => c.date >= debut && c.date < c1.date) ?? null;
+  if (c0 === null) return { etat: "INCONNUE", raison: "UN_SEUL_COMPTAGE", detail: [] };
+  const dansFenetre = (d: string) => d > c0.date && d <= c1.date;
+  const signalements = (idx.signalees.get(articleRestoId) ?? []).filter((x) => dansFenetre(x.date));
+  if (signalements.length > 0) return { etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE", detail: signalements.map((x) => `${x.designation} (${x.date.slice(8, 10)}/${x.date.slice(5, 7)}) : ${LIBELLE_SIGNALEMENT[x.motif]}`) };
+  const aVerifier = (idx.ventesSignalees.get(articleRestoId) ?? []).filter((x) => dansFenetre(x.date));
+  if (aVerifier.length > 0) return { etat: "INCONNUE", raison: "VENTES_A_VERIFIER", detail: [...new Set(aVerifier.map((x) => x.texte))] };
+  const recues = (idx.recues.get(articleRestoId) ?? []).filter((l) => dansFenetre(l.date));
+  const ventes = (idx.ventes.get(articleRestoId) ?? []).filter((v) => dansFenetre(v.date));
+  const recu = recues.reduce((t, l) => t.plus(l.quantiteResto), new D(0));
+  const theorique = ventes.reduce((t, v) => t.plus(v.quantiteResto), new D(0));
+  const reelle = new D(c0.quantite).plus(recu).minus(c1.quantite);
+  const parFicheMap = new Map<string, { ficheId: string; ficheNom: string; quantiteResto: InstanceType<typeof D> }>();
+  for (const v of ventes) {
+    const x = parFicheMap.get(v.ficheId);
+    if (x) x.quantiteResto = x.quantiteResto.plus(v.quantiteResto); else parFicheMap.set(v.ficheId, { ficheId: v.ficheId, ficheNom: v.ficheNom, quantiteResto: new D(v.quantiteResto) });
+  }
+  return {
+    etat: "CONNUE", de: c0.date, a: c1.date, nbJours: Math.round((Date.parse(`${c1.date}T00:00:00Z`) - Date.parse(`${c0.date}T00:00:00Z`)) / 86_400_000),
+    compteDebut: c0.quantite, compteFin: c1.quantite, recu: recu.toString(), reelle: reelle.toString(), theorique: theorique.toString(), ecart: reelle.minus(theorique).toString(),
+    parFiche: [...parFicheMap.values()].map((x) => ({ ...x, quantiteResto: x.quantiteResto.toString() })).sort((a, b) => new D(b.quantiteResto).comparedTo(a.quantiteResto)),
+  };
+}
+
 // ─── Part du restaurant dans la disponibilité des plats ──────────────────────
 
 /**
@@ -383,6 +512,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
   const res = new Map<string, StockRestaurant>();
   // Ordre de gravité : une part inexploitable l'emporte sur une part estimée, qui l'emporte sur OK.
   const gravite = (x: StockRestaurant | undefined) => (x === undefined ? -1 : x.etat === "OK" ? 0 : x.etat === "ESTIME" ? 1 : 2);
+  const typeVendu = (x: string | null | undefined, y: InstanceType<typeof D> | null) => (x == null && y === null ? null : new D(x ?? 0).plus(y ?? 0).toString());
   for (const a of e.articles) {
     if (a.rattaches.length === 0) continue;
     const s = parArticle.get(a.id)!;
@@ -394,22 +524,26 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
       const deja = res.get(cat);
       if (gravite(deja) === 2) continue;
       if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
+      if (s.ventesAVerifier.length > 0) { res.set(cat, { etat: "VENTES_A_VERIFIER", articleResto: a.designation, raison: s.ventesAVerifier.map((v) => v.texte).join(" ; ") }); continue; }
       const article = articleCatalogueLie(lie);
       const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", article);
       // Livraisons reçues : celles de CET article telles que sorties du dépôt (déjà dans son unité, sans
       // aller-retour) ; celles d'une autre marque, converties via l'unité du restaurant.
       const recuesConverties = s.livraisonsDepuis.map((l) => (l.articleStockId === cat ? l.quantiteCatalogue : convertirVersUniteArticle(l.quantiteResto, a.unite ?? "", article)));
-      if (compte === null || recuesConverties.some((q) => q === null) || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
+      // Ventes retirées (unité du restaurant → unité de CET article), comme le comptage.
+      const venduConverti = s.vendu === null ? null : convertirVersUniteArticle(s.vendu, a.unite ?? "", article);
+      if (compte === null || recuesConverties.some((q) => q === null) || (s.vendu !== null && venduConverti === null) || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
         res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
         continue;
       }
       const recu = s.livraisonsDepuis.length === 0 ? null : recuesConverties.reduce<InstanceType<typeof D>>((t, q) => t.plus(q!), new D(0));
-      const quantite = new D(compte).plus(recu ?? 0);
+      const vendu = venduConverti === null ? null : new D(venduConverti);
+      const quantite = new D(compte).plus(recu ?? 0).minus(vendu ?? 0);
       const cumul = (x: string | null | undefined, y: InstanceType<typeof D> | null) => (x == null && y === null ? null : new D(x ?? 0).plus(y ?? 0).toString());
       if (deja === undefined) {
         res.set(cat, s.dernierComptage === null
           ? { etat: "ESTIME", quantite: quantite.toString(), recu: recu === null ? null : recu.toString() }
-          : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString() });
+          : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString(), ...(vendu === null ? {} : { vendu: vendu.toString() }) });
         continue;
       }
       if (deja.etat !== "OK" && deja.etat !== "ESTIME") continue;
@@ -418,7 +552,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
         res.set(cat, { etat: "ESTIME", quantite: somme, recu: cumul(deja.recu, recu) });
       } else {
         const date = deja.dateComptage < s.dernierComptage.date ? deja.dateComptage : s.dernierComptage.date;
-        res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu) });
+        res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu), ...(typeVendu(deja.vendu, vendu) === null ? {} : { vendu: typeVendu(deja.vendu, vendu) }) });
       }
     }
   }

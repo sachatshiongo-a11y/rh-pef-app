@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const d = await donneesJournalier(new URL(req.url).searchParams);
   const large = d.colonnes.length > 9;
 
-  const pied = "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage) · orange = consommé ≠ livré.";
+  const pied = d.pied ?? "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage) · orange = consommé ≠ livré.";
   const buffer = await renderPdfOuRefus(() =>
     d.partiesPdf && d.ecartsCL && d.signes
       // Comparaison : deux niveaux d'en-tête, jours séparés, écarts signés (voir `lib/pdf/comparaison`).

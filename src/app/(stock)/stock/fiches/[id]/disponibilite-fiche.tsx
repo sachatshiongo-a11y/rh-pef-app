@@ -57,7 +57,7 @@ export function BlocDisponibilite({
           </ul>
         </div>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">Stock = dépôt + restaurant (stock théorique : dernier comptage des articles du restaurant rattachés au catalogue + livraisons du dépôt reçues depuis). Sans comptage, la part du restaurant est estimée et ne compte pas.</p>
+      <p className="mt-2 text-xs text-muted-foreground">Stock = dépôt + restaurant (stock théorique : dernier comptage des articles du restaurant rattachés au catalogue + livraisons du dépôt reçues depuis − ventes saisies × fiches techniques depuis). Sans comptage, la part du restaurant est estimée et ne compte pas.</p>
     </section>
   );
 }
@@ -74,6 +74,7 @@ export function CelluleStock({ detail, estSousRecette }: { detail: DetailArticle
         {detail.restaurantEstime && <span className="font-medium text-amber-800"> estimé (aucun comptage)</span>}
         {detail.dateComptage && ` (compté le ${jjmmaaaa(detail.dateComptage)})`}
         {detail.recuRestaurant !== null && ` · dont reçu du dépôt ${q(detail.recuRestaurant)}`}
+        {detail.venduRestaurant !== null && ` · moins vendu depuis le comptage ${q(detail.venduRestaurant)}`}
       </div>
       {/* Date du dernier mouvement au dépôt : au-delà de 7 jours, le stock ne fait plus foi. */}
       {detail.depot !== null && (

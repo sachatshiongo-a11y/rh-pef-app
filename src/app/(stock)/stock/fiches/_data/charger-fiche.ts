@@ -152,7 +152,7 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
 export async function chargerStocksDesFiches(aujourdhui: string = jourKinshasaISO()): Promise<Record<string, StockArticle>> {
   const [depots, entrees, mouvements, desactives] = await Promise.all([
     prisma.stock.findMany({ select: { articleId: true, quantite: true } }),
-    chargerEntreesStockResto({ depuis: aujourdhui, jusquA: aujourdhui }),
+    chargerEntreesStockResto({ depuis: aujourdhui, jusquA: aujourdhui, avecVentes: true }),
     prisma.mouvementStock.groupBy({ by: ["articleId"], _max: { date: true } }),
     // Articles du restaurant DÉSACTIVÉS avec encore du stock compté : l'article du catalogue
     // rattaché passe « À vérifier » (jamais repli silencieux sur le dépôt seul).

@@ -70,6 +70,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/journalier/comparaison-jour.tsx": { n: 3, raisons: ["AMONT"] },
   "src/app/(stock)/stock/journalier/comparaison-semaine.tsx": { n: 3, raisons: ["AMONT"] },
   "src/app/(stock)/stock/journalier/conso-jour.tsx": { n: 3, raisons: ["AMONT", "RESTO"] },
+  "src/app/(stock)/stock/journalier/table-ecarts.tsx": { n: 2, raisons: ["RESTO"] }, // article du restaurant (nom propre)
   "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 2, raisons: ["CLE", "LEGUMES", "RESTO"] }, // fiche « Commande journalière » = classeur de la Direction
   "src/app/(stock)/stock/journalier/import-classeur-actions.ts": { n: 1, raisons: ["IMPORT"] },
   "src/app/(stock)/stock/journalier/import-commande-actions.ts": { n: 1, raisons: ["IMPORT"] },

@@ -37,7 +37,7 @@ export type LigneResto = {
   /** Livraisons du jour non additionnées (à répartir, unité incompatible), en clair. */
   signauxJour: Record<string, string[]>;
   /** Stock théorique à ce jour (dernier comptage + livraisons depuis) ; `stock` null = inconnu. */
-  theorique: { stock: string | null; aucunComptage: boolean; signalements: string[] };
+  theorique: { stock: string | null; aucunComptage: boolean; signalements: string[]; vendu?: string | null; aVerifier?: string[] };
 };
 
 /** Quantité lisible (« 2 000 », « 0,5 ») : formatage partagé, espaces normalisées. */
@@ -145,7 +145,7 @@ export function RestaurantGrille({
       )}
 
       <p className="text-xs text-muted-foreground max-lg:hidden">
-        Sous chaque comptage : <span className="font-medium text-emerald-800">Reçu du dépôt</span> (sorties « Livraison restaurant » du jour, lecture seule). « Stock théorique » = dernier comptage + livraisons reçues depuis ; le jour d&apos;un comptage, le comptage fait foi.
+        Sous chaque comptage : <span className="font-medium text-emerald-800">Reçu du dépôt</span> (sorties « Livraison restaurant » du jour, lecture seule). « Stock théorique » = dernier comptage + livraisons reçues depuis − ventes saisies × fiches techniques depuis ; le jour d&apos;un comptage, le comptage fait foi (il contient déjà les livraisons et les ventes du jour). Une vente qu&apos;on ne sait pas déduire (fiche incomplète, unité inconvertible) rend le stock « À vérifier ».
       </p>
 
       {/* Tableau « normal » : la page défile, seul le défilement horizontal subsiste (grille large : 12 colonnes et plus). */}
@@ -255,10 +255,14 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, options, selec
         </td>
       ))}
       <td className="text-right text-xs" data-colonne="stock-theorique" title={ligne.theorique.aucunComptage && ligne.theorique.stock !== null ? MENTION_AUCUN_COMPTAGE : undefined}>
-        {ligne.theorique.stock === null ? "—" : (
-          <span className="font-medium tabular-nums">{qteTexte(ligne.theorique.stock)}{ligne.unite ? ` ${ligne.unite}` : ""}</span>
+        {((ligne.theorique.aVerifier ?? []).length) > 0 ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800" title={ligne.theorique.aVerifier?.join(" ; ")}>À vérifier</span>
+        ) : ligne.theorique.stock === null ? "—" : (
+          <span className={`font-medium tabular-nums ${Number(ligne.theorique.stock) < 0 ? "text-red-700" : ""}`}>{qteTexte(ligne.theorique.stock)}{ligne.unite ? ` ${ligne.unite}` : ""}</span>
         )}
         {ligne.theorique.aucunComptage && ligne.theorique.stock !== null && <div className="text-[10px] text-muted-foreground">estimé (aucun comptage)</div>}
+        {(ligne.theorique.vendu ?? null) !== null && ((ligne.theorique.aVerifier ?? []).length) === 0 && <div className="text-[10px] text-muted-foreground" title="Ventes saisies × fiches techniques depuis le dernier comptage">dont vendu −{qteTexte(ligne.theorique.vendu!)}</div>}
+        {ligne.theorique.aVerifier?.map((t, k) => <div key={k} className="text-[10px] font-medium text-amber-800">{t}</div>)}
         {ligne.theorique.signalements.map((t, k) => <div key={k} className="text-[10px] font-medium text-amber-800">{t}</div>)}
       </td>
       {estDirection && (
@@ -313,8 +317,9 @@ function ListeRestoJour({ lignes, jours, estDirection, selection, onSelection, o
               sous={
                 <>
                   <p className="text-xs text-muted-foreground" data-theorique-jour="">
-                    Théorique aujourd&apos;hui : {l.theorique.stock === null ? "—" : <span className="font-medium text-foreground">{qteTexte(l.theorique.stock)}{l.unite ? ` ${l.unite}` : ""}</span>}
+                    Théorique aujourd&apos;hui : {((l.theorique.aVerifier ?? []).length) > 0 ? <span className="font-medium text-amber-800">À vérifier</span> : l.theorique.stock === null ? "—" : <span className={`font-medium ${Number(l.theorique.stock) < 0 ? "text-red-700" : "text-foreground"}`}>{qteTexte(l.theorique.stock)}{l.unite ? ` ${l.unite}` : ""}</span>}
                     {l.theorique.aucunComptage && l.theorique.stock !== null && <span> · estimé (aucun comptage)</span>}
+                    {(l.theorique.vendu ?? null) !== null && ((l.theorique.aVerifier ?? []).length) === 0 && <span> · dont vendu −{qteTexte(l.theorique.vendu!)}</span>}
                     {l.base !== "" && <span> · base {qteTexte(l.base)}</span>}
                   </p>
                   {recu !== undefined && (
@@ -322,6 +327,7 @@ function ListeRestoJour({ lignes, jours, estDirection, selection, onSelection, o
                   )}
                   {(l.signauxJour[jour.iso] ?? []).map((t, k) => <p key={k} className="text-xs font-medium text-amber-800">{t}</p>)}
                   {l.theorique.signalements.map((t, k) => <p key={k} className="text-xs font-medium text-amber-800">{t}</p>)}
+                  {l.theorique.aVerifier?.map((t, k) => <p key={k} className="text-xs font-medium text-amber-800">{t}</p>)}
                 </>
               }
               droite={
