@@ -15,11 +15,12 @@ import { formaterNombre } from "@/lib/montant";
 import { libelleArticle } from "@/lib/libelle-article";
 import { convertirQuantite, ecartUnite, libelleFacteur, type EcartUnite } from "@/lib/unite-resto";
 import type { ArticleUniteResto } from "./charge";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 type Tx = Prisma.TransactionClient;
 
 /** L'état des lieux a changé depuis le plan (ou la demande) : rien n'est écrit. */
-export class ConflitUnite extends Error {}
+export class ConflitUnite extends ErreurMetier {}
 
 export type PlanAlignement = {
   ecart: EcartUnite;

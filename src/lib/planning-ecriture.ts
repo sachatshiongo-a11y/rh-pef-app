@@ -8,13 +8,14 @@ import { Prisma } from "@prisma/client";
 import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { dureeShift } from "@/lib/duree-shift";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /** `shiftId: null` = effacer le créneau de ce jour. */
 export type OperationCreneau = { employeeId: string; date: Date; shiftId: string | null };
 
 export type Verrou = { employeeId: string; nom: string; mois: number; annee: number };
 
-export class PlanningVerrouilleError extends Error {
+export class PlanningVerrouilleError extends ErreurMetier {
   constructor(public readonly verrous: Verrou[]) {
     super(
       `Planning verrouillé : paie validée ou payée pour ${verrous.map((v) => `${v.nom} (${MOIS_FR[v.mois - 1]} ${v.annee})`).join(", ")}. ` +
@@ -29,7 +30,7 @@ export class PlanningVerrouilleError extends Error {
  * servi à une paie validée (septembre 2026 : Martine Mutombo, Rachel Lunda) : créez un nouveau shift
  * plutôt que de changer ses heures. » — mois dans l'ordre, salariés par ordre alphabétique.
  */
-export class ShiftVerrouilleError extends Error {
+export class ShiftVerrouilleError extends ErreurMetier {
   constructor(public readonly verrous: Verrou[]) {
     const parMois = new Map<string, { mois: number; annee: number; noms: string[] }>();
     for (const v of [...verrous].sort((a, b) => a.annee - b.annee || a.mois - b.mois || a.nom.localeCompare(b.nom, "fr"))) {

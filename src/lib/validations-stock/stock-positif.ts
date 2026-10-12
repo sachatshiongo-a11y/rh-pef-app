@@ -29,6 +29,7 @@ import { Prisma } from "@prisma/client";
 import { verrouillerStocks } from "./comptage";
 import { formaterNombre } from "@/lib/montant";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 type Tx = Prisma.TransactionClient;
 type Quantite = Prisma.Decimal | number | string;
@@ -41,7 +42,7 @@ export type Manque = {
 };
 
 /** Refus « stock insuffisant » : porte les articles fautifs (l'écran Mouvements propose des articles proches). */
-export class StockInsuffisant extends Error {
+export class StockInsuffisant extends ErreurMetier {
   readonly manques: Manque[];
   constructor(manques: Manque[], verbe: string) {
     super(messageManques(manques, verbe));

@@ -43,6 +43,7 @@ import {
   niveauxDe, verrouillerStocks, type CompteSaisi, type Domaine,
 } from "./comptage";
 import { appliquerPatchArticleTx, changementsDe, exigerCategorieDuDomaine, harmoniserPrix, lireArticlesTx, nomsReferencesTx, patchDesChangements, type PatchArticle } from "./article";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 type Tx = Prisma.TransactionClient;
 
@@ -51,7 +52,7 @@ export const estDirection = (u: { role: Role }) => u.role === "ADMIN";
 export const MESSAGE_RESERVE_DIRECTION = "Réservé à la Direction.";
 
 /** Demande périmée : l'exécuter écrirait un effet faux. Rien n'est écrit ; la Direction la refuse. */
-export class ConflitDemande extends Error {
+export class ConflitDemande extends ErreurMetier {
   constructor(detail: string) { super(`${detail} — rien n'a été écrit : refusez cette demande (le demandeur pourra en refaire une à jour).`); }
 }
 

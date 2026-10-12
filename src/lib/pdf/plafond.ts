@@ -1,4 +1,5 @@
 import { formaterNombre } from "@/lib/montant";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /**
  * PLAFOND DE LIGNES DES PDF TABULAIRES (audit du 10/10/2026, sécurité 2).
@@ -22,7 +23,7 @@ export function messagePdfTropLong(lignes: number, plafond: number = PLAFOND_LIG
   return `Période trop longue : ${formaterNombre(lignes)} lignes, maximum ${formaterNombre(plafond)} pour un PDF — réduisez la période (ou exportez en Excel).`;
 }
 
-export class PdfTropLongError extends Error {
+export class PdfTropLongError extends ErreurMetier {
   readonly lignes: number;
   readonly plafond: number;
   constructor(lignes: number, plafond: number = PLAFOND_LIGNES_PDF) {

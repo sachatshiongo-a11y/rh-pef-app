@@ -4,6 +4,7 @@ import type { PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { ATTENTE_VERROU_VALIDATION, messageErreurValidation } from "@/lib/paie-validation";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 // ÉLÉMENT DE PAIE SUR UN BULLETIN DÉJÀ FIGÉ (audit du 2026-10-10).
 //
@@ -19,7 +20,7 @@ export function messageBulletinFige(statut: PaymentStatus, mois: number, annee: 
 }
 
 /** Refus lisible : le bulletin du mois est figé. */
-export class BulletinFigeError extends Error {
+export class BulletinFigeError extends ErreurMetier {
   constructor(message: string) {
     super(message);
     this.name = "BulletinFigeError";

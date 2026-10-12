@@ -14,6 +14,7 @@ import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { ecrireCreneaux, ecrireModele, messageErreurPlanning, messageMoisFiges, modifierShiftEnBase, verrousPlanning, type OperationCreneau, type Verrou } from "@/lib/planning-ecriture";
 import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /** Délai des transactions d'écriture du planning en lot ou par génération (une requête `update`
  *  par créneau modifié : un mois entier régénéré peut en compter plusieurs centaines). */
@@ -88,7 +89,7 @@ export type ResumeGeneration = {
 const SEMAINES_HISTORIQUE = 8;
 
 /** Refus de « Écraser » hors Direction, levé dans la transaction pour l'annuler, rendu en `erreur`. */
-class RefusEcrasement extends Error {}
+class RefusEcrasement extends ErreurMetier {}
 
 /**
  * Génère automatiquement le planning sur une période. Ne fait plus que lire, appeler le moteur
