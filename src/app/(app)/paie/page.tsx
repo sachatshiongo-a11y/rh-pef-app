@@ -7,6 +7,7 @@ import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { CLASSES_DANGER, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ExportMoisPasse } from "./export-mois-passe";
 import { TableauPaie, type PaieRow } from "./tableau-paie";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
@@ -94,6 +95,21 @@ export default async function PaiePage({
     month: "long",
     year: "numeric",
   });
+
+  // Mois PASSÉS qui ont une paie calculée (du plus récent au plus ancien), pour le menu « Exporter » :
+  // seuls l'identifiant du mois, son statut et son libellé sont lus — jamais les lignes. Un mois non
+  // clôturé (BROUILLON) le dit dans la liste : ses bulletins non validés sortent marqués PROVISOIRE.
+  const moisPasses = (
+    await prisma.payrollRun.findMany({
+      where: { lignes: { some: {} }, NOT: { mois, annee } },
+      select: { mois: true, annee: true, statut: true },
+      orderBy: [{ annee: "desc" }, { mois: "desc" }],
+    })
+  ).map((r) => ({
+    mois: r.mois,
+    annee: r.annee,
+    libelle: `${new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}${r.statut === "VALIDE" ? "" : " (non clôturée)"}`,
+  }));
 
   // Paie EN TEMPS RÉEL : si aucune paie n'a encore été figée (pas de PayrollRun), on calcule un
   // aperçu à la volée depuis les données courantes. Le bouton « Calculer » ne sert plus qu'à figer
@@ -319,22 +335,27 @@ export default async function PaiePage({
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {run && (
+          {(run || moisPasses.length > 0) && (
             <details className="group relative">
               <summary className={`${CLASSES_GEOMETRIE} cursor-pointer list-none border hover:bg-accent [&::-webkit-details-marker]:hidden`}>
                 Exporter
                 <span aria-hidden className="text-xs transition-transform group-open:rotate-180">▾</span>
               </summary>
               <div className="absolute left-0 z-30 mt-1 max-h-[70vh] w-64 max-w-[90vw] overflow-y-auto rounded-lg border bg-background p-1 shadow-lg lg:left-auto lg:right-0">
-                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Livre de paie</p>
-                <TelechargerLien href="/paie/export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (Excel)</TelechargerLien>
-                <TelechargerLien href="/paie/export-pdf" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (PDF)</TelechargerLien>
-                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins (un seul PDF)</p>
-                <TelechargerLien href="/paie/bulletins-pdf?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF ($)</TelechargerLien>
-                <TelechargerLien href="/paie/bulletins-pdf?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF (CDF)</TelechargerLien>
-                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins séparés (ZIP)</p>
-                <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP ($)</TelechargerLien>
-                <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP (CDF)</TelechargerLien>
+                {run && (
+                  <>
+                    <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Livre de paie</p>
+                    <TelechargerLien href="/paie/export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (Excel)</TelechargerLien>
+                    <TelechargerLien href="/paie/export-pdf" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (PDF)</TelechargerLien>
+                    <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins (un seul PDF)</p>
+                    <TelechargerLien href="/paie/bulletins-pdf?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF ($)</TelechargerLien>
+                    <TelechargerLien href="/paie/bulletins-pdf?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF (CDF)</TelechargerLien>
+                    <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins séparés (ZIP)</p>
+                    <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP ($)</TelechargerLien>
+                    <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP (CDF)</TelechargerLien>
+                  </>
+                )}
+                <ExportMoisPasse mois={moisPasses} />
                 {estAdmin && (
                   <>
                     <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Traçabilité</p>

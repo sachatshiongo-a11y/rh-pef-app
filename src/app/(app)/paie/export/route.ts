@@ -31,6 +31,11 @@ export async function GET(request: Request) {
   const periodeMois = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors du livre (paie-hors-calcul.ts).
   const lignes = run ? await lignesComptees(prisma, run.lignes) : [];
+  // Un mois DEMANDÉ (?mois=&annee=) sans paie calculée : refus lisible (affiché tel quel par TelechargerLien),
+  // comme les bulletins et le livre PDF — pas un classeur vide. Sans paramètre : comportement d'avant.
+  if (lignes.length === 0 && new URL(request.url).searchParams.has("mois")) {
+    return new Response("Aucune paie calculée pour ce mois", { status: 404 });
+  }
   // Même mention que le livre PDF : un livre qui contient du non validé n'est pas un livre arrêté.
   const nonValides = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length;
   const periode = nonValides > 0 ? `${periodeMois} — ${MENTION_PROVISOIRE} (${nonValides} bulletin(s) sur ${lignes.length})` : periodeMois;
