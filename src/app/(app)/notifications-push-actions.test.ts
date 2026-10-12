@@ -70,6 +70,23 @@ describe("marquerNotificationsLues — « Tout marquer lu » d'une cloche d'espa
     expect(A.ecritures.length).toBe(autorise ? 1 : 0);
   });
 
+  it.each<[Role, boolean]>([["EMPLOYE", false], ["STOCK", false], ["MANAGER", false], ["VIEWER", false], ["COMPTA", true], ["ADMIN", true]])(
+    "cloche EXPLOITATION, compte %s → autorisé : %s",
+    async (role, autorise) => {
+      compte(role);
+      const r = await marquerNotificationsLues("EXPLOITATION");
+      if (autorise) {
+        expect(r).toEqual({ ok: true });
+        // Écrit dans SON domaine, et seulement les notifications partagées ou adressées à CE compte.
+        expect(A.ecritures).toEqual([expect.stringContaining('"domaine":"EXPLOITATION"')]);
+        expect(A.ecritures[0]).toContain('"destinataireUserId":"u-moi"');
+      } else {
+        expect(r).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
+        expect(A.ecritures).toEqual([]);
+      }
+    },
+  );
+
   it("un domaine inventé retombe sur RH : un salarié reste refusé", async () => {
     compte("EMPLOYE");
     const r = await marquerNotificationsLues("SALARIE" as "RH");
@@ -100,6 +117,26 @@ describe("supprimerNotification — une notification précise, droit lu en BASE"
     compte("STOCK");
     expect(await supprimerNotification("n2")).toEqual({ ok: true });
     expect(A.ecritures.length).toBe(1);
+  });
+
+  it("notification EXPLOITATION adressée : seul son destinataire la supprime (Compta ou Direction), ni une autre Compta ni la RH", async () => {
+    A.notif = { id: "n5", domaine: "EXPLOITATION", destinataireUserId: "u-moi" };
+    for (const role of ["MANAGER", "STOCK", "EMPLOYE"] as Role[]) {
+      compte(role);
+      expect(await supprimerNotification("n5"), role).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
+    }
+    A.notif = { id: "n5", domaine: "EXPLOITATION", destinataireUserId: "u-collegue" };
+    for (const role of ["COMPTA", "ADMIN"] as Role[]) {
+      compte(role);
+      expect(await supprimerNotification("n5"), role).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
+    }
+    expect(A.ecritures).toEqual([]);
+    A.notif = { id: "n5", domaine: "EXPLOITATION", destinataireUserId: "u-moi" };
+    for (const role of ["COMPTA", "ADMIN"] as Role[]) {
+      compte(role);
+      expect(await supprimerNotification("n5"), role).toEqual({ ok: true });
+    }
+    expect(A.ecritures.length).toBe(2);
   });
 
   it("notification SALARIÉ d'un autre : refusée, même à la Direction", async () => {

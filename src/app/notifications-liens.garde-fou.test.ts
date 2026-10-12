@@ -52,7 +52,7 @@ const estUnRenvoi = (r: Route) => {
 };
 
 /** Les adresses déplacées : une notification écrite aujourd'hui ne doit jamais y mener. */
-const ADRESSES_DEPLACEES = ["/stock/utilisateurs", "/stock/archives", "/stock/parametres"];
+const ADRESSES_DEPLACEES = ["/stock/utilisateurs", "/stock/archives", "/stock/parametres", "/exploitation/graphiques"];
 
 // `lien:` (colonne de Notification) et `url:` d'un envoi push (même ligne qu'un `title:`, pour ne pas lire les icônes du manifeste).
 const MOTIF = /(?:\blien|\btitle\s*:[^\n]*?\burl)\s*:\s*(?:"(\/[^"\n]*)"|'(\/[^'\n]*)'|`(\/[^`\n]*)`)/g;
@@ -83,6 +83,17 @@ describe("liens de notification — chacun mène à une page qui existe", () => 
   it("aucun lien n'écrit une adresse déplacée (Utilisateurs, Archives nues, Paramètres du Stock)", () => {
     const anciens = liens.filter((l) => ADRESSES_DEPLACEES.includes(chemin(l.lien))).map((l) => `${l.fichier} → ${l.lien}`);
     expect(anciens).toEqual([]);
+  });
+
+  it("le lien des demandes de ratios (passé par une constante, que le scanner ne lit pas) mène à « À valider » de l'Exploitation", () => {
+    const src = readFileSync(path.join(SRC, "lib", "exploitation", "demandes-ratios.ts"), "utf8");
+    const lien = /export const LIEN_DEMANDES_RATIOS = "([^"]+)"/.exec(src)?.[1];
+    expect(lien).toBe("/exploitation/a-valider");
+    const r = routeDe(chemin(lien!));
+    expect(r).toBeTruthy();
+    expect(estUnRenvoi(r!)).toBe(false);
+    // Les notifications (Direction : demande reçue ; auteur : réponse) sont écrites avec CE lien, dans le domaine EXPLOITATION.
+    expect(src.match(/domaine: "EXPLOITATION"[^}]*lien: LIEN_DEMANDES_RATIOS/g)).toHaveLength(2);
   });
 
   it("la fiche d'un comptage garde son adresse /stock/archives/<id>", () => {

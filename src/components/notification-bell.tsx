@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { marquerNotificationsLues, supprimerNotification } from "@/app/(app)/notifications-actions";
-import type { NotificationItem } from "@/lib/notifications";
+import type { DomaineCloche, NotificationItem } from "@/lib/notifications";
 
 function ilYA(date: Date): string {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -22,7 +22,7 @@ export function NotificationBell({
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
-  domaine?: "RH" | "STOCK";
+  domaine?: DomaineCloche;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const total = nonLues + (cloture ? 1 : 0);

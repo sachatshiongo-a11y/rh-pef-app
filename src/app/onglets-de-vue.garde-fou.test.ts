@@ -36,6 +36,7 @@ const ECRANS: { fichier: string; param: RegExp; quoi: string }[] = [
   { fichier: "(stock)/stock/factures/page.tsx", param: /vue: "echeancier"/, quoi: "Factures (vues)" },
   { fichier: "(stock)/stock/restaurant/restaurant-ecran.tsx", param: /\/stock\/restaurant\?espace=/, quoi: "Stock restaurant" },
   { fichier: "(stock)/stock/fiches/ecran-fiches.tsx", param: /lienOngletFiches/, quoi: "Fiches techniques" },
+  { fichier: "(exploitation)/exploitation/annuel/onglets-vue-annuelle.tsx", param: /vue", "graphiques"/, quoi: "Vue annuelle (Tableau / Graphiques)" },
 ];
 
 describe("onglets de vue — un seul dessin (OngletsDefilants)", () => {
@@ -52,6 +53,7 @@ describe("onglets de vue — un seul dessin (OngletsDefilants)", () => {
     expect(lire("(app)/documents/page.tsx")).toMatch(/onglet\?: string/);
     expect(lire("(app)/paie/page.tsx")).toMatch(/vue\?: string/);
     expect(lire("(stock)/stock/archives/page.tsx")).toMatch(/sp\.vue ===/);
+    expect(lire("(exploitation)/exploitation/annuel/page.tsx")).toMatch(/lireVueAnnuelle\(sp\.vue\)/);
   });
 
   it("les onglets soulignés et la liste déroulante des vues n'existent plus", () => {
