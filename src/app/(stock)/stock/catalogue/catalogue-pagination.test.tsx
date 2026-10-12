@@ -23,7 +23,7 @@ type ArticleRow = Parameters<typeof CatalogueTable>[0]["articles"][number];
 const ARTICLES: ArticleRow[] = Array.from({ length: 120 }, (_, i) => {
   const n = String(i + 1).padStart(3, "0");
   return {
-    id: `a${n}`, code: n, designation: `Art ${n}`, nomCourt: null, surFicheCommande: false, domaine: "NOURRITURE" as const,
+    id: `a${n}`, code: n, designation: `Art ${n}`, surFicheCommande: false, domaine: "NOURRITURE" as const,
     categorieId: i < 60 ? "c1" : "c2", fournisseurId: null, unite: "Kg", prix: "1", uniteParCarton: null, haussePct: null,
     quantite: "2", stockMinimum: "1", niveau: i >= 113 ? ("URGENT" as const) : ("OK" as const), valeurUSD: 2,
   };
@@ -148,7 +148,7 @@ describe("Inventaire paginé", () => {
 
   it("l'en-tête de catégorie est rappelé en tête de page (la catégorie continue)", () => {
     monter({ pageInit: 2, parInit: 50 }); // articles 51–100 : « Farines » (51–60) puis « Huiles »
-    const entetes = [...conteneur.querySelectorAll("table tbody td[colspan='13']")].map((e) => e.textContent);
+    const entetes = [...conteneur.querySelectorAll("table tbody td[colspan='12']")].map((e) => e.textContent);
     expect(entetes[0]).toMatch(/^Farines \(60\)/); // le compteur est celui de la catégorie dans TOUT le filtre
     expect(entetes[1]).toMatch(/^Huiles \(60\)/);
   });
