@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bonDeListe, compterSansPrixBon, libelleTotalBon, libelleTotalGroupe, libelleTotalListe, prixLigneBon, totalBon } from "./bon-commande-devise";
+import { arrondiCentimeFranc, sommeFrancs, totalLigneFrancs, bonDeListe, compterSansPrixBon, libelleTotalBon, libelleTotalGroupe, libelleTotalListe, prixLigneBon, totalBon } from "./bon-commande-devise";
 
 describe("bon de commande : devise et lignes sans prix (audit du 10/10/2026, stock 19)", () => {
   it("un bon en francs lit son total en francs, jamais en dollars", () => {
@@ -36,5 +36,22 @@ describe("bon de commande : devise et lignes sans prix (audit du 10/10/2026, sto
     ]);
     expect(t).toMatch(/^150,00 \$ \+ 1\s?000\s?000 FC · incomplet$/);
     expect(libelleTotalGroupe([{ total: 0, devise: "USD", sansPrix: 0 }])).toBe("—");
+  });
+});
+
+describe("bon en francs : arithmétique exacte au centime de franc (revue du 2026-10-12)", () => {
+  it("la moitié d'un centime s'arrondit vers le haut, là où Math.round(x * 100) / 100 se trompait", () => {
+    // 2,26 × 41 740,75 = 94 334,095 exactement : le flottant donne 94 334,09 (faux), le décimal 94 334,10.
+    expect(Math.round(2.26 * 41740.75 * 100) / 100).toBe(94334.09);
+    expect(totalLigneFrancs(2.26, 41740.75)).toBe(94334.1);
+    expect(totalLigneFrancs(11.19, 44116.5)).toBe(493663.64);
+    expect(totalLigneFrancs(13.5, 24415.41)).toBe(329608.04);
+  });
+  it("prix arrondi au centime de franc avant le produit ; somme exacte", () => {
+    expect(arrondiCentimeFranc(1.005)).toBe(1.01);
+    expect(arrondiCentimeFranc("7000")).toBe(7000);
+    expect(totalLigneFrancs(3, 0.335)).toBe(1.02); // 0,335 → 0,34 (centime) × 3
+    expect(sommeFrancs([0.1, 0.2])).toBe(0.3); // 0,1 + 0,2 flottant = 0,30000000000000004
+    expect(sommeFrancs([])).toBe(0);
   });
 });

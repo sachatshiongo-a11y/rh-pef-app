@@ -160,3 +160,17 @@ describe("modification d'un brouillon : plus de refus pour un bon en francs", ()
     await expect(prisma.bonDeCommande.create({ data: { numero: "999/PEF/T/OCT/26", sequence: 999, annee: 2026, mois: 10, devise: "CDF", totalUSD: 5, totalCDF: 14000 } })).rejects.toThrow(/BonDeCommande_devise_check/);
   }, 60_000);
 });
+
+describe("arithmétique en francs", () => {
+  it("centime de franc EXACT : 2,26 × 41 740,75 = 94 334,10 (le flottant donnait 94 334,09) ; total = somme des lignes (revue du 2026-10-12)", async () => {
+    await creer(form("CDF", [
+      { designation: "Ligne A", quantite: "2,26", prix: "41 740,75" },
+      { designation: "Ligne B", quantite: "11,19", prix: "44 116,5" },
+    ]));
+    const b = await dernier();
+    const par = Object.fromEntries(b.lignes.map((l) => [l.designation, nombres(l)]));
+    expect(par["Ligne A"]).toEqual([null, null, 41740.75, 94334.1]);
+    expect(par["Ligne B"]).toEqual([null, null, 44116.5, 493663.64]);
+    expect(Number(b.totalCDF)).toBe(587997.74);
+  }, 60_000);
+});

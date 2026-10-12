@@ -14,7 +14,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
-import { libelleTotalBon } from "@/lib/bon-commande-devise";
+import { arrondiCentimeFranc, libelleTotalBon, sommeFrancs, totalLigneFrancs } from "@/lib/bon-commande-devise";
 import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fournisseur-doublon-serveur";
 import { extraireBonCommandePDF, type DeviseBon, type LigneBonLue } from "@/lib/import-bc-pdf";
 import { appliquerReception, exigerBonReceptionnable, lireQuantitesRecues } from "@/lib/reception-bc";
@@ -134,7 +134,6 @@ const colonneOptionnelle = (fd: FormData, nom: string, libelle: string) => fd.ge
 /** Total d'une ligne ; null sans prix. Total du bon = somme des lignes CHIFFRÉES (le bon est annoncé incomplet sinon). */
 const totalLigne = (quantite: number, prix: number | null) => (prix === null ? null : quantite * prix);
 const totalDesLignes = (ls: { quantite: number; prixUnitaireUSD: number | null }[]) => ls.reduce((t, l) => t + (l.prixUnitaireUSD === null ? 0 : l.quantite * l.prixUnitaireUSD), 0);
-const arr2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Devise du bon (2026-10-16, « bons de commande en francs congolais aussi ») : la devise de SAISIE fait foi. Champ
@@ -179,8 +178,8 @@ function calculerBon(lignes: LigneSaisie[], devise: DeviseBon, taux: number | nu
       lignes: lignes.map((l) => ({ ...commun(l), prixUnitaireUSD: l.prix, totalLigneUSD: totalLigne(l.quantite, l.prix), prixUnitaireCDF: null, totalLigneCDF: null })),
     };
   }
-  const chiffrees = lignes.map((l) => { const pu = l.prix !== null && arr2(l.prix) > 0 ? arr2(l.prix) : null; return { l, pu, tot: pu === null ? null : arr2(l.quantite * pu) }; });
-  const totalCDF = arr2(chiffrees.reduce((t, c) => t + (c.tot ?? 0), 0));
+  const chiffrees = lignes.map((l) => { const pu = l.prix !== null && arrondiCentimeFranc(l.prix) > 0 ? arrondiCentimeFranc(l.prix) : null; return { l, pu, tot: pu === null ? null : totalLigneFrancs(l.quantite, pu) }; });
+  const totalCDF = sommeFrancs(chiffrees.map((c) => c.tot ?? 0)); // décimal exact : jamais Math.round(x * 100) / 100 (centime de franc faux sur ~6 lignes / 10 000)
   return {
     entete: { devise: "CDF" as const, totalUSD: null, totalCDF, tauxChangeUtilise: null },
     lignes: chiffrees.map((c) => ({ ...commun(c.l), prixUnitaireUSD: null, totalLigneUSD: null, prixUnitaireCDF: c.pu, totalLigneCDF: c.tot })),

@@ -13,6 +13,7 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 import { liensParArticle, optionsFournisseursPourArticles } from "@/lib/fournisseurs-article";
 import { formaterMontantFacture, libelleAutreDevise } from "@/lib/facture-devise";
+import { sommeFrancs, totalLigneFrancs } from "@/lib/bon-commande-devise";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -94,9 +95,8 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
     maj(i, { articleId, designation: a ? a.designation : "", prix: prixPropose(articleId, devise), uniteParCarton: canoniqueVersSaisie(a?.uniteParCarton) });
   };
   // Dollars : quantité × prix. Francs : prix au centime de franc, total de ligne au centime (comme l'enregistrement).
-  const arr2 = (n: number) => Math.round(n * 100) / 100;
-  const totalLigneNum = (l: Ligne) => (devise === "USD" ? nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix) : arr2(nombreDeSaisie(l.quantite) * arr2(nombreDeSaisie(l.prix))));
-  const total = devise === "USD" ? lignes.reduce((t, l) => t + totalLigneNum(l), 0) : arr2(lignes.reduce((t, l) => t + totalLigneNum(l), 0));
+  const totalLigneNum = (l: Ligne) => (devise === "USD" ? nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix) : totalLigneFrancs(nombreDeSaisie(l.quantite), nombreDeSaisie(l.prix)));
+  const total = devise === "USD" ? lignes.reduce((t, l) => t + totalLigneNum(l), 0) : sommeFrancs(lignes.map(totalLigneNum));
   const fmtTotal = (n: number) => (devise === "USD" ? `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $` : formaterMontantFacture(n, "CDF"));
   // Ligne sans prix (case vide ou 0) : signalée, son total est « — » et le total du bon est annoncé incomplet (jamais complété par un zéro).
   const sansPrix = (l: Ligne) => !(nombreDeSaisie(l.prix) > 0);

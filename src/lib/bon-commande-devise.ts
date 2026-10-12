@@ -9,6 +9,7 @@
 //    « sans prix » aussi (un bon de commande à 0 $ la ligne n'a pas de sens), sans être réécrites.
 
 import type { Prisma } from "@prisma/client";
+import Decimal from "decimal.js";
 import { ajouterAuTotal, formaterMontantFacture, libelleTotal, totalVide, type DeviseFacture } from "@/lib/facture-devise";
 import { usd as usdAffiche } from "@/lib/stock";
 
@@ -17,6 +18,17 @@ const num = (v: Dec): number | null => (v === null || v === undefined || String(
 
 export type BonBrut = { devise?: DeviseFacture | null; totalUSD?: Dec; totalCDF?: Dec };
 export type LigneBonBrute = { prixUnitaireUSD?: Dec; totalLigneUSD?: Dec; prixUnitaireCDF?: Dec; totalLigneCDF?: Dec };
+
+/**
+ * ARITHMÉTIQUE D'UN BON EN FRANCS, EXACTE AU CENTIME DE FRANC (revue du 2026-10-12). Décimale, jamais `Math.round(x * 100) / 100` :
+ * 2,26 × 41 740,75 = 94 334,095 s'arrondissait à 94 334,09 (le produit flottant tombe juste sous la moitié) au lieu de
+ * 94 334,10 ; ~6 lignes sur 10 000 étaient fausses d'un centime. Arrondi « moitié vers le haut », comme partout ailleurs.
+ */
+export const arrondiCentimeFranc = (n: number | string): number => new Decimal(n).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+/** Total d'une ligne en francs : quantité × prix (arrondi au centime), arrondi au centime. */
+export const totalLigneFrancs = (quantite: number, prix: number): number => new Decimal(quantite).times(arrondiCentimeFranc(prix)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+/** Somme de totaux de lignes en francs, exacte au centime. */
+export const sommeFrancs = (totaux: readonly number[]): number => totaux.reduce((t, x) => t.plus(x), new Decimal(0)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
 
 export const deviseBon = (b: { devise?: DeviseFacture | null }): DeviseFacture => (b.devise === "CDF" ? "CDF" : "USD");
 
