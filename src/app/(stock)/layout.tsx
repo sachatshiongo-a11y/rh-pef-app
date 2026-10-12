@@ -4,6 +4,7 @@ import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { urgentsParDomaine } from "@/lib/indicateurs/urgents";
+import { totalAValiderStock } from "@/lib/a-valider-compteur";
 import { exigerMotDePassePersonnel } from "@/app/espace/garde";
 import { StockShell } from "./stock-shell";
 
@@ -43,7 +44,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       maPhoto={moi?.employe?.photoUrl ?? null}
       autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{
-        "/stock/a-valider": nbAValider + nbDemandes,
+        "/stock/a-valider": totalAValiderStock({ bonsEnBrouillon: nbAValider, demandes: nbDemandes }), // même définition que le compteur de la page
         "/stock/commandes": nbAValider,
         "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}

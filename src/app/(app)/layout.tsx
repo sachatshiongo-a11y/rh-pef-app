@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
+import { totalAValiderRH } from "@/lib/a-valider-compteur";
 import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
@@ -29,14 +30,16 @@ async function chargerBadges(): Promise<Record<string, number>> {
   const modifsFicheEnAttente =
     (await prisma.demandeModifFiche.count({ where: { statut: "EN_ATTENTE" } })) +
     (await prisma.demandeCreationFiche.count({ where: { statut: "EN_ATTENTE" } }));
+  const attestationsDemandees = await prisma.attestation.count({ where: { statut: "DEMANDEE" } });
   const badges = {
-    // NB (2026-07-22) : les bulletins brouillons (PAS_VALIDE) du mois en cours ne comptent PLUS dans
-    // le badge « Demandes de validation ». Ils sont (re)créés automatiquement à chaque recalcul (ex.
-    // dès qu'on saisit des présences), ce qui faisait gonfler le badge de ~24 sans qu'il s'agisse de
-    // vraies demandes — la validation/clôture de la paie se fait dans l'onglet Paie. Le badge ne
-    // compte donc que les demandes réelles (congés, acomptes, changements de shift) + les bulletins
-    // VALIDÉS restant à payer (qui, eux, n'apparaissent qu'après une validation délibérée).
-    "/a-valider": congesEnAttente + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente + modifsFicheEnAttente,
+    // La définition du compteur est PARTAGÉE avec la page « Demandes de validation »
+    // (`lib/a-valider-compteur.ts`) : le chiffre du menu est celui de la page. Les bulletins
+    // brouillons du mois n'y comptent pas (décision du 2026-07-22 : recréés à chaque recalcul, ils
+    // gonflaient le badge sans être des demandes) ; la validation de la paie se fait aussi dans Paie.
+    "/a-valider": totalAValiderRH({
+      conges: congesEnAttente, fiches: modifsFicheEnAttente, acomptes: acomptesEnAttente, attestations: attestationsDemandees,
+      echanges: echangesEnAttente, changements: changementsShift, bulletinsAPayer: bulletinsValide,
+    }),
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };

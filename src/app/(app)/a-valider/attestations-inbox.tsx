@@ -8,6 +8,7 @@ import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { estErreur } from "@/lib/action-lisible";
 import { delivrerAttestations, refuserAttestations, type ResultatLotAttestations } from "../attestations/actions";
+import { EtatVide } from "@/components/etat-vide";
 
 export type AttestationRow = {
   id: string;
@@ -48,7 +49,7 @@ export function AttestationsInbox({ rows, peutValider }: { rows: AttestationRow[
   }
 
   if (rows.length === 0) {
-    return <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">Aucune demande d&apos;attestation en attente.</div>;
+    return <EtatVide message="Aucune demande d'attestation en attente." />;
   }
 
   return (

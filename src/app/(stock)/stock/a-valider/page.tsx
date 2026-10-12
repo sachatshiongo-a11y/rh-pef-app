@@ -7,6 +7,8 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { apercusDemandes } from "@/lib/validations-stock/apercu";
 import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
 import { DemandesAValider } from "./demandes-client";
+import { totalAValiderStock } from "@/lib/a-valider-compteur";
+import { RubriquesAValider, type RubriqueAValider } from "@/components/rubriques-a-valider";
 
 const STATUT_DECISION: Record<string, { texte: string; cls: string }> = {
   VALIDEE: { texte: "Validée", cls: "bg-emerald-100 text-emerald-800" },
@@ -33,49 +35,60 @@ export default async function AValiderPage() {
     apercusDemandes({ statut: { not: "EN_ATTENTE" }, ...miennes }, { take: 15 }),
   ]);
 
+  // Le MÊME total que le badge du menu (`lib/a-valider-compteur.ts`).
+  const total = totalAValiderStock({ bonsEnBrouillon: brouillons.length, demandes: enAttente.length });
+  const rubriques: RubriqueAValider[] = [
+    {
+      id: "bons-de-commande", titre: "Bons de commande", nombre: brouillons.length,
+      contenu: (
+        <ul className="divide-y rounded-lg border">
+          {brouillons.map((bc) => (
+            <li key={bc.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div>
+                <Link href={`/stock/commandes/${bc.id}`} className="font-medium text-primary underline">{bc.numero}</Link>
+                <span className="text-sm text-muted-foreground"> · {bc.fournisseur ? <Link href={`/stock/fournisseurs/${bc.fournisseur.id}`} className="text-primary hover:underline">{bc.fournisseur.nom}</Link> : "—"} · {bc._count.lignes} ligne(s) · {libelleTotalBon(bc, bc.lignes.length, bc._count.lignes)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>
+                {estDirection ? (
+                  <form action={validerBonCommande.bind(null, bc.id)}>
+                    <BoutonValider type="submit" />
+                  </form>
+                ) : (
+                  <span className="text-xs text-amber-700">En attente Direction</span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      ),
+    },
+    {
+      id: "demandes", titre: estDirection ? "Paiements, réconciliations et articles" : "Mes demandes", nombre: enAttente.length,
+      contenu: <DemandesAValider demandes={enAttente} estDirection={estDirection} />,
+    },
+  ];
+
   return (
     <div className="w-full space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Demandes à valider</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {estDirection
-            ? "Bons de commande, paiements de factures, réconciliations du stock et modifications d'articles en attente de votre décision. Tant qu'une demande n'est pas validée, rien n'est payé ni modifié."
-            : "Vos demandes en attente de la Direction : rien n'est payé ni modifié tant qu'elle ne les a pas validées."}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Demandes à valider</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {estDirection
+              ? "Bons de commande, paiements de factures, réconciliations du stock et modifications d'articles en attente de votre décision. Tant qu'une demande n'est pas validée, rien n'est payé ni modifié."
+              : "Vos demandes en attente de la Direction : rien n'est payé ni modifié tant qu'elle ne les a pas validées."}
+          </p>
+        </div>
+        <div className="rounded-xl border bg-card px-6 py-4 shadow-sm">
+          <p className="text-xs text-muted-foreground">En attente</p>
+          <p className="mt-1 text-3xl font-bold">{total}</p>
+        </div>
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-muted-foreground">Bons de commande ({brouillons.length})</h2>
-        {brouillons.length === 0 ? (
-          <p className="rounded-lg border bg-muted/30 px-4 py-4 text-center text-sm text-muted-foreground">Aucun bon de commande en attente.</p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {brouillons.map((bc) => (
-              <li key={bc.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div>
-                  <Link href={`/stock/commandes/${bc.id}`} className="font-medium text-primary underline">{bc.numero}</Link>
-                  <span className="text-sm text-muted-foreground"> · {bc.fournisseur ? <Link href={`/stock/fournisseurs/${bc.fournisseur.id}`} className="text-primary hover:underline">{bc.fournisseur.nom}</Link> : "—"} · {bc._count.lignes} ligne(s) · {libelleTotalBon(bc, bc.lignes.length, bc._count.lignes)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>
-                  {estDirection ? (
-                    <form action={validerBonCommande.bind(null, bc.id)}>
-                      <BoutonValider type="submit" />
-                    </form>
-                  ) : (
-                    <span className="text-xs text-amber-700">En attente Direction</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold">{estDirection ? "Paiements, réconciliations et articles" : "Mes demandes"} ({enAttente.length})</h2>
-        <DemandesAValider demandes={enAttente} estDirection={estDirection} />
-      </section>
+      <div>
+        <RubriquesAValider rubriques={rubriques} />
+      </div>
 
       {decidees.length > 0 && (
         <section className="space-y-2">

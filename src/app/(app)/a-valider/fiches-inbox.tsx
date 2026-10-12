@@ -7,6 +7,7 @@ import type { RapportFiche } from "@/lib/demandes-fiche";
 import { Avatar } from "@/components/avatar";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { DialogueRefus } from "@/components/dialogue-refus";
+import { EtatVide } from "@/components/etat-vide";
 
 export type FicheRow = {
   id: string;
@@ -65,7 +66,7 @@ export function FichesInbox({ rows, peutValider }: { rows: FicheRow[]; peutValid
   }
 
   if (rows.length === 0) {
-    return <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">Aucune modification ni création de fiche en attente.</div>;
+    return <EtatVide message="Aucune modification ni création de fiche en attente." />;
   }
 
   return (

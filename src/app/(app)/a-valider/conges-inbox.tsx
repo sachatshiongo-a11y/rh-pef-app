@@ -13,6 +13,7 @@ import {
 import { Avatar } from "@/components/avatar";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { DialogueRefus } from "@/components/dialogue-refus";
+import { EtatVide } from "@/components/etat-vide";
 
 export type CongeRow = {
   id: string;
@@ -90,11 +91,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
   }
 
   if (rows.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-        Aucune demande de congé en attente. 🎉
-      </div>
-    );
+    return <EtatVide message="Aucune demande de congé en attente." />;
   }
 
   return (

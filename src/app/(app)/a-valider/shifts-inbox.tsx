@@ -9,6 +9,7 @@ import {
   approuverChangementsEnLot, refuserChangementsEnLot, approuverEchangesEnLot, refuserEchangesEnLot,
   type RapportLotShifts,
 } from "../planning/decisions-lot-actions";
+import { EtatVide } from "@/components/etat-vide";
 
 /** Une demande en attente, déjà mise en phrases par le serveur. */
 export type LigneShift = {
@@ -55,7 +56,7 @@ export function ShiftsInbox({ type, rows, peutPlanning }: { type: "echange" | "c
   }
 
   if (rows.length === 0) {
-    return <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">{a.vide}</div>;
+    return <EtatVide message={a.vide} />;
   }
 
   return (

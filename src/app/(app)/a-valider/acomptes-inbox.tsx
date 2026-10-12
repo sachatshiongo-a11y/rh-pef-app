@@ -11,6 +11,7 @@ import {
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
 import { Avatar } from "@/components/avatar";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
+import { EtatVide } from "@/components/etat-vide";
 
 export type AcompteRow = {
   id: string;
@@ -59,11 +60,7 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
   }
 
   if (rows.length === 0) {
-    return (
-      <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-        Aucune demande d&apos;acompte en attente.
-      </div>
-    );
+    return <EtatVide message="Aucune demande d'acompte en attente." />;
   }
 
   return (

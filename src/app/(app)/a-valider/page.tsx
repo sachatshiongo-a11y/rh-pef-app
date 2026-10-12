@@ -19,6 +19,8 @@ import { salaireNetUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { exigerPageRH } from "@/lib/garde-page";
+import { totalAValiderRH } from "@/lib/a-valider-compteur";
+import { RubriquesAValider, type RubriqueAValider } from "@/components/rubriques-a-valider";
 
 function joursAvant(date: Date): number {
   // Échéances stockées à minuit UTC (jour civil) : l'écart se mesure au jour civil de Kinshasa.
@@ -182,21 +184,72 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     motif: a.motif ?? null,
     demandeLe: new Date(a.dateDemande).toLocaleDateString("fr-FR"),
   }));
-  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length + echanges.length + attestationRows.length + ficheRows.length;
+  // Le MÊME total que le badge du menu (`lib/a-valider-compteur.ts`) : les bulletins brouillons du
+  // mois, listés plus bas, n'y comptent pas.
+  const total = totalAValiderRH({
+    conges: congeRows.length, fiches: ficheRows.length, acomptes: acompteRows.length, attestations: attestationRows.length,
+    echanges: echanges.length, changements: changements.length, bulletinsAPayer: valideRows.length,
+  });
+  const rubriques: RubriqueAValider[] = [
+    { id: "conges", titre: "Demandes de congé", nombre: congeRows.length, contenu: <CongesInbox rows={congeRows} peutValider={peutValider} /> },
+    { id: "modifications-fiches", titre: "Modifications de fiches", nombre: ficheRows.length, contenu: <FichesInbox rows={ficheRows} peutValider={peutValider} /> },
+    { id: "acomptes", titre: "Demandes d'acompte sur salaire", nombre: acompteRows.length, contenu: <AcomptesInbox rows={acompteRows} peutValider={peutValider} /> },
+    { id: "attestations", titre: "Demandes d'attestation", nombre: attestationRows.length, contenu: <AttestationsInbox rows={attestationRows} peutValider={peutValider} /> },
+    {
+      id: "echanges", titre: "Échanges de shift entre salariés", nombre: echanges.length,
+      contenu: (
+        <ShiftsInbox
+          type="echange"
+          peutPlanning={peutPlanning}
+          rows={echanges.map((e) => ({
+            id: e.id,
+            salaries: [{ id: e.demandeurId, nom: e.demandeur.nom }, { id: e.collegueId, nom: e.collegue.nom }],
+            photoUrl: e.demandeur.photoUrl,
+            detail: `${e.demandeur.nom} cède ${frDate(e.demandeurDate)} (${shiftsMap.get(e.demandeurShiftId) ?? "—"}) · prend ${frDate(e.collegueDate)} (${shiftsMap.get(e.collegueShiftId) ?? "—"})${e.motif ? ` · ${e.motif}` : ""}`,
+            accordCollegue: e.reponseCollegue === "ACCEPTE",
+          }))}
+        />
+      ),
+    },
+    {
+      id: "changements", titre: "Changements de shift", nombre: changements.length,
+      contenu: (
+        <ShiftsInbox
+          type="changement"
+          peutPlanning={peutPlanning}
+          rows={changements.map((dem) => ({
+            id: dem.id,
+            salaries: [{ id: dem.employeeId, nom: dem.employee.nom }],
+            photoUrl: dem.employee.photoUrl,
+            detail: `${new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} · ${dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}${shiftsMap.get(dem.shiftDemandeId) ?? "—"}${dem.motif ? ` · ${dem.motif}` : ""}`,
+          }))}
+        />
+      ),
+    },
+    ...(peutPayer ? [
+      {
+        id: "bulletins-a-valider", titre: "Bulletins à valider", nombre: prepareRows.length,
+        contenu: peutValider
+          ? <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
+          : <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" lectureSeule="En attente de validation par la Direction" />,
+      },
+      { id: "bulletins-a-payer", titre: "Bulletins à payer", nombre: valideRows.length, contenu: <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" /> },
+    ] : []),
+  ];
 
   return (
     <div className="max-w-5xl">
       {erreur && (
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>
       )}
-      {/* En-tête façon Factorial : titre à gauche, grande carte compteur à droite */}
+      {/* En-tête : titre à gauche, compteur à droite (le même chiffre que le badge du menu) */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Demandes de validation</h1>
           <p className="text-sm text-muted-foreground">Demandes et bulletins en attente d&apos;action</p>
         </div>
-        <div className="rounded-xl border bg-card px-6 py-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">En attente</p>
+        <div className="rounded-xl border bg-card px-6 py-4 shadow-sm" title="Demandes en attente et bulletins validés à payer. Les bulletins à valider du mois (recréés à chaque recalcul) ne sont pas comptés.">
+          <p className="text-xs text-muted-foreground">En attente</p>
           <p className="mt-1 text-3xl font-bold">{total}</p>
         </div>
       </div>
@@ -209,102 +262,12 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
         </p>
       )}
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Demandes de congé ({congeRows.length})
-        </h2>
-        <CongesInbox rows={congeRows} peutValider={peutValider} />
-      </section>
+      <RubriquesAValider rubriques={rubriques} />
 
-      <section id="modifications-fiches" className="mb-8 scroll-mt-24">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Modifications de fiches ({ficheRows.length})
-        </h2>
-        <FichesInbox rows={ficheRows} peutValider={peutValider} />
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Demandes d&apos;acompte sur salaire ({acompteRows.length})
-        </h2>
-        <AcomptesInbox rows={acompteRows} peutValider={peutValider} />
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Demandes d&apos;attestation ({attestationRows.length})
-        </h2>
-        <AttestationsInbox rows={attestationRows} peutValider={peutValider} />
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Échanges de shift entre salariés ({echanges.length})
-        </h2>
-        <ShiftsInbox
-          type="echange"
-          peutPlanning={peutPlanning}
-          rows={echanges.map((e) => ({
-            id: e.id,
-            salaries: [{ id: e.demandeurId, nom: e.demandeur.nom }, { id: e.collegueId, nom: e.collegue.nom }],
-            photoUrl: e.demandeur.photoUrl,
-            detail: `${e.demandeur.nom} cède ${frDate(e.demandeurDate)} (${shiftsMap.get(e.demandeurShiftId) ?? "—"}) · prend ${frDate(e.collegueDate)} (${shiftsMap.get(e.collegueShiftId) ?? "—"})${e.motif ? ` · ${e.motif}` : ""}`,
-            accordCollegue: e.reponseCollegue === "ACCEPTE",
-          }))}
-        />
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Changements de shift ({changements.length})
-        </h2>
-        <ShiftsInbox
-          type="changement"
-          peutPlanning={peutPlanning}
-          rows={changements.map((dem) => ({
-            id: dem.id,
-            salaries: [{ id: dem.employeeId, nom: dem.employee.nom }],
-            photoUrl: dem.employee.photoUrl,
-            detail: `${new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} · ${dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}${shiftsMap.get(dem.shiftDemandeId) ?? "—"}${dem.motif ? ` · ${dem.motif}` : ""}`,
-          }))}
-        />
-      </section>
-
-      {peutPayer && (
-        <>
-          <section className="mb-8">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              {peutValider ? "Bulletins à valider — signer" : "Bulletins en attente de validation par la Direction"} ({prepareRows.length})
-            </h2>
-            {prepareRows.length === 0 ? (
-              <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-                Aucun bulletin en attente de validation.
-              </div>
-            ) : peutValider ? (
-              <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
-            ) : (
-              <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" lectureSeule="En attente de validation par la Direction" />
-            )}
-            {prepareHorsCalcul.length > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {prepareHorsCalcul.length} ligne(s) hors calcul (salarié sorti du calcul après réouverture) : voir l&apos;écran <Link href="/paie" className="text-primary underline">Paie</Link>.
-              </p>
-            )}
-          </section>
-
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Bulletins à payer ({valideRows.length})
-            </h2>
-            {valideRows.length === 0 ? (
-              <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-                Aucun bulletin validé en attente de paiement.
-              </div>
-            ) : (
-              <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" />
-            )}
-          </section>
-        </>
+      {peutPayer && prepareHorsCalcul.length > 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          {prepareHorsCalcul.length} ligne(s) hors calcul (salarié sorti du calcul après réouverture) : voir l&apos;écran <Link href="/paie" className="text-primary underline">Paie</Link>.
+        </p>
       )}
     </div>
   );

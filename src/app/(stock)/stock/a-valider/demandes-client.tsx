@@ -10,6 +10,7 @@ import type { ApercuDemande } from "@/lib/validations-stock/apercu";
 import { NATURE_LIBELLE, type NatureDemande } from "@/lib/validations-stock/charge";
 import { AlertesDemande, DetailDemande } from "./detail-demande";
 import { MOTIFS_SORTIE } from "@/lib/motif-sortie";
+import { EtatVide } from "@/components/etat-vide";
 
 const ORDRE: NatureDemande[] = ["PAIEMENT_FACTURE", "RECONCILIATION", "MOUVEMENT_MANUEL", "MODIF_ARTICLE", "LIEN_RESTO", "UNITE_RESTO"];
 const quand = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Kinshasa" });
@@ -67,7 +68,7 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
   const datesDe = (liste: string[]) => Object.fromEntries(liste.flatMap((id) => { const v = dates[id] ?? proposee.get(id); return v ? [[id, v]] : []; }));
 
   if (demandes.length === 0) {
-    return <p className="rounded-lg border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">{estDirection ? "Aucune demande en attente." : "Vous n'avez aucune demande en attente."}</p>;
+    return <EtatVide message={estDirection ? "Aucune demande en attente." : "Vous n'avez aucune demande en attente."} />;
   }
 
   return (
