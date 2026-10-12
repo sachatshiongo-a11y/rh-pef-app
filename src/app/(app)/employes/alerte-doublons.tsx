@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { EmployeeName } from "@/components/employee-name";
-import { BoutonNeutre, BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { libelleMotif, type FicheProche } from "@/lib/employe-doublon";
 import { reactiverEmploye } from "./actions";
 
@@ -109,7 +109,7 @@ export function AlerteDoublons({
                 <Link href={`/employes/nouveau?reembauche=${f.id}`} className={CLASSES_NEUTRE}>Réembaucher (nouvelle fiche)</Link>
               )}
               {!f.actif && !f.parti && peutReactiver && (
-                <BoutonValider type="button" disabled={enCours} onClick={() => reactiver(f.id)}>Réactiver</BoutonValider>
+                <BoutonApprouver type="button" disabled={enCours} onClick={() => reactiver(f.id)}>Réactiver</BoutonApprouver>
               )}
             </div>
           </li>

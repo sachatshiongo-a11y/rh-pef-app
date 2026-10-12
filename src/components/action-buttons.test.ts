@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 /**
  * Garde-fou de source : aucun fichier de l'application ne doit peindre lui-même un bouton
  * d'approbation / de refus / de validation (couleur, forme, icône en dur). Le seul chemin
- * autorisé est d'importer BoutonApprouver / BoutonRefuser / BoutonValider / BoutonDanger
+ * autorisé est d'importer BoutonApprouver / BoutonRefuser / BoutonDanger
  * (ou, pour une étape intermédiaire qui n'est ni l'un ni l'autre, BoutonNeutre /
  * CLASSES_NEUTRE) depuis "@/components/action-buttons".
  *
@@ -39,7 +39,8 @@ const RACINE_SRC = join(__dirname, "..");
 const RACINE_APP = join(RACINE_SRC, "app");
 
 // Exceptions documentées, pas des oublis : ces boutons emploient « Valider » au sens de
-// « confirmer/enregistrer un formulaire », jamais pour approuver ou refuser une demande
+// « confirmer/enregistrer un formulaire » (« Approuver » est le seul verbe des décisions de la
+// Direction depuis le 2026-10-12 ; le garde-fou `app/vocabulaire.garde-fou.test.ts` en tient la liste), jamais pour approuver ou refuser une demande
 // faite par quelqu'un d'autre — aucun n'a de bouton "Refuser" en vis-à-vis.
 const EXCEPTIONS = new Set<string>([
   // Couleur qui code le SENS du mouvement (entrée = vert, sortie = rouge), pas une décision.

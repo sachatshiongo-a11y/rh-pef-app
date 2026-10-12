@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
-import { BoutonRefuser, BoutonValider } from "@/components/action-buttons";
+import { BoutonRefuser, BoutonApprouver } from "@/components/action-buttons";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { estErreur } from "@/lib/action-lisible";
@@ -57,7 +57,7 @@ export function AttestationsInbox({ rows, peutValider }: { rows: AttestationRow[
       {avis && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{avis}</p>}
       {peutValider && (
         <BulkBar count={sel.sel.size} total={rows.length} onAll={(on) => sel.setAll(rows.map((r) => r.id), on)}>
-          <BoutonValider disabled={enCours} onClick={() => lancer(() => delivrerAttestations(sel.ids), sel.clear)}>Délivrer</BoutonValider>
+          <BoutonApprouver disabled={enCours} onClick={() => lancer(() => delivrerAttestations(sel.ids), sel.clear)}>Délivrer</BoutonApprouver>
           <input value={motifLot} onChange={(e) => setMotifLot(e.target.value)} placeholder="Motif du refus" aria-label="Motif du refus" className={`${inputCls} w-40`} />
           <BoutonRefuser
             disabled={enCours || !motifLot.trim()}
@@ -82,7 +82,7 @@ export function AttestationsInbox({ rows, peutValider }: { rows: AttestationRow[
               <ContratViewerButton href={`/attestations/${d.id}/apercu`} titre={`Aperçu — ${d.typeLibelle} · ${d.nom}`} libelle="Aperçu" className="text-xs text-primary underline" />
               {peutValider && (
                 <>
-                  <BoutonValider disabled={enCours} onClick={() => lancer(() => delivrerAttestations([d.id]))}>Délivrer</BoutonValider>
+                  <BoutonApprouver disabled={enCours} onClick={() => lancer(() => delivrerAttestations([d.id]))}>Délivrer</BoutonApprouver>
                   <BoutonRefuser disabled={enCours} onClick={() => setRefusLigne(refusLigne?.id === d.id ? null : { id: d.id, motif: "" })} />
                 </>
               )}

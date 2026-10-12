@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
-import { BoutonDanger, BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { BoutonDanger, BoutonNeutre, BoutonApprouver } from "@/components/action-buttons";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { estErreur } from "@/lib/action-lisible";
 import { jjmmaaaa } from "@/lib/achats-liste";
@@ -91,9 +91,9 @@ export function FournisseursArticle({ articleId, unite, lignes, autres, etat, es
 
       {lignes.length > 0 && (
         <BulkBar count={sel.size} total={lignes.length} onAll={(on) => setAll(lignes.map((l) => l.fournisseurId), on)}>
-          <BoutonValider type="button" disabled={isPending || habituelChoisi === null} title="Un seul fournisseur à la fois, qui n'est pas déjà l'habituel" onClick={() => lancer(() => definirFournisseurHabituel(articleId, habituelChoisi!.fournisseurId))}>
+          <BoutonApprouver type="button" disabled={isPending || habituelChoisi === null} title="Un seul fournisseur à la fois, qui n'est pas déjà l'habituel" onClick={() => lancer(() => definirFournisseurHabituel(articleId, habituelChoisi!.fournisseurId))}>
             {estDirection ? "Définir comme habituel" : "Proposer comme habituel"}
-          </BoutonValider>
+          </BoutonApprouver>
           <BoutonDanger type="button" disabled={isPending || choisis.length === 0} title="Retire de la liste de l'article (s'il était l'habituel, l'article reste sans habituel)" onClick={() => {
             if (!window.confirm(`${estDirection ? "Retirer" : "Proposer de retirer"} ${choisis.map((c) => c.nom).join(", ")} des fournisseurs de cet article ?`)) return;
             lancer(() => retirerFournisseursArticle(articleId, choisis.map((c) => c.fournisseurId)));

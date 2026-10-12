@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver } from "@/components/action-buttons";
 import { estErreur } from "@/lib/action-lisible";
 import { demanderMonAttestation } from "./actions";
 
@@ -39,7 +39,7 @@ export function FormulaireDemande({ types }: { types: { v: "TRAVAIL" | "STAGE"; 
         <input value={motif} onChange={(e) => setMotif(e.target.value)} maxLength={200} placeholder="ex. dossier bancaire" className={inputCls} />
       </label>
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
-        <BoutonValider type="submit" disabled={enCours} className="min-h-11 w-full justify-center sm:min-h-0 sm:w-auto">{enCours ? "Envoi…" : "Demander l'attestation"}</BoutonValider>
+        <BoutonApprouver type="submit" disabled={enCours} className="min-h-11 w-full justify-center sm:min-h-0 sm:w-auto">{enCours ? "Envoi…" : "Demander l'attestation"}</BoutonApprouver>
         {avis && (
           <p role="status" className={`text-sm ${avis.ok ? "text-emerald-700" : "text-destructive"}`}>{avis.texte}</p>
         )}

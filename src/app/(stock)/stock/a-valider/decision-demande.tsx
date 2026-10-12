@@ -7,7 +7,7 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonApprouver, BoutonRefuser, BoutonNeutre } from "@/components/action-buttons";
 
 /**
- * Décision sur UNE demande, là où elle se voit (fiche facture, fiche article) : Valider / Refuser
+ * Décision sur UNE demande, là où elle se voit (fiche facture, fiche article) : Approuver / Refuser
  * (motif) pour la Direction, « Retirer ma demande » pour son auteur. Mêmes actions serveur que la
  * page « À valider » — qui revérifient les droits, ce bouton n'est qu'un raccourci.
  * `dateProposee` : demande de paiement → la Direction peut corriger la date avant de valider.
@@ -40,7 +40,7 @@ export function DecisionDemande({ id, version, estDirection, estAuteur, dateProp
         )}
         {estDirection && !refus && (
           <>
-            <BoutonApprouver disabled={isPending} onClick={() => agir(() => validerDemandes([id], dateProposee ? { [id]: date } : {}, { [id]: version }))}>Valider</BoutonApprouver>
+            <BoutonApprouver disabled={isPending} onClick={() => agir(() => validerDemandes([id], dateProposee ? { [id]: date } : {}, { [id]: version }))}>Approuver</BoutonApprouver>
             <BoutonRefuser disabled={isPending} onClick={() => setRefus(true)}>Refuser</BoutonRefuser>
           </>
         )}

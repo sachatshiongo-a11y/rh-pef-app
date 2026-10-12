@@ -22,7 +22,7 @@ const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 export type Jour = JourResto;
 
-const MESSAGE_DEMANDE = "Demande envoyée à la Direction : le rattachement ne change qu'une fois validé (Stock → À valider).";
+const MESSAGE_DEMANDE = "Demande envoyée à la Direction : le rattachement ne change qu'une fois approuvé (Stock → À valider).";
 export type LigneResto = {
   id: string;
   /** Désactivé : affiché seulement sur « Afficher les désactivés », grisé, sans saisie. */

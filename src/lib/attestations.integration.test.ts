@@ -343,7 +343,7 @@ describe("date d'effet : seule une paie à partir de la paie au planning fait fo
       await paie(a, 6, 2026, "PAYE", 250, 300);
       expect(await instantaneAttestation(prisma, a, "SALAIRE")).toEqual({
         ok: false,
-        motif: "Aucune paie validée depuis septembre 2026 : la Direction doit d'abord valider la paie.",
+        motif: "Aucune paie validée depuis septembre 2026 : la Direction doit d'abord approuver la paie.",
       });
       expect((await instantaneAttestation(prisma, a, "TRAVAIL")).ok).toBe(true);
       const sept = await paie(a, 9, 2026, "VALIDE", 310, 360);

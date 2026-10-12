@@ -53,13 +53,13 @@ export const valeurJournal = (vers: Periode, origine: OrigineChangementMois) => 
 
 /** Refus de quitter un mois CLÔTURÉ qui garde des bulletins rouverts en attente (message du geste manuel). */
 export function messageRefusChangementMois(noms: string[]): string {
-  return `La paie du mois en cours est clôturée mais ${noms.length} bulletin(s) rouvert(s) attendent d'être revalidés (${noms.join(", ")}) : revalidez-les dans Paie avant de changer de mois.`;
+  return `La paie du mois en cours est clôturée mais ${noms.length} bulletin(s) rouvert(s) attendent d'être de nouveau approuvés (${noms.join(", ")}) : approuvez-les de nouveau dans Paie avant de changer de mois.`;
 }
 
 /** Refus de quitter un mois NON clôturé dont la paie calculée garde des bulletins non validés (audit
  *  du 2026-10-10) : le mois quitté, ils n'étaient plus ni recalculés ni validables depuis /paie. */
 export function messageRefusMoisNonCloture(noms: string[]): string {
-  return `La paie du mois en cours n'est pas clôturée et ${noms.length} bulletin(s) ne sont pas validés (${noms.join(", ")}) : validez-les et clôturez la paie, ou réinitialisez-la s'il ne s'agit que de brouillons, avant de changer de mois.`;
+  return `La paie du mois en cours n'est pas clôturée et ${noms.length} bulletin(s) ne sont pas validés (${noms.join(", ")}) : approuvez-les et clôturez la paie, ou réinitialisez-la s'il ne s'agit que de brouillons, avant de changer de mois.`;
 }
 
 /** Le même refus, dit depuis la clôture : rien n'a été clôturé. */

@@ -20,7 +20,7 @@ export function AlertesDemande({ a }: { a: ApercuDemande }) {
   if (a.alertes.length === 0) return null;
   return (
     <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
-      <p className="font-semibold">⚠ Elle ne peut plus être validée telle quelle — refusez-la :</p>
+      <p className="font-semibold">⚠ Elle ne peut plus être approuvée telle quelle — refusez-la :</p>
       <ul className="mt-0.5 list-disc pl-4">{a.alertes.map((t, i) => <li key={i}>{t}</li>)}</ul>
     </div>
   );

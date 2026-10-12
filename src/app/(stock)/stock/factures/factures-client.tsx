@@ -7,7 +7,7 @@ import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEn
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonNeutre } from "@/components/action-buttons";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BulkBar } from "@/components/bulk-bar";
@@ -213,14 +213,14 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                       <BasculeDevise petit devise={devise} deviseFacture={f.devise ?? "USD"} onDevise={(d) => { setDevise(d); if (d === "CDF" && (f.devise ?? "USD") === "USD") setFrancs(francsProposes(f.reste, taux)); if (d === "USD" && f.devise === "CDF") setDollars(dollarsProposes(f.reste, taux)); }} taux={taux} />
                       {devise === "CDF" && (f.devise ?? "USD") === "USD" && <SaisieFrancs petit francs={francs} onFrancs={setFrancs} reste={f.reste} taux={taux} demande={!estDirection} />}
                       {devise === "USD" && f.devise === "CDF" && <SaisieDollars petit dollars={dollars} onDollars={setDollars} reste={f.reste} taux={taux} demande={!estDirection} />}
-                      <BoutonValider onClick={() => run(() => (f.devise === "CDF"
+                      <BoutonApprouver onClick={() => run(() => (f.devise === "CDF"
                         ? marquerPayee(f.id, dateChoisie, undefined, devise === "USD" ? dollars : undefined)
                         : marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined)), () => setDatePickerId(null))}
-                        disabled={isPending || (devise === "CDF" && (f.devise ?? "USD") === "USD" && !((lireNombreSaisi(francs) ?? 0) > 0)) || (devise === "USD" && f.devise === "CDF" && !((lireNombreSaisi(dollars) ?? 0) > 0))}>{libelleConfirmer}</BoutonValider>
+                        disabled={isPending || (devise === "CDF" && (f.devise ?? "USD") === "USD" && !((lireNombreSaisi(francs) ?? 0) > 0)) || (devise === "USD" && f.devise === "CDF" && !((lireNombreSaisi(dollars) ?? 0) > 0))}>{libelleConfirmer}</BoutonApprouver>
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (
-                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); setDevise(f.devise ?? "USD"); setFrancs(""); setDollars(""); }}>{libelleMarquer}</BoutonValider>
+                    <BoutonApprouver onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); setDevise(f.devise ?? "USD"); setFrancs(""); setDollars(""); }}>{libelleMarquer}</BoutonApprouver>
                   )
                 )}
                 {estDirection && (
@@ -276,18 +276,18 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                 </>
               );
             })()}
-            <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
+            <BoutonApprouver onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
               {libelleConfirmer} ({selNonReglees.length})
-            </BoutonValider>
+            </BoutonApprouver>
             <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
           </span>
         ) : (
-          <BoutonValider
+          <BoutonApprouver
             onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); setLotDevise(toutes.some((f) => selNonReglees.includes(f.id) && f.devise === "CDF") ? "SA_DEVISE" : "USD"); }}
             disabled={isPending || selNonReglees.length === 0}
           >
             {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})
-          </BoutonValider>
+          </BoutonApprouver>
         )}
         {selDejaDemandees > 0 && <span className="text-xs text-amber-800">{selDejaDemandees} déjà en attente de la Direction</span>}
         {/* Export Excel de la SÉLECTION (lecture seule, ouvert à tout l'espace Stock comme l'export complet). */}

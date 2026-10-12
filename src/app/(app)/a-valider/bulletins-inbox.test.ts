@@ -18,13 +18,14 @@ describe("/a-valider : la validation rappelle les avertissements", () => {
     );
   });
 
-  it("les deux boutons « Valider » (lot et ligne) passent par cette confirmation", () => {
-    const boutons = [...s.matchAll(/<BoutonValider onClick=\{\(\) => ([^}]+)\}/g)].map((m) => m[1]);
+  it("les deux boutons « Approuver » (lot et ligne) passent par cette confirmation", () => {
+    const boutons = [...s.matchAll(/<BoutonApprouver onClick=\{\(\) => ([^}]+)\}/g)].map((m) => m[1]);
     expect(boutons).toEqual(["lancer(idsSelection)", "lancer([r.id])"]);
   });
 
   it("rien de recopié : ni message ni filtre maison", () => {
     expect(s).not.toContain("Avant de valider");
+    expect(s).not.toContain("Avant d'approuver");
     expect(s).not.toContain('statutPaiement === "PAS_VALIDE"'); // (le « vers === "PAS_VALIDE" » de Rouvrir n'est pas un filtre de lignes)
   });
 
@@ -59,7 +60,7 @@ describe("/a-valider : rouvrir un bulletin validé (Direction), repris de l'écr
     const boutons = [...s.matchAll(/\{peutRouvrir (&& !r\.periode )?&& <BoutonNeutre onClick=\{\(\) => (lancer\([^)]*\))\} disabled=\{isPending\}>↩ Rouvrir<\/BoutonNeutre>\}/g)].map((m) => `${m[1] ?? ""}${m[2]}`);
     // La ligne d'un mois clôturé (« Paie de septembre 2026 ») n'a pas de « Rouvrir » (relecture du lot 8).
     expect(boutons).toEqual(['lancer(idsSelection, "PAS_VALIDE")', '&& !r.periode lancer([r.id], "PAS_VALIDE")']);
-    expect(s).toContain('import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";');
+    expect(s).toContain('import { BoutonApprouver, BoutonNeutre } from "@/components/action-buttons";');
   });
   it("un lot « Rouvrir » écarte les bulletins d'un mois clôturé (le serveur les refuse de toute façon)", () => {
     expect(s).toMatch(/if \(vers === "PAS_VALIDE"\) \{[\s\S]*?ids = ids\.filter\(\(id\) => !rows\.find\(\(x\) => x\.id === id\)\?\.periode\);[\s\S]*?window\.confirm\(question\)/);

@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BoutonNeutre, BoutonValider, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { EmployeeName } from "@/components/employee-name";
@@ -326,9 +326,9 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
         <>
           <div className="mb-3">
             <BulkBar count={sel.size} total={selectionnables.length} onAll={(on) => setAll(selectionnables.map((s) => s.id), on)}>
-              <BoutonValider onClick={() => lancer("creation", aCreer.map((s) => s.id))} disabled={enCours || aCreer.length === 0}>
+              <BoutonApprouver onClick={() => lancer("creation", aCreer.map((s) => s.id))} disabled={enCours || aCreer.length === 0}>
                 Créer les comptes ({aCreer.length})
-              </BoutonValider>
+              </BoutonApprouver>
               <BoutonNeutre
                 onClick={() => lancer("nouvelle-fiche", aRenouveler.map((s) => s.id))}
                 disabled={enCours || aRenouveler.length === 0}

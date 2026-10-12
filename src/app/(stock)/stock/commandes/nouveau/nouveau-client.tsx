@@ -213,7 +213,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       {!initial && estDirection && (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="enregistrerBrouillon" />
-          <span>Enregistrer comme <strong>brouillon</strong> (ne pas valider tout de suite)</span>
+          <span>Enregistrer comme <strong>brouillon</strong> (ne pas approuver tout de suite)</span>
         </label>
       )}
 

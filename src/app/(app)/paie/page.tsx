@@ -364,8 +364,8 @@ export default async function PaiePage({
               <input type="hidden" name="mois" value={mois} />
               <input type="hidden" name="annee" value={annee} />
               <ConfirmSubmitButton
-                variante="valider"
-                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."} Les bulletins validés restant à payer se paieront ensuite depuis « À valider ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                variante="approuver"
+                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela approuve d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."} Les bulletins validés restant à payer se paieront ensuite depuis « À valider ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 {nbPasValide > 0 ? `Clôturer la paie (${nbPasValide})` : "Clôturer la paie"}
               </ConfirmSubmitButton>
@@ -484,10 +484,9 @@ export default async function PaiePage({
           <p className="mt-1 text-xs text-amber-900/80">
             Salarié sorti du calcul de la paie après la réouverture de sa ligne : elle est conservée (avec ses
             bulletins émis et son historique) mais ne compte ni dans les totaux, ni dans le livre de paie, ni
-            dans les déclarations, ni dans les exports. Elle ne peut pas être validée ; la clôture du mois la
+            dans les déclarations, ni dans les exports. Elle ne peut pas être approuvée ; la clôture du mois la
             laisse de côté, et ses montants restent ceux de son dernier calcul (même après une
-            réinitialisation). Fiche désactivée : pour payer ce mois au salarié, réactivez sa fiche le temps de
-            valider sa paie (Direction), puis désactivez-la. Intérimaire : il est payé par l&apos;agence.
+            réinitialisation). Fiche désactivée : pour payer ce mois au salarié, réactivez sa fiche le temps d&apos;approuver sa paie (Direction), puis désactivez-la. Intérimaire : il est payé par l&apos;agence.
           </p>
           <ul className="mt-3 divide-y rounded-lg border border-amber-200 bg-background text-sm">
             {horsCalcul.map((l) => (

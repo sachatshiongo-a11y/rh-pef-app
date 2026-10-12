@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { formaterNombre } from "@/lib/montant";
 import { estErreur } from "@/lib/action-lisible";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver } from "@/components/action-buttons";
 import { NOM_ESPACE, type DecisionAuto, type MotifLaisse } from "@/lib/fiches/rattachement-resto";
 import { conseilSignalement, conseilLivraison, type ArticleRestoSR, type LivraisonSR, type SignalementLivraison } from "@/lib/stock-restaurant";
 import { rattacherLivraisonsAutomatiquement } from "./actions";
@@ -97,9 +97,9 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
               <input type="checkbox" checked={coches.length === idsAuto.length} onChange={(e) => toutCocher(e.target.checked)} aria-label="Tout sélectionner" />
               <span className={sousTitre}>Rattachables automatiquement ({pl(idsAuto.length, "article")})</span>
             </label>
-            <BoutonValider disabled={isPending || coches.length === 0} onClick={rattacher}>
+            <BoutonApprouver disabled={isPending || coches.length === 0} onClick={rattacher}>
               {isPending ? "Rattachement…" : `Rattacher automatiquement (${coches.length})`}
-            </BoutonValider>
+            </BoutonApprouver>
           </div>
           <ul className="space-y-1 text-xs">
             {auto.map((l) => (

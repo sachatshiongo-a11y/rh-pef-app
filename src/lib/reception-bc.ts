@@ -13,7 +13,7 @@ const dec = (v: Dec): Decimal => (v === null || v === undefined || String(v).tri
 
 /** Une réception n'a de sens que sur un bon validé, pas encore entièrement reçu, non annulé. */
 export function exigerBonReceptionnable(statut: string): void {
-  if (statut === "BROUILLON") throw new Error("Ce bon de commande est un brouillon : faites-le valider avant d'enregistrer une réception.");
+  if (statut === "BROUILLON") throw new Error("Ce bon de commande est un brouillon : faites-le approuver avant d'enregistrer une réception.");
   if (statut === "ANNULE") throw new Error("Ce bon de commande est annulé : aucune réception ne peut être enregistrée.");
   if (statut === "RECU") throw new Error("Ce bon de commande est déjà reçu en totalité : rien à réceptionner. (Pour corriger, changez son statut.)");
 }

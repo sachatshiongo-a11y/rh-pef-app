@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import jsQR from "jsqr";
-import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { BoutonNeutre, BoutonApprouver } from "@/components/action-buttons";
 import { ChampNombre } from "@/components/champ-nombre";
 import { versSaisie } from "@/lib/nombre";
 import { annulerPointage, saisirMaPause, scannerAffiche } from "@/app/pointage/actions";
@@ -366,14 +366,14 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
                 Sans saisie, la pause par défaut de {PAUSE_DEFAUT_MIN} min s&apos;affiche mais n&apos;est pas déduite de
                 vos heures. Une pause enregistrée ici est déduite.
               </p>
-              <BoutonValider
+              <BoutonApprouver
                 type="button"
                 onClick={() => validerPause(ecran)}
                 disabled={enCours || minutes === null}
                 className={CLASSES_BOUTON_PLEIN}
               >
                 {enCours ? "Enregistrement…" : "Enregistrer ma pause"}
-              </BoutonValider>
+              </BoutonApprouver>
             </div>
           )}
           {ecran.erreur && <Avis ton="erreur">{ecran.erreur}</Avis>}

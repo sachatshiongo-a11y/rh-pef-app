@@ -235,7 +235,7 @@ describe("tout ou rien : un passage refusé annule la clôture entière", () => 
     const bob = await ligne(ids.bob);
     await changerStatutPaie(bob.id, fd({ versStatut: "PAS_VALIDE" }));
     const avant = (await passages()).length;
-    expect(await changerMoisDansParametres(10)).toBe("/parametres?erreur=La paie du mois en cours est clôturée mais 1 bulletin(s) rouvert(s) attendent d'être revalidés (Bob Banza) : revalidez-les dans Paie avant de changer de mois.");
+    expect(await changerMoisDansParametres(10)).toBe("/parametres?erreur=La paie du mois en cours est clôturée mais 1 bulletin(s) rouvert(s) attendent d'être de nouveau approuvés (Bob Banza) : approuvez-les de nouveau dans Paie avant de changer de mois.");
     expect(await moisRH()).toBe("9/2026");
     expect(await passages()).toHaveLength(avant);
     // La clôture, elle, revalide Bob (Direction) puis passe.

@@ -216,7 +216,7 @@ describe("5 — déclarations : provisoire, marquage refusé, montant figé, tau
     const ecran = await htmlDeclarations();
     expect(ecran).toContain("Provisoire.");
     expect(ecran).toContain("1 bulletin(s) sur 2");
-    expect(ecran).toContain("Validez la paie d");
+    expect(ecran).toContain("Approuvez la paie d");
     expect(ecran).not.toContain("Marquer déclaré");
     expect(ecran).not.toContain("Marquer payé");
     // « Cotisations (Excel) » porte le mois affiché.

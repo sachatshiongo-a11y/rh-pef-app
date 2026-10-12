@@ -177,7 +177,7 @@ export function UsersAdmin({
       </form>
       <p className="text-xs text-muted-foreground">
         <span className="font-medium">Direction</span> = accès total (RH + Stock) · <span className="font-medium">RH</span> =
-        saisit les demandes et vérifie les bulletins sans rien valider · <span className="font-medium">Consultation</span> =
+        saisit les demandes et vérifie les bulletins sans rien approuver · <span className="font-medium">Consultation</span> =
         lecture seule · <span className="font-medium">Stock</span> = espace Stock &amp; Achats uniquement.
       </p>
     </div>

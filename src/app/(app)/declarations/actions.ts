@@ -33,7 +33,7 @@ async function appliquerMarquage(
     const premierMarquage = !existant || existant.statut === "A_DECLARER";
     if (premierMarquage && bordereau.provisoire) {
       throw new Error(
-        `Déclaration impossible : ${bordereau.nbNonValides} bulletin(s) sur ${bordereau.nbBulletins} ne sont pas encore validés — les montants peuvent encore changer. Validez la paie du mois d'abord.`,
+        `Déclaration impossible : ${bordereau.nbNonValides} bulletin(s) sur ${bordereau.nbBulletins} ne sont pas encore validés — les montants peuvent encore changer. Approuvez la paie du mois d'abord.`,
       );
     }
     await tx.declarationTaxe.upsert({

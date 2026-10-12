@@ -276,7 +276,7 @@ describe("mois courant clôturé : une ligne rouverte pour correction reste comp
     expect(run.statut).toBe("VALIDE");
     expect((await separerHorsCalcul(prisma, run.lignes)).horsCalcul).toEqual([]); // comptée
     const changerDeMois = () => mettreAJourConfig(fd({ moisCourant: "10", anneeCourante: "2026", tauxChangeCDF: "2300", jourPaie: "30" }));
-    expect(decodeURIComponent(await ignorerRedirection(changerDeMois()))).toMatch(/revalidez-les dans Paie avant de changer de mois/);
+    expect(decodeURIComponent(await ignorerRedirection(changerDeMois()))).toMatch(/approuvez-les de nouveau dans Paie avant de changer de mois/);
     expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(9);
     await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect((await ligne(ids.ada)).statutPaiement).toBe("VALIDE");

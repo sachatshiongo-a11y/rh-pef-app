@@ -488,7 +488,7 @@ export async function cloturerPaie(formData: FormData): Promise<void> {
   if (taches.length > 0) {
     // Message lisible via ?erreur= (un throw serait masqué par Next en production).
     redirect(
-      `/paie?erreur=${encodeURIComponent(`Clôture bloquée : ${taches.length} tâche(s) à traiter avant de valider la paie (voir la bannière).`)}`
+      `/paie?erreur=${encodeURIComponent(`Clôture bloquée : ${taches.length} tâche(s) à traiter avant d'approuver la paie (voir la bannière).`)}`
     );
   }
 

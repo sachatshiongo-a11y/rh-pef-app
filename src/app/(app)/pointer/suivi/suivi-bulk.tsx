@@ -4,11 +4,11 @@
 // interactif : tout le formatage (heures, motifs lisibles) est fait CÔTÉ SERVEUR par page.tsx, ce
 // composant ne fait que cocher/décocher et appeler `marquerVerifies`. Actions groupées : cases +
 // barre (préférence de la Direction, comme les barres de « À valider »), jamais de couleur peinte à la main —
-// `BoutonValider` de `@/components/action-buttons`.
+// `BoutonApprouver` de `@/components/action-buttons`.
 
 import { useState, useTransition } from "react";
 import { marquerVerifies } from "./actions";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonApprouver } from "@/components/action-buttons";
 import { EmployeeName } from "@/components/employee-name";
 import { estErreur } from "@/lib/action-lisible";
 
@@ -97,9 +97,9 @@ export function SuiviBulk({ lignes }: { lignes: LigneSuivi[] }) {
       {n > 0 && (
         <div className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
-          <BoutonValider onClick={valider} disabled={isPending}>
+          <BoutonApprouver onClick={valider} disabled={isPending}>
             Marquer vérifié
-          </BoutonValider>
+          </BoutonApprouver>
           <button onClick={() => setSelection(new Set())} className="ml-auto text-xs text-muted-foreground underline">
             Tout désélectionner
           </button>

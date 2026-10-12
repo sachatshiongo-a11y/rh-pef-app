@@ -269,8 +269,8 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       {
         id: "bulletins-a-valider", titre: "Bulletins à valider", nombre: prepareRows.length,
         contenu: peutValider
-          ? <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
-          : <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" lectureSeule="En attente de validation par la Direction" />,
+          ? <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Approuver" />
+          : <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Approuver" lectureSeule="En attente de validation par la Direction" />,
       },
       { id: "bulletins-a-payer", titre: "Bulletins à payer", nombre: valideRows.length, contenu: <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" peutRouvrir={peutValider} /> },
     ] : []),
@@ -305,8 +305,8 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       {!peutValider && (
         <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           {peutPayer
-            ? "Rien n'est modifié tant que la Direction n'a pas validé vos demandes. Vous marquez payés les bulletins qu'elle a validés."
-            : "Rien n'est modifié tant que la Direction n'a pas validé vos demandes."}
+            ? "Rien n'est modifié tant que la Direction n'a pas approuvé vos demandes. Vous marquez payés les bulletins qu'elle a validés."
+            : "Rien n'est modifié tant que la Direction n'a pas approuvé vos demandes."}
         </p>
       )}
 
