@@ -76,7 +76,7 @@ describe("fiche d'achat de légumes", () => {
     expect(pages).toHaveLength(1);
     expect(lignes).toContain("Ail Kg");
     expect(lignes).toContain("Menthe Botte");
-    expect(plat).toMatch(/Date : Désignation Unité QTÉ Montant/);
+    expect(plat).toMatch(/Date : Achat de légumes Marché Désignation Unité QTÉ Montant/);
     expect(plat).toMatch(/Montant donné \$ Montant total CDF Montant total \$/);
     expect(policesDeRepli(pdf)).toEqual([]);
   }, 120_000);

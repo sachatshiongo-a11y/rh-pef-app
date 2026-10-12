@@ -4,7 +4,7 @@ import path from "node:path";
 import { View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import { pdfColors, entreprise } from "./theme";
 
-const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
+export const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
 /** Logo TOLYA SARL (utilisé pour les documents contractuels ; les bulletins gardent le logo Pâtes en Folie). */
 export const logoTolyaPath = path.join(process.cwd(), "public/logo-tolya.jpg");
 /**
