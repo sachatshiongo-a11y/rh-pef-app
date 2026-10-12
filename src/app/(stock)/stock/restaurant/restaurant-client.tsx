@@ -175,9 +175,9 @@ export function RestaurantGrille({
                 {(i === 0 || lignes[i - 1].categorie !== l.categorie) && l.categorie && (
                   <tr><td colSpan={nbCol} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900 max-lg:sticky max-lg:left-0 max-lg:normal-case max-lg:tracking-normal">{l.categorie}</td></tr>
                 )}
-                <LigneR ligne={l} jours={jours} estDirection={estDirection} catalogue={catalogue}
+                <LigneR ligne={l} jours={jours} estDirection={estDirection} options={optionsArt}
                   selectionne={selection.has(l.id)} onSelection={basculer} onActiver={(id, actif) => activer([id], actif)}
-                  onSave={save} onSaveComptage={saveComptage} onAjouterLiens={ajouterLiens} onRetirerLiens={retirerLiens} options={optionsArt} onDelete={(id) => run(() => supprimerArticleResto(id))} />
+                  onSave={save} onSaveComptage={saveComptage} onAjouterLiens={ajouterLiens} onRetirerLiens={retirerLiens} onDelete={(id) => run(() => supprimerArticleResto(id))} />
               </Fragment>
             ))}
             {lignes.length === 0 && <tr><td colSpan={nbCol} className="px-3 py-6 text-center text-muted-foreground">Aucun article. Ajoutez-en avec « + Ajouter un article ».</td></tr>}
