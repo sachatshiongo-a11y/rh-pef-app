@@ -162,3 +162,98 @@ describe("historique de paie — « Corriger le paiement » (Direction seule, bu
     expect(texte(html)).toContain("le 30/06/2026 · Espèces");
   });
 });
+
+// ─── « Hors calcul » (Direction, 2026-10-12) : la fiche dit ce que l'écran Paie sait déjà ───────────────────────
+// La règle n'est PAS redécidée ici : `idsLignesHorsCalcul` (paie-hors-calcul.ts) est appelée telle quelle, sur une
+// base simulée à la main (lecture des salariés, contrats, runs et du mois courant), puis ses résultats alimentent
+// `ligneHistoriquePaie` et l'écran — le même chemin que la page de la fiche.
+import { ligneHistoriquePaie } from "./historique-paie";
+import { idsLignesHorsCalcul } from "@/lib/paie-hors-calcul";
+
+type Run = { statut: "BROUILLON" | "VALIDE"; mois: number; annee: number };
+function baseSimulee(opts: { actif?: boolean; runs: Record<string, Run>; moisCourant: { moisCourant: number; anneeCourante: number } }) {
+  return {
+    employee: { findMany: async () => [{ id: "e1", actif: opts.actif ?? true, contrat: "CDI", dateEmbauche: null }] },
+    contrat: { findMany: async () => [] },
+    payrollLine: { findMany: async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map((id) => ({ id, payrollRun: opts.runs[id] })) },
+    config: { findUnique: async () => opts.moisCourant },
+  } as never;
+}
+const BRUTE = (id: string, statut: "PAS_VALIDE" | "VALIDE" | "PAYE") => ({ id, employeeId: "e1", statutPaiement: statut });
+const COURANT = { moisCourant: 10, anneeCourante: 2026 };
+
+/** Comme la page : la règle décide, la fiche affiche. */
+async function ligneDeFiche(id: string, mois: number, statut: "PAS_VALIDE" | "VALIDE" | "PAYE", db: ReturnType<typeof baseSimulee>) {
+  const hors = await idsLignesHorsCalcul(db, [BRUTE(id, statut)]);
+  const run = { mois, annee: 2026, tauxChangeUtilise: 2800 };
+  return ligneHistoriquePaie(
+    { id, statutPaiement: statut, salNetUSD: 320, transportUSD: 20, tauxChangeFige: null, payrollRun: run, versionsBulletin: [] },
+    A_SIGNER,
+    hors.has(id),
+  );
+}
+
+describe("historique de paie — « Hors calcul »", () => {
+  it("mois passé CLÔTURÉ + Pas validé (Caprice, juillet) : « Hors calcul », pas « Pas validé »", async () => {
+    const db = baseSimulee({ runs: { j: { statut: "VALIDE", mois: 7, annee: 2026 } }, moisCourant: COURANT });
+    const html = rendu({ lignes: [ligne(2026, 10, "PAYE"), await ligneDeFiche("j", 7, "PAS_VALIDE", db)] });
+    expect(texte(html)).toContain("Hors calcul");
+    expect(texte(html)).not.toContain("Pas validé");
+    expect(html).toContain('title="Ne compte ni dans les totaux, ni dans les déclarations"');
+    expect(html).toContain("bg-gray-100"); // neutre : ni alerte ambre, ni rouge
+  });
+
+  it("mois COURANT + Pas validé : reste « Pas validé » (c'est à valider, pas à part)", async () => {
+    const db = baseSimulee({ runs: { c: { statut: "VALIDE", mois: 10, annee: 2026 } }, moisCourant: COURANT });
+    const html = rendu({ lignes: [await ligneDeFiche("c", 10, "PAS_VALIDE", db)] });
+    expect(texte(html)).toContain("Pas validé");
+    expect(texte(html)).not.toContain("Hors calcul");
+  });
+
+  it("mois passé dont la paie n'est PAS clôturée : reste « Pas validé »", async () => {
+    const db = baseSimulee({ runs: { b: { statut: "BROUILLON", mois: 8, annee: 2026 } }, moisCourant: COURANT });
+    const html = rendu({ lignes: [await ligneDeFiche("b", 8, "PAS_VALIDE", db)] });
+    expect(texte(html)).toContain("Pas validé");
+  });
+
+  it("salarié SORTI du calcul (fiche désactivée) : « Hors calcul », même sur le mois courant", async () => {
+    const db = baseSimulee({ actif: false, runs: { c: { statut: "BROUILLON", mois: 10, annee: 2026 } }, moisCourant: COURANT });
+    const html = rendu({ lignes: [await ligneDeFiche("c", 10, "PAS_VALIDE", db)] });
+    expect(texte(html)).toContain("Hors calcul");
+  });
+
+  it("lignes validées et payées : inchangées, même dans un mois clôturé et pour un salarié sorti", async () => {
+    const db = baseSimulee({
+      actif: false,
+      runs: { v: { statut: "VALIDE", mois: 7, annee: 2026 }, p: { statut: "VALIDE", mois: 6, annee: 2026 } },
+      moisCourant: COURANT,
+    });
+    const v = await ligneDeFiche("v", 7, "VALIDE", db);
+    const p = await ligneDeFiche("p", 6, "PAYE", db);
+    expect([v.horsCalcul, p.horsCalcul]).toEqual([false, false]);
+    const t = texte(rendu({ lignes: [v, p] }));
+    expect(t).toContain("Validé");
+    expect(t).toContain("Payé");
+    expect(t).not.toContain("Hors calcul");
+  });
+
+  it("totaux : le décompte met les hors calcul à part, sans les additionner ; le non validé du mois courant reste « non validé »", () => {
+    const html = rendu({
+      lignes: [
+        ligne(2026, 10, "PAYE"), ligne(2026, 9, "PAYE"),
+        ligne(2026, 10, "PAS_VALIDE", { id: "courant" }),
+        ligne(2026, 7, "PAS_VALIDE", { id: "juillet", horsCalcul: true }),
+      ],
+    });
+    const bloc = texte(html.slice(html.indexOf('data-totaux-annee="2026"')));
+    expect(bloc).toContain("2 payés · 1 non validé · 1 hors calcul");
+    expect(bloc).toContain("Salaire net $ 600,00 $"); // 2 × 300 $, ni le non validé ni le hors calcul
+    expect(bloc).toContain("Total versé $ 640,00 $");
+    expect(bloc).toContain("un bulletin hors calcul ne compte pas");
+  });
+
+  it("aucun hors calcul : le décompte d'avant, sans mention", () => {
+    const bloc = texte(rendu({ lignes: LIGNES }));
+    expect(bloc).not.toContain("hors calcul");
+  });
+});

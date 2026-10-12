@@ -35,6 +35,8 @@ export type LigneHistoriquePaie = {
   /** Jour de versement (`YYYY-MM-DD`) et moyen de paiement d'un bulletin payé ; absents = jamais renseignés. */
   datePaiement?: string | null;
   modePaiement?: ModePaiement | null;
+  /** Bulletin PAS VALIDÉ mis à part par la règle « hors calcul » (`idsLignesHorsCalcul`, paie-hors-calcul.ts) : décidé par la page, jamais ici. */
+  horsCalcul?: boolean;
 };
 
 type Montant = { toString(): string };
@@ -52,6 +54,7 @@ export function ligneHistoriquePaie(
     versionsBulletin: { numeroVersion: number; genereLe: Date }[];
   },
   signature: EtatSignature,
+  horsCalcul = false,
 ): LigneHistoriquePaie {
   return {
     id: l.id,
@@ -65,6 +68,7 @@ export function ligneHistoriquePaie(
     signature,
     datePaiement: jourDeVersement(l.datePaiement),
     modePaiement: l.modePaiement ?? null,
+    horsCalcul: l.statutPaiement === "PAS_VALIDE" && horsCalcul,
   };
 }
 
@@ -88,7 +92,13 @@ const BADGES: Record<string, { classe: string; libelle: string }> = {
   PAS_VALIDE: { classe: "bg-amber-100 text-amber-800", libelle: "Pas validé" },
 };
 
-function PaiementBadge({ statut }: { statut: string }) {
+/** Pastille neutre d'un bulletin mis à part (ni erreur, ni alerte) : il ne compte ni dans les totaux ni dans les déclarations. */
+export const INFOBULLE_HORS_CALCUL = "Ne compte ni dans les totaux, ni dans les déclarations";
+
+function PaiementBadge({ statut, horsCalcul = false }: { statut: string; horsCalcul?: boolean }) {
+  if (statut === "PAS_VALIDE" && horsCalcul) {
+    return <span title={INFOBULLE_HORS_CALCUL} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">Hors calcul</span>;
+  }
   const b = BADGES[statut];
   return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${b?.classe ?? ""}`}>{b?.libelle ?? statut}</span>;
 }
@@ -166,12 +176,13 @@ export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, peutCorri
                   <span className="font-semibold">{t.payes}</span> payé{t.payes > 1 ? "s" : ""}
                   {t.valides > 0 && <> · <span className="font-semibold">{t.valides}</span> validé{t.valides > 1 ? "s" : ""}</>}
                   {" · "}<span className="font-semibold">{t.nonValides}</span> non validé{t.nonValides > 1 ? "s" : ""}
+                  {t.horsCalcul > 0 && <> · <span className="font-semibold">{t.horsCalcul}</span> hors calcul</>}
                 </dd>
               </div>
             </dl>
-            {(t.nonValides > 0 || partiel) && (
+            {(t.nonValides > 0 || t.horsCalcul > 0 || partiel) && (
               <p className="-mt-1 mb-3 text-xs text-muted-foreground">
-                Totaux des bulletins validés ou payés{t.nonValides > 0 ? " ; un bulletin non validé est provisoire et n'est pas additionné" : ""}
+                Totaux des bulletins validés ou payés{t.nonValides > 0 ? " ; un bulletin non validé est provisoire et n'est pas additionné" : ""}{t.horsCalcul > 0 ? `${t.nonValides > 0 ? ", un" : " ; un"} bulletin hors calcul ne compte pas` : ""}
                 {partiel ? ". Totaux de l'année entière : le tableau ci-dessous n'en montre qu'une partie" : ""}.
               </p>
             )}
@@ -199,7 +210,7 @@ export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, peutCorri
                       </td>
                       <td className="px-3 py-2 text-right text-muted-foreground"><Usd valeur={l.salNetUSD} /></td>
                       <td className="px-3 py-2">
-                        <PaiementBadge statut={l.statutPaiement} />
+                        <PaiementBadge statut={l.statutPaiement} horsCalcul={l.horsCalcul} />
                         {l.statutPaiement === "PAYE" && (l.datePaiement || l.modePaiement) && (
                           <span className="block text-[11px] text-muted-foreground">
                             {l.datePaiement ? `le ${jourFrancais(l.datePaiement)}` : ""}{l.datePaiement && l.modePaiement ? " · " : ""}{l.modePaiement ? libelleModePaiement(l.modePaiement) : ""}

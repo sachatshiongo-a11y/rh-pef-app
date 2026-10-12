@@ -61,12 +61,17 @@ export type LigneTotauxPaie = {
   transportUSD: number;
   /** Taux du bulletin (`tauxDeLigne`) ; 0 ou absent = inconnu. */
   taux: number;
+  /** Ligne PAS VALIDÉE mise à part par la règle « hors calcul » (`paie-hors-calcul.ts`, décidée par l'appelant). */
+  horsCalcul?: boolean;
 };
 
 export type TotauxAnnuelsPaie = {
   payes: number;
   valides: number;
+  /** Pas validés qui COMPTENT (à valider) : les « hors calcul » n'y sont pas. */
   nonValides: number;
+  /** Pas validés mis à part (mois passé clôturé, salarié sorti du calcul) : comptés à part, jamais additionnés. */
+  horsCalcul: number;
   /** Bulletins additionnés : validés ou payés. Un bulletin non validé est PROVISOIRE (le recalcul du mois le
    *  réécrit) : il ne s'additionne pas à des montants figés. */
   comptes: number;
@@ -89,14 +94,16 @@ const auCentime = (x: number) => Math.round(x * 100) / 100;
 export function totauxAnnuelsPaie(lignes: readonly LigneTotauxPaie[]): TotauxAnnuelsPaie {
   const payes = lignes.filter((l) => l.statutPaiement === "PAYE").length;
   const valides = lignes.filter((l) => l.statutPaiement === "VALIDE").length;
-  const nonValides = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length;
+  const horsCalcul = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE" && l.horsCalcul).length;
+  const nonValides = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length - horsCalcul;
   const figees = lignes.filter((l) => l.statutPaiement !== "PAS_VALIDE");
-  if (figees.length === 0) return { payes, valides, nonValides, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 };
+  if (figees.length === 0) return { payes, valides, nonValides, horsCalcul, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 };
   const tauxConnus = figees.every((l) => Number.isFinite(l.taux) && l.taux > 0);
   return {
     payes,
     valides,
     nonValides,
+    horsCalcul,
     comptes: figees.length,
     netUSD: auCentime(figees.reduce((s, l) => s + salaireNetUSD(l), 0)),
     netCDF: tauxConnus ? figees.reduce((s, l) => s + Math.round(salaireNetCDF(l, l.taux)), 0) : null,
