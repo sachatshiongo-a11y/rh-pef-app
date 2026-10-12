@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { genererMatricule } from "@/lib/matricule";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -17,42 +16,13 @@ import {
   type IdentiteFiche,
 } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
+import { controlerDonneesCreation } from "@/lib/creation-fiche-donnees";
+import { creerDemandeCreation, creerFicheTx, exigerIdentifiantsLibres, lisibleSiDoublon, notifierNouvelleCreation } from "@/lib/creation-fiche";
 
 // Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
 // lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
 function decimalField(formData: FormData, name: string, libelle: string): number {
   return decSaisi(formData.get(name), libelle);
-}
-
-/**
- * Unicité lisible (au lieu de l'erreur brute de la base) : matricule non vide et libre ; identifiant
- * de pointeuse IVMS libre — ni l'ID IVMS d'un autre, ni le matricule d'un autre (l'import apparie
- * aussi par matricule : la pointeuse confondrait les deux salariés).
- */
-async function exigerIdentifiantsLibres(p: { matricule: string; idExterneIVMS: string | null }, exclureId?: string): Promise<void> {
-  const autres = exclureId ? { id: { not: exclureId } } : {};
-  if (p.matricule) {
-    const pris = await prisma.employee.findFirst({ where: { matricule: p.matricule, ...autres }, select: { nom: true } });
-    if (pris) throw new Error(`Le matricule « ${p.matricule} » est déjà celui de ${pris.nom}. Rien n'a été enregistré.`);
-  }
-  if (p.idExterneIVMS) {
-    const autre = await prisma.employee.findFirst({
-      where: { OR: [{ idExterneIVMS: p.idExterneIVMS }, { matricule: p.idExterneIVMS }], ...autres },
-      select: { nom: true, matricule: true, idExterneIVMS: true },
-    });
-    if (autre) {
-      const comment = autre.idExterneIVMS === p.idExterneIVMS ? "est déjà l'identifiant de pointeuse de" : "est le matricule de";
-      throw new Error(`L'identifiant IVMS « ${p.idExterneIVMS} » ${comment} ${autre.nom} (${autre.matricule}) : la pointeuse confondrait les deux. Rien n'a été enregistré.`);
-    }
-  }
-}
-
-/** Erreur d'unicité de la base (course entre deux enregistrements) → message lisible. */
-function lisibleSiDoublon(e: unknown): never {
-  if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
-    throw new Error("Ce matricule (ou cet identifiant) vient d'être pris par une autre fiche. Rien n'a été enregistré : vérifiez et réessayez.");
-  }
-  throw e;
 }
 
 function toEmployeeInput(formData: FormData) {
@@ -122,30 +92,27 @@ export async function creerEmploye(formData: FormData) {
     requireRole(user, ["ADMIN", "MANAGER"]);
 
     const data = toEmployeeInput(formData);
+    // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
+    const modeBrut = formData.get("modePaiement");
+    const ctrl = controlerDonneesCreation({ ...data, ...(modeBrut !== null ? { modePaiement: String(modeBrut) as typeof data.modePaiement } : {}) });
+    if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
     const ecartes = await exigerDoublonsTranches(data, formData);
-    // Matricule auto-généré si laissé vide, selon la logique de la catégorie (brigade / back-office).
-    if (!data.matricule) {
-      const existants = await prisma.employee.findMany({
-        where: { categorie: data.categorie },
-        select: { matricule: true },
-      });
-      data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
+
+    // Hors Direction : RIEN n'est créé (aucune fiche visible nulle part) ; une demande part à la Direction.
+    // Les contrôles de la saisie (matricule et pointeuse libres) s'appliquent dès maintenant, puis sont refaits à l'approbation.
+    if (!estDirection(user)) {
+      await exigerIdentifiantsLibres(prisma, data);
+      const demande = await creerDemandeCreation({ donnees: data, ecartes, auteur: { id: user.id, nom: user.nom, role: user.role } });
+      await notifierNouvelleCreation(demande);
+      revalidatePath("/employes");
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      redirect("/employes?creation=envoyee");
     }
 
-    await exigerIdentifiantsLibres(data);
-    const nouvel = await prisma.employee.create({ data }).catch(lisibleSiDoublon);
-    // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
-    if (ecartes.length > 0) {
-      await journaliser(prisma, { entite: "Employee", entiteId: nouvel.id, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
-    }
-
-    // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
-    const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
-    if (modeleOnboarding.length > 0) {
-      await prisma.tacheOnboarding.createMany({
-        data: modeleOnboarding.map((m) => ({ employeeId: nouvel.id, libelle: m.libelle, ordre: m.ordre })),
-      });
-    }
+    // Direction : création directe, comme avant (matricule auto-généré si laissé vide, selon la catégorie).
+    await exigerIdentifiantsLibres(prisma, data);
+    await prisma.$transaction((tx) => creerFicheTx(tx, data, ecartes, user.id)).catch(lisibleSiDoublon);
 
     revalidatePath("/employes");
     redirect("/employes");
@@ -165,7 +132,7 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     const commun = Object.fromEntries(Object.entries(complet).filter(([c]) => !estChampSensible(c))) as Omit<typeof complet, ChampSensible>;
     if (!commun.matricule) throw new Error("Le matricule ne peut pas être vide (il sert à la connexion et à la pointeuse). Rien n'a été enregistré.");
     if (sensiblesEnvoyes.includes("dateEmbauche") && Number.isNaN(complet.dateEmbauche.getTime())) throw new Error("Date d'embauche invalide.");
-    await exigerIdentifiantsLibres(commun, employeeId);
+    await exigerIdentifiantsLibres(prisma, commun, employeeId);
     // La question des doublons ne se repose que si l'identité (nom, téléphone, date de naissance) change.
     const avant = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const ecartes = identiteModifiee(avant, commun) ? await exigerDoublonsTranches(commun, formData, employeeId) : [];

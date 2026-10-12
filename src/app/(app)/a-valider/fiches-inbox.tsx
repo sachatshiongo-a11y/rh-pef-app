@@ -10,7 +10,9 @@ import { DialogueRefus } from "@/components/dialogue-refus";
 
 export type FicheRow = {
   id: string;
-  employeeId: string;
+  /** null pour une création : la fiche n'existe pas encore. */
+  employeeId: string | null;
+  creation?: boolean;
   nom: string;
   photoUrl?: string | null;
   lignes: string[]; // « Salaire mensuel : 300,00 $ → 350,00 $ »
@@ -61,7 +63,7 @@ export function FichesInbox({ rows, peutValider }: { rows: FicheRow[]; peutValid
   }
 
   if (rows.length === 0) {
-    return <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">Aucune modification de fiche en attente.</div>;
+    return <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">Aucune modification ni création de fiche en attente.</div>;
   }
 
   return (
@@ -88,11 +90,15 @@ export function FichesInbox({ rows, peutValider }: { rows: FicheRow[]; peutValid
         {rows.map((d) => (
           <div key={d.id} className={`rounded-xl border bg-card ${selection.has(d.id) ? "ring-1 ring-primary" : ""}`}>
             <div className="flex items-start gap-3 p-3">
-              {peutValider && <input type="checkbox" className="mt-2" checked={selection.has(d.id)} onChange={() => toggle(d.id)} aria-label={`Sélectionner la modification de ${d.nom}`} />}
+              {peutValider && <input type="checkbox" className="mt-2" checked={selection.has(d.id)} onChange={() => toggle(d.id)} aria-label={d.creation ? `Sélectionner la nouvelle fiche de ${d.nom}` : `Sélectionner la modification de ${d.nom}`} />}
               <Avatar nom={d.nom} photoUrl={d.photoUrl} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm">
-                  <Link href={`/employes/${d.employeeId}`} className="font-semibold hover:underline">{d.nom}</Link>{" "}
+                  {d.employeeId ? (
+                    <Link href={`/employes/${d.employeeId}`} className="font-semibold hover:underline">{d.nom}</Link>
+                  ) : (
+                    <span className="font-semibold">Nouvelle fiche : {d.nom}</span>
+                  )}{" "}
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">À valider</span>
                 </p>
                 <ul className="mt-1 space-y-0.5 text-sm">

@@ -14,7 +14,7 @@ import { CHAMPS_SENSIBLES } from "@/lib/fiche-sensible";
  * passer par la demande : aucun test ne le voyait. Celui-ci le voit.
  *
  * Règle : tout appel `employee.update / updateMany / upsert` du code applicatif dont l'argument cite un
- * champ sensible, ou dont les données ne sont pas un objet littéral lisible (`data: variable`, `...x`),
+ * champ sensible (et TOUT `employee.create / createMany` : une création porte salaire, contrat et compte), ou dont les données ne sont pas un objet littéral lisible (`data: variable`, `...x`),
  * doit venir d'un fichier de la liste blanche ci-dessous — chaque entrée dit POURQUOI elle est sûre.
  * LIMITE ASSUMÉE : analyse de source (pas de suivi de flot) ; elle attrape l'oubli, pas l'écriture
  * construite à l'exécution depuis un autre module.
@@ -25,6 +25,7 @@ const SRC = path.join(__dirname, "..");
 const LISTE_BLANCHE: Record<string, string> = {
   "lib/demandes-fiche.ts": "Application d'une demande approuvée par la Direction (transaction, verrou, péremption) et recopie Direction/demande du contrat.",
   "lib/historique-salaire.ts": "Chemin historisé du salaire ; appelé par la Direction ou par l'approbation d'une demande.",
+  "lib/creation-fiche.ts": "Seul chemin de CRÉATION d'une fiche (`creerFicheTx`) : Direction directe, ou approbation d'une demande de création par la Direction.",
   "app/(app)/employes/actions.ts": "« Modifier » : Direction = écriture directe après contrôle de péremption ; autres rôles = demande (creerDemandeFicheTx).",
   "app/(app)/paie/actions.ts": "Effet SYSTÈME de la validation / réouverture d'un bulletin : remise à zéro puis restitution des frais médicaux du mois (jamais une valeur saisie).",
 };
@@ -32,7 +33,7 @@ const LISTE_BLANCHE: Record<string, string> = {
 function fichiers(dir: string): string[] {
   const out: string[] = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+    if (e.name === "node_modules" || e.name.startsWith(".") || e.name === "test") continue; // `lib/test` : outils de test
     const p = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...fichiers(p));
     else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\./.test(e.name)) out.push(p);
@@ -45,7 +46,7 @@ const sansCommentaires = (src: string) => src.replace(/(^|[^:])\/\/.*$/gm, "$1")
 /** Texte de chaque appel `employee.update|updateMany|upsert(...)`, jusqu'à la parenthèse fermante. */
 export function appelsEcritureEmployee(src: string): string[] {
   const out: string[] = [];
-  const re = /\bemployee\s*\.\s*(?:update|updateMany|upsert)\s*\(/g;
+  const re = /\bemployee\s*\.\s*(?:updateMany|update|upsert|createMany|create)\s*\(/g;
   for (let m = re.exec(src); m; m = re.exec(src)) {
     let profondeur = 1, i = re.lastIndex;
     while (i < src.length && profondeur > 0) { const c = src[i++]; if (c === "(") profondeur++; else if (c === ")") profondeur--; }
@@ -54,6 +55,8 @@ export function appelsEcritureEmployee(src: string): string[] {
   return out;
 }
 
+/** Toute création de fiche (ou upsert, qui peut créer) : réservée à la liste blanche. */
+const CREATION = /\bemployee\s*\.\s*(?:create|createMany|upsert)\s*\(/;
 const MOT_SENSIBLE = new RegExp(`\\b(?:${CHAMPS_SENSIBLES.join("|")})\\b`);
 /** Données non lisibles : `data: variable` ou étalement `...x`. */
 const DONNEES_OPAQUES = /\bdata\s*:\s*[^\s{]|\bdata\s*[,}]|\.\.\./;
@@ -65,7 +68,7 @@ export function ecrituresInterdites(racine: string = SRC, blanche: Record<string
     const rel = path.relative(racine, f).split(path.sep).join("/");
     if (rel in blanche) continue;
     for (const appel of appelsEcritureEmployee(sansCommentaires(fs.readFileSync(f, "utf8")))) {
-      if (MOT_SENSIBLE.test(appel) || DONNEES_OPAQUES.test(appel)) fautes.push(`${rel} : ${appel.replace(/\s+/g, " ").slice(0, 140)}`);
+      if (CREATION.test(appel) || MOT_SENSIBLE.test(appel) || DONNEES_OPAQUES.test(appel)) fautes.push(`${rel} : ${appel.replace(/\s+/g, " ").slice(0, 140)}`);
     }
   }
   return fautes;
@@ -90,6 +93,7 @@ describe("écritures des champs sensibles de la fiche salarié", () => {
     expect(appels("await prisma.employee.update({ where: { id }, data: { contrat: type } })")).toHaveLength(1);
     expect(appels("await tx.employee.update({ where: { id }, data })")).toHaveLength(1);
     expect(appels("await tx.employee.update({ where: { id }, data: payload })")).toHaveLength(1);
+    expect(appelsEcritureEmployee("await prisma.employee.create({ data: { nom: 'x' } })").filter((a) => CREATION.test(a))).toHaveLength(1);
     expect(appels("await prisma.employee.updateMany({ where: { poste: a }, data: { poste: b } })")).toHaveLength(0);
     expect(appels("await prisma.employee.update({ where: { id }, data: { actif: false } })")).toHaveLength(0);
   });

@@ -2266,3 +2266,34 @@ model DemandeModifFiche {
   @@index([employeeId, statut])
   @@schema("public")
 }
+
+/// CRÉATION d'une fiche salarié saisie par un autre rôle que la Direction (décision de Sacha,
+/// 2026-10-13 : « la création passe par la validation également »). Table à part de DemandeModifFiche :
+/// la demande précède la fiche (pas d'employeeId, pas de clé étrangère), donc aucune requête existante
+/// sur les employés ne peut la voir — pas de fiche « fantôme » dans les listes, la paie, les présences,
+/// le planning. `donnees` : toutes les valeurs saisies (dates en ISO). Approuver crée la fiche dans une
+/// transaction (anti-doublon et matricule revérifiés) et renseigne `employeeId`.
+model DemandeCreationFiche {
+  id              String             @id @default(uuid())
+  statut          StatutDemandeFiche @default(EN_ATTENTE)
+  nom             String
+  /// Matricule saisi (vide = attribué à l'approbation).
+  matricule       String?
+  donnees         Json
+  /// Ids de fiches déclarées « c'est une autre personne » à la saisie (virgules).
+  doublonsEcartes String             @default("")
+  auteurId        String
+  auteurNom       String
+  decideurId      String?
+  decideurNom     String?
+  decideLe        DateTime?
+  motifRefus      String?
+  noteDecision    String?
+  /// La fiche créée à l'approbation.
+  employeeId      String?
+  createdAt       DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([statut, createdAt])
+  @@schema("public")
+}

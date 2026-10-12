@@ -9,6 +9,7 @@ import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
 import { FichesInbox, type FicheRow } from "./fiches-inbox";
 import { lireChangements, ligneChangement } from "@/lib/fiche-sensible";
+import { lignesCreation } from "@/lib/creation-fiche-donnees";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { Avatar } from "@/components/avatar";
@@ -53,7 +54,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};
 
-  const [conges, prepare, valide, acomptes, changements, echanges, attestations, modifsFiche] = await Promise.all([
+  const [conges, prepare, valide, acomptes, changements, echanges, attestations, modifsFiche, creationsFiche] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -100,15 +101,21 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { createdAt: "asc" },
     }),
+    // Créations de fiches saisies par la RH : rien n'existe encore dans les employés.
+    prisma.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE" }, orderBy: { createdAt: "asc" } }),
   ]);
-  const ficheRows: FicheRow[] = modifsFiche.map((d) => {
+  const creationRows: FicheRow[] = creationsFiche.map((d) => ({
+    id: d.id, employeeId: null, creation: true, nom: d.nom, photoUrl: null, lignes: lignesCreation(d.donnees),
+    auteurNom: d.auteurNom, demandeLe: jourKinshasa(d.createdAt), motif: null,
+  }));
+  const ficheRows: FicheRow[] = [...creationRows, ...modifsFiche.map((d) => {
     let lignes: string[];
     try { lignes = lireChangements(d.changements).map(ligneChangement); } catch { lignes = ["Demande illisible : refusez-la."]; }
     return {
       id: d.id, employeeId: d.employee.id, nom: d.employee.nom, photoUrl: d.employee.photoUrl, lignes,
       auteurNom: d.auteurNom, demandeLe: jourKinshasa(d.createdAt), motif: d.motif,
-    };
-  });
+    } as FicheRow;
+  })];
   const attestationRows: AttestationRow[] = attestations.map((a) => ({
     id: a.id,
     employeeId: a.employee.id,

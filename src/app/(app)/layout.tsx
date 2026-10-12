@@ -26,7 +26,9 @@ async function chargerBadges(): Promise<Record<string, number>> {
     prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);
   const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
-  const modifsFicheEnAttente = await prisma.demandeModifFiche.count({ where: { statut: "EN_ATTENTE" } });
+  const modifsFicheEnAttente =
+    (await prisma.demandeModifFiche.count({ where: { statut: "EN_ATTENTE" } })) +
+    (await prisma.demandeCreationFiche.count({ where: { statut: "EN_ATTENTE" } }));
   const badges = {
     // NB (2026-07-22) : les bulletins brouillons (PAS_VALIDE) du mois en cours ne comptent PLUS dans
     // le badge « Demandes de validation ». Ils sont (re)créés automatiquement à chaque recalcul (ex.

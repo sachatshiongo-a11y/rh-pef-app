@@ -144,11 +144,11 @@ export function EmployeeForm({
   const sections = famille ? [...SECTIONS, { id: "famille", label: "Famille" }] : SECTIONS;
 
   return (
-    <ModeValidation.Provider value={aValider}>
+    <ModeValidation.Provider value={aValider && !!employee}>
     <div>
       <SommaireSections sections={sections} libelle="Sections de la fiche employé">
         <button type="submit" form={FORMULAIRE_FICHE_EMPLOYE} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-          Enregistrer
+          {aValider && !employee ? "Envoyer à la Direction" : "Enregistrer"}
         </button>
       </SommaireSections>
 
@@ -183,7 +183,13 @@ export function EmployeeForm({
             }}
             className="space-y-5"
           >
-            {aValider && (
+            {aValider && !employee && (
+              <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Cette fiche sera <strong>envoyée à la Direction pour validation</strong> : elle n&apos;existera (liste des employés,
+                paie, présences, planning) qu&apos;après son approbation. Rien n&apos;est créé avant.
+              </p>
+            )}
+            {aValider && !!employee && (
               <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Les champs marqués <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">à valider</span>{" "}
                 (salaire, heures, transport, frais médicaux, enfants, CNSS, embauche, contrat, catégories, versement) ne
@@ -390,7 +396,7 @@ export function EmployeeForm({
                 type="submit"
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
               >
-                Enregistrer
+                {aValider && !employee ? "Envoyer à la Direction" : "Enregistrer"}
               </button>
             </div>
           </form>

@@ -11,6 +11,8 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { doublonsProbables } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 import { DoublonsProbables } from "./doublons-probables";
+import { CreationsEnAttente } from "./creations-en-attente";
+import { creationsEnAttente } from "@/lib/creation-fiche";
 import { Pagination } from "@/components/pagination";
 import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
 
@@ -21,7 +23,7 @@ function formatMoney(n: number) {
 export default async function EmployesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string; page?: string; par?: string }>;
+  searchParams: Promise<{ creation?: string; poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string; page?: string; par?: string }>;
 }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
@@ -33,11 +35,12 @@ export default async function EmployesPage({
   const statut = statutEmployes(sp.statut);
   const whereActif = whereStatutEmployes(statut);
 
-  const [tous, parametres, identites, ecartees] = await Promise.all([
+  const [tous, parametres, identites, ecartees, creations] = await Promise.all([
     prisma.employee.findMany({ where: whereActif, orderBy: [{ nom: "asc" }, { id: "asc" }] }),
     vue === "transport" ? chargerParametresPaie() : Promise.resolve(null),
     estDirection ? chargerFichesIdentite() : Promise.resolve([]),
     estDirection ? chargerPairesEcartees() : Promise.resolve(new Set<string>()),
+    creationsEnAttente(),
   ]);
   const paires = estDirection ? doublonsProbables(identites, ecartees) : [];
 
@@ -107,6 +110,12 @@ export default async function EmployesPage({
         </div>
       </div>
 
+      {sp.creation === "envoyee" && (
+        <p role="status" className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          La nouvelle fiche a été envoyée à la Direction pour validation : elle sera créée dès qu&apos;elle l&apos;aura approuvée.
+        </p>
+      )}
+      <CreationsEnAttente creations={creations} estDirection={estDirection} />
       {estDirection && <DoublonsProbables paires={paires} />}
 
       {/* Filtres */}
