@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { MOTIF_LIVRAISON_RESTAURANT, type EntreesStockResto } from "@/lib/stock-restaurant";
 import { formaterNombre } from "@/lib/montant";
 import { libelleArticle } from "@/lib/libelle-article";
+import { chargerVentesEtConsommation } from "@/lib/ventes-consommation-charger";
 
 // Chargement GROUPÉ des entrées du stock théorique du restaurant — jamais une requête par article :
 //   1. les articles du restaurant actifs (rattachements) ;
@@ -39,11 +40,15 @@ export const designationResto = (a: { designation: string; actif: boolean }) => 
 
 /**
  * `depuis` / `jusquA` : dates PURES AAAA-MM-JJ, bornes incluses de la période affichée.
+ * `avecVentes` (2026-10-12) : charge aussi les ventes × fiches saisies depuis le dernier comptage de chaque
+ * article rattaché, pour que le stock THÉORIQUE les retire (stock restaurant, disponibilité des plats).
+ * `"periode"` : depuis le plus ancien comptage chargé (le contrôle des écarts compare deux comptages dont le
+ * premier précède la période). Les vues de consommation RÉELLE n'en ont pas besoin et ne les chargent pas.
  * `inclureDesactives` : pour une période AFFICHÉE (consommation réelle, exports), les articles
  * désactivés qui ont un comptage ou une livraison dans la période restent (voir
  * `articlesRestoDeLaPeriode`). Sans lui (disponibilité, stock théorique du jour) : les actifs seuls.
  */
-export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactives = false }: { depuis: string; jusquA: string; inclureDesactives?: boolean }): Promise<EntreesStockResto> {
+export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactives = false, avecVentes = false }: { depuis: string; jusquA: string; inclureDesactives?: boolean; avecVentes?: boolean | "periode" }): Promise<EntreesStockResto> {
   const filtre: Prisma.ArticleRestoWhereInput = inclureDesactives ? articlesRestoDeLaPeriode(depuis, jusquA) : { actif: true };
   const [articles, avant] = await Promise.all([
     prisma.articleResto.findMany({
@@ -79,7 +84,25 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
     }),
   ]);
 
+  // Ventes × fiches : depuis le plus ancien des derniers comptages (≤ jusquA) des articles RATTACHÉS — une seule
+  // requête de ventes ; la fenêtre propre à chaque article est appliquée par le calcul pur.
+  let ventes: Pick<EntreesStockResto, "consoVentes" | "ventesAVerifier"> = {};
+  if (avecVentes) {
+    const dernierComptage = new Map<string, Date>();
+    for (const c of comptages) if (c.date <= jourPur(jusquA) && (dernierComptage.get(c.articleRestoId) ?? new Date(0)) < c.date) dernierComptage.set(c.articleRestoId, c.date);
+    const liees = new Set(articles.filter((a) => a.liens.length > 0).map((a) => a.id));
+    const bornes = avecVentes === "periode"
+      ? comptages.filter((c) => liees.has(c.articleRestoId) && c.date <= jourPur(jusquA)).map((c) => c.date)
+      : articles.filter((a) => a.liens.length > 0 && dernierComptage.has(a.id)).map((a) => dernierComptage.get(a.id)!);
+    if (bornes.length > 0) {
+      const apres = iso(bornes.reduce((m, d) => (d < m ? d : m), bornes[0]!));
+      const r = await chargerVentesEtConsommation({ apres, jusquA });
+      ventes = { consoVentes: r.conso, ventesAVerifier: r.aVerifier };
+    }
+  }
+
   return {
+    ...ventes,
     debutLivraisons: depuis,
     articles: articles.map((a) => ({
       id: a.id, designation: a.designation, espace: a.espace, unite: a.unite,

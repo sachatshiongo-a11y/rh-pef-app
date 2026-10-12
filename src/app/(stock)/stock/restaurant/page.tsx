@@ -55,7 +55,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     // rien n'est rattaché ici, seulement proposé.
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, nomCourt: true, unite: true, actif: true, contenance: true, contenanceUnite: true } }),
     // Entrées du stock théorique (requêtes groupées, jamais par article) : lecture seule.
-    chargerEntreesStockResto({ depuis: jours[0].iso, jusquA: aujourdhui > jours[6].iso ? aujourdhui : jours[6].iso }),
+    chargerEntreesStockResto({ depuis: jours[0].iso, jusquA: aujourdhui > jours[6].iso ? aujourdhui : jours[6].iso, avecVentes: true }),
   ]);
   // Rattachements / détachements demandés à la Direction et pas encore décidés : affichés « en attente de validation ».
   const enAttentePar = new Map<string, { id: string; designation: string; op: "AJOUT" | "RETRAIT" }[]>();
@@ -112,6 +112,9 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
         stock: t?.stock ?? null,
         aucunComptage: t?.aucunComptage ?? true,
         signalements: (t?.signalements ?? []).map((x) => texteSignal(x, true)),
+        // Ventes × fiches retirées depuis le comptage (2026-10-12) ; non déductibles = « À vérifier », jamais un chiffre.
+        vendu: t?.vendu ?? null,
+        aVerifier: (t?.ventesAVerifier ?? []).map((v) => v.texte),
       },
     };
   });
