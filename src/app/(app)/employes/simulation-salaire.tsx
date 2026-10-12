@@ -10,6 +10,7 @@ import {
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD, type LigneNet } from "@/lib/paie-net";
 import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 import { lireNombreSaisi } from "@/lib/nombre";
+import { formaterDecimales } from "@/lib/montant";
 
 // Simulation de bulletin EN DIRECT dans le formulaire employé : mois « type » (heures
 // contractuelles, sans heures supp. ni absences), avec le VRAI moteur de paie (CNSS, barème
@@ -170,7 +171,7 @@ export function SimulationSalaire({
         // Création : le simulé S'AJOUTE. Modification : le simulé REMPLACE le bulletin actuel.
         const deltaNet = salaireNetUSD(ligneNet) - (impact.actuel?.net ?? 0);
         const deltaCout = ligne.coutEmployeurUSD - (impact.actuel?.cout ?? 0);
-        const pct = (d: number, base: number) => `${d >= 0 ? "+" : "−"}${((Math.abs(d) / base) * 100).toFixed(1)} %`;
+        const pct = (d: number, base: number) => `${d >= 0 ? "+" : "−"}${formaterDecimales((Math.abs(d) / base) * 100, 1)} %`;
         return (
           <div className="mt-3 rounded-md bg-muted/40 p-2.5 text-xs">
             <p className="mb-1 font-semibold">

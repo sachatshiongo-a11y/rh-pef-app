@@ -18,7 +18,7 @@ import { Icone } from "@/components/icones";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
-import { formaterUSD } from "@/lib/montant";
+import { formaterUSD, formaterNombre } from "@/lib/montant";
 import { saisirPresence, saisirPresencesEnLot } from "./actions";
 import { joindreCertificatMaladie, marquerMaladieJustifiee } from "./maladie-actions";
 import { saisirHeures, saisirHeuresEnLot } from "../heures-supp/actions";
@@ -712,7 +712,7 @@ export function TempsGrid({
   /** Nom + sous-ligne de totaux d'un employé (vues Semaine et Mois). */
   function celluleNom(e: EmployeeRow) {
     const t = totauxDe(e.id);
-    const detail = `Payés 100 % : ${t.p100} j · payés 2/3 : ${t.p23} j · non payés : ${t.np} j · heures du mois : ${fmtH(t.h)} · heures supp. : ${fmtH(t.hs)} (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
+    const detail = `Payés 100 % : ${formaterNombre(t.p100)} j · payés 2/3 : ${formaterNombre(t.p23)} j · non payés : ${formaterNombre(t.np)} j · heures du mois : ${fmtH(t.h)} · heures supp. : ${fmtH(t.hs)} (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
     return (
       <div role="rowheader" className="flex min-w-0 items-center gap-2 px-2 py-1">
         {peutModifier && (
@@ -741,9 +741,9 @@ export function TempsGrid({
   function vueEmploye(e: EmployeeRow) {
     const t = totauxDe(e.id);
     const tuiles: [string, string, string?][] = [
-      ["Jours payés 100 %", String(t.p100)],
-      ["Jours payés 2/3", String(t.p23)],
-      ["Jours non payés", String(t.np)],
+      ["Jours payés 100 %", formaterNombre(t.p100)],
+      ["Jours payés 2/3", formaterNombre(t.p23)],
+      ["Jours non payés", formaterNombre(t.np)],
       ["Heures du mois", fmtH(t.h)],
       ["Heures supp.", fmtH(t.hs), t.hs > 0 ? "text-amber-700" : undefined],
       ["HS valorisées (paie)", fmtHsVal(t.hsVal)],

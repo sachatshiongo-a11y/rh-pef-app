@@ -1,4 +1,5 @@
 import "server-only";
+import { formaterDecimales } from "@/lib/montant";
 import { statutAffiche, whereEchues } from "@/lib/facture-echue";
 import { deviseBon, prixLigneBon, totalBon, totalLigneBon } from "@/lib/bon-commande-devise";
 import { prixArticleEnUSD } from "@/lib/prix-article";
@@ -316,7 +317,7 @@ export const RATIO_LABEL_EXPLOITATION: Record<string, string> = {
   depensesCA: "Dépenses / CA",
 };
 const RATIO_ORDRE_EXPLOITATION = ["matieres", "salaires", "loyers", "depensesCA"];
-const pct = (n: number | null) => (n === null ? "—" : `${(n * 100).toFixed(1)} %`);
+const pct = (n: number | null) => (n === null ? "—" : `${formaterDecimales(n * 100, 1)} %`);
 const jourIso = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Libellé textuel du point mort (Direction, demande du 2026-08-14) pour la ligne « Point mort »

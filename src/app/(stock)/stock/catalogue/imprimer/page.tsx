@@ -8,6 +8,7 @@ import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { libelleArticle } from "@/lib/libelle-article";
+import { formaterDecimales } from "@/lib/montant";
 
 type SP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string };
 
@@ -34,7 +35,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     const enUSD = prixArticleEnUSD(a, taux);
     const prix = enUSD ? enUSD.valeur : null;
     const prixTexte = prixSaisi(a) ? libellePrixComplet(a, taux) : null;
-    const valeurTexte = prix !== null ? `${enUSD!.approx ? "≈ " : ""}${(prix * qte).toFixed(2)}` : "";
+    const valeurTexte = prix !== null ? `${enUSD!.approx ? "≈ " : ""}${formaterDecimales(prix * qte, 2)}` : "";
     const pct = hausses.get(a.id);
     // La hausse est signalée directement dans la colonne Prix (ex. « 3.50  ↑+75% »).
     const prixCell = prixTexte !== null ? `${prixTexte}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : (pct !== undefined ? `↑+${Math.round(pct)}%` : "");
