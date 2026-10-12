@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, type DoublonRenommage, doublonDeRenommage, exigerCategorieActive, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, changementsDe, lireArticlesTx, nomsReferencesTx, texteChangements, type DoublonRenommage, doublonDeRenommage, exigerCategorieActive, exigerCategorieDansLeDomaine, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
@@ -150,8 +150,14 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   const doublon = await doublonDeRenommage(prisma, id, patch);
   if (doublon && (!doublon.creationPossible || !renommerQuandMeme)) return doublon;
   if (!estDirection(user)) return proposer(user, "Modification de l'article", [{ id, patch }]);
-  await prisma.$transaction((tx) => appliquerPatchArticleTx(tx, id, patch, { renommerQuandMeme }));
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
+  // Le journal écrit ce qui a VRAIMENT changé, avant → après (état relu sous verrou, dans la même transaction).
+  const changements = await prisma.$transaction(async (tx) => {
+    const etat = (await lireArticlesTx(tx, [id], true)).get(id);
+    const diff = etat ? changementsDe(etat, patch, await nomsReferencesTx(tx)) : [];
+    await appliquerPatchArticleTx(tx, id, patch, { renommerQuandMeme });
+    return diff;
+  });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", nouvelleValeur: changements.length ? texteChangements(changements) : "aucun changement", userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath(`/stock/catalogue/${id}`); // la fiche article se modifie aussi depuis elle-même
 });
@@ -207,13 +213,16 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
 export const categoriserEnMasse = actionLisible(async (articleIds: string[], categorieId: string) => {
   const user = await garde();
   for (const id of new Set(articleIds.map(String))) await exigerCategorieActive(prisma, categorieId, id); // archivée : refusée (sauf pour qui la porte déjà)
+  await exigerCategorieDansLeDomaine(prisma, [...new Set(articleIds.map(String))].filter(Boolean), categorieId); // du domaine de chaque article, sinon refus qui les nomme (tout ou rien)
   if (!estDirection(user)) {
     if (articleIds.length === 0 || !categorieId) return;
     return proposer(user, "Catégorie en masse", [...new Set(articleIds.map(String))].filter(Boolean).map((id) => ({ id, patch: { categorieId } })));
   }
   if (articleIds.length === 0 || !categorieId) return;
   await prisma.articleStock.updateMany({ where: { id: { in: articleIds } }, data: { categorieId } });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: categorieId, userId: user.id });
+  // Le journal garde le NOM de la catégorie (un id ne dit rien) ; l'id suit entre parenthèses si le nom est introuvable.
+  const cat = await prisma.categorieStock.findUnique({ where: { id: categorieId }, select: { nom: true } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: cat?.nom ?? categorieId, userId: user.id });
   revalidatePath("/stock/catalogue");
 });
 

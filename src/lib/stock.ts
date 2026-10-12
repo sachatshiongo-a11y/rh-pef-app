@@ -4,19 +4,25 @@ import type { Prisma } from "@prisma/client";
 export type NiveauAlerte = "URGENT" | "APPRO" | "OK";
 
 /**
- * Niveau d'alerte d'un article, basé sur le seul stock minimum (modifiable par article) :
- *   OK (aucune alerte)  si AUCUN seuil minimum n'est défini (stockMinimum ≤ 0) — on ne peut pas
- *                       juger de l'urgence sans seuil, donc l'article n'est jamais « urgent »
- *   URGENT              si un seuil est défini ET quantité ≤ 0 (rupture)
- *   APPRO (à réappro.)  si un seuil est défini ET 0 < quantité ≤ stockMinimum
+ * Niveau d'alerte d'un article : stock minimum (modifiable par article) et « seuil urgent » (idem).
+ *   URGENT              si un seuil urgent est RENSEIGNÉ (> 0) ET quantité ≤ seuil urgent
+ *   OK (aucune alerte)  sinon, si AUCUN seuil minimum n'est défini (stockMinimum ≤ 0) — on ne peut
+ *                       pas juger de l'urgence sans seuil, donc l'article n'est jamais « urgent »
+ *   URGENT              si un seuil minimum est défini ET quantité ≤ 0 (rupture)
+ *   APPRO (à réappro.)  si un seuil minimum est défini ET 0 < quantité ≤ stockMinimum
  *   OK (satisfaisant)   si quantité > stockMinimum
+ * Sans seuil urgent (0, absent) le comportement est celui d'avant (audit du 10/10/2026 : le champ
+ * « Seuil urgent » était saisi mais sans effet).
  */
 export function niveauAlerte(
   quantite: Prisma.Decimal | number,
-  stockMinimum: Prisma.Decimal | number
+  stockMinimum: Prisma.Decimal | number,
+  seuilUrgent: Prisma.Decimal | number | null | undefined = 0
 ): NiveauAlerte {
   const q = Number(quantite);
   const min = Number(stockMinimum);
+  const urgent = Number(seuilUrgent ?? 0);
+  if (urgent > 0 && q <= urgent) return "URGENT"; // seuil urgent renseigné : il fait foi
   if (min <= 0) return "OK"; // pas de seuil minimum défini → pas d'alerte
   if (q <= 0) return "URGENT";
   if (q <= min) return "APPRO";

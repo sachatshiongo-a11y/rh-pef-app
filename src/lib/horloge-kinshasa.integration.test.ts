@@ -72,7 +72,7 @@ describe("sorties et entrées de stock sans date saisie : le jour civil de Kinsh
     const { mouvementManuel } = await import("@/app/(stock)/stock/mouvements/actions");
     const art = await article("Sucre");
     const fd = new FormData();
-    fd.set("type", "ENTREE"); fd.append("articleId", art.id); fd.append("quantite", "1");
+    fd.set("type", "ENTREE"); fd.set("origine", "don"); fd.append("articleId", art.id); fd.append("quantite", "1");
     a(DERNIER_23H30);
     await mouvementManuel(fd);
     expect((await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: art.id } })).date.toISOString().slice(0, 10)).toBe("2026-10-31");

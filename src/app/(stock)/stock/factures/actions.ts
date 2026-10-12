@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { lireDateJour } from "@/lib/achats-liste";
 import { donneesMontantsImportee, parserClasseurFactures } from "@/lib/import-factures-excel";
 import { sigExistante, sigImportee } from "@/lib/import-factures";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
@@ -23,6 +24,7 @@ import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { entrerEnStockTx } from "@/lib/validations-stock/stock-positif";
 import { supprimerFacturesTx } from "@/lib/validations-stock/suppression-facture";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
+import { refusCreationFournisseur } from "@/lib/fournisseur-doublon-serveur";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
@@ -272,12 +274,15 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
   const reste = Math.max(0, montant - montantRegle);
-  const d = new Date(dateStr ?? echeanceStr ?? AUJ());
+  // Les entrées en stock portent la date de la FACTURE : sans date, c'est le jour (Kinshasa), jamais l'échéance
+  // (une échéance est une date à venir) ; et, quand la facture fait entrer du stock, jamais dans le futur.
+  const entrerEnStockTot = formData.get("entrerEnStock") != null;
+  const d = new Date(entrerEnStockTot ? lireDateJour(dateStr, "de la facture") : (dateStr ?? AUJ()));
   const numero = String(formData.get("numero") ?? "").trim() || null;
   // C'est l'enregistrement de la facture (articles + quantités) qui fait entrer la marchandise
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
-  const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
+  const entrerEnStock = entrerEnStockTot; // case cochée ⇒ présente dans le FormData
   // Les entrées en stock créées plus bas portent la date de la FACTURE (`d`) : c'est elle que la
   // clôture doit contrôler. Contrôler « aujourd'hui » laissait une facture datée d'un mois clôturé
   // écrire dans ce mois figé.
@@ -324,6 +329,17 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     const m = meilleurFournisseur(fournisseurNom, liste, 0.82);
     if (m) fournisseurId = m.id;
     else {
+      // ANTI-DOUBLON DE FOURNISSEUR (audit du 10/10/2026) : un nom NOUVEAU qui ressemble à un fournisseur
+      // existant (sous le seuil de rattachement automatique) n'est pas créé en silence. Même confirmation que le
+      // doublon d'entrées : « Enregistrer quand même » (`forcerDoublons`) crée un nouveau fournisseur ; sinon la
+      // personne choisit le fournisseur existant dans le champ « Fournisseur ». Un nom identique à un fournisseur
+      // existant est toujours refusé (il aurait été rattaché plus haut).
+      const refus = await refusCreationFournisseur(prisma, fournisseurNom, { creerQuandMeme: formData.get("forcerDoublons") != null });
+      if (refus) {
+        throw new Error(refus.creationPossible
+          ? `DOUBLON_POSSIBLE|Le fournisseur « ${fournisseurNom} » ressemble à ${refus.candidats.map((c) => `« ${c.nom} »`).join(", ")}, déjà enregistré${refus.candidats.length > 1 ? "s" : ""}. S'il s'agit du même, choisissez-le dans le champ « Fournisseur » ; sinon confirmez avec le bouton « Enregistrer quand même » (un nouveau fournisseur sera créé).`
+          : refus.message);
+      }
       const coord = (k: string) => String(formData.get(k) ?? "").trim() || null;
       const nf = await prisma.fournisseur.create({
         data: {
@@ -334,6 +350,8 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
       });
       fournisseurId = nf.id;
       await journaliser(prisma, { entite: "Fournisseur", entiteId: nf.id, champ: "creation", nouvelleValeur: `${fournisseurNom} (auto — facture)`, userId: user.id });
+      // Fournisseur créé par un compte non-Direction : la Direction en est notifiée (doublon, coordonnées à vérifier).
+      await notifierGesteStock(user, { genre: "FOURNISSEUR", noms: [fournisseurNom], origine: "facture" });
     }
   }
 

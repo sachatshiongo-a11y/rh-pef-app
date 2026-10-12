@@ -32,7 +32,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   });
   if (!a) return new Response("Article introuvable", { status: 404 });
 
-  const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+  const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : null;
   // Prix dans SA devise ; en dollars (comparaisons, valeur) « ≈ » au taux du jour pour un article en francs.
   const taux = await tauxDuJour();

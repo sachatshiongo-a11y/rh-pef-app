@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import type { Prisma } from "@prisma/client";
+import { cleAlnum } from "@/lib/texte";
+import { type DoublonFournisseur } from "@/lib/fournisseur-doublon";
+import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fournisseur-doublon-serveur";
 
 const CHAMPS = ["nom", "produits", "telephone", "ville", "pays", "adresse", "rccm", "idNational", "email", "contactNom", "delaiPaiement", "delaiLivraison", "modePaiement"] as const;
 
@@ -17,11 +20,18 @@ async function garde() {
   return user;
 }
 
-/** Crée un fournisseur. */
-export const creerFournisseur = actionLisible(async (formData: FormData) => {
+/**
+ * Crée un fournisseur. ANTI-DOUBLON (audit du 10/10/2026), comme « Ajouter un article » : un nom IDENTIQUE à un
+ * fournisseur existant (accents, casse, ponctuation près) est refusé ; un nom PROCHE (« Kathy » / « Maison
+ * Kathy ») aussi, tant que la saisie ne revient pas avec `creerQuandMeme` = « 1 » (« Créer quand même »).
+ * Rien n'est créé dans ces deux cas : la réponse montre les fournisseurs existants.
+ */
+export const creerFournisseur = actionLisible(async (formData: FormData): Promise<DoublonFournisseur | void> => {
   const user = await garde();
   const nom = String(formData.get("nom") ?? "").trim();
   if (!nom) throw new Error("Le nom est requis.");
+  if (!cleAlnum(nom)) throw new Error("Le nom du fournisseur doit comporter des lettres ou des chiffres.");
+  const creerQuandMeme = String(formData.get("creerQuandMeme") ?? "") === "1";
 
   const data: Prisma.FournisseurCreateInput = { nom };
   for (const c of CHAMPS) {
@@ -29,8 +39,15 @@ export const creerFournisseur = actionLisible(async (formData: FormData) => {
     const v = String(formData.get(c) ?? "").trim();
     if (v) (data as Record<string, unknown>)[c] = v;
   }
-  const f = await prisma.fournisseur.create({ data });
-  await journaliser(prisma, { entite: "Fournisseur", entiteId: f.id, champ: "creation", nouvelleValeur: nom, userId: user.id });
+  // Verrou sur la clé du nom puis relecture : deux créations simultanées du même nom ne font qu'un fournisseur.
+  const r = await prisma.$transaction(async (tx) => {
+    await verrouillerNomFournisseur(tx, nom);
+    const refus = await refusCreationFournisseur(tx, nom, { creerQuandMeme });
+    if (refus) return { refus } as const;
+    return { f: await tx.fournisseur.create({ data }) } as const;
+  });
+  if ("refus" in r) return r.refus;
+  await journaliser(prisma, { entite: "Fournisseur", entiteId: r.f.id, champ: "creation", nouvelleValeur: creerQuandMeme ? `${nom} (créé quand même, proche d'un fournisseur existant)` : nom, userId: user.id });
   revalidatePath("/stock/fournisseurs");
 });
 

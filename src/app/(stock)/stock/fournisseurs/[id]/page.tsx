@@ -5,6 +5,7 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import type { BonDeCommande, FactureFournisseur, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { WHERE_LIGNE_SANS_PRIX, deviseBon, totalBon } from "@/lib/bon-commande-devise";
 import { niveauAlerte, ALERTE_CLASSE, ALERTE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { EditerFournisseur } from "./editer-fournisseur";
 import { formaterMontant, formaterUSD } from "@/lib/montant";
@@ -92,7 +93,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
           where: { fournisseurId: id, ...(statutsBons(filtreBons) ? { statut: { in: statutsBons(filtreBons) } } : {}) },
           orderBy: [{ date: "desc" }, { sequence: "desc" }],
           take: MAX_BONS,
-          include: { _count: { select: { lignes: true } } },
+          include: { _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } }, // + lignes sans prix : total annoncé incomplet
         })
       : null,
     // Achats DIRECTS : lignes de la Liste d'achat (sans facture ni bon de commande) rattachées ici.
@@ -223,7 +224,7 @@ function OngletFactures({ id, filtre, estDirection, factures, enAttente, effecti
 
 // ─── Onglet Bons de commande : filtre En cours / Reçus / Tous, regroupés par mois ───
 function OngletBons({ id, nom, filtre, estDirection, bons, effectifs }: {
-  id: string; nom: string; filtre: FiltreBons; estDirection: boolean; bons: (BonDeCommande & { _count: { lignes: number } })[]; effectifs: Record<FiltreBons, number>;
+  id: string; nom: string; filtre: FiltreBons; estDirection: boolean; bons: (BonDeCommande & { _count: { lignes: number }; lignes: { id: string }[] })[]; effectifs: Record<FiltreBons, number>;
 }) {
   const lien = (v: FiltreBons) => lienFiche(id, "bons", v);
   return (
@@ -243,7 +244,7 @@ function OngletBons({ id, nom, filtre, estDirection, bons, effectifs }: {
           key={filtre} estDirection={estDirection} sansFournisseur suffixeRetour={suffixeRetour(lien(filtre))}
           commandes={bons.map((b) => ({
             id: b.id, numero: b.numero, fournisseurId: b.fournisseurId ?? null, fournisseurNom: nom,
-            date: new Date(b.date).toISOString(), nbLignes: b._count.lignes, total: Number(b.totalUSD), statut: b.statut, documentUrl: b.documentUrl ?? null,
+            date: new Date(b.date).toISOString(), nbLignes: b._count.lignes, total: totalBon(b), devise: deviseBon(b), sansPrix: b.lignes.length, statut: b.statut, documentUrl: b.documentUrl ?? null,
           }))}
         />
       )}
@@ -308,7 +309,7 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
           </thead>
           <tbody>
             {articles.map((a) => {
-              const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+              const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
               return (
                 <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                   <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{libelleArticle(a)}</Link></td>

@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { lierFactureABon } from "../actions";
-import { usd } from "@/lib/stock";
+import { formaterMontantBon } from "@/lib/bon-commande-devise";
 import { estErreur } from "@/lib/action-lisible";
 
-type Bon = { id: string; numero: string; total: number };
+type Bon = { id: string; numero: string; total: number | null; devise?: "USD" | "CDF" };
 
 export function LierBon({ factureId, bonActuelId, bons }: { factureId: string; bonActuelId: string | null; bons: Bon[] }) {
   const [choix, setChoix] = useState(bonActuelId ?? "");
@@ -21,7 +21,7 @@ export function LierBon({ factureId, bonActuelId, bons }: { factureId: string; b
     <div className="flex flex-wrap items-center gap-2">
       <select value={choix} onChange={(e) => setChoix(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
         <option value="">— aucun bon de commande —</option>
-        {bons.map((b) => <option key={b.id} value={b.id}>{b.numero} · {usd(b.total)}</option>)}
+        {bons.map((b) => <option key={b.id} value={b.id}>{b.numero} · {b.total === null ? "—" : formaterMontantBon(b.total, b.devise ?? "USD")}</option>)}
       </select>
       <button
         disabled={isPending || choix === (bonActuelId ?? "")}

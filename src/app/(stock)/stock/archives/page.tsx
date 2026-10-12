@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
+import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
+import { WHERE_LIGNE_SANS_PRIX, bonDeListe, libelleTotalGroupe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { grouperParMois } from "@/lib/dates-fr";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -104,7 +105,7 @@ async function BonsValides({ pg }: { pg: Pg }) {
     orderBy: [{ annee: "desc" }, { date: "desc" }, { id: "asc" }],
     skip: fen.skip,
     take: fen.take,
-    include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
+    include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } },
   });
   if (nb === 0) return <EtatVide message="Aucun bon de commande validé." />;
   const groupes = grouperParMois(bcs, (b) => b.date);
@@ -113,7 +114,7 @@ async function BonsValides({ pg }: { pg: Pg }) {
       {groupes.map((g, i) => {
         const partiel = groupePartiel(i, groupes.length, fen);
         return (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, partiel, "bon(s)")} resume={<>{usd(g.items.reduce((t, b) => t + Number(b.totalUSD), 0))}{partiel ? " (cette page)" : ""}</>} defaultOpen={i === 0}>
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, partiel, "bon(s)")} resume={<>{libelleTotalGroupe(g.items.map((b) => bonDeListe(b, b.lignes.length, b._count.lignes)))}{partiel ? " (cette page)" : ""}</>} defaultOpen={i === 0}>
           <ul className="divide-y border-t text-sm">
             {g.items.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
@@ -123,7 +124,7 @@ async function BonsValides({ pg }: { pg: Pg }) {
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
-                  <span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span>
+                  <span className="font-semibold tabular-nums">{libelleTotalListe(bonDeListe(b, b.lignes.length, b._count.lignes))}</span>
                 </span>
               </li>
             ))}

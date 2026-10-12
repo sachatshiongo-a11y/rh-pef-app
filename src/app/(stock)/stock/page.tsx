@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
+import { detailConso, mentionSansPrix } from "@/lib/valeur-stock";
+import { WHERE_LIGNE_SANS_PRIX, bonDeListe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contientFrancsConvertis, inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
@@ -13,7 +15,7 @@ import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/c
 import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bord/bloc-disponibilite-plats";
 import { BlocDlcProches } from "./_tableau-de-bord/bloc-dlc-proches";
 import { dlcProches } from "@/lib/dlc-stock";
-import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
+import { dateHeureGenerationKinshasa, jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -72,7 +74,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
     prisma.sessionComptage.findMany({ where: dansLeMois, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: CHAMPS_LIBELLE } } }),
-    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
+    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } } }),
     // Valeur du stock d'un autre mois : l'inventaire figé à sa clôture, s'il existe (jamais reconstitué).
     estCourant ? Promise.resolve(null) : inventaireFige(annee, mois),
     // Demandes en attente de la Direction (paiements, réconciliations, articles) : toutes pour la
@@ -96,7 +98,10 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
   const etiquette = (e: string) => (estCourant ? undefined : e);
   const avecEtiquette = (sous: string, e: string) => (estCourant ? sous : `${sous} · ${e}`);
   const valeurAffichee = stockFige ? stockFige.valeurTotaleUSD : valeurStock;
-  const sousValeur = estCourant ? undefined : stockFige ? `figée à la clôture ${/^[aeiouy]/.test(libelleMois) ? "d'" : "de "}${libelleMois}` : `aujourd'hui · aucun inventaire figé pour ${libelleMois}`;
+  // Valeur partielle des articles en stock sans prix (jamais comptés 0 sans le dire).
+  const nbSansPrixValeur = stockFige ? stockFige.nbSansPrix : ind.valeurStockSansPrix;
+  // L'instantané figé est le stock du MOMENT de la clôture (pas un stock de fin de mois reconstitué) : on dit de quand.
+  const sousValeur = estCourant ? undefined : stockFige ? `stock au ${stockFige.figeLe ? dateHeureGenerationKinshasa(stockFige.figeLe) : "moment de la clôture"} (figé à la clôture ${/^[aeiouy]/.test(libelleMois) ? "d'" : "de "}${libelleMois})` : `aujourd'hui · aucun inventaire figé pour ${libelleMois}`;
   // Liens : le mois suit quand la liste sait filtrer par mois (Mouvements, Bons de commande) ou par
   // année (Factures). Au mois courant, les listes « derniers … » gardent leurs liens d'avant.
   const lienMouvements = `/stock/mouvements?mois=${annee}-${mois}`;
@@ -133,14 +138,14 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           <Kpi label="Articles" valeur={String(nbArticles)} sous={etiquette(AUJ)} href="/stock/catalogue" />
           <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} sous={etiquette(AUJ)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
           <Kpi label="À réapprovisionner" valeur={String(nbAppro)} sous={etiquette(AUJ)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
-          <Kpi label="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} sous={!stockFige && ind.articlesSansTaux > 0 ? [sousValeur, `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)`].filter(Boolean).join(" · ") : sousValeur} />
+          <Kpi label="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} accent={nbSansPrixValeur > 0 ? "amber" : undefined} sous={[sousValeur, nbSansPrixValeur > 0 ? mentionSansPrix(nbSansPrixValeur) : "", !stockFige && ind.articlesSansTaux > 0 ? `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)` : ""].filter(Boolean).join(" · ") || undefined} />
           {/* Factures en francs (2026-10-09) : leur reste s'affiche à part, jamais additionné aux dollars. */}
           <Kpi label="Factures à payer" valeur={libelleSomme(facturesAPayer.montant, facturesAPayer.montantCDF, usd)} sous={avecEtiquette([`${facturesAPayer.nb} facture(s)`, equivalentSomme(facturesAPayer.montant, facturesAPayer.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 || (facturesAPayer.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
           <Kpi label="À régler cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sous={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Factures échues" valeur={libelleSomme(facturesEchues.montant, facturesEchues.montantCDF, usd)} sous={avecEtiquette([`${facturesEchues.nb} facture(s)`, equivalentSomme(facturesEchues.montant, facturesEchues.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
           <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
-          <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées${ind.consoFrancsSansTaux > 0 ? ` · dont ${ind.consoFrancsSansTaux} en FC non valorisée(s) : taux non défini` : ""}`} href={lienMouvements} />
+          <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} accent={consoMois.nbSansPrix > 0 ? "amber" : undefined} sous={detailConso(consoMois, usd, ind.consoFrancsSansTaux)} href={lienMouvements} />
         </div>
       </section>
 
@@ -169,7 +174,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             {bcAValider.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-2 py-1.5">
                 <Link href={`/stock/commandes/${b.id}`} className="truncate pr-2 font-medium text-amber-900 hover:underline">{b.numero} · {b.fournisseur?.nom ?? "—"}</Link>
-                <span className="shrink-0 font-medium text-amber-900">{usd(b.totalUSD)}</span>
+                <span className="shrink-0 font-medium text-amber-900">{libelleTotalListe(bonDeListe(b, b.lignes.length, b._count.lignes))}</span>
               </li>
             ))}
           </ul>

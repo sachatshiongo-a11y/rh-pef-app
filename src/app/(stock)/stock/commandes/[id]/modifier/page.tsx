@@ -55,7 +55,7 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
             articleId: l.articleId ?? "",
             designation: l.designation,
             quantite: l.quantite.toString(),
-            prix: l.prixUnitaireUSD.toString(),
+            prix: l.prixUnitaireUSD && Number(l.prixUnitaireUSD) > 0 ? l.prixUnitaireUSD.toString() : "", // sans prix (ou 0 d'une ancienne saisie sans prix) : case vide, jamais 0
             uniteParCarton: l.uniteParCarton !== null ? l.uniteParCarton.toString() : "",
           })),
         }}

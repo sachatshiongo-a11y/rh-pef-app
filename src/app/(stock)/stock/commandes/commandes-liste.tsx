@@ -8,7 +8,8 @@ import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { grouperParMois } from "@/lib/dates-fr";
 import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
-import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
+import { STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
+import { libelleTotalGroupe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { estErreur } from "@/lib/action-lisible";
 import { BoutonValider, BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -18,7 +19,8 @@ import { tranche, type ParPage } from "@/lib/pagination";
 
 export type BCRow = {
   id: string; numero: string; fournisseurId: string | null; fournisseurNom: string | null;
-  date: string; nbLignes: number; total: number; statut: string; documentUrl: string | null;
+  /** `total` : dans la devise du bon, null si absent. `sansPrix` : lignes sans prix (le total est alors incomplet). */
+  date: string; nbLignes: number; total: number | null; devise?: "USD" | "CDF"; sansPrix?: number; statut: string; documentUrl: string | null;
 };
 
 /**
@@ -72,7 +74,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
         grouperParMois(commandes, (c) => c.date).filter((g) => g.items.some((c) => idsPage.has(c.id))).map((g, i) => {
           const affichees = g.items.filter((c) => idsPage.has(c.id));
           return (
-          <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)${affichees.length < g.items.length ? ` · ${affichees.length} affiché(s)` : ""}`} resume={usd(g.items.reduce((t, c) => t + c.total, 0))} defaultOpen={i === 0}>
+          <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)${affichees.length < g.items.length ? ` · ${affichees.length} affiché(s)` : ""}`} resume={libelleTotalGroupe(g.items)} defaultOpen={i === 0}>
             <ul className="divide-y border-t text-sm">
               {affichees.map((c) => (
                 <li key={c.id} className={`flex items-center gap-2 px-3 py-1.5 ${sel.has(c.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
@@ -85,7 +87,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
                   </div>
                   <span className="flex shrink-0 items-center gap-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span>
-                    <span className="font-semibold tabular-nums">{usd(c.total)}</span>
+                    <span className="font-semibold tabular-nums" data-total-bon>{libelleTotalListe(c)}</span>
                     {pdfLien(c)}
                   </span>
                 </li>

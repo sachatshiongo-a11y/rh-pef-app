@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { creerFournisseur, fusionnerFournisseurs } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
+import { estDoublonFournisseur, type DoublonFournisseur } from "@/lib/fournisseur-doublon";
+import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
 import { normTexte } from "@/lib/texte";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
@@ -24,6 +26,8 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   const [source, setSource] = useState("");
   const [cible, setCible] = useState("");
   const [q, setQ] = useState("");
+  // Anti-doublon : le fournisseur tapé ressemble (ou est identique) à un fournisseur existant — la saisie est gardée pour « Créer quand même ».
+  const [doublon, setDoublon] = useState<{ saisie: [string, string][]; d: DoublonFournisseur } | null>(null);
 
   const tries = useMemo(() => [...fournisseurs].sort((a, b) => a.nom.localeCompare(b.nom, "fr")), [fournisseurs]);
   // Fusion : l'autre fournisseur choisi est retiré de la liste (il ne peut pas se fusionner avec lui-même).
@@ -37,6 +41,19 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
     startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
+  };
+  const creer = (saisie: [string, string][], quandMeme: boolean) => {
+    setErreur(null);
+    setDoublon(null);
+    const fd = new FormData();
+    for (const [k, v] of saisie) if (k !== "creerQuandMeme") fd.append(k, v);
+    if (quandMeme) fd.append("creerQuandMeme", "1");
+    startTransition(async () => {
+      const r = await creerFournisseur(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (estDoublonFournisseur(r)) { setDoublon({ saisie, d: r }); return; }
+      setAjout(false);
+    });
   };
   const fusionner = () => {
     const s = fournisseurs.find((f) => f.id === source);
@@ -90,7 +107,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
       )}
 
       {ajout && estDirection && (
-        <form action={(fd) => run(async () => { await creerFournisseur(fd); setAjout(false); })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">
+        <form onSubmit={(e) => { e.preventDefault(); creer([...new FormData(e.currentTarget).entries()].map(([k, v]) => [k, String(v)] as [string, string]), false); /* pas d'action de formulaire : elle viderait la saisie, gardée pour « Créer quand même » */ }} className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">
           <input name="nom" placeholder="Nom *" required className={inp} />
           <input name="contactNom" placeholder="Contact" className={inp} />
           <input name="telephone" placeholder="Téléphone" className={inp} />
@@ -103,6 +120,12 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
           <input name="delaiLivraison" placeholder="Délai livraison" className={inp} />
           <input name="modePaiement" placeholder="Mode paiement" className={inp} />
           <input name="produits" placeholder="Produits fournis" className={inp} />
+          {doublon && (
+            <div className="col-span-2 md:col-span-4">
+              <ChoixFournisseurProche nom={doublon.d.nom} candidats={doublon.d.candidats} creationPossible={doublon.d.creationPossible} hrefUtiliser={(c) => `/stock/fournisseurs/${c.id}`}
+                onCreer={() => creer(doublon.saisie, true)} desactive={isPending} />
+            </div>
+          )}
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer le fournisseur</button>
         </form>
       )}

@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   for (const a of articles) {
     const catNom = a.categorie?.nom ?? "À classer";
     if (catNom !== derniereCat) { sectionRows.push(lignes.length); lignes.push([catNom]); alerteRow.push(null); derniereCat = catNom; }
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
     const enUSD = prixArticleEnUSD(a, taux);
@@ -51,6 +51,7 @@ export async function GET(req: Request) {
     lignes.push([
       libelleArticle(a),
       qte,
+      a.unite ?? "",
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
       a.fournisseur?.nom ?? "",
@@ -61,13 +62,14 @@ export async function GET(req: Request) {
   }
 
   const colonnes: Colonne[] = [
-    { header: "Désignation", width: "26%" },
-    { header: "Stock", width: "9%", align: "right" },
-    { header: "Alerte", width: "13%" },
-    { header: "Min", width: "7%", align: "right" },
+    { header: "Désignation", width: "24%" },
+    { header: "Stock", width: "8%", align: "right" },
+    { header: "Unité", width: "7%" },
+    { header: "Alerte", width: "12%" },
+    { header: "Min", width: "6%", align: "right" },
     { header: "Fournisseur", width: "15%" },
-    { header: "Prix", width: "17%", align: "right" },
-    { header: "Valeur USD", width: "9%", align: "right" },
+    { header: "Prix", width: "18%", align: "right" },
+    { header: "Valeur USD", width: "10%", align: "right" },
   ];
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Tous domaines";
