@@ -2,13 +2,20 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { creerFournisseur, fusionnerFournisseurs } from "./actions";
+import { creerFournisseur, fusionnerFournisseurs, supprimerFournisseursEnLot } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import { estDoublonFournisseur, type DoublonFournisseur } from "@/lib/fournisseur-doublon";
 import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
 import { normTexte } from "@/lib/texte";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
+import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
+import { BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
+import { TelechargerLien } from "@/components/telecharger-lien";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche, type ParPage } from "@/lib/pagination";
+import { MAX_EXPORT_SELECTION } from "@/lib/export-selection";
+import { ErreurAction } from "@/components/erreur-action";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
@@ -18,9 +25,11 @@ const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-x
 
 // Liste de fournisseurs : navigation pure (le nom mène à la fiche, où se fait l'édition).
 // L'ajout et la fusion restent ici ; modifier/supprimer un fournisseur se fait sur sa fiche.
-export function FournisseursClient({ fournisseurs, estDirection }: { fournisseurs: FournRow[]; estDirection: boolean }) {
+export function FournisseursClient({ fournisseurs, estDirection, pageInit = 1, parInit = 50 }: { fournisseurs: FournRow[]; estDirection: boolean; pageInit?: number; parInit?: ParPage }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const { sel, ids, toggle, clear, setAll } = useBulkSelection();
   const [ajout, setAjout] = useState(false);
   const [fusion, setFusion] = useState(false);
   const [source, setSource] = useState("");
@@ -74,9 +83,30 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
     return [...base].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
   }, [fournisseurs, q]);
 
+  // Pagination (50 / 100 / Tout) : tous les fournisseurs sont chargés, la recherche et les cases agissent sur TOUT l'ensemble.
+  const pagination = usePagination({ total: visibles.length, pageInit, parInit, cleFiltre: q });
+  const pageFournisseurs = tranche(visibles, { debut: pagination.debut, fin: pagination.fin });
+  const idsPage = pageFournisseurs.map((f) => f.id);
+  const cocheesPage = idsPage.filter((id) => sel.has(id)).length;
+  const supprimerSelection = () => {
+    if (!confirm(`Supprimer ${ids.length} fournisseur(s) ? Leurs articles, factures et bons de commande sont détachés (pas supprimés). Action irréversible.`)) return;
+    setErreur(null); setInfo(null);
+    startTransition(async () => {
+      const r = await supprimerFournisseursEnLot(ids);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      const rapport = r as { traitees: number; echecs: string[] };
+      clear();
+      if (rapport.echecs.length > 0) setErreur(`${rapport.traitees} fournisseur(s) supprimé(s), ${rapport.echecs.length} refusé(s) — ${rapport.echecs.join(" · ")}`);
+      else setInfo(`${rapport.traitees} fournisseur(s) supprimé(s).`);
+    });
+  };
+  // Deux cochés : proposer de les fusionner (la fusion existante, préremplie ; c'est la Direction qui choisit lequel garder).
+  const fusionnerCoches = () => { setFusion(true); setAjout(false); setSource(ids[0]); setCible(ids[1]); };
+
   return (
     <div className="space-y-3">
-      {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      <ErreurAction message={erreur} />
+      {info && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{info}</p>}
       {!estDirection && <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">Consultation — seule la Direction peut ajouter, modifier ou supprimer un fournisseur (modification depuis la fiche).</p>}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -135,24 +165,50 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
         </form>
       )}
 
-      {/* Liste cliquable : un fournisseur par ligne, le nom mène à sa fiche. */}
+      {visibles.length > 0 && (
+        <BulkBar
+          count={sel.size} total={pageFournisseurs.length} cochesAffichees={cocheesPage}
+          libelleTout={pageFournisseurs.length < visibles.length ? "Tout sélectionner (cette page)" : "Tout sélectionner"}
+          onAll={(on) => setAll(on ? [...new Set([...ids, ...idsPage])] : ids.filter((id) => !idsPage.includes(id)), true)}
+        >
+          {pageFournisseurs.length < visibles.length && cocheesPage === pageFournisseurs.length && sel.size < visibles.length && (
+            <button type="button" data-tout-le-filtre="proposer" onClick={() => setAll(visibles.map((f) => f.id), true)} className="text-xs font-medium text-primary underline">
+              Sélectionner les {visibles.length} fournisseurs
+            </button>
+          )}
+          {ids.length > MAX_EXPORT_SELECTION ? (
+            <button type="button" disabled className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">Export : {MAX_EXPORT_SELECTION} fournisseurs au plus</button>
+          ) : (
+            <TelechargerLien href={`/stock/fournisseurs/export?ids=${ids.join(",")}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⭳ Exporter ({ids.length})</TelechargerLien>
+          )}
+          {estDirection && ids.length === 2 && <BoutonNeutre onClick={fusionnerCoches}>⤵ Fusionner les 2</BoutonNeutre>}
+          {estDirection && <BoutonDanger disabled={isPending} onClick={supprimerSelection}>✕ Supprimer ({ids.length})</BoutonDanger>}
+          <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
+        </BulkBar>
+      )}
+
+      {/* Liste : une case par fournisseur, le nom mène à sa fiche. */}
       <div className="divide-y overflow-hidden rounded-lg border">
-        {visibles.map((f) => (
-          <Link key={f.id} href={`/stock/fournisseurs/${f.id}`} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-accent/40">
-            <div className="min-w-0">
-              <div className="truncate font-medium text-primary">{f.nom}</div>
-              <div className="truncate text-xs text-muted-foreground">
-                {[f.contactNom, f.telephone, f.ville].filter(Boolean).join(" · ") || "Coordonnées non renseignées"}
+        {pageFournisseurs.map((f) => (
+          <div key={f.id} className={`flex items-center gap-2 pl-3 ${sel.has(f.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
+            <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="h-4 w-4 shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+            <Link href={`/stock/fournisseurs/${f.id}`} className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 pr-3">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-primary">{f.nom}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {[f.contactNom, f.telephone, f.ville].filter(Boolean).join(" · ") || "Coordonnées non renseignées"}
+                </div>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-3 text-right">
-              <span className="text-xs text-muted-foreground">{f.nbArticles} article(s)</span>
-              <span aria-hidden className="text-muted-foreground">›</span>
-            </div>
-          </Link>
+              <div className="flex shrink-0 items-center gap-3 text-right">
+                <span className="text-xs text-muted-foreground">{f.nbArticles} article(s)</span>
+                <span aria-hidden className="text-muted-foreground">›</span>
+              </div>
+            </Link>
+          </div>
         ))}
         {visibles.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun fournisseur.</p>}
       </div>
+      <Pagination className="pt-2" total={visibles.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="fournisseurs" />
     </div>
   );
 }

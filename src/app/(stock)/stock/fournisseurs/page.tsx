@@ -2,9 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { FournisseursClient, type FournRow } from "./fournisseurs-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { exigerPageStock } from "@/lib/garde-page";
+import { lirePagination } from "@/lib/pagination";
 
-export default async function FournisseursPage() {
+export default async function FournisseursPage({ searchParams }: { searchParams: Promise<{ page?: string; par?: string }> }) {
   const user = await exigerPageStock();
+  const { page, par } = lirePagination(await searchParams);
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
     include: { _count: { select: { articles: true } } },
@@ -32,7 +34,7 @@ export default async function FournisseursPage() {
           <BoutonRapport pdfHref="/stock/fournisseurs/imprimer" pdfPage excelHref="/stock/fournisseurs/export" />
         </div>
       </div>
-      <FournisseursClient fournisseurs={rows} estDirection={user.role === "ADMIN"} />
+      <FournisseursClient fournisseurs={rows} estDirection={user.role === "ADMIN"} pageInit={page} parInit={par} />
     </div>
   );
 }
