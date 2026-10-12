@@ -41,7 +41,7 @@ describe("DeclarationsListe — actions groupées", () => {
     expect(bouton(barre(), /Marquer payé/).textContent).toContain("Marquer payé (3)"); // CNSS, IPR (déclaré), ONEM — INPP déjà payé
   });
 
-  it("confirmation avant d'écrire ; refusée = rien n'est envoyé", async () => {
+  it("« Marquer payé » demande confirmation ; refusée = rien n'est envoyé", async () => {
     vi.stubGlobal("confirm", vi.fn(() => false));
     monter();
     act(() => casesTableau()[0].click());
@@ -50,13 +50,15 @@ describe("DeclarationsListe — actions groupées", () => {
     expect((window.confirm as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("ne pourra plus être annulé");
   });
 
-  it("confirmée : une seule requête pour tout le lot, puis le bilan", async () => {
-    vi.stubGlobal("confirm", vi.fn(() => true));
+  it("« Marquer déclaré » (qui se corrige) ne demande pas confirmation : une seule requête pour tout le lot, puis le bilan", async () => {
+    const confirmer = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmer);
     monter();
     act(() => casesTableau()[0].click());
     act(() => casesTableau()[3].click());
     await act(async () => bouton(barre(), /Marquer déclaré/).click());
     expect(m.lot).toHaveBeenCalledTimes(1);
+    expect(confirmer).not.toHaveBeenCalled();
     expect(m.lot).toHaveBeenCalledWith(["CNSS", "ONEM"], 10, 2026, "DECLARE");
     expect(conteneur.querySelector('[role="status"]')?.textContent).toBe("2 déclaration(s) marquée(s) déclarée(s).");
   });

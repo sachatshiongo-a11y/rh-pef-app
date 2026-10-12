@@ -29,8 +29,8 @@ const cdf = (n: number) => `${formaterNombre(n, { maximumFractionDigits: 0 })} C
 
 /**
  * Déclarations par organisme (CNSS, IPR, INPP, ONEM) : cases à cocher par ligne et actions groupées
- * « Marquer déclaré » / « Marquer payé » (Direction), avec confirmation — marquer FIGE le montant et un
- * paiement ne s'annule pas depuis cet écran. Cartes sur téléphone, tableau sur ordinateur ; un refus du
+ * « Marquer déclaré » / « Marquer payé » (Direction) ; « payé » demande confirmation, car un paiement ne s'annule
+ * pas depuis cet écran. Cartes sur téléphone, tableau sur ordinateur ; un refus du
  * serveur (paie non validée, déjà payé) est nommé à l'écran.
  */
 export function DeclarationsListe({ lignes, mois, annee, periode, provisoire, estAdmin, totalUSD, totalCDF }: {
@@ -49,12 +49,13 @@ export function DeclarationsListe({ lignes, mois, annee, periode, provisoire, es
 
   function marquer(cibles: LigneDeclarationEcran[], statut: "DECLARE" | "PAYE") {
     if (cibles.length === 0) return;
-    const total = cibles.reduce((t, l) => t + l.montantUSD, 0);
-    const liste = cibles.map((l) => l.libelle).join(", ");
-    const message = statut === "PAYE"
-      ? `Marquer comme PAYÉ pour ${periode} : ${liste} (${usd(total)}) ? Le paiement sera enregistré et ne pourra plus être annulé depuis cet écran.`
-      : `Marquer comme DÉCLARÉ pour ${periode} : ${liste} (${usd(total)}) ? Les montants sont figés à cet instant.`;
-    if (!window.confirm(message)) return;
+    // Seul le PAIEMENT demande confirmation : il clôt le suivi et ne s'annule pas depuis cet écran. « Déclaré » se
+    // corrige encore (décision de l'audit paie du 10/10/2026) : pas de friction supplémentaire.
+    if (statut === "PAYE") {
+      const total = cibles.reduce((t, l) => t + l.montantUSD, 0);
+      const liste = cibles.map((l) => l.libelle).join(", ");
+      if (!window.confirm(`Marquer comme PAYÉ pour ${periode} : ${liste} (${usd(total)}) ? Le paiement sera enregistré et ne pourra plus être annulé depuis cet écran.`)) return;
+    }
     setNote(null);
     demarrer(async () => {
       const r = await marquerDeclarationsEnLot(cibles.map((l) => l.type), mois, annee, statut);

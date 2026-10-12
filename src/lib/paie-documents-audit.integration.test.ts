@@ -378,13 +378,15 @@ describe("6 et 7 — mois clôturé : liasse, ZIP, livre de paie et Excel des co
 });
 
 describe("5 — « Marquer payé » demande une confirmation", () => {
-  it("le bouton est un ConfirmSubmitButton (confirmation navigateur) dont le message cite l'organisme, la période et le montant", async () => {
-    const source = (await import("node:fs")).readFileSync(new URL("../app/(app)/declarations/page.tsx", import.meta.url), "utf8");
-    const i = source.indexOf("Marquer payé");
-    const balise = source.lastIndexOf("<ConfirmSubmitButton", i);
-    expect(balise).toBeGreaterThan(-1);
-    expect(source.slice(balise, i)).toMatch(/message=\{`Marquer \$\{l\.libelle\} comme PAYÉ pour \$\{periode\} \(\$\{money\(l\.montantUSD\)\}\)/);
-    // Le bouton « déclaré » n'est pas concerné : seul le paiement, qui clôt le suivi, demande confirmation.
-    expect(source.slice(source.indexOf("Marquer déclaré") - 120, source.indexOf("Marquer déclaré"))).not.toContain("ConfirmSubmitButton");
+  it("la liste des déclarations confirme le PAIEMENT (organismes, période, montant, « ne pourra plus être annulé »), pas le marquage « déclaré »", async () => {
+    // Depuis la liste groupée (cases à cocher, audit ergonomie du 10/10/2026), la confirmation vit dans le composant client.
+    const source = (await import("node:fs")).readFileSync(new URL("../app/(app)/declarations/declarations-liste.tsx", import.meta.url), "utf8");
+    const i = source.indexOf('if (statut === "PAYE") {');
+    expect(i).toBeGreaterThan(-1);
+    const bloc = source.slice(i, source.indexOf("window.confirm", i) + 400);
+    expect(bloc).toMatch(/window\.confirm\(`Marquer comme PAYÉ pour \$\{periode\} : \$\{liste\} \(\$\{usd\(total\)\}\)/);
+    expect(bloc).toContain("ne pourra plus être annulé");
+    // Le marquage « déclaré » n'est pas concerné : seul le paiement, qui clôt le suivi, demande confirmation.
+    expect(source.match(/window\.confirm\(/g)).toHaveLength(1);
   });
 });
