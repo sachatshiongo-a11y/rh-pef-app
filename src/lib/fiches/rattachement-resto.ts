@@ -207,7 +207,7 @@ export function planifierRattachementsAuto(
     const doublons = homonymes.filter((r) => r.espace === espace);
     if (doublons.length > 0) {
       const d = doublons[0]!;
-      laisser("HOMONYME", `« ${d.designation} » existe déjà au restaurant (${NOM_ESPACE[espace]}, ${!d.actif ? "désactivé" : `rattaché à « ${d.rattacheA ?? "un autre article"} »`}) : choisissez, pour ne pas créer de doublon`);
+      laisser("HOMONYME", `« ${d.designation} » existe déjà au restaurant (${NOM_ESPACE[espace]}, ${!d.actif ? "désactivé" : `rattaché à « ${d.rattacheA ?? "un autre article"} »`}) : choisissez${d.actif ? " (« + Ajouter une marque » sur cet article du restaurant, s'il s'agit d'une autre marque du même produit)" : ""}, pour ne pas créer de doublon`);
       continue;
     }
     if (uniteManquante(c.unite)) { laisser("UNITE_CATALOGUE", "unité du catalogue non renseignée : renseignez-la sur la fiche de l'article, l'article du restaurant sera créé ensuite"); continue; }

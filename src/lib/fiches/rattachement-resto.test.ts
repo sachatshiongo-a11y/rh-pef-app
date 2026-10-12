@@ -144,7 +144,7 @@ describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
       [R("r1", "Farfalle", { articleStockIds: ["a9"], rattacheA: "Farfalle Barilla" }), R("r2", "Penne", { actif: false })],
     );
     expect(d.map((x) => (x as { raison: string }).raison)).toEqual([
-      "« Farfalle » existe déjà au restaurant (Cuisine, rattaché à « Farfalle Barilla ») : choisissez, pour ne pas créer de doublon",
+      "« Farfalle » existe déjà au restaurant (Cuisine, rattaché à « Farfalle Barilla ») : choisissez (« + Ajouter une marque » sur cet article du restaurant, s'il s'agit d'une autre marque du même produit), pour ne pas créer de doublon",
       "« Penne » existe déjà au restaurant (Cuisine, désactivé) : choisissez, pour ne pas créer de doublon",
     ]);
   });
