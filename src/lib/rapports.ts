@@ -13,6 +13,7 @@ import { construireRapportAnnuel, type DonneesRapportAnnuel } from "@/lib/exploi
 import type { RatioResultat } from "@/lib/exploitation/calcul";
 import { construireRapportVisuel, type DonneesRapportVisuel } from "@/lib/exploitation/rapport-regroupe";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { lignesClotureDePeriode } from "@/lib/exploitation/cloture";
 import { CHAMPS_CONTENANCE, CHAMPS_LIBELLE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
 
 export type { LigneEcritureRapport };
@@ -450,7 +451,7 @@ export async function genererRapportExploitationVisuel(type: TypeRapportExploita
     chargerExploitation(jourIso(debut), jourIso(fin), horizon),
     chargerEcrituresRapport(jourIso(debut), jourIso(fin)),
   ]);
-  return construireRapportVisuel({
+  const rapport = construireRapportVisuel({
     type,
     titre: TYPES_RAPPORT_EXPLOITATION[type],
     periodeTexte: libellePeriodeRapport(type, debut, fin),
@@ -461,6 +462,8 @@ export async function genererRapportExploitationVisuel(type: TypeRapportExploita
     recettes,
     depenses,
   });
+  // Clôture mensuelle : le rapport dit quels mois de sa période sont clos (écran, PDF et Excel).
+  return { ...rapport, clotures: await lignesClotureDePeriode(prisma, debut, fin) };
 }
 
 // ─── Rapport ANNUEL « visuel » (Task 11, refait le 2026-09-29) ──────────────────────────────────
@@ -475,5 +478,6 @@ export type DonneesRapportAnnuelVisuel = DonneesRapportAnnuel;
  *  annuel regroupé — même construction que l'écran « Vue annuelle ». */
 export async function genererRapportAnnuelVisuel(annee: number): Promise<DonneesRapportAnnuelVisuel> {
   const { donnees, recettes, depenses } = await chargerAnneeRapport(annee);
-  return construireRapportAnnuel(donnees, { recettes, depenses });
+  const clotures = await lignesClotureDePeriode(prisma, new Date(Date.UTC(annee, 0, 1)), new Date(Date.UTC(annee, 11, 31)));
+  return { ...construireRapportAnnuel(donnees, { recettes, depenses }), clotures };
 }
