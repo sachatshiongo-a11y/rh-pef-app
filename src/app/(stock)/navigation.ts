@@ -18,6 +18,9 @@ export const NAV_GROUPS: GroupeMenu[] = [
       { href: "/stock/catalogue", label: "Inventaire", icone: "marmite" },
       ENTREE_MENU_ACHATS, // Mouvements · Liste d'achat · Légumes frais (sous-onglets)
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" }, // + onglet « Comptages passés »
+      // La clôture du mois se fait ici, comme la paie dans Paie et l'exploitation dans Exploitation (V8).
+      // Direction seule : la page refuse les autres comptes et les actions revérifient ADMIN.
+      { href: "/stock/cloture", label: "Clôture du mois", icone: "calendrier", adminOnly: true },
     ],
   },
   {

@@ -96,6 +96,20 @@ describe("liens de notification — chacun mène à une page qui existe", () => 
     expect(src.match(/domaine: "EXPLOITATION"[^}]*lien: LIEN_DEMANDES_RATIOS/g)).toHaveLength(2);
   });
 
+  it("la clôture du stock (lot 8, V8) : aucune notification ne mène aux Paramètres pour elle, et sa page est un vrai écran", () => {
+    expect(liens.filter((l) => /cloture-stock/.test(l.lien))).toEqual([]);
+    // Les actions de clôture ne notifient personne : ni lien, ni envoi vers Paramètres.
+    const actions = readFileSync(path.join(APP, "(stock)", "stock", "cloture", "actions.ts"), "utf8");
+    expect(actions).not.toMatch(/\blien\s*:/);
+    expect(actions).not.toMatch(/["'`]\/parametres/);
+    const page = routeDe("/stock/cloture");
+    expect(page).toBeTruthy();
+    expect(estUnRenvoi(page!)).toBe(false);
+    // L'ancienne adresse, elle, n'est plus qu'un renvoi : aucun lien écrit ne doit y mener (ADRESSES_DEPLACEES).
+    expect(estUnRenvoi(routeDe("/stock/parametres")!)).toBe(true);
+    expect(ADRESSES_DEPLACEES).toContain("/stock/parametres");
+  });
+
   it("la fiche d'un comptage garde son adresse /stock/archives/<id>", () => {
     expect(routeDe("/stock/archives/abc")).toBeTruthy();
   });

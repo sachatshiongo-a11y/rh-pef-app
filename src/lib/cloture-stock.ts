@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 
-// Clôture mensuelle du stock : une fois un mois clôturé (Paramètres → Direction), plus aucun
+// Clôture mensuelle du stock : une fois un mois clôturé (menu Stock → Clôture du mois, Direction), plus aucun
 // mouvement daté dans ce mois ne peut être créé ou supprimé — les chiffres deviennent figés,
 // comme la paie validée côté RH. Réversible (rouvrir le mois).
 
@@ -42,7 +42,7 @@ export async function exigerPeriodesOuvertes(dates: Date[]) {
   if (!figee) return;
   const periode = `${String(derniere.mois).padStart(2, "0")}/${derniere.annee}`;
   if (rang(figee.getUTCFullYear(), figee.getUTCMonth() + 1) === borne) {
-    throw new Error(`La période ${periode} est clôturée : aucun mouvement de stock ne peut y être ajouté ou supprimé. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)`);
+    throw new Error(`La période ${periode} est clôturée : aucun mouvement de stock ne peut y être ajouté ou supprimé. (Direction : Stock → Clôture du mois pour la rouvrir.)`);
   }
-  throw new Error(`La période ${periode} est clôturée : le stock est figé jusqu'à ce mois inclus, aucun mouvement daté du ${jjmmaaaa(figee)} ne peut être ajouté ou supprimé. (Direction : Paramètres → Clôture mensuelle, rouvrir les mois jusqu'à celui de cette date.)`);
+  throw new Error(`La période ${periode} est clôturée : le stock est figé jusqu'à ce mois inclus, aucun mouvement daté du ${jjmmaaaa(figee)} ne peut être ajouté ou supprimé. (Direction : Stock → Clôture du mois, rouvrir les mois jusqu'à celui de cette date.)`);
 }

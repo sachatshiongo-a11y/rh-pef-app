@@ -1,14 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { MOIS_FR } from "@/lib/dates-fr";
-import { cloturerMoisStock, rouvrirMoisStock } from "@/app/(stock)/stock/parametres/actions";
+import { cloturerMoisStock, rouvrirMoisStock } from "@/app/(stock)/stock/cloture/actions";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { jourCivilKinshasa, dateHeureGenerationKinshasa } from "@/lib/heure-kinshasa";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
-// Section « Clôture mensuelle du stock » — EXTRAITE de (stock)/stock/parametres pour être partagée :
-// l'onglet Paramètres est UNIQUE (demande user 2026-07-20). Elle vit désormais dans la page
-// Paramètres RH (/parametres, ADMIN) ; /stock/parametres y redirige. Composant serveur autonome
-// (fait ses propres lectures). Les actions gardent leur propre garde ADMIN + requireModule("stock").
+// Section « Clôture du mois » du Stock (page /stock/cloture, plan d'ergonomie V8). Elle a vécu dans /stock/parametres, puis
+// dans Paramètres (lot 7) ; elle est de retour dans le menu Stock, comme la paie se clôture dans Paie. Composant serveur
+// autonome (fait ses propres lectures). Les actions gardent leur propre garde ADMIN + requireModule("stock").
 export async function ClotureStockSection() {
   const [config, clotures] = await Promise.all([
     prisma.config.findUnique({ where: { id: "singleton" } }),

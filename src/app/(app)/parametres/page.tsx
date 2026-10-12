@@ -16,7 +16,6 @@ import { estTypeCongeProtege } from "@/lib/conges-regles";
 import { PointageReglages } from "./pointage-reglages";
 import { ComptesEnLot } from "./comptes-lot";
 import { etatCompteSalarie } from "@/lib/comptes-salaries";
-import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import { lireMoisEffet } from "@/lib/config";
 import { exigerPageRH } from "@/lib/garde-page";
@@ -42,7 +41,6 @@ const SECTIONS_PARAMETRES = [
   { id: "parametres-legaux", label: "Paramètres légaux" },
   { id: "bareme-ipr", label: "Barème IPR" },
   { id: "jours-feries", label: "Jours fériés" },
-  { id: "cloture-stock", label: "Clôture du stock" },
 ];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<{ erreur?: string; msg?: string }> }) {
@@ -465,12 +463,6 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </form>
 
         <JoursFeriesListe feries={joursFeries.map((j) => ({ id: j.id, date: new Date(j.date).toLocaleDateString("fr-FR"), designation: j.designation }))} />
-      </Section>
-
-      <Section id="cloture-stock" title="Clôture mensuelle du stock">
-        {/* Onglet Paramètres UNIQUE (demande user) : la clôture du stock, jadis dans
-            /stock/parametres, vit désormais ici ; /stock/parametres redirige vers cette page. */}
-        <ClotureStockSection />
       </Section>
     </div>
   );

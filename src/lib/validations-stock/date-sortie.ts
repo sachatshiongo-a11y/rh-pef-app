@@ -74,11 +74,11 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
   // 3. Période figée par la clôture : l'ancienne date comme la nouvelle.
   const borne = await tx.clotureStock.findFirst({ orderBy: [{ annee: "desc" }, { mois: "desc" }], select: { annee: true, mois: true } });
   if (borne && estDansPeriodeFigee(nouvelle, borne)) {
-    return { erreur: `La période ${periodeDe(borne)} est clôturée : le stock est figé jusqu'à ce mois inclus, aucune sortie ne peut être datée du ${jjmmaaaa(nouvelle)}. ${RIEN} (Direction : Paramètres → Clôture mensuelle pour rouvrir les mois concernés.)` };
+    return { erreur: `La période ${periodeDe(borne)} est clôturée : le stock est figé jusqu'à ce mois inclus, aucune sortie ne peut être datée du ${jjmmaaaa(nouvelle)}. ${RIEN} (Direction : Stock → Clôture du mois pour rouvrir les mois concernés.)` };
   }
   const figees = borne ? aChanger.filter((m) => estDansPeriodeFigee(m.date, borne)) : [];
   if (borne && figees.length > 0) {
-    return { erreur: `La période ${periodeDe(borne)} est clôturée : le stock est figé jusqu'à ce mois inclus, la date de ces sorties ne peut plus changer — ${nomsBornes(figees.map(sortieNommee))}. ${RIEN} (Direction : Paramètres → Clôture mensuelle pour rouvrir les mois concernés.)` };
+    return { erreur: `La période ${periodeDe(borne)} est clôturée : le stock est figé jusqu'à ce mois inclus, la date de ces sorties ne peut plus changer — ${nomsBornes(figees.map(sortieNommee))}. ${RIEN} (Direction : Stock → Clôture du mois pour rouvrir les mois concernés.)` };
   }
 
   // 4. Comptage entre l'ancienne et la nouvelle date (bornes incluses), même article.

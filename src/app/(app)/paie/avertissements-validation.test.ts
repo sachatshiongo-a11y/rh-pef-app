@@ -2,10 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isValidElement, type ReactNode } from "react";
 import { messageConfirmationValidation, MAX_SALARIES_CONFIRMATION, lignesAValiderDuLot } from "./avertissements-validation";
-import { StatusActions, EN_ATTENTE_DIRECTION } from "./status-actions";
-import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { BadgeReference, ListeAvertissements } from "./avertissements-paie";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import type { AvertissementPaie } from "@/lib/paie-reference";
@@ -107,70 +104,12 @@ describe("lignesAValiderDuLot", () => {
   });
 });
 
-/** Tous les éléments React d'un arbre rendu par appel direct du composant (sans DOM). */
-function elements(n: ReactNode): { type: unknown; props: Record<string, unknown> }[] {
-  if (Array.isArray(n)) return n.flatMap(elements);
-  if (!isValidElement(n)) return [];
-  const props = n.props as Record<string, unknown>;
-  return [{ type: n.type, props }, ...elements(props.children as ReactNode)];
-}
-
-describe("StatusActions : confirmation avant de valider une ligne", () => {
-  const base = { payrollLineId: "l1", role: "ADMIN" as const, nom: "Rachel Lunda" };
-  const confirmations = (n: ReactNode) => elements(n).filter((e) => e.type === ConfirmSubmitButton);
-  it("avec avertissements : le bouton Valider passe par la confirmation, message complet", () => {
-    const c = confirmations(StatusActions({ ...base, statut: "PAS_VALIDE", avertissements: RACHEL.avertissements }));
-    expect(c).toHaveLength(1);
-    expect(c[0].props.variante).toBe("valider");
-    expect(c[0].props.message).toBe(messageConfirmationValidation([RACHEL]));
-  });
-  it("sans avertissement : validation directe, pas de boîte", () => {
-    expect(confirmations(StatusActions({ ...base, statut: "PAS_VALIDE", avertissements: [] }))).toHaveLength(0);
-  });
-  it("paiement et réouverture : jamais de rappel des avertissements", () => {
-    expect(confirmations(StatusActions({ ...base, statut: "VALIDE", avertissements: RACHEL.avertissements }))).toHaveLength(0);
-    expect(confirmations(StatusActions({ ...base, statut: "PAYE", avertissements: RACHEL.avertissements }))).toHaveLength(0);
-  });
-});
-
-// La RH (2026-10-01) : « Marquer payé » sur une ligne validée, rien d'autre ; une ligne pas validée
-// dit qu'elle attend la Direction. Les autres rôles n'ont aucun bouton.
-describe("StatusActions selon le rôle", () => {
-  const ligne = { payrollLineId: "l1", nom: "Rachel Lunda", avertissements: [] };
-  const cibles = (n: ReactNode) => elements(n).filter((e) => e.type === "input" && e.props.name === "versStatut").map((e) => e.props.value);
-  const texte = (n: ReactNode) => elements(n).map((e) => (typeof e.props.children === "string" ? e.props.children : "")).join(" ");
-  it("RH : ligne validée → seul « Marquer payé »", () => {
-    expect(cibles(StatusActions({ ...ligne, role: "MANAGER", statut: "VALIDE" }))).toEqual(["PAYE"]);
-  });
-  it("RH : ligne pas validée → libellé d'attente, aucun bouton", () => {
-    const n = StatusActions({ ...ligne, role: "MANAGER", statut: "PAS_VALIDE" });
-    expect(cibles(n)).toEqual([]);
-    expect(texte(n)).toContain(EN_ATTENTE_DIRECTION);
-  });
-  it("RH : ligne payée → ni annulation ni rien", () => {
-    expect(StatusActions({ ...ligne, role: "MANAGER", statut: "PAYE" })).toBeNull();
-  });
-  it("Direction : inchangé (valider ; payer + rouvrir ; annuler le paiement)", () => {
-    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "PAS_VALIDE" }))).toEqual(["VALIDE"]);
-    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "VALIDE" })).sort()).toEqual(["PAS_VALIDE", "PAYE"]);
-    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "PAYE" }))).toEqual(["VALIDE"]);
-  });
-  it.each(["COMPTA", "VIEWER", "STOCK", "EMPLOYE"] as const)("%s : aucun bouton", (role) => {
-    for (const statut of ["PAS_VALIDE", "VALIDE", "PAYE"] as const) expect(StatusActions({ ...ligne, role, statut })).toBeNull();
-  });
-});
-
-// Le lot (barre d'actions groupées) et la clôture passent aussi par la confirmation. Composants à
-// état (lot) ou serveur (clôture) : vérifiés sur la source, faute de DOM dans ce dépôt.
-describe("lot et clôture : la confirmation est câblée", () => {
+// Depuis le lot 8 (V5) la validation d'une ligne ou d'un lot se fait dans « À valider » (bulletins-inbox.tsx : voir
+// ../a-valider/bulletins-inbox.test.ts pour la confirmation de ligne et de lot, et ../a-valider/bulletins-seulement.*
+// pour la preuve qu'on ne peut plus décider depuis Paie). Reste ici la CLÔTURE, qui valide d'un coup les « pas
+// validé » : elle rappelle leurs avertissements. Composant serveur : vérifié sur la source, faute de DOM.
+describe("clôture : la confirmation est câblée", () => {
   const src = (f: string) => readFileSync(join(__dirname, f), "utf8");
-  it("lot : validation → avertissements des lignes à valider, sur toutes les lignes, puis window.confirm", () => {
-    const s = src("paie-bulk.tsx");
-    // Sur toutes les lignes, filtre ignoré ; la sélection (des salariés) traduite en lignes affichées.
-    expect(s).toContain("lignesSelectionnees([...brigade, ...backoffice], selection)");
-    expect(s).toContain("messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], new Set(ids)))");
-    expect(s).toMatch(/if \(versStatut === "VALIDE"\) \{\s*const message = [^\n]+\n\s*if \(message && !window\.confirm\(message\)\) return;/);
-  });
   it("clôture : le message rappelle les avertissements des « pas validé »", () => {
     const s = src("page.tsx");
     expect(s).toContain('messageConfirmationValidation(rows.filter((r) => r.statutPaiement === "PAS_VALIDE"))');

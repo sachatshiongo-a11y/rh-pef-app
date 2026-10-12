@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { StatusActions } from "./status-actions";
 import { BadgeReference, ListeAvertissements } from "./avertissements-paie";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -11,9 +10,8 @@ import { VisionneuseDocument } from "@/components/visionneuse-document";
 import { useLockBodyScroll } from "@/components/use-lock-body-scroll";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
-import type { PaieRow } from "./paie-bulk";
+import type { PaieRow } from "./tableau-paie";
 import type { Devise } from "@/lib/pdf/theme";
-import type { Role } from "@prisma/client";
 import { formaterNombre } from "@/lib/montant";
 import { EtatVide } from "@/components/etat-vide";
 
@@ -38,9 +36,8 @@ function MiniLigne({ label, usd, fort }: { label: string; usd: number; fort?: bo
  * Vérification / validation des bulletins façon PayFit : liste des salariés à gauche, vrai
  * bulletin PDF rendu en iframe à droite (sans téléchargement), avec agrandissement plein écran.
  */
-/** `role` : décide des boutons de chaque ligne (StatusActions) — Direction : tout ; RH : « Marquer
- *  payé » sur les lignes validées ; autres : aucun. */
-export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Role }) {
+/** LECTURE seule depuis le lot 8 (V5) : on vérifie ici, on décide (valider, payer) dans « À valider ». */
+export function BulletinsValidation({ rows }: { rows: PaieRow[] }) {
   const [selId, setSelId] = useState<string | null>(null);
   const [devise, setDevise] = useState<Devise>("USD");
   const [recherche, setRecherche] = useState("");
@@ -58,8 +55,8 @@ export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Rol
 
   return (
     <>
-      {/* ————— MOBILE : une carte par salarié (net, statut, télécharger, valider). Pas d'aperçu
-          PDF ni de tableau large : lecture et validation simples au doigt. ————— */}
+      {/* ————— MOBILE : une carte par salarié (net, statut, télécharger). Pas d'aperçu
+          PDF ni de tableau large : lecture simple au doigt. ————— */}
       <div className="mb-6 lg:hidden">
         <input
           value={recherche}
@@ -135,9 +132,6 @@ export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Rol
                 >
                   Bulletin CDF
                 </TelechargerLien>
-                <div className="ml-auto">
-                  <StatusActions payrollLineId={r.id} statut={r.statutPaiement} role={role} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} jeton={r.jeton} />
-                </div>
               </div>
             </div>
           ))}
@@ -220,9 +214,6 @@ export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Rol
               <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                 Télécharger
               </TelechargerLien>
-            )}
-            {sel && (
-              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} role={role} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} jeton={sel.jeton} />
             )}
           </div>
         </div>

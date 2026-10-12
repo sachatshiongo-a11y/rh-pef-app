@@ -13,7 +13,7 @@ import { lireCleLigne, lireQuantiteVendue } from "@/lib/ventes-journalieres";
 // la saisie au repos.
 //
 // Case vidée (null) = la saisie est RETIRÉE (plus de ligne : « — ») ; 0 = « rien vendu », ENREGISTRÉ.
-// Une période de stock clôturée (Paramètres → Clôture mensuelle) est en lecture seule.
+// Une période de stock clôturée (Stock → Clôture du mois) est en lecture seule.
 // Chaque changement est journalisé (avant → après), jamais une écriture muette.
 
 const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,7 +48,7 @@ export const saisirVente = actionLisible(async (ligne: string, dateIso: string, 
   const borne = await derniereClotureStock();
   if (estDansPeriodeFigee(date, borne)) {
     const periode = `${String(borne!.mois).padStart(2, "0")}/${borne!.annee}`;
-    throw new Error(`La période ${periode} est clôturée : les ventes du ${dateIso.split("-").reverse().join("/")} sont en lecture seule. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)`);
+    throw new Error(`La période ${periode} est clôturée : les ventes du ${dateIso.split("-").reverse().join("/")} sont en lecture seule. (Direction : Stock → Clôture du mois pour la rouvrir.)`);
   }
 
   const where = { date_ficheId: { date, ficheId: cible.id } };

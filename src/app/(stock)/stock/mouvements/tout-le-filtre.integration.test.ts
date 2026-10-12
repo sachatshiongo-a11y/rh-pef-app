@@ -149,7 +149,7 @@ describe("changer le motif de TOUT le filtre", () => {
     await prisma.clotureStock.create({ data: { annee: 2026, mois: 9 } });
     const avant = await instantane();
     expect(erreurDe(await requalifierSorties({ filtre: SEPT_SANS, colonne: "SORTIES", attendu: 36 }, "LIVRAISON_RESTAURANT"))).toBe(
-      "La période 09/2026 est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)",
+      "La période 09/2026 est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Stock → Clôture du mois pour la rouvrir.)",
     );
     expect(await instantane()).toEqual(avant);
     expect(await prisma.journalAudit.count()).toBe(0);

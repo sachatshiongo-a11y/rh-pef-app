@@ -100,7 +100,7 @@ export function ImportInventaireClient() {
           )}
           {preview.periodeFigee && (
             <div role="alert" data-periode-figee className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
-              <p className="font-medium">Période {preview.periodeFigee.periode} clôturée (et mois antérieurs) : {preview.periodeFigee.nbMouvements} mouvement(s) et {preview.periodeFigee.nbLegumes} achat(s) de légumes de ce classeur sont datés d&apos;un mois figé. L&apos;import sera refusé en entier. Rouvrez les mois concernés (Paramètres → Clôture mensuelle, Direction) ou corrigez les dates du classeur.</p>
+              <p className="font-medium">Période {preview.periodeFigee.periode} clôturée (et mois antérieurs) : {preview.periodeFigee.nbMouvements} mouvement(s) et {preview.periodeFigee.nbLegumes} achat(s) de légumes de ce classeur sont datés d&apos;un mois figé. L&apos;import sera refusé en entier. Rouvrez les mois concernés (Stock → Clôture du mois, Direction) ou corrigez les dates du classeur.</p>
             </div>
           )}
           <p className="text-xs text-muted-foreground" data-taux-legumes>

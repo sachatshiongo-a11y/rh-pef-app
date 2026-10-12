@@ -5,10 +5,9 @@ import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./act
 import { annonceCloture, libellePeriode } from "@/lib/changement-mois";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
-import { CLASSES_DANGER, CLASSES_GEOMETRIE } from "@/components/action-buttons";
+import { CLASSES_DANGER, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { PaieBulk, type PaieRow } from "./paie-bulk";
-import { jetonLigne } from "@/lib/paie-jeton";
+import { TableauPaie, type PaieRow } from "./tableau-paie";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
@@ -25,6 +24,7 @@ import { lireAvertissements } from "@/lib/paie-avertissements";
 import { BadgeReference } from "./avertissements-paie";
 import { messageConfirmationValidation } from "./avertissements-validation";
 import { exigerPageRH } from "@/lib/garde-page";
+import { chargerAValiderRH } from "@/lib/a-valider-chargeurs";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { reactiverEmploye } from "../employes/actions";
 import { EtatVide } from "@/components/etat-vide";
@@ -46,8 +46,8 @@ export default async function PaiePage({
   const vue = sp.vue ?? "bulletins";
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
-  // La RH (MANAGER) paie les bulletins validés par la Direction et clôture une paie entièrement
-  // validée (décision du 2026-10-01) ; elle ne valide, ne rouvre ni ne réinitialise rien.
+  // La RH (MANAGER) clôture une paie entièrement validée (décision du 2026-10-01) ; elle ne valide, ne rouvre
+  // ni ne réinitialise rien. Valider, payer, rouvrir : dans « À valider » seulement (lot 8, V5).
   const estRHPaie = user.role === "MANAGER";
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -105,7 +105,9 @@ export default async function PaiePage({
     : await Promise.all([calculerLignesPaie(mois, annee), chargerParametresPaie()]);
   const enApercu = !run;
 
-  const modeDefaut = (e: { modePaiement: PaieRow["modePaiementDefaut"] }): PaieRow["modePaiementDefaut"] => e.modePaiement;
+  // Les décisions sur les bulletins (valider, payer) se prennent dans « À valider » : Paie y renvoie, avec les
+  // MÊMES chiffres que la pastille du menu (a-valider-compteur.ts, lus selon le rôle du compte).
+  const { elements: enAttente } = await chargerAValiderRH(user);
 
   const rows: PaieRow[] = run
     ? lignesRun.map((l) => ({
@@ -120,7 +122,6 @@ export default async function PaiePage({
         salaireNetCDF: salaireNetCDF(l, tauxDeLigne(l, run)),
         totalVerseUSD: totalVerseUSD(l),
         statutPaiement: l.statutPaiement,
-        modePaiementDefaut: modeDefaut(l.employee),
         // Lignes back-office antérieures au 2026-09-24 : base 0 stockée → voir salaireDeBaseUSD.
         baseUSD: salaireDeBaseUSD(l, l.employee.categorie) + Number(l.remuneration2_3),
         hsUSD: Number(l.hsValorisee),
@@ -135,7 +136,6 @@ export default async function PaiePage({
         sourceReference: l.sourceReference,
         motifReference: l.motifReference,
         avertissements: lireAvertissements(l.avertissementsPaie),
-        jeton: jetonLigne(l, tauxDeLigne(l, run)), // taux du bulletin : celui des francs affichés
       }))
     : (apercu!.lignes).map((l) => ({
         id: `apercu-${l.employee.id}`,
@@ -149,7 +149,6 @@ export default async function PaiePage({
         salaireNetCDF: salaireNetCDF(l.data, parametresPaie!.tauxChangeCDF),
         totalVerseUSD: totalVerseUSD(l.data),
         statutPaiement: "PAS_VALIDE",
-        modePaiementDefaut: modeDefaut(l.employee),
         baseUSD: l.data.remuneration100 + l.data.remuneration2_3,
         hsUSD: l.data.hsValorisee,
         transportUSD: l.data.transportUSD,
@@ -284,7 +283,7 @@ export default async function PaiePage({
   }));
 
   const sousOnglets = [
-    { cle: "bulletins", label: estRHPaie ? "Payer les bulletins" : "Valider les bulletins" },
+    { cle: "bulletins", label: "Bulletins" },
     { cle: "remuneration", label: "Éléments de la paie" },
     { cle: "contrats", label: `Suivi des contrats (${contratRows.length})` },
     { cle: "historique", label: "Historique" },
@@ -433,6 +432,21 @@ export default async function PaiePage({
         </div>
       )}
 
+      {(enAttente.bulletinsAValider > 0 || enAttente.bulletinsAPayer > 0) && (
+        <div data-decisions-bulletins className="mb-5 flex flex-wrap items-center gap-2">
+          {enAttente.bulletinsAValider > 0 && (
+            <Link href="/a-valider#bulletins-a-valider" className={CLASSES_NEUTRE}>
+              {enAttente.bulletinsAValider} bulletin{enAttente.bulletinsAValider > 1 ? "s" : ""} à valider → À valider
+            </Link>
+          )}
+          {enAttente.bulletinsAPayer > 0 && (
+            <Link href="/a-valider#bulletins-a-payer" className={CLASSES_NEUTRE}>
+              {enAttente.bulletinsAPayer} bulletin{enAttente.bulletinsAPayer > 1 ? "s" : ""} à payer → À valider
+            </Link>
+          )}
+        </div>
+      )}
+
       {taches.length > 0 && (
         <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
           <p className="mb-2 text-sm font-semibold text-amber-800">
@@ -505,14 +519,14 @@ export default async function PaiePage({
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Vérifier les bulletins
           </h2>
-          <BulletinsValidation rows={rows} role={user.role} />
+          <BulletinsValidation rows={rows} />
           <h2 className="mb-2 hidden text-sm font-semibold uppercase tracking-wide text-muted-foreground lg:block">
-            Tableau détaillé &amp; actions groupées
+            Tableau détaillé
           </h2>
           {/* Tableau détaillé large : ordinateur uniquement (dense, défilement horizontal). Sur mobile,
-              la validation se fait via les cartes ci-dessus. */}
+              les cartes ci-dessus. */}
           <div className="hidden lg:block">
-            <PaieBulk brigade={brigade} backoffice={backoffice} role={user.role} />
+            <TableauPaie brigade={brigade} backoffice={backoffice} />
           </div>
         </>
       )}

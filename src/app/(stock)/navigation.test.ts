@@ -12,7 +12,7 @@ describe("menu Stock — groupes et ordre (plan d'ergonomie §3.2)", () => {
   it("chaque groupe porte ses entrées dans l'ordre voulu (libellé → adresse)", () => {
     expect(NAV_GROUPS.map((g) => g.items.map((i) => `${i.label} → ${i.href}`))).toEqual([
       ["Accueil → /stock", "À valider → /stock/a-valider"],
-      ["Inventaire → /stock/catalogue", "Achats & mouvements → /stock/mouvements", "Réconciliation → /stock/reconciliation"],
+      ["Inventaire → /stock/catalogue", "Achats & mouvements → /stock/mouvements", "Réconciliation → /stock/reconciliation", "Clôture du mois → /stock/cloture"],
       ["Conso. journalière → /stock/journalier", "Stock restaurant → /stock/restaurant", "Fiches techniques → /stock/fiches"],
       ["Bons de commande → /stock/commandes", "Factures → /stock/factures", "Fournisseurs → /stock/fournisseurs"],
       ["Archives → /stock/archives?vue=rapports"],
@@ -20,10 +20,16 @@ describe("menu Stock — groupes et ordre (plan d'ergonomie §3.2)", () => {
     ]);
   });
 
-  it("« À valider » est la 2e ligne du menu et visible par tous les rôles ; seule la Configuration est réservée à la Direction", () => {
+  it("« À valider » est la 2e ligne du menu et visible par tous les rôles ; la Clôture du mois et la Configuration sont réservées à la Direction", () => {
     const toutes = NAV_GROUPS.flatMap((g) => g.items);
     expect(toutes[1].href).toBe("/stock/a-valider");
-    expect(toutes.filter((i) => i.adminOnly).map((i) => i.label)).toEqual(["Imports", "Paramètres"]);
+    expect(toutes.filter((i) => i.adminOnly).map((i) => i.label)).toEqual(["Clôture du mois", "Imports", "Paramètres"]);
+  });
+
+  it("la « Clôture du mois » (V8) suit Réconciliation, réservée à la Direction ; elle ne figure plus parmi les rubriques de Paramètres", () => {
+    const depot = NAV_GROUPS.find((g) => g.titre === "Dépôt")!.items;
+    const i = depot.findIndex((e) => e.href === "/stock/reconciliation");
+    expect(depot[i + 1]).toMatchObject({ href: "/stock/cloture", label: "Clôture du mois", adminOnly: true });
   });
 
   it("« Utilisateurs » n'est plus au menu (c'est la rubrique de Paramètres) et chaque adresse n'apparaît qu'une fois", () => {

@@ -3,7 +3,7 @@
 // Le tableau du Suivi + la vérification en lot (§3 de la conception). Purement présentational et
 // interactif : tout le formatage (heures, motifs lisibles) est fait CÔTÉ SERVEUR par page.tsx, ce
 // composant ne fait que cocher/décocher et appeler `marquerVerifies`. Actions groupées : cases +
-// barre (préférence de la Direction, comme `paie-bulk.tsx`), jamais de couleur peinte à la main —
+// barre (préférence de la Direction, comme les barres de « À valider »), jamais de couleur peinte à la main —
 // `BoutonValider` de `@/components/action-buttons`.
 
 import { useState, useTransition } from "react";

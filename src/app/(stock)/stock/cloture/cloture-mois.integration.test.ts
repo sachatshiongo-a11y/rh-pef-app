@@ -86,4 +86,21 @@ describe("cloturerMoisStock", () => {
     expect(await erreurDe(() => rouvrirMoisStock(2026, 9))).toMatch(/Accès refusé/);
     A.user = { ...A.user, role: "ADMIN" };
   });
+
+  it("(lot 8, V8) un refus revient sur la page « Clôture du mois » du Stock, plus sur Paramètres", async () => {
+    for (const geste of [() => cloturerMoisStock(2026, 10), () => rouvrirMoisStock(2026, 8)]) {
+      let url = "";
+      try { await geste(); } catch (e) { url = (e as { url?: string }).url ?? ""; }
+      expect(url).toMatch(/^\/stock\/cloture\?erreur=/);
+    }
+  });
+
+  it("(lot 8, V8) mêmes droits qu'avant : la Direction seule clôture et rouvre, STOCK / MANAGER / VIEWER / COMPTA refusés, rien d'écrit", async () => {
+    for (const role of ["STOCK", "MANAGER", "VIEWER", "COMPTA"]) {
+      A.user = { ...A.user, role };
+      expect(await erreurDe(() => cloturerMoisStock(2026, 9)), role).toMatch(/Accès refusé/);
+    }
+    expect(await prisma.clotureStock.count()).toBe(0);
+    A.user = { ...A.user, role: "ADMIN" };
+  });
 });

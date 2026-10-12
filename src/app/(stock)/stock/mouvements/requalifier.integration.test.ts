@@ -109,7 +109,7 @@ describe("requalifier le motif des sorties", () => {
 
     await prisma.clotureStock.create({ data: { annee: 2026, mois: 7 } });
     expect(erreurDe(await requalifierSorties([s.id], "LIVRAISON_RESTAURANT"))).toBe(
-      "La période 07/2026 est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)",
+      "La période 07/2026 est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Stock → Clôture du mois pour la rouvrir.)",
     );
     await prisma.clotureStock.deleteMany();
 

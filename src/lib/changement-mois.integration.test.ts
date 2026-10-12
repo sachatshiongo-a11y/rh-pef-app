@@ -266,6 +266,10 @@ function rangeesAPayer(noeud: unknown): { id: string; nom: string; periode?: str
   const props = (noeud as { props?: Record<string, unknown> }).props;
   if (!props) return null;
   if (props.cible === "PAYE" && Array.isArray(props.rows)) return props.rows as { id: string; nom: string; periode?: string | null; jeton?: string }[];
+  // Depuis le lot 3 les listes sont les `contenu` des rubriques passées à <RubriquesAValider rubriques={…}> (pas des enfants).
+  if (Array.isArray(props.rubriques)) {
+    for (const r of props.rubriques as { contenu?: unknown }[]) { const x = rangeesAPayer(r.contenu); if (x) return x; }
+  }
   return rangeesAPayer(props.children);
 }
 
