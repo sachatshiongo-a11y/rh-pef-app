@@ -39,4 +39,14 @@ describe("marquerMaladieJustifiee", () => {
     const a = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: emp, date: d(7) } } });
     expect([a?.code, a?.maladieJustifiee]).toEqual(["A", false]);
   });
+  it("un jour M justifié recouvert par un congé approuvé perd son « justifié » (pas de justificatif fantôme s'il redevient M)", async () => {
+    const { poserCodesConge } = await import("@/lib/conges-presences");
+    await marquerMaladieJustifiee([{ employeeId: emp, date: iso(6) }], true);
+    await poserCodesConge(emp, d(6), d(6), "Congé annuel");
+    const apres = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: emp, date: d(6) } } });
+    expect([apres?.code, apres?.maladieJustifiee]).toEqual(["C", false]);
+    await saisirPresence(emp, iso(6), "M");
+    const retour = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: emp, date: d(6) } } });
+    expect([retour?.code, retour?.maladieJustifiee]).toEqual(["M", false]);
+  });
 });

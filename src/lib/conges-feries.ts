@@ -83,7 +83,7 @@ export async function recalerCongesSurFerie(
       if (existant?.code === "P" || heures > 0) { travailles++; continue; }
       await tx.attendance.upsert({
         where: { employeeId_date: { employeeId: d.employeeId, date } },
-        update: { code },
+        update: { code, maladieJustifiee: false }, // un M justifié recouvert par un congé perd son « justifié »
         create: { employeeId: d.employeeId, date, code },
       });
       await tx.overtimeEntry.deleteMany({ where: { employeeId: d.employeeId, date } });

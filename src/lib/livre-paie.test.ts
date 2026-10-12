@@ -271,3 +271,18 @@ describe("livre de paie Excel — aucun montant ne change", () => {
     }
   }, 30_000);
 });
+
+describe("taux de change figé à la validation (décision Direction 2026-10-12)", () => {
+  it("une ligne figée garde ses francs au taux de sa validation, une ligne non figée suit le taux de la paie ; totaux = somme ligne à ligne", async () => {
+    const { montantsDeLigne, totauxDuLivre } = await import("@/lib/livre-paie");
+    const figee = { ...ligne("Figée", "BACKOFFICE", { statutPaiement: "PAYE" }), tauxChangeFige: 2300 };
+    const libre = { ...ligne("Libre", "BACKOFFICE", { statutPaiement: "PAS_VALIDE" }), tauxChangeFige: null };
+    const sansChamp = ligne("Ancienne", "BACKOFFICE", { statutPaiement: "VALIDE" }); // figée avant le lot : colonne absente/NULL
+    expect(montantsDeLigne(figee, 2900).netCDF).toBe(salaireNetUSD(figee) * 2300);
+    expect(montantsDeLigne(figee, 2900).verseCDF).toBe(totalVerseUSD(figee) * 2300);
+    expect(montantsDeLigne(libre, 2900).netCDF).toBe(salaireNetUSD(libre) * 2900);
+    expect(montantsDeLigne(sansChamp, 2900).netCDF).toBe(salaireNetUSD(sansChamp) * 2900);
+    expect(totauxDuLivre([figee, libre, sansChamp], 2900).netCDF).toBeCloseTo(
+      salaireNetUSD(figee) * 2300 + salaireNetUSD(libre) * 2900 + salaireNetUSD(sansChamp) * 2900, 6);
+  });
+});
