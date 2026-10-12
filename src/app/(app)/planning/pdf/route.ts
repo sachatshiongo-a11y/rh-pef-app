@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { donneesPlanning } from "../export-data";
@@ -16,9 +16,10 @@ export async function GET(req: Request) {
     ...labels.map((l) => ({ header: l, width: dayW, align: "center" as const })),
   ];
 
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     TableauDocument({ titre, sousTitre, colonnes, lignes, sectionRows, paysage: true, pied: "« — » = repos. Planning prévisionnel." }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichierBase}.pdf"` },
   });

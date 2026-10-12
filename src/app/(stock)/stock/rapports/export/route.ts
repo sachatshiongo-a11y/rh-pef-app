@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
@@ -54,9 +54,13 @@ export async function GET(req: Request) {
   }
 
   // PDF : un ou deux tableaux (synthèse + détail) selon le rapport.
-  const buffer = data.table2
-    ? await renderPdfBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
-    : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data.pdf ?? data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
+  // Au-delà du plafond de lignes (lib/pdf/plafond.ts) : 413 lisible, AVANT tout rendu, jamais tronqué —
+  // et rien n'est journalisé (aucun rapport n'a été produit).
+  const table2 = data.table2;
+  const buffer = await renderPdfOuRefus(() => table2
+    ? TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(table2, table2.titre)] })
+    : TableauDocument({ ...versTableSpec(data.pdf ?? data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
+  if (buffer instanceof Response) return buffer;
   await journaliser();
   return new Response(new Uint8Array(buffer), {
     headers: {

@@ -3,6 +3,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { verifierPlafondPdf } from "./plafond";
 
 registerPdfFonts();
 
@@ -112,6 +113,7 @@ export function TableauDocument({
   paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
 }) {
+  verifierPlafondPdf(lignes.length); // refus AVANT rendu au-delà du plafond (lib/pdf/plafond.ts)
   const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
@@ -137,6 +139,7 @@ export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: Cellu
 
 /** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
 export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {
+  verifierPlafondPdf(tables.reduce((n, t) => n + t.lignes.length, 0)); // toutes les tables du document comptent
   const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
@@ -192,6 +195,7 @@ export function TableauxParPartieDocument({
   paysage?: boolean;
   pied?: string; // mention en bas de la DERNIÈRE partie
 }) {
+  verifierPlafondPdf(parties.reduce((n, p) => n + p.lignes.length, 0)); // toutes les parties du document comptent
   const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>

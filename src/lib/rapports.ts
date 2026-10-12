@@ -153,9 +153,26 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   // Filtre au jour près quand la ligne porte une date exacte ; sinon repli sur le mois (factures sans date).
   const dansJour = (d: Date | null, a: number, m: number) => (d ? d >= debut && d < finExcl : dans(a, m));
   const titre = `${TYPES_RAPPORT[type]} — détail`;
+  // Même règle que `dansJour`, mais EN BASE (audit du 10/10/2026, sécurité 2) : sans elle, le détail
+  // chargeait TOUTES les factures et TOUS les bons (avec leurs lignes) depuis l'origine, puis filtrait
+  // en mémoire — coût qui grandit chaque mois sur l'instance de 512 Mo. Le filtre en mémoire reste
+  // (même résultat) ; celui-ci évite seulement de charger ce qu'il écarterait.
+  const dY = debut.getUTCFullYear(), dM = debut.getUTCMonth() + 1, fY = fin.getUTCFullYear(), fM = fin.getUTCMonth() + 1;
+  const wherePeriode = {
+    OR: [
+      { date: { gte: debut, lt: finExcl } },
+      {
+        date: null,
+        AND: [
+          { OR: [{ annee: { gt: dY } }, { annee: dY, mois: { gte: dM } }] },
+          { OR: [{ annee: { lt: fY } }, { annee: fY, mois: { lte: fM } }] },
+        ],
+      },
+    ],
+  };
 
   if (type === "FACTURES") {
-    const rows = (await prisma.factureFournisseur.findMany({ orderBy: [{ annee: "asc" }, { mois: "asc" }, { date: "asc" }], include: { fournisseur: { select: { nom: true } } } }))
+    const rows = (await prisma.factureFournisseur.findMany({ where: wherePeriode, orderBy: [{ annee: "asc" }, { mois: "asc" }, { date: "asc" }], include: { fournisseur: { select: { nom: true } } } }))
       .filter((r) => dansJour(r.date, r.annee, r.mois));
     // Montants dans la devise de chaque facture : colonnes en francs à part (vides pour une facture en
     // dollars, et inversement), seulement s'il existe des factures en francs.
@@ -171,7 +188,8 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   }
 
   if (type === "BONS_COMMANDE") {
-    const bcs = (await prisma.bonDeCommande.findMany({ orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } }))
+    // La date d'un bon n'est jamais nulle (défaut à la création) : la période se lit sur elle.
+    const bcs = (await prisma.bonDeCommande.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } }))
       .filter((b) => dansJour(b.date, b.annee, b.mois));
     // Une ligne sans prix reste VIDE (jamais 0) ; un bon en francs a sa colonne à part (jamais additionné aux dollars).
     const avecFC = bcs.some((b) => deviseBon(b) === "CDF");

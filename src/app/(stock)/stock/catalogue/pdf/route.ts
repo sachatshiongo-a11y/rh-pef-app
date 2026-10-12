@@ -1,6 +1,6 @@
 import { libellePrixComplet, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
   ];
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Tous domaines";
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     TableauDocument({
       titre: `Inventaire — ${label}`,
       sousTitre: jourKinshasa(new Date()),
@@ -82,6 +82,7 @@ export async function GET(req: Request) {
       pied: "Fond rouge = urgent (rupture) · orange = à réapprovisionner · vert = satisfaisant. ↑ = hausse du dernier prix d'achat. Prix dans sa devise de saisie ; l'autre devise et « ≈ » au taux du jour.",
     }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
 
   const fichier = `Inventaire${domaine ? `_${label}` : ""}_${jourCourantKinshasaISO()}.pdf`;
   return new Response(new Uint8Array(buffer), {

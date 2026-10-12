@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { TableauDocument } from "@/lib/pdf/tableau";
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const employes = filtrerEmployes(tous, sp);
   const lignes = employes.map(ligneEmploye);
 
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     TableauDocument({
       titre: "Liste des employés",
       sousTitre: libelleNombreEmployes(employes.length, statut),
@@ -24,6 +24,7 @@ export async function GET(request: Request) {
       paysage: true,
     }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="Employes.pdf"` },
   });
