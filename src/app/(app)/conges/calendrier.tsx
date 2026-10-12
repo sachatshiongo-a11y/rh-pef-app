@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { calculerJoursOuvrables } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
-import { chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
+import { chargerSoldesCongeSalaries, repartirCongeParJour } from "@/lib/solde-conge-salarie";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { OngletsDefilants } from "@/components/onglets-defilants";
+import { formaterNombre } from "@/lib/montant";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -104,7 +104,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, tousFeries] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -118,7 +118,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
       where: { statut: "APPROUVE", dateDebut: { lte: finAnnee }, dateFin: { gte: debutAnnee } },
     }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
-    prisma.jourFerie.findMany({ where: { date: { gte: debutAnnee, lte: finAnnee } }, select: { date: true } }),
+    // Tous les fériés (petite table) : un congé à cheval sur deux années se répartit avec ceux des DEUX années.
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
 
   const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
@@ -155,18 +156,18 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
 
   // Jours décomptés DANS L'ANNÉE AFFICHÉE, quand elle n'est pas l'année en cours : une information
   // d'historique (« pris en 2025 »), qui n'est pas un solde et ne s'en soustrait pas. Même règle de
-  // décompte que le solde (types cochés), jours ouvrables bornés à l'année.
+  // décompte que le solde (types cochés) et même répartition que la fiche salarié : les jours SAISIS,
+  // répartis sur les jours ouvrables du congé (`repartirCongeParJour`), part de l'année affichée seulement.
   const prisAnneeAffichee = new Map<string, number>();
   if (annee !== anneeCourante) {
+    const tousFeriesIso = new Set(tousFeries.map((f) => isoJour(new Date(f.date))));
     for (const d of demandesAnnee) {
       if (!entameLeSolde(d.type)) continue;
-      const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
-      const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
-      if (debut > fin) continue;
-      prisAnneeAffichee.set(
-        d.employeeId,
-        (prisAnneeAffichee.get(d.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin, feriesAnnee.map((f) => f.date))
-      );
+      const part = repartirCongeParJour({ dateDebut: d.dateDebut, dateFin: d.dateFin, nbJours: Number(d.nbJours) }, tousFeriesIso)
+        .filter((j) => j.date.getUTCFullYear() === annee)
+        .reduce((t, j) => t + j.jours, 0);
+      if (part === 0) continue;
+      prisAnneeAffichee.set(d.employeeId, (prisAnneeAffichee.get(d.employeeId) ?? 0) + part);
     }
   }
 
@@ -352,7 +353,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
                     {s ? `${s.solde} j` : "—"}
                   </td>
                   {annee !== anneeCourante && (
-                    <td className="px-3 py-1.5 text-center text-muted-foreground">{prisAnneeAffichee.get(e.id) ?? 0} j</td>
+                    <td className="px-3 py-1.5 text-center text-muted-foreground">{formaterNombre(prisAnneeAffichee.get(e.id) ?? 0, { maximumFractionDigits: 1 })} j</td>
                   )}
                 </tr>
               );
