@@ -14,9 +14,7 @@ import { lignesCreation } from "@/lib/creation-fiche-donnees";
 import { nomsAnciennesFiches } from "@/lib/creation-fiche";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
-import { Avatar } from "@/components/avatar";
-import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
-import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
+import { ShiftsInbox } from "./shifts-inbox";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
@@ -243,81 +241,33 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Échanges de shift entre salariés ({echanges.length})
         </h2>
-        {echanges.length === 0 ? (
-          <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">Aucun échange de shift en attente.</div>
-        ) : (
-          <ul className="space-y-2">
-            {echanges.map((e) => {
-              const collegueOk = e.reponseCollegue === "ACCEPTE";
-              return (
-                <li key={e.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
-                  <Avatar nom={e.demandeur.nom} taille={32} photoUrl={e.demandeur.photoUrl} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{e.demandeur.nom} ↔ {e.collegue.nom}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {e.demandeur.nom} cède {frDate(e.demandeurDate)} ({shiftsMap.get(e.demandeurShiftId) ?? "—"}) ·
-                      prend {frDate(e.collegueDate)} ({shiftsMap.get(e.collegueShiftId) ?? "—"})
-                      {e.motif ? ` · ${e.motif}` : ""}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      Collègue : {collegueOk ? <b className="text-emerald-700">accepté</b> : "en attente"}
-                    </p>
-                  </div>
-                  {peutPlanning ? (
-                    <span className="flex shrink-0 gap-2">
-                      <form action={approuverEchange.bind(null, e.id)}>
-                        <BoutonApprouver type="submit" title={collegueOk ? "Approuver — l'échange sera appliqué" : "Approuver — appliqué dès l'accord du collègue"} />
-                      </form>
-                      <form action={refuserEchange.bind(null, e.id)}>
-                        <BoutonRefuser type="submit" />
-                      </form>
-                    </span>
-                  ) : (
-                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">En attente</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <ShiftsInbox
+          type="echange"
+          peutPlanning={peutPlanning}
+          rows={echanges.map((e) => ({
+            id: e.id,
+            nom: `${e.demandeur.nom} ↔ ${e.collegue.nom}`,
+            photoUrl: e.demandeur.photoUrl,
+            detail: `${e.demandeur.nom} cède ${frDate(e.demandeurDate)} (${shiftsMap.get(e.demandeurShiftId) ?? "—"}) · prend ${frDate(e.collegueDate)} (${shiftsMap.get(e.collegueShiftId) ?? "—"})${e.motif ? ` · ${e.motif}` : ""}`,
+            accordCollegue: e.reponseCollegue === "ACCEPTE",
+          }))}
+        />
       </section>
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Changements de shift ({changements.length})
         </h2>
-        {changements.length === 0 ? (
-          <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">Aucune demande de changement de shift.</div>
-        ) : (
-          <ul className="space-y-2">
-            {changements.map((dem) => (
-              <li key={dem.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
-                <Avatar nom={dem.employee.nom} taille={32} photoUrl={dem.employee.photoUrl} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{dem.employee.nom}</p>
-                  <p className="text-xs text-muted-foreground capitalize">
-                    {new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} ·{" "}
-                    {dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}
-                    <b className="text-foreground">{shiftsMap.get(dem.shiftDemandeId) ?? "—"}</b>
-                    {dem.motif ? ` · ${dem.motif}` : ""}
-                  </p>
-                </div>
-                {peutPlanning ? (
-                  <span className="flex shrink-0 gap-2">
-                    <form action={approuverChangementShift.bind(null, dem.id)}>
-                      <BoutonApprouver type="submit" />
-                    </form>
-                    <form action={refuserChangementShift.bind(null, dem.id)}>
-                      <BoutonRefuser type="submit" />
-                    </form>
-                  </span>
-                ) : (
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">En attente</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <ShiftsInbox
+          type="changement"
+          peutPlanning={peutPlanning}
+          rows={changements.map((dem) => ({
+            id: dem.id,
+            nom: dem.employee.nom,
+            photoUrl: dem.employee.photoUrl,
+            detail: `${new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} · ${dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}${shiftsMap.get(dem.shiftDemandeId) ?? "—"}${dem.motif ? ` · ${dem.motif}` : ""}`,
+          }))}
+        />
       </section>
 
       {peutPayer && (

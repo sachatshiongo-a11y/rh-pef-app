@@ -14,7 +14,7 @@ import { messageLisible } from "@/lib/erreur-metier";
  */
 export const CHAMP_RETOUR_ERREUR = "__retour_erreur";
 
-function estRedirectionNext(e: unknown): boolean {
+export function estRedirectionNext(e: unknown): boolean {
   return (
     typeof e === "object" &&
     e !== null &&
@@ -24,7 +24,7 @@ function estRedirectionNext(e: unknown): boolean {
 }
 
 /** Message d'une redirection `…?erreur=<message>` jetée par le corps d'une action (refus explicite), sinon null. */
-function erreurDeRedirection(e: unknown): string | null {
+export function erreurDeRedirection(e: unknown): string | null {
   const digest = String((e as { digest?: unknown })?.digest ?? "");
   if (!digest.startsWith("NEXT_REDIRECT")) return null;
   // digest = « NEXT_REDIRECT;<type>;<url>;<statut>; » — l'URL peut contenir « ; » encodé en %3B, jamais brut.
