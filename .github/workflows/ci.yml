@@ -1,6 +1,7 @@
 name: CI
 
-# Vérifie chaque push et chaque pull request : types + tests unitaires.
+# Vérifie chaque push et chaque pull request : types + tests unitaires (sans les tests d'intégration,
+# qui démarrent un Postgres embarqué : ils tournent sur le poste de développement avant chaque déploiement).
 # Le « next build » n'est PAS refait ici : Render le relance déjà à chaque déploiement.
 # La valeur ajoutée de cette CI est donc le typecheck et les tests (que Render ne fait pas),
 # pour bloquer une régression AVANT qu'elle n'atteigne la production.
@@ -18,12 +19,17 @@ concurrency:
 jobs:
   verifs:
     runs-on: ubuntu-latest
+    # Adresses FACTICES : « prisma generate » et prisma.config.ts exigent DIRECT_URL, aucun test unitaire
+    # ne se connecte à une base. Jamais d'adresse réelle ici (sans elles, la CI échouait depuis juillet 2026).
+    env:
+      DIRECT_URL: postgresql://ci@localhost:1/ci
+      DATABASE_URL: postgresql://ci@localhost:1/ci
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Installer les dépendances
@@ -35,5 +41,5 @@ jobs:
       - name: Vérifier les types (tsc)
         run: npm run typecheck
 
-      - name: Lancer les tests (vitest)
-        run: npm test
+      - name: Lancer les tests unitaires (vitest, hors intégration)
+        run: npx vitest run --exclude '**/*.integration.test.ts' --exclude '**/node_modules/**' --maxWorkers=2
