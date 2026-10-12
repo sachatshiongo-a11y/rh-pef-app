@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, resumerPresences, type CodePresence } from "@/lib/payroll";
-import { hsValoriseesPaie, hsValoriseesFigees } from "@/lib/hs-valorisees-paie";
+import { hsValoriseesPaie, hsValoriseesFigees, hebdoDiffereDuBulletin, MENTION_HEBDO_RECALCULE, type HsFigee, type HsPaie } from "@/lib/hs-valorisees-paie";
 import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { classeurExcel } from "@/lib/export-excel";
@@ -92,9 +92,7 @@ export async function GET(req: Request) {
     "Catégorie",
     ...enteteJours,
     "H. totales",
-    "HS 30%",
-    "HS 60%",
-    "HS 100%",
+    ...(resolu.passe ? ["HS 30% (bulletin)", "HS 60% (bulletin)", "HS 100% (bulletin)"] : ["HS 30%", "HS 60%", "HS 100%"]),
     "HS valorisées $ (paie)",
   ];
   const lignesHeures: (string | number)[][] = [];
@@ -104,12 +102,12 @@ export async function GET(req: Request) {
   // par semaine : les heures de la semaine au taux de la paie (taux du contrat, brut reconstitué).
   // Mois PASSÉ : le montant FIGÉ du bulletin de ce mois-là (jamais recalculé) ; pas de taux figé → « — » par semaine.
   const [hsPaie, avantMois] = await Promise.all([
-    resolu.passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres),
+    (resolu.passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres)) as Promise<Map<string, HsPaie & Partial<Pick<HsFigee, "heures">>>>,
     chargerHeuresAvantMois(annee, mois),
   ]);
   for (const f of avantMois.feriesIso) joursFeries.add(f);
   for (const e of employees) {
-    const paie = hsPaie.get(e.id) ?? { montant: null, tauxHoraire: null };
+    const paie: HsPaie & Partial<Pick<HsFigee, "heures">> = hsPaie.get(e.id) ?? { montant: null, tauxHoraire: null, heures: null };
     const hs = calculerHeuresSupp({
       jours: joursParEmploye[e.id] ?? [],
       joursAvantMois: avantMois.parEmploye[e.id] ?? [],
@@ -127,11 +125,13 @@ export async function GET(req: Request) {
       e.categorie,
       ...jours,
       hs.heuresTotalesMois,
-      hs.hs30,
-      hs.hs60,
-      hs.hs100,
+      // Mois PASSÉ : les heures supp. du bulletin figé (« — » sans bulletin) — le bulletin fait foi.
+      ...(resolu.passe ? (paie.heures ? [paie.heures.hs30, paie.heures.hs60, paie.heures.hs100] : ["—", "—", "—"]) : [hs.hs30, hs.hs60, hs.hs100]),
       paie.montant === null ? "—" : paie.montant,
     ]);
+    // Mois PASSÉ : le détail hebdomadaire reste recalculé (rien n'est figé semaine par semaine) ; s'il
+    // s'écarte du bulletin, la remarque le dit sur la première ligne de ce salarié.
+    const mention = resolu.passe && hebdoDiffereDuBulletin(hs, paie.heures ?? null) ? MENTION_HEBDO_RECALCULE : "";
 
     const parNumero = new Map(hs.semaines.map((s) => [s.semaine, s]));
     for (let sem = 1; sem <= nbSemaines; sem++) {
@@ -145,6 +145,7 @@ export async function GET(req: Request) {
         d ? d.hs60 : 0,
         d ? d.hs100 : 0,
         paie.tauxHoraire === null ? "—" : d ? Number(d.hsValorisee.toFixed(2)) : 0,
+        ...(resolu.passe ? [sem === 1 ? mention : ""] : []),
       ]);
     }
   }
@@ -159,7 +160,7 @@ export async function GET(req: Request) {
       {
         nom: "Détail hebdomadaire",
         titre: "Heures supplémentaires — détail hebdomadaire",
-        entete: ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $ (taux de la paie)"],
+        entete: ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $ (taux de la paie)", ...(resolu.passe ? ["Remarque"] : [])],
         lignes: lignesSemaines,
       },
     ],

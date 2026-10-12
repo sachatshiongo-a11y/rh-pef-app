@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
-import { hsValoriseesPaie, hsValoriseesFigees } from "@/lib/hs-valorisees-paie";
+import { hsValoriseesPaie, hsValoriseesFigees, hebdoDiffereDuBulletin, MENTION_HEBDO_RECALCULE, type HsFigee, type HsPaie } from "@/lib/hs-valorisees-paie";
 import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { datesDeSortie, inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
@@ -111,7 +111,7 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // plus aucun taux recalculé ici (salaire ÷ 26 ÷ heures/jour divergeait du bulletin).
   // Mois PASSÉ : le montant FIGÉ du bulletin de ce mois-là, jamais un recalcul aux paramètres d'aujourd'hui.
   const [hsPaie, sorties, avantMois, premierMois] = await Promise.all([
-    passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres),
+    (passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres)) as Promise<Map<string, HsPaie & Partial<Pick<HsFigee, "heures">>>>,
     datesDeSortie(prisma, employees.filter((e) => !e.actif).map((e) => e.id)),
     // Semaine à cheval sur le mois précédent : ses heures placent le seuil des HS (même règle que la paie).
     chargerHeuresAvantMois(annee, mois),
@@ -127,12 +127,17 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
     heuresParJour: Number(e.heuresParJour),
     heuresHebdo: Number(e.heuresHebdomadaires),
     hsValoriseePaie: hsPaie.get(e.id)?.montant ?? null,
+    // Mois passé : les heures supp. du bulletin figé (« — » sans bulletin) ; mois courant : recalculées.
+    ...(passe ? { hsMoisFigees: hsPaie.get(e.id)?.heures ?? null } : {}),
     heuresAvantMois: (avantMois.parEmploye[e.id] ?? []).map((j) => ({ date: j.date.toISOString().slice(0, 10), heures: j.heuresTravaillees })),
     sortieLe: sorties.get(e.id) ?? null,
   });
   const rows = employees.map(toRow);
+  // Mois passé : le détail hebdomadaire n'est figé nulle part, il reste recalculé ; s'il s'écarte des heures
+  // supp. du bulletin, une mention sobre le dit à côté du tableau de ce salarié.
+  const mentionsHebdo: Record<string, string> = {};
   for (const r of rows) {
-    semainesParEmploye[r.id] = calculerHeuresSupp({
+    const hs = calculerHeuresSupp({
       jours: joursParEmploye[r.id] ?? [],
       joursAvantMois: avantMois.parEmploye[r.id] ?? [],
       heuresParJourContrat: r.heuresParJour,
@@ -140,7 +145,9 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
       salaireHoraire: hsPaie.get(r.id)?.tauxHoraire ?? 0, // le tableau hebdomadaire ne montre que des heures
       joursFeries,
       params: parametres,
-    }).semaines;
+    });
+    semainesParEmploye[r.id] = hs.semaines;
+    if (passe && hebdoDiffereDuBulletin(hs, hsPaie.get(r.id)?.heures ?? null)) mentionsHebdo[r.id] = MENTION_HEBDO_RECALCULE;
   }
 
   const brigade = rows.filter((r) => employees.find((e) => e.id === r.id)?.categorie === "BRIGADE");
@@ -293,6 +300,7 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
             employees={rows}
             semainesParEmploye={semainesParEmploye}
             nbSemaines={nbSemaines}
+            mentions={mentionsHebdo}
           />
         </div>
       </details>

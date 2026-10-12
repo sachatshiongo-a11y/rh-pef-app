@@ -247,11 +247,11 @@ function contenu() {
   const grilles = CAPT.grilles.map((g) => ({
     ...sans(g, "peutModifier", "peutEffacer", "params", "joursFeries", "employees"),
     joursFeries: [...(g.joursFeries as Set<string>)].sort(),
-    employees: (g.employees as Record<string, unknown>[]).map((e) => sans(e, "hsValoriseePaie")),
+    employees: (g.employees as Record<string, unknown>[]).map((e) => sans(e, "hsValoriseePaie", "hsMoisFigees")),
   }));
   const hebdo = CAPT.hebdo.map((h) => ({
     nbSemaines: h.nbSemaines as number,
-    employees: (h.employees as Record<string, unknown>[]).map((e) => sans(e, "hsValoriseePaie")),
+    employees: (h.employees as Record<string, unknown>[]).map((e) => sans(e, "hsValoriseePaie", "hsMoisFigees")),
     semaines: Object.fromEntries(Object.entries(h.semainesParEmploye as Record<string, Record<string, unknown>[]>).map(([k, v]) => [k, v.map((x) => sans(x, "hsValorisee"))])),
   }));
   return { grilles, hebdo };
@@ -299,19 +299,21 @@ describe("export Excel du mois", () => {
     const claire = f["Heures par jour"].find((l) => l.includes("CL03-PEF"))!;
     expect(claire[claire.length - 1]).toBe("—");
     const semaines = f["Détail hebdomadaire"].filter((l) => l.includes("AL01-PEF"));
-    expect(semaines.every((l) => l[l.length - 1] === "—")).toBe(true);
+    expect(semaines.every((l) => l[7] === "—")).toBe(true); // valorisation par semaine (col. 8) : pas de taux figé
     A.user = compte("ADMIN");
   });
 
-  it("mêmes feuilles que l'export du mois courant pour le même mois (hors montant HS)", async () => {
-    const sansHs = (f: Record<string, unknown[][]>) => ({
+  it("mêmes feuilles que l'export du mois courant pour le même mois (hors HS du bulletin et remarque)", async () => {
+    // Doivent différer, et seulement elles : HS 30/60/100 + montant (bulletin figé vs recalcul) ; la
+    // valorisation par semaine et la remarque (mois passé seulement).
+    const sansHs = (f: Record<string, unknown[][]>, passe: boolean) => ({
       p: f["Présences"],
-      h: f["Heures par jour"].map((l) => l.slice(0, -1)),
-      s: f["Détail hebdomadaire"].map((l) => l.slice(0, -1)),
+      h: f["Heures par jour"].map((l) => l.slice(0, -4)),
+      s: f["Détail hebdomadaire"].map((l) => l.slice(0, passe ? -2 : -1)),
     });
-    const passe = sansHs(await feuilles(await exporterQ("mois=9&annee=2026")));
+    const passe = sansHs(await feuilles(await exporterQ("mois=9&annee=2026")), true);
     await moisCourant(9);
-    const courant = sansHs(await feuilles(await exporterQ()));
+    const courant = sansHs(await feuilles(await exporterQ()), false);
     await moisCourant(10);
     expect(passe).toEqual(courant);
     expect(passe.p.some((l) => l.includes("BO02-PEF"))).toBe(true); // salarié sorti dans le mois
@@ -354,8 +356,9 @@ describe("le serveur refuse toute écriture sur un mois passé", () => {
     // lot mêlant octobre (ouvert) et septembre : TOUT est refusé
     const r2 = await saisirPresencesEnLot([{ employeeId: ids.alice, date: "2026-10-06", code: "P" }, { employeeId: ids.alice, date: "2026-09-30", code: "P" }]);
     expect(r2.erreur).toMatch(/Mois passé/);
-    await expect(saisirHeures(ids.alice, "2026-09-08", "5")).rejects.toThrow(/Mois passé/);
-    await expect(saisirHeuresEnLot([{ employeeId: ids.alice, date: "2026-10-06", heures: "8" }, { employeeId: ids.alice, date: "2026-08-31", heures: "1" }])).rejects.toThrow(/août 2026/);
+    // Heures : refus RENVOYÉ (pas levé — une exception d'action serveur perd son message en production)
+    expect(await saisirHeures(ids.alice, "2026-09-08", "5")).toEqual({ erreur: "Mois passé — lecture seule : septembre 2026 est antérieur au mois en cours (octobre 2026). Rien n'a été enregistré." });
+    expect(await saisirHeuresEnLot([{ employeeId: ids.alice, date: "2026-10-06", heures: "8" }, { employeeId: ids.alice, date: "2026-08-31", heures: "1" }])).toEqual({ ignores: [], erreur: "Mois passé — lecture seule : août 2026 est antérieur au mois en cours (octobre 2026). Rien n'a été enregistré." });
     const r3 = await marquerMaladieJustifiee([{ employeeId: ids.alice, date: "2026-09-07" }], true);
     expect(r3.erreur).toMatch(/Mois passé/);
     const fd = new FormData();
@@ -399,5 +402,64 @@ describe("le serveur refuse toute écriture sur un mois passé", () => {
     expect(await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: ids.alice, date: d("2026-10-06") } } })).toMatchObject({ code: "P" });
     await saisirHeures(ids.alice, "2026-10-06", "9");
     expect(Number((await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId: ids.alice, date: d("2026-10-06") } } }))!.heuresTravaillees)).toBe(9);
+  });
+});
+
+describe("HS d'un mois passé : le bulletin fait foi (cas Esther)", () => {
+  // Esther : fiche passée de 51,92 h à 54 h/semaine APRÈS août (décision du 2026-09-24). Semaine du 17 au
+  // 22 août : 53 h. Le bulletin d'août a payé 53 − 51,92 = 1,08 h à +30 % ; un recalcul avec la fiche
+  // d'aujourd'hui (54 h) n'en trouve aucune. L'écran et l'export d'août montrent les heures du BULLETIN ;
+  // le détail hebdomadaire, figé nulle part, reste recalculé et le dit sur une ligne.
+  it("totaux HS figés à l'écran et dans l'export, mention à côté du détail hebdomadaire ; « — » sans bulletin", async () => {
+    A.user = compte("ADMIN");
+    const esther = (await prisma.employee.create({ data: {
+      matricule: "ES04-PEF", nom: "Esther Brigade", sexe: "F", etatCivil: "Célibataire", poste: "Cuisinière", secteur: "Cuisine", categorie: "BRIGADE",
+      salaireMensuel: 300, dateEmbauche: d("2025-01-06"), contrat: "CDI", heuresParJour: 10, heuresHebdomadaires: 54,
+    } })).id;
+    const semaine: [string, number][] = [["2026-08-17", 9], ["2026-08-18", 9], ["2026-08-19", 9], ["2026-08-20", 9], ["2026-08-21", 9], ["2026-08-22", 8]];
+    for (const [iso, h] of semaine) {
+      await prisma.attendance.create({ data: { employeeId: esther, date: d(iso), code: "P" } });
+      await prisma.overtimeEntry.create({ data: { employeeId: esther, date: d(iso), heuresTravaillees: h } });
+    }
+    const aout = await prisma.payrollRun.create({ data: { mois: 8, annee: 2026, statut: "VALIDE", tauxChangeUtilise: 2800 } });
+    await creerLigne(aout.id, esther, "PAYE", 2.81);
+    await prisma.payrollLine.updateMany({ where: { payrollRunId: aout.id, employeeId: esther }, data: { heuresSupp30: 1.08 } });
+
+    // Écran : la grille reçoit les heures figées ; le recalcul (54 h) n'aurait rien trouvé.
+    const html = await rendre({ mois: "8", annee: "2026" });
+    const row = (CAPT.grilles.flatMap((g) => g.employees as { id: string; hsMoisFigees?: unknown; hsValoriseePaie: unknown }[])).find((e) => e.id === esther)!;
+    expect(row.hsMoisFigees).toEqual({ hs30: 1.08, hs60: 0, hs100: 0 });
+    expect(row.hsValoriseePaie).toBe(2.81);
+    const hebdo = CAPT.hebdo[0] as { semainesParEmploye: Record<string, { hs30: number }[]>; mentions: Record<string, string> };
+    expect(hebdo.semainesParEmploye[esther].reduce((s, x) => s + x.hs30, 0)).toBe(0); // recalcul à 54 h
+    expect(hebdo.mentions[esther]).toBe("recalculé avec la fiche d'aujourd'hui — le bulletin fait foi");
+    expect(texte(html)).toContain("Esther Brigade recalculé avec la fiche d'aujourd'hui — le bulletin fait foi");
+    // Alice n'a pas de bulletin en août : « — », jamais un recalcul présenté comme payé ; pas de mention.
+    const alice = (CAPT.grilles.flatMap((g) => g.employees as { id: string; hsMoisFigees?: unknown }[])).find((e) => e.id === ids.alice)!;
+    expect(alice.hsMoisFigees).toBeNull();
+    expect(hebdo.mentions[ids.alice]).toBeUndefined();
+
+    // Vue Employé : la tuile dit d'où vient le chiffre et montre celui du bulletin (le recalcul donnerait 0).
+    const vueE = texte(await rendre({ mois: "8", annee: "2026", vue: "employe", emp: esther }));
+    expect(vueE).toMatch(/Heures supp\. \(bulletin\) 1,08/);
+    expect(texte(await rendre({ mois: "8", annee: "2026", vue: "employe", emp: ids.alice }))).toMatch(/Heures supp\. \(bulletin\) —/);
+
+    // Mois COURANT : rien de figé, les totaux restent recalculés (champ absent).
+    await rendre();
+    expect((CAPT.grilles.flatMap((g) => g.employees as { id: string }[])).every((e) => !("hsMoisFigees" in e))).toBe(true);
+    expect(Object.keys((CAPT.hebdo[0] as { mentions: Record<string, string> }).mentions)).toEqual([]);
+
+    // Export d'août : HS 30/60/100 du bulletin, « — » sans bulletin, remarque sur la 1re semaine d'Esther.
+    const f = await feuilles(await exporterQ("mois=8&annee=2026"));
+    const entete = f["Heures par jour"].find((l) => l.includes("Matricule"))!;
+    const col = entete.indexOf("HS 30% (bulletin)");
+    expect(col).toBeGreaterThan(0);
+    const ligneE = f["Heures par jour"].find((l) => l.includes("ES04-PEF"))!;
+    expect(ligneE.slice(col, col + 4)).toEqual([1.08, 0, 0, 2.81]);
+    const ligneA = f["Heures par jour"].find((l) => l.includes("AL01-PEF"))!;
+    expect(ligneA.slice(col, col + 4)).toEqual(["—", "—", "—", "—"]);
+    const semE = f["Détail hebdomadaire"].filter((l) => l.includes("ES04-PEF"));
+    expect(semE[0][semE[0].length - 1]).toBe("recalculé avec la fiche d'aujourd'hui — le bulletin fait foi");
+    expect(f["Détail hebdomadaire"].filter((l) => l.includes("AL01-PEF")).every((l) => l.length < 9 || !l[8])).toBe(true);
   });
 });

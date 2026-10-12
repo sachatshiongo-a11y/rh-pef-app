@@ -46,32 +46,57 @@ export async function hsValoriseesPaie(mois: number, annee: number, employes: Em
   return res;
 }
 
+/** Heures supp. du mois FIGÉES sur le bulletin (`PayrollLine.heuresSupp30/60/100`). */
+export type HeuresSuppFigees = { hs30: number; hs60: number; hs100: number };
+
+/** HS d'un mois PASSÉ : le montant ET les heures du bulletin figé ; `heures: null` = pas de bulletin figé (« — »). */
+export type HsFigee = HsPaie & { heures: HeuresSuppFigees | null };
+
 /**
- * « HS VALORISÉES » D'UN MOIS PASSÉ : le montant FIGÉ du bulletin de ce mois-là (`PayrollLine.hsValorisee`
- * des lignes VALIDÉES ou PAYÉES), jamais un recalcul. `hsValoriseesPaie` reprend le moteur avec les
- * paramètres, la fiche (salaire, contrat, catégorie, état actif) et les heures d'AUJOURD'HUI : sur un mois
- * clôturé, il pouvait afficher un montant que personne n'a payé (salaire augmenté depuis, salarié sorti
- * affiché « — » alors que ses HS ont été payées).
+ * « HS » D'UN MOIS PASSÉ : ce que le bulletin de ce mois-là a FIGÉ (`PayrollLine` VALIDÉE ou PAYÉE) — le
+ * montant `hsValorisee` ET les heures `heuresSupp30/60/100`, jamais un recalcul. `hsValoriseesPaie` reprend
+ * le moteur avec les paramètres, la fiche (salaire, contrat, heures/semaine, catégorie, état actif) et les
+ * heures d'AUJOURD'HUI : sur un mois clôturé, il pouvait afficher un montant ou des heures que personne
+ * n'a payés (fiche passée de 51,92 h à 54 h/semaine depuis, salarié sorti affiché « — » alors que ses HS
+ * ont été payées). Le bulletin fait foi.
  *
- * Sans bulletin figé (mois antérieur à l'outil, ligne hors calcul, paie jamais calculée) : `montant: null`
- * → « — », jamais un chiffre provisoire présenté comme celui de la paie. Une ligne figée à 0 d'un salarié
- * hors brigade reste « — » (la paie ne lui paie pas d'HS), comme sur le mois courant.
+ * Sans bulletin figé (mois antérieur à l'outil, ligne hors calcul — toujours PAS VALIDÉE —, paie jamais
+ * calculée) : `montant: null`, `heures: null` → « — », jamais un chiffre recalculé présenté comme payé.
+ * Un bulletin figé à 0 est un vrai 0 (stagiaire de brigade compris) ; seul le MONTANT d'un salarié hors
+ * brigade reste « — » (la paie ne lui paie pas d'HS, comme sur le mois courant) — ses heures figées, elles,
+ * s'affichent telles quelles.
  *
  * `tauxHoraire` est toujours null : le taux n'est pas figé sur la ligne, et le recalculer avec la fiche
  * d'aujourd'hui serait justement ce qu'on évite (l'export n'affiche donc pas la valorisation semaine par
  * semaine d'un mois passé : « — »).
  */
-export async function hsValoriseesFigees(mois: number, annee: number, employes: Pick<Employee, "id" | "categorie">[]): Promise<Map<string, HsPaie>> {
-  const res = new Map<string, HsPaie>();
+export async function hsValoriseesFigees(mois: number, annee: number, employes: Pick<Employee, "id" | "categorie">[]): Promise<Map<string, HsFigee>> {
+  const res = new Map<string, HsFigee>();
   if (employes.length === 0) return res;
   const lignes = await prisma.payrollLine.findMany({
     where: { payrollRun: { mois, annee }, employeeId: { in: employes.map((e) => e.id) }, statutPaiement: { in: ["VALIDE", "PAYE"] } },
-    select: { employeeId: true, hsValorisee: true },
+    select: { employeeId: true, hsValorisee: true, heuresSupp30: true, heuresSupp60: true, heuresSupp100: true },
   });
-  const parEmploye = new Map(lignes.map((l) => [l.employeeId, Number(l.hsValorisee)]));
+  const parEmploye = new Map(lignes.map((l) => [l.employeeId, l]));
   for (const e of employes) {
-    const montant = parEmploye.get(e.id);
-    res.set(e.id, { montant: montant === undefined || (montant === 0 && e.categorie !== "BRIGADE") ? null : montant, tauxHoraire: null });
+    const l = parEmploye.get(e.id);
+    if (!l) { res.set(e.id, { montant: null, tauxHoraire: null, heures: null }); continue; }
+    const montant = Number(l.hsValorisee);
+    res.set(e.id, {
+      montant: montant === 0 && e.categorie !== "BRIGADE" ? null : montant,
+      tauxHoraire: null,
+      heures: { hs30: Number(l.heuresSupp30), hs60: Number(l.heuresSupp60), hs100: Number(l.heuresSupp100) },
+    });
   }
   return res;
+}
+
+/** Mention du détail hebdomadaire d'un mois passé quand ses totaux recalculés s'écartent du bulletin. */
+export const MENTION_HEBDO_RECALCULE = "recalculé avec la fiche d'aujourd'hui — le bulletin fait foi";
+
+/** Vrai si les heures supp. recalculées du mois diffèrent de celles figées sur le bulletin (au centième d'heure). */
+export function hebdoDiffereDuBulletin(recalcule: HeuresSuppFigees, fige: HeuresSuppFigees | null): boolean {
+  if (!fige) return false;
+  const ecart = (a: number, b: number) => Math.abs(a - b) > 0.005;
+  return ecart(recalcule.hs30, fige.hs30) || ecart(recalcule.hs60, fige.hs60) || ecart(recalcule.hs100, fige.hs100);
 }

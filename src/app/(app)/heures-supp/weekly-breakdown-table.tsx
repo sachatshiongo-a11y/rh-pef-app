@@ -8,10 +8,13 @@ export function WeeklyBreakdownTable({
   employees,
   semainesParEmploye,
   nbSemaines,
+  mentions = {},
 }: {
   employees: EmployeeRow[];
   semainesParEmploye: Record<string, DetailSemaineHS[]>;
   nbSemaines: number;
+  /** Mois passé : une ligne sobre par salarié dont le détail recalculé s'écarte du bulletin figé. */
+  mentions?: Record<string, string>;
 }) {
   const semaines = Array.from({ length: nbSemaines }, (_, i) => i + 1);
 
@@ -24,6 +27,7 @@ export function WeeklyBreakdownTable({
         return (
           <div key={e.id} className="rounded-xl border bg-card p-3">
             <Link href={`/employes/${e.id}`} className="font-medium text-primary hover:underline">{e.nom}</Link>
+            {mentions[e.id] && <p data-mention-hebdo="" className="text-[11px] text-muted-foreground">{mentions[e.id]}</p>}
             <div className="mt-2 space-y-1">
               {semaines.map((s) => {
                 const d = parNumero.get(s);
@@ -82,6 +86,7 @@ export function WeeklyBreakdownTable({
                   <Link href={`/employes/${e.id}`} className="hover:text-primary hover:underline">
                     {e.nom}
                   </Link>
+                  {mentions[e.id] && <span data-mention-hebdo="" className="block text-[11px] text-muted-foreground">{mentions[e.id]}</span>}
                 </td>
                 {semaines.map((s) => {
                   const detail = parNumero.get(s);
