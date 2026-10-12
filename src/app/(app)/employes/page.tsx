@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { Avatar } from "@/components/avatar";
 import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 import { chargerParametresPaie } from "@/lib/config";
 import { GrilleTransport } from "@/app/(app)/transport/_grille";
 import { filtrerEmployes, statutEmployes, whereStatutEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
+import { ListeEmployes, type LigneEmploye } from "./employes-liste";
 import { exigerPageRH } from "@/lib/garde-page";
 import { doublonsProbables } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
@@ -16,9 +15,11 @@ import { creationsEnAttente } from "@/lib/creation-fiche";
 import { Pagination } from "@/components/pagination";
 import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
 
-function formatMoney(n: number) {
-  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+/** Ce que la liste (composant client) reçoit d'un employé : des nombres et des textes, ni Decimal ni Date. */
+const versLigne = (e: Employee): LigneEmploye => ({
+  id: e.id, matricule: e.matricule, nom: e.nom, photoUrl: e.photoUrl, poste: e.poste, secteur: e.secteur,
+  salaireMensuel: Number(e.salaireMensuel), heuresHebdomadaires: Number(e.heuresHebdomadaires), contrat: e.contrat, actif: e.actif,
+});
 
 export default async function EmployesPage({
   searchParams,
@@ -175,107 +176,15 @@ export default async function EmployesPage({
         <GrilleTransport employes={employes} jours={parametres!.joursOuvrablesMois} taux={parametres!.tauxChangeCDF} />
       ) : (
         <>
-          {(brigadeP.length > 0 || backofficeP.length === 0) && (
-            <div className="mb-8">
-              <h2 className="mb-3 text-base font-semibold">
-                Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
-              </h2>
-              <EmployeeTable employes={brigadeP} peutModifier={peutModifier} />
-            </div>
-          )}
-
-          {(backofficeP.length > 0 || brigadeP.length === 0) && (
-            <div>
-              <h2 className="mb-3 text-base font-semibold">
-                Back-office <span className="font-normal text-muted-foreground">({backoffice.length})</span>
-              </h2>
-              <EmployeeTable employes={backofficeP} peutModifier={peutModifier} />
-            </div>
-          )}
+          <ListeEmployes
+            brigade={brigadeP.map(versLigne)} backoffice={backofficeP.map(versLigne)}
+            totalBrigade={brigade.length} totalBackoffice={backoffice.length}
+            statut={statut} peutModifier={peutModifier}
+          />
 
           <Pagination className="mt-6" total={suiteRH.length} page={fen.page} par={par} chemin="/employes" params={sp} libelle="employés" />
         </>
       )}
     </div>
-  );
-}
-
-function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutModifier: boolean }) {
-  return (
-    <>
-      {/* Mobile : cartes tapables (toute la carte mène à la fiche). */}
-      <div className="space-y-2 lg:hidden">
-        {employes.map((e) => (
-          <Link key={e.id} href={`/employes/${e.id}`} className="flex items-center gap-3 rounded-xl border bg-card p-3 active:bg-accent">
-            <Avatar nom={e.nom} taille={40} photoUrl={e.photoUrl} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{e.nom}</span>
-                {!e.actif && <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Inactif</span>}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                <span className="font-mono">{e.matricule}</span> · {e.poste}
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <div className="text-sm font-semibold tabular-nums">{formatMoney(Number(e.salaireMensuel))} $</div>
-              <div className="text-[11px] text-muted-foreground">{Number(e.heuresHebdomadaires)} h/sem · {e.contrat}</div>
-            </div>
-          </Link>
-        ))}
-        {employes.length === 0 && (
-          <EtatVide message="Aucun employé ne correspond." />
-        )}
-      </div>
-
-      {/* Ordinateur : tableau détaillé. */}
-      <div className="tableau-normal hidden rounded-lg border lg:block">
-      <table className="w-full text-sm">
-        <thead className="en-tete-collante bg-muted text-left">
-          <tr>
-            <th className="px-3 py-2">Matricule</th>
-            <th className="px-3 py-2">Nom et prénom</th>
-            <th className="px-3 py-2">Poste</th>
-            <th className="px-3 py-2 max-xl:hidden">Secteur</th>
-            <th className="px-3 py-2 text-right">Salaire mensuel $</th>
-            <th className="px-3 py-2 text-right">Heures hebdo.</th>
-            <th className="px-3 py-2">Contrat</th>
-            <th className="px-3 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {employes.map((e) => (
-            <tr key={e.id} className="border-t">
-              <td className="px-3 py-2 font-mono text-xs">{e.matricule}</td>
-              <td className="px-3 py-2">
-                <Link href={`/employes/${e.id}`} className="flex items-center gap-2 hover:underline">
-                  <Avatar nom={e.nom} taille={28} photoUrl={e.photoUrl} />
-                  <span className="text-primary">{e.nom}</span>
-                  {!e.actif && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Inactif</span>}
-                </Link>
-              </td>
-              <td className="px-3 py-2">{e.poste}</td>
-              <td className="px-3 py-2 max-xl:hidden">{e.secteur}</td>
-              <td className="px-3 py-2 text-right">{formatMoney(Number(e.salaireMensuel))}</td>
-              <td className="px-3 py-2 text-right">{Number(e.heuresHebdomadaires)}</td>
-              <td className="px-3 py-2">{e.contrat}</td>
-              <td className="px-3 py-2 text-right">
-                {peutModifier && (
-                  <Link href={`/employes/${e.id}/modifier`} className="text-primary underline">Modifier</Link>
-                )}
-              </td>
-            </tr>
-          ))}
-          {employes.length === 0 && (
-            <tr>
-              <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
-                Aucun employé ne correspond.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      </div>
-    </>
   );
 }

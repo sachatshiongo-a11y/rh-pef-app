@@ -17,7 +17,7 @@ function monter() {
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
-  act(() => racine.render(h("form", { onSubmit: envoi as never }, h(ConfirmSubmitButton, { message: "Supprimer la prime ?", title: "Supprimer", "aria-label": "Supprimer la prime Transport" }, "✕"))));
+  act(() => racine.render(h("form", { onSubmit: envoi as never }, h(ConfirmSubmitButton, { message: "Supprimer la prime ?", title: "Supprimer", "aria-label": "Supprimer la prime Transport", children: "✕" }))));
   return envoi;
 }
 
