@@ -69,7 +69,7 @@ export function VueMesConges({
       <section className="rounded-2xl border bg-card p-4">
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat n={solde.solde} label="Il vous reste" accent />
-          <Stat n={solde.acquis} label={`Droits ${solde.annee}`} />
+          <Stat n={solde.acquis} label={`Droits ${solde.annee} (report compris)`} />
           <Stat n={solde.pris} label={`Pris en ${annee}`} />
         </div>
         <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">

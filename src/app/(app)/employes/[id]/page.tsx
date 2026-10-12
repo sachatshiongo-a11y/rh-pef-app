@@ -721,7 +721,7 @@ export default async function FicheEmployePage({
         }
       >
         <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-          <Stat label={`Droits ${anneeConges}`} value={congesAcquis} />
+          <Stat label={`Droits ${anneeConges} (report compris)`} value={congesAcquis} />
           <Stat label={`Congés pris en ${anneeConges}`} value={congesPrisAnnee} />
           <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
