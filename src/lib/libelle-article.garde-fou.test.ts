@@ -49,7 +49,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/commandes/[id]/reception-client.tsx": { n: 2, raisons: ["AMONT"] },
-  "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
+  "src/app/(stock)/stock/commandes/actions.ts": { n: 3, raisons: ["AUDIT_ACTION"] }, // lecture des lignes du formulaire (partagée création / modification, 2026-10-16)
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/actions.ts": { n: 23, raisons: ["AUDIT_ACTION"] },

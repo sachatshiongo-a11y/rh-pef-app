@@ -12,7 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 vi.mock("./actions", () => ({
   creerArticle: vi.fn(), modifierArticle: vi.fn(), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(), changerDomaineEnMasse: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), ajouterFournisseurEnMasse: vi.fn(), retirerFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
 

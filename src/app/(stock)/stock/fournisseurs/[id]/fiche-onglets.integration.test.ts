@@ -92,7 +92,8 @@ beforeAll(async () => {
   await bon("BC-ANNULE", 6, "ANNULE", "2026-07-08");
   await bon("BC-DE-G", 7, "VALIDE", "2026-09-09", g.id);
 
-  const a = await prisma.articleStock.create({ data: { designation: "Farine T55", domaine: "NOURRITURE", unite: "kg", fournisseurId: f.id } });
+  // Fournisseur habituel : la fiche article ET la liaison (comme la migration 20261016110000 la reprend) — la fiche fournisseur lit la liaison.
+  const a = await prisma.articleStock.create({ data: { designation: "Farine T55", domaine: "NOURRITURE", unite: "kg", fournisseurId: f.id, fournisseurs: { create: { fournisseurId: f.id, habituel: true } } } });
   await prisma.stock.create({ data: { articleId: a.id, quantite: 10, stockMinimum: 2 } });
   await prisma.mouvementStock.create({ data: { articleId: a.id, type: "ENTREE", quantite: 5, date: d("2026-09-01"), origine: "Liste d'achat", fournisseurId: f.id, montantUSD: 12 } });
 });

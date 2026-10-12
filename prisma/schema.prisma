@@ -1413,7 +1413,8 @@ model Fournisseur {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  articles      ArticleStock[]
+  articles      ArticleStock[] // LECTURE SEULE pendant la bascule : le fournisseur HABITUEL (colonne ArticleStock.fournisseurId, synchronisée)
+  liensArticles ArticleFournisseur[] // tous les articles qu'il fournit (habituel ou non) — la vérité (2026-10-16)
   bonsCommande  BonDeCommande[]
   factures      FactureFournisseur[]
   achatsDirects MouvementStock[] // achats de la Liste d'achat rattachés à ce fournisseur
@@ -1457,6 +1458,9 @@ model ArticleStock {
   categorie       CategorieStock? @relation(fields: [categorieId], references: [id])
   unite           String? // Kg, Pièce, L…
   uniteParCarton  Decimal?        @db.Decimal(10, 2)
+  // Fournisseur HABITUEL — copie de COMPATIBILITÉ de la ligne `ArticleFournisseur` marquée `habituel` (2026-10-16 :
+  // un article a PLUSIEURS fournisseurs). Toujours écrite avec elle (src/lib/article-fournisseurs.ts) ; le code
+  // lit la liaison. À retirer à la version suivante, une fois le code d'avant la bascule disparu de la production.
   fournisseurId   String?
   fournisseur     Fournisseur?    @relation(fields: [fournisseurId], references: [id])
   // Prix de référence (2026-10-08) : saisi en USD OU en francs — la devise de saisie FAIT FOI, jamais
@@ -1487,6 +1491,7 @@ model ArticleStock {
   updatedAt       DateTime        @updatedAt
 
   stock            Stock?
+  fournisseurs     ArticleFournisseur[] // tous ses fournisseurs, dont l'habituel (au plus un)
   mouvements       MouvementStock[]
   lignesBC         LigneBonDeCommande[]
   lignesFacture    LigneFacture[]
@@ -1497,6 +1502,30 @@ model ArticleStock {
 
   @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
   @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
+  @@schema("stock")
+}
+
+// Les fournisseurs d'un article (2026-10-16, demande de la Direction : « un article peut avoir plusieurs
+// fournisseurs »). Un couple (article, fournisseur) n'existe qu'une fois ; AU PLUS UN est `habituel` par article
+// (index unique partiel `ArticleFournisseur_un_habituel_key` en base, non représentable dans ce fichier). Le
+// fournisseur habituel est recopié dans `ArticleStock.fournisseurId` (compatibilité, le temps de la bascule).
+// Le « dernier prix par fournisseur » n'est PAS stocké ici : il se calcule depuis l'historique d'achats
+// (src/lib/prix-fournisseurs.ts) — une copie stockée pourrait diverger de la facture corrigée ou supprimée.
+// `source` : ce qui a posé le lien (HISTORIQUE = migration, MANUEL, LISTE_ACHAT, FACTURE, BON_COMMANDE,
+// RECEPTION, FUSION) — pour le journal et pour comprendre d'où vient un fournisseur inattendu.
+model ArticleFournisseur {
+  id            String       @id @default(uuid())
+  articleId     String
+  article       ArticleStock @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  fournisseurId String
+  fournisseur   Fournisseur  @relation(fields: [fournisseurId], references: [id], onDelete: Cascade)
+  habituel      Boolean      @default(false)
+  source        String       @default("MANUEL")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([articleId, fournisseurId])
+  @@index([fournisseurId]) // fiche fournisseur : les articles qu'il fournit
   @@schema("stock")
 }
 

@@ -212,8 +212,9 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
             </select>
             {noteCategorie && <span data-note-categorie className="text-[11px] text-amber-800">{noteCategorie}</span>}
           </label>
-          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Fournisseur
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Fournisseur habituel
             <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue={a.fournisseurId ?? ""} vide="—" aria-label="Fournisseur" className={inp} />
+            <span className="text-[11px]">Les autres fournisseurs de l&apos;article se gèrent dans la section « Fournisseurs » de la fiche.</span>
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Stock minimum
             <input type="hidden" name="stockMinimum" value={seuilMin} />

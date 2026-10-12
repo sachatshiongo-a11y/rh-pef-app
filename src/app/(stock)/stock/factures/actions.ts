@@ -12,6 +12,7 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { lireDateJour } from "@/lib/achats-liste";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { fournisseurIdentique, fournisseursProches } from "@/lib/fournisseur-match";
+import { alimenterFournisseursTx } from "@/lib/article-fournisseurs";
 import { rapprocherLignePdf } from "@/lib/facture-ligne-match";
 import { trouverDoublonFacture } from "@/lib/facture-doublon-serveur";
 import { messageDoublonFacture } from "@/lib/facture-doublon";
@@ -376,6 +377,9 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         },
       });
     }
+    // Fournisseur de la facture → liste des fournisseurs de chaque article facturé (2026-10-16) : un FAIT constaté
+    // (que la facture fasse entrer du stock ou non), sans validation, sans habituel ; annulé avec la facture.
+    await alimenterFournisseursTx(tx, lignes.map((l) => ({ articleId: l.articleId, fournisseurId: fournisseurDeLaFacture })), "FACTURE", user.id);
     if (entrerEnStock) {
       for (const l of lignes) {
         if (!l.articleId) continue; // seules les lignes reliées à un article du catalogue entrent en stock

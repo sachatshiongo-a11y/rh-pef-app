@@ -21,7 +21,7 @@ const RACINES_SCANNEES = [path.join(RACINE, "src/app/(stock)"), path.join(RACINE
 
 /** Les <select> qui restent : des listes courtes et fermées, jamais un choix d'article ou de fournisseur. */
 const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
-  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 2, raison: "domaine du nouvel article (Nourriture / Boisson / Autre) + <datalist> des fournisseurs : champ où l'on TAPE déjà (un nom nouveau crée le fournisseur)" },
+  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 3, raison: "domaine du nouvel article (Nourriture / Boisson / Autre) + <datalist> des fournisseurs, et celle de chaque ligne dont l'article a des fournisseurs connus (2026-10-16 : les siens en tête) : champ où l'on TAPE déjà (un nom nouveau crée le fournisseur)" },
   "src/app/(stock)/stock/restaurant/restaurant-client.tsx": { n: 1, raison: "<datalist> des catégories du restaurant : champ où l'on tape déjà" },
   "src/app/(stock)/stock/journalier/import-classeur.tsx": { n: 1, raison: "« créer » ou « c'est telle fiche » parmi les 1 à 3 fiches proches déjà repérées" },
   "src/app/(stock)/stock/journalier/import-commande.tsx": { n: 1, raison: "6 propositions au plus (articles déjà rapprochés du classeur), pas le catalogue" },

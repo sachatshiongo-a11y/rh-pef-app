@@ -13,7 +13,7 @@ import { champChoix, champsParNom, choisirEnTapant, choisirOption, libellesOuver
 vi.mock("next/link", () => ({ default: (p: { href: string; children: unknown }) => h("a", { href: p.href }, p.children as never) }));
 vi.mock("@/app/(stock)/stock/catalogue/actions", () => ({
   creerArticle: vi.fn(), modifierArticle: vi.fn(async () => ({})), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), ajouterFournisseurEnMasse: vi.fn(), retirerFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
 vi.mock("@/app/(stock)/stock/entree/actions", () => ({ entreeListeAchat: vi.fn(async () => ({ crees: [], fournisseursCrees: [], avertissements: [] })), verifierDoublonsListe: vi.fn(async () => ({ avertissements: [] })) }));

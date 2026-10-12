@@ -123,7 +123,12 @@ export const CHAMPS_ARTICLE = {
   prixUnitaireCDF: { libelle: "Prix unitaire FC", sorte: "decimal", porte: "article" },
   uniteParCarton: { libelle: "Unités / carton", sorte: "decimal", porte: "article" },
   categorieId: { libelle: "Catégorie", sorte: "ref", porte: "article" },
-  fournisseurId: { libelle: "Fournisseur", sorte: "ref", porte: "article" },
+  // Fournisseur HABITUEL (une référence). Poser un habituel qui n'est pas dans la liste l'y ajoute.
+  fournisseurId: { libelle: "Fournisseur habituel", sorte: "ref", porte: "article" },
+  // TOUS les fournisseurs de l'article (2026-10-16) : la liste complète après le geste, ids triés séparés par une
+  // virgule (null = aucun). Comparée telle quelle : une liste qui a bougé depuis la proposition (un achat a ajouté un
+  // fournisseur entre-temps) est une demande périmée, signalée à la Direction.
+  fournisseursIds: { libelle: "Fournisseurs", sorte: "liste", porte: "article" },
   actif: { libelle: "Actif", sorte: "booleen", porte: "article" },
   surFicheCommande: { libelle: "Sur la fiche commande", sorte: "booleen", porte: "article" },
   stockMinimum: { libelle: "Stock minimum", sorte: "decimal", porte: "stock" },
@@ -181,6 +186,20 @@ export const DOMAINES_ARTICLE = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
 export type DomaineArticle = (typeof DOMAINES_ARTICLE)[number];
 export const estDomaineArticle = (x: unknown): x is DomaineArticle => typeof x === "string" && (DOMAINES_ARTICLE as readonly string[]).includes(x);
 const LIBELLE_DOMAINE: Record<string, string> = { NOURRITURE: "Nourriture", BOISSON: "Boissons", AUTRE: "Autre" };
+
+/** Ids de fournisseurs → valeur du champ `fournisseursIds` : triés, sans doublon, séparés par une virgule ; liste vide = null. */
+export function valeurListeIds(ids: Iterable<string>): string | null {
+  const l = [...new Set([...ids].map((x) => String(x).trim()).filter(Boolean))].sort();
+  return l.length > 0 ? l.join(",") : null;
+}
+/** Valeur du champ `fournisseursIds` → ids (liste vide si null). */
+export const idsDeValeurListe = (v: Valeur | undefined): string[] => (typeof v === "string" && v ? v.split(",").filter(Boolean) : []);
+
+/** « Grossiste Nord, Marché central » : la liste de fournisseurs d'un champ `fournisseursIds`, par leurs noms ; « — » si vide. */
+export function libelleListeFournisseurs(v: Valeur | undefined, noms: Map<string, string>): string {
+  const ids = idsDeValeurListe(v);
+  return ids.length === 0 ? "—" : ids.map((i) => noms.get(i) ?? "(fournisseur inconnu)").sort((a, b) => a.localeCompare(b, "fr")).join(", ");
+}
 
 /** Égalité de deux valeurs d'un champ : décimales comparées exactement (« 2.50 » = « 2.5 »). */
 export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolean {

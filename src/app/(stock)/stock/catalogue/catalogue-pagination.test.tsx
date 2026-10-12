@@ -12,7 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 const categoriserEnMasse = vi.fn(async (..._a: unknown[]) => ({}));
 vi.mock("./actions", () => ({
   creerArticle: vi.fn(), modifierArticle: vi.fn(async () => ({})), categoriserEnMasse: (...a: unknown[]) => categoriserEnMasse(...a), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), ajouterFournisseurEnMasse: vi.fn(), retirerFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
 

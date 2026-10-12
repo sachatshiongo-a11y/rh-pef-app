@@ -28,6 +28,8 @@ const styles = StyleSheet.create({
   cDate: { width: 90 },
   cLibelle: { flex: 1 },
   cNum: { width: 70, textAlign: "right" },
+  cType: { width: 120 },
+  pastille: { fontSize: 7.5, fontWeight: 700, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 2, alignSelf: "flex-start" },
   cCol: { fontWeight: 700, color: pdfColors.brownDark },
   vide: { paddingVertical: 8, paddingHorizontal: 6, fontSize: 8.5, color: pdfColors.textMuted },
 });
@@ -36,7 +38,27 @@ const usd = (v: number | null) => (v === null ? "—" : `${formaterNombre(v, { m
 const nb = (v: number) => formaterNombre(v, { maximumFractionDigits: 3 });
 const dCourt = (v: Date) => new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 
-export type MouvementLigne = { id: string; date: Date; type: string; quantite: number; origine: string | null; source: string | null };
+/**
+ * Pastilles du type (et du motif d'une sortie) : les MÊMES couleurs et libellés que celles de l'écran Mouvements et de
+ * la fiche à l'écran (components/stock/pastille-mouvement.tsx), en hexadécimal pour le PDF.
+ */
+const PASTILLE_PDF: Record<string, { texte: string; fond: string; encre: string }> = {
+  ENTREE: { texte: "Entrée", fond: "#ECFDF5", encre: "#065F46" },
+  SORTIE: { texte: "Sortie", fond: "#FEF2F2", encre: "#991B1B" },
+  AJUSTEMENT: { texte: "Ajustement", fond: "#FFFBEB", encre: "#78350F" },
+};
+const MOTIF_PDF: Record<string, { texte: string; fond: string; encre: string }> = {
+  PERTE: { texte: "Perte", fond: "#FEE2E2", encre: "#7F1D1D" },
+  LIVRAISON_RESTAURANT: { texte: "Livraison restaurant", fond: "#E0F2FE", encre: "#0C4A6E" },
+  "": { texte: "sans motif", fond: "#F1F5F9", encre: "#64748B" },
+};
+/** Libellé de la pastille d'un mouvement : « Entrée », « Sortie · Perte »… (testé sans rendu PDF). */
+export function libellePastilleMouvement(m: { type: string; motif?: string | null }): string {
+  const t = PASTILLE_PDF[m.type]?.texte ?? m.type;
+  return m.type === "SORTIE" ? `${t} · ${(MOTIF_PDF[m.motif ?? ""] ?? MOTIF_PDF[""]!).texte}` : t;
+}
+
+export type MouvementLigne = { id: string; date: Date; type: string; quantite: number; origine: string | null; source: string | null; /** Sortie : PERTE | LIVRAISON_RESTAURANT | null. */ motif?: string | null };
 
 function PRow({ label, value }: { label: string; value: string }) {
   return (
@@ -132,6 +154,7 @@ export function FicheArticleDocument({
         <View style={[styles.table, { marginTop: 0 }]}>
           <View style={styles.th}>
             <Text style={[styles.cDate, styles.cCol]}>Date</Text>
+            <Text style={[styles.cType, styles.cCol]}>Type</Text>
             <Text style={[styles.cLibelle, styles.cCol]}>Origine</Text>
             <Text style={[styles.cNum, styles.cCol]}>Quantité</Text>
           </View>
@@ -143,8 +166,11 @@ export function FicheArticleDocument({
               return (
                 <View key={m.id} style={styles.tr} wrap={false}>
                   <Text style={styles.cDate}>{dCourt(m.date)}</Text>
+                  <View style={styles.cType}>
+                    <Text style={[styles.pastille, { backgroundColor: (PASTILLE_PDF[m.type] ?? PASTILLE_PDF.AJUSTEMENT!).fond, color: (PASTILLE_PDF[m.type] ?? PASTILLE_PDF.AJUSTEMENT!).encre }]}>{libellePastilleMouvement(m)}</Text>
+                  </View>
                   <Text style={styles.cLibelle}>{[m.origine, m.source].filter(Boolean).join(" · ") || "—"}</Text>
-                  <Text style={[styles.cNum, { color: sortie ? ROUGE : pdfColors.brownDark, fontWeight: 700 }]}>{sortie ? "−" : "+"}{nb(m.quantite)}</Text>
+                  <Text style={[styles.cNum, { color: sortie ? ROUGE : pdfColors.brownDark, fontWeight: 700 }]}>{sortie ? "-" : m.type === "AJUSTEMENT" ? "+/-" : "+"}{nb(m.quantite)}</Text>
                 </View>
               );
             })

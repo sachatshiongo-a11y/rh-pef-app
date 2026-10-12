@@ -18,7 +18,7 @@ const A = vi.hoisted(() => ({
 vi.mock("./actions", () => ({ validerDemandes: A.valider, refuserDemandes: A.refuser, retirerMaDemande: A.retirer }));
 vi.mock("../catalogue/actions", () => ({
   creerArticle: vi.fn(), modifierArticle: vi.fn(), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(), corrigerStocksNegatifs: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), ajouterFournisseurEnMasse: vi.fn(), retirerFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(), corrigerStocksNegatifs: vi.fn(),
 }));
 
 const { DemandesAValider } = await import("./demandes-client");

@@ -36,3 +36,18 @@ describe("filtre de l'inventaire", () => {
     expect(articleDansFiltre(art({ niveau: "URGENT" }), { q: "farine", alerte: "URGENT", manque: "", hausse: true })).toBe(false);
   });
 });
+
+describe("« sans fournisseur » avec plusieurs fournisseurs par article (2026-10-16)", () => {
+  const sans = { ...FILTRE_INVENTAIRE_VIDE, manque: "fournisseur" as const };
+  it("un article qui a des fournisseurs mais pas d'habituel n'est PAS « sans fournisseur »", () => {
+    expect(articleDansFiltre(art({ fournisseurId: null, nbFournisseurs: 2 }), sans)).toBe(false);
+  });
+  it("aucun fournisseur du tout : à compléter ; la copie de compatibilité encore posée (code d'avant la bascule) suffit à ne pas l'y mettre", () => {
+    expect(articleDansFiltre(art({ fournisseurId: null, nbFournisseurs: 0 }), sans)).toBe(true);
+    expect(articleDansFiltre(art({ fournisseurId: "f1", nbFournisseurs: 0 }), sans)).toBe(false);
+  });
+  it("sans le compte (ancienne lecture) : le fournisseur habituel décide, comme avant", () => {
+    expect(articleDansFiltre(art({ fournisseurId: null }), sans)).toBe(true);
+    expect(articleDansFiltre(art({ fournisseurId: "f1" }), sans)).toBe(false);
+  });
+});

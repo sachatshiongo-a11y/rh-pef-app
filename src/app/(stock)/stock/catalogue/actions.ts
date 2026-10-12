@@ -19,6 +19,8 @@ import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import { decisionArticle } from "@/lib/article-proche";
 import { cleArticleExacte, memeArticle, type ArticleCandidat } from "@/lib/achats-doublons";
+import { ajouterFournisseursEnMasseTx, definirHabituelEnMasseTx, definirHabituelTx, idsFournisseursParArticleTx, reporterFournisseursDesDoublonsTx, retirerFournisseursEnMasseTx } from "@/lib/article-fournisseurs";
+import { valeurListeIds } from "@/lib/validations-stock/charge";
 
 
 async function garde() {
@@ -129,6 +131,8 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
       },
     });
     if (quantiteInitiale !== 0) await poserStocksTx(tx, [{ articleId: cree.id, quantite: quantiteInitiale }], { quoi: "stock initial" });
+    // Le fournisseur choisi à la création est son fournisseur HABITUEL (la liste des fournisseurs de l'article commence là).
+    if (fournisseurId) await definirHabituelTx(tx, cree.id, fournisseurId, "CREATION");
     return cree;
   });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation + (d.type === "choix" ? ` (créé quand même, proche de ${d.candidats.map((c) => `« ${c.designation} »`).join(", ")})` : ""), userId: user.id });
@@ -188,7 +192,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
   const losers = arts.filter((a) => a.id !== keep.id);
   if (losers.length === 0) return;
 
-  const bilan = { commandesReportees: 0, commandesCumulees: 0, articlesRestoRepointes: 0 };
+  const bilan = { commandesReportees: 0, commandesCumulees: 0, articlesRestoRepointes: 0, fournisseursReportes: 0 };
   await prisma.$transaction(async (tx) => {
     // CLÔTURE : rattacher à l'article conservé les mouvements d'un doublon réécrit l'historique PAR ARTICLE des
     // mois figés (consommations, rapports de ces mois). La fusion est donc refusée tant qu'un doublon a des
@@ -225,6 +229,10 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
     // ses commandes (la comparaison commande / livraison perdait des jours). Elles passent à l'article conservé ;
     // un jour déjà commandé sur l'article conservé (unicité article + date) CUMULE les deux quantités.
     const deLArticleGarde = new Map((await tx.commandeResto.findMany({ where: { articleId: keep.id } })).map((c) => [c.date.toISOString().slice(0, 10), c]));
+    // Fournisseurs des doublons : reportés sur l'article conservé, sans doublon de couple (leurs liens partent en
+    // cascade avec les doublons). Son habituel reste le sien ; sans habituel, il adopte celui d'un doublon.
+    const fournisseursReportes = await reporterFournisseursDesDoublonsTx(tx, keep.id, losers.map((l) => l.id));
+    bilan.fournisseursReportes = fournisseursReportes.reportes;
     for (const l of losers) {
       for (const c of await tx.commandeResto.findMany({ where: { articleId: l.id } })) {
         const jour = c.date.toISOString().slice(0, 10);
@@ -260,7 +268,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       await tx.articleStock.delete({ where: { id: l.id } });
     }
   });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) fusionné(s) → ${keep.designation}${bilan.commandesReportees + bilan.commandesCumulees > 0 ? ` · commandes du restaurant : ${bilan.commandesReportees} reportée(s), ${bilan.commandesCumulees} cumulée(s) (même jour)` : ""}${bilan.articlesRestoRepointes > 0 ? ` · ${bilan.articlesRestoRepointes} article(s) du restaurant rattaché(s)` : ""}`, userId: user.id });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) fusionné(s) → ${keep.designation}${bilan.commandesReportees + bilan.commandesCumulees > 0 ? ` · commandes du restaurant : ${bilan.commandesReportees} reportée(s), ${bilan.commandesCumulees} cumulée(s) (même jour)` : ""}${bilan.articlesRestoRepointes > 0 ? ` · ${bilan.articlesRestoRepointes} article(s) du restaurant rattaché(s)` : ""}${bilan.fournisseursReportes > 0 ? ` · ${bilan.fournisseursReportes} fournisseur(s) reporté(s)` : ""}`, userId: user.id });
   revalidatePath("/stock/catalogue");
 });
 
@@ -309,16 +317,85 @@ export const basculerFicheCommande = actionLisible(async (articleIds: string[], 
   return { ok: true as const, modifies: n.count };
 });
 
-/** Affecte un fournisseur (ou le retire si vide) à plusieurs articles d'un coup. */
-export const definirFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string) => {
+// ── Fournisseurs d'un article (2026-10-16) ──────────────────────────────────────────────────────────────────────
+// Un article a PLUSIEURS fournisseurs, dont un HABITUEL. Trois gestes, en lot (articles) comme sur une fiche :
+// « habituel », « ajouter », « retirer ». Direction : écriture directe, journalisée ; autre rôle : PROPOSITION
+// (avant → après) comme toute modification d'article. L'alimentation automatique par un achat réel n'est pas ici :
+// elle vit dans l'achat lui-même (src/lib/article-fournisseurs.ts), sans validation, car c'est un fait constaté.
+
+type OpFournisseur = "HABITUEL" | "AJOUTER" | "RETIRER";
+export type ReponseFournisseurs = PropositionEnvoyee | { proposition: false; message: string };
+
+const LIBELLE_OP: Record<OpFournisseur, string> = { HABITUEL: "Fournisseur habituel", AJOUTER: "Ajout de fournisseur", RETIRER: "Retrait de fournisseur" };
+
+async function gestesFournisseurs(user: Acteur, articleIds: string[], op: OpFournisseur, fournisseurIds: string[]): Promise<ReponseFournisseurs> {
+  const ids = [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
+  const fours = [...new Set((Array.isArray(fournisseurIds) ? fournisseurIds : []).map(String))].filter(Boolean);
+  if (ids.length === 0) throw new Error("Aucun article sélectionné.");
+  if (fours.length === 0) throw new Error("Choisissez un fournisseur.");
+  if (op === "HABITUEL" && fours.length !== 1) throw new Error("Un article n'a qu'un seul fournisseur habituel : choisissez-en un.");
+  const [existants, articles] = await Promise.all([
+    prisma.fournisseur.findMany({ where: { id: { in: fours } }, select: { id: true, nom: true } }),
+    prisma.articleStock.count({ where: { id: { in: ids } } }),
+  ]);
+  if (existants.length !== fours.length) throw new Error("Fournisseur introuvable : rechargez la page.");
+  if (articles !== ids.length) throw new Error("Article introuvable : rechargez la page.");
+  const noms = existants.map((f) => f.nom).sort((a, b) => a.localeCompare(b, "fr")).join(", ");
+
+  if (!estDirection(user)) {
+    // La liste proposée est la liste COMPLÈTE après le geste : on part de ce que chaque article a aujourd'hui.
+    const actuels = op === "HABITUEL" ? null : await idsFournisseursParArticleTx(prisma, ids);
+    return proposer(user, LIBELLE_OP[op], ids.map((id) => ({
+      id,
+      patch: op === "HABITUEL"
+        ? { fournisseurId: fours[0] }
+        : { fournisseursIds: valeurListeIds(op === "AJOUTER" ? [...(actuels!.get(id) ?? []), ...fours] : (actuels!.get(id) ?? []).filter((x) => !fours.includes(x))) },
+    })));
+  }
+
+  const n = await prisma.$transaction(async (tx) => {
+    if (op === "HABITUEL") return definirHabituelEnMasseTx(tx, ids, fours[0]);
+    if (op === "AJOUTER") return ajouterFournisseursEnMasseTx(tx, ids, fours, "MANUEL");
+    return retirerFournisseursEnMasseTx(tx, ids, fours);
+  });
+  const verbe = op === "HABITUEL" ? `habituel : ${noms}` : op === "AJOUTER" ? `ajouté : ${noms}` : `retiré : ${noms}`;
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: ids.length === 1 ? ids[0] : `${ids.length} articles`, champ: "fournisseurs", nouvelleValeur: `${verbe} (${n} article(s) ou lien(s) modifié(s))`, userId: user.id });
+  revalidatePath("/stock/catalogue", "layout");
+  revalidatePath("/stock/fournisseurs", "layout");
+  return { proposition: false, message: n === 0 ? "Rien à changer : c'était déjà le cas." : `Fournisseurs mis à jour (${verbe}).` };
+}
+
+/**
+ * Définit le fournisseur HABITUEL de plusieurs articles d'un coup (il rejoint la liste de chacun ; l'ancien habituel y
+ * reste). Ancienne action « Fournisseur en masse » : même nom, même effet pour l'habituel ; vide = plus d'habituel
+ * (la liste des fournisseurs de l'article ne change pas — pour en retirer un, voir `retirerFournisseurEnMasse`).
+ */
+export const definirFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string): Promise<ReponseFournisseurs | void> => {
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return;
-  if (!estDirection(user)) return proposer(user, "Fournisseur en masse", ids.map((id) => ({ id, patch: { fournisseurId: fournisseurId || null } })));
-  await prisma.articleStock.updateMany({ where: { id: { in: ids } }, data: { fournisseurId: fournisseurId || null } });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${ids.length} articles`, champ: "fournisseur (masse)", nouvelleValeur: fournisseurId || "retiré", userId: user.id });
-  revalidatePath("/stock/catalogue");
+  if (fournisseurId) return gestesFournisseurs(user, ids, "HABITUEL", [fournisseurId]);
+  if (!estDirection(user)) return proposer(user, "Fournisseur habituel retiré", ids.map((id) => ({ id, patch: { fournisseurId: null } })));
+  const n = await prisma.$transaction((tx) => definirHabituelEnMasseTx(tx, ids, null));
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: ids.length === 1 ? ids[0] : `${ids.length} articles`, champ: "fournisseurs", nouvelleValeur: `plus de fournisseur habituel (${n} article(s))`, userId: user.id });
+  revalidatePath("/stock/catalogue", "layout");
+  return { proposition: false, message: n === 0 ? "Rien à changer : aucun de ces articles n'avait de fournisseur habituel." : "Fournisseur habituel retiré (les fournisseurs restent dans la liste de chaque article)." };
 });
+
+/** Ajoute un fournisseur à plusieurs articles d'un coup, sans changer leur habituel. */
+export const ajouterFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string): Promise<ReponseFournisseurs> => gestesFournisseurs(await garde(), articleIds, "AJOUTER", [fournisseurId]));
+
+/** Retire un fournisseur de plusieurs articles d'un coup (l'habituel retiré laisse l'article sans habituel). */
+export const retirerFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string): Promise<ReponseFournisseurs> => gestesFournisseurs(await garde(), articleIds, "RETIRER", [fournisseurId]));
+
+/** Fiche article : définit le fournisseur habituel. */
+export const definirFournisseurHabituel = actionLisible(async (articleId: string, fournisseurId: string): Promise<ReponseFournisseurs> => gestesFournisseurs(await garde(), [articleId], "HABITUEL", [fournisseurId]));
+
+/** Fiche article : ajoute un ou plusieurs fournisseurs à l'article. */
+export const ajouterFournisseursArticle = actionLisible(async (articleId: string, fournisseurIds: string[]): Promise<ReponseFournisseurs> => gestesFournisseurs(await garde(), [articleId], "AJOUTER", fournisseurIds));
+
+/** Fiche article : retire un ou plusieurs fournisseurs de l'article. */
+export const retirerFournisseursArticle = actionLisible(async (articleId: string, fournisseurIds: string[]): Promise<ReponseFournisseurs> => gestesFournisseurs(await garde(), [articleId], "RETIRER", fournisseurIds));
 
 /**
  * Change le DOMAINE (Nourriture / Boissons / Autre) de plusieurs articles — demande de Sacha du

@@ -31,7 +31,7 @@ export async function chargerHausses(domaine?: Domaine): Promise<Map<string, num
 }
 
 /** L'article tel que le filtre l'a toujours lu à l'écran (mêmes champs, mêmes valeurs par défaut). */
-export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null }, hausses: Map<string, number>): ArticleFiltrable {
+export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null; _count?: { fournisseurs: number } }, hausses: Map<string, number>): ArticleFiltrable {
   return {
     designation: a.designation,
     ...contenancePourClient(a),
@@ -42,6 +42,7 @@ export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null }, 
     prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
     prixCDF: a.prixUnitaireCDF !== null ? a.prixUnitaireCDF.toString() : null,
     fournisseurId: a.fournisseurId,
+    nbFournisseurs: a._count?.fournisseurs, // « sans fournisseur » = aucun fournisseur dans la liste de l'article (pas seulement sans habituel)
     stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
     unite: a.unite,
     quantite: a.stock ? a.stock.quantite.toString() : "0",
@@ -49,6 +50,6 @@ export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null }, 
 }
 
 /** Les articles de l'ensemble filtré affiché (tous, pas une page), dans l'ordre reçu. */
-export function filtrerArticles<T extends ArticleStock & { stock: Stock | null }>(articles: T[], hausses: Map<string, number>, filtre: FiltreInventaire): T[] {
+export function filtrerArticles<T extends ArticleStock & { stock: Stock | null; _count?: { fournisseurs: number } }>(articles: T[], hausses: Map<string, number>, filtre: FiltreInventaire): T[] {
   return articles.filter((a) => articleDansFiltre(versArticleFiltrable(a, hausses), filtre));
 }

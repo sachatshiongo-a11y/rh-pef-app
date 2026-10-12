@@ -30,6 +30,8 @@ import {
 import type { ArticleCandidat } from "@/lib/achats-doublons";
 import { AlertesLigne } from "./alertes-ligne";
 import { libelleArticle } from "@/lib/libelle-article";
+import { fournisseursConnus } from "@/lib/fournisseurs-article";
+import { cleAlnum } from "@/lib/texte";
 
 const COURT: Record<Devise, string> = { USD: "USD", CDF: "FC" };
 /** Champ du panneau : 48 px de haut, 16 px de police (iOS ne zoome pas), même bordure que les champs du logiciel. */
@@ -204,6 +206,8 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
   const m = nombreDeSaisie(l.montant);
   const q = nombreDeSaisie(l.qte);
   const proches = fournisseursProches(l.fournNom, fournisseurs);
+  // Fournisseurs connus de l'article choisi (l'habituel d'abord) : proposés en un geste, sans rien présélectionner.
+  const connus = l.articleId ? fournisseursConnus(fournisseurs, parId.get(l.articleId)?.fournisseurs ?? []) : [];
   const nouveau = l.fournNom.trim() !== "" && idFourn(l.fournNom) === "";
 
   return createPortal(
@@ -328,6 +332,18 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
           <div>
             <label className={ETIQUETTE} htmlFor={`${idTitre}-fourn`}>Fournisseur <span className="font-normal text-muted-foreground">(facultatif)</span></label>
             <input id={`${idTitre}-fourn`} list="fournisseurs-connus" autoComplete="off" value={l.fournNom} onChange={(e) => maj({ fournNom: e.target.value })} placeholder="Nom du fournisseur" className={CHAMP} />
+            {connus.length > 0 && (
+              <div className="mt-2" data-fournisseurs-article>
+                <p className="text-xs text-muted-foreground">Fournisseurs de cet article</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {connus.map((c) => (
+                    <button key={c.id} type="button" aria-pressed={cleAlnum(l.fournNom) === cleAlnum(c.nom)} onClick={() => maj({ fournNom: c.nom })} className="min-h-11 rounded-full border px-4 text-sm hover:bg-accent aria-pressed:border-primary aria-pressed:bg-primary/10">
+                      {c.nom}{c.habituel && <span className="ml-1 text-xs text-muted-foreground">· habituel</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {proches.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2" data-fournisseurs-proches>
                 {proches.map((f) => (

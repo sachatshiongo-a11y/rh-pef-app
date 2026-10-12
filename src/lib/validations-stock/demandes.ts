@@ -25,7 +25,7 @@ import { envoyerPush } from "@/lib/push";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
-  CHAMPS_ARTICLE, NATURE_LIBELLE, cleLien, cleMouvement, cleUniteResto, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
+  CHAMPS_ARTICLE, NATURE_LIBELLE, cleLien, cleMouvement, cleUniteResto, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, idsDeValeurListe, libelleListeFournisseurs, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ArticleUniteResto, type ChargeLienResto, type ChargePaiement, type ChargeUniteResto, type NatureDemande, type OperationLien, type ReglementDemande,
 } from "./charge";
 import { ecrireLiensTx, obstaclesLiens, resumeLiens } from "./lien-resto";
@@ -385,6 +385,7 @@ async function exigerReferencesValides(tx: Tx, articles: ArticleDemande[], noms:
       if (c.champ === "designation" && !String(c.apres ?? "").trim()) throw new Error(`« ${a.designation} » : la désignation ne peut pas être vide.`);
       if (c.champ === "categorieId" && c.apres && !noms.categories.has(String(c.apres))) throw new Error(`« ${a.designation} » : catégorie introuvable — rechargez la page.`);
       if (c.champ === "fournisseurId" && c.apres && !noms.fournisseurs.has(String(c.apres))) throw new Error(`« ${a.designation} » : fournisseur introuvable — rechargez la page.`);
+      if (c.champ === "fournisseursIds" && idsDeValeurListe(c.apres).some((i) => !noms.fournisseurs.has(i))) throw new Error(`« ${a.designation} » : un fournisseur de la liste n'existe plus — rechargez la page.`);
       if ((c.champ === "designation" || c.champ === "code") && c.apres) {
         autres ??= await tx.articleStock.findMany({ select: { id: true, designation: true, code: true } });
         const v = norm(String(c.apres));
@@ -497,11 +498,13 @@ async function executerModifArticleTx(tx: Tx, decideur: Acteur, c: ChargeArticle
       const actuel = e.valeurs[ch.champ];
       if (!valeursEgales(ch.champ, actuel, ch.avant)) {
         const lib = ch.champ === "categorieId" ? (actuel ? noms.categories.get(String(actuel)) ?? "?" : "— à classer —")
-          : ch.champ === "fournisseurId" ? (actuel ? noms.fournisseurs.get(String(actuel)) ?? "?" : "—") : libelleValeur(ch.champ, actuel);
+          : ch.champ === "fournisseurId" ? (actuel ? noms.fournisseurs.get(String(actuel)) ?? "?" : "—")
+            : ch.champ === "fournisseursIds" ? libelleListeFournisseurs(actuel, noms.fournisseurs) : libelleValeur(ch.champ, actuel);
         conflits.push(`« ${a.designation} » — ${CHAMPS_ARTICLE[ch.champ].libelle} a changé depuis la proposition (${ch.avantLibelle} → aujourd'hui ${lib})`);
       }
       if (ch.champ === "categorieId" && ch.apres && !noms.categories.has(String(ch.apres))) conflits.push(`« ${a.designation} » — la catégorie proposée n'existe plus`);
       if (ch.champ === "fournisseurId" && ch.apres && !noms.fournisseurs.has(String(ch.apres))) conflits.push(`« ${a.designation} » — le fournisseur proposé n'existe plus`);
+      if (ch.champ === "fournisseursIds" && idsDeValeurListe(ch.apres).some((i) => !noms.fournisseurs.has(i))) conflits.push(`« ${a.designation} » — un fournisseur de la liste proposée n'existe plus`);
     }
   }
   if (conflits.length > 0) throw new ConflitDemande(conflits.join(" ; "));

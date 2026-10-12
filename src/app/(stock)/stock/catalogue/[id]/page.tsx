@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { EditerArticle } from "./editer-article";
+import { PastilleMotif, PastilleType } from "@/components/stock/pastille-mouvement";
+import { FournisseursArticle, type LigneFournisseurArticle } from "./fournisseurs-article";
+import { chargerPrixParFournisseur } from "@/lib/article-fournisseurs";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, uniteAffichee, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -50,6 +53,7 @@ export default async function ArticleFichePage({
         stock: true,
         categorie: { select: { nom: true } },
         fournisseur: { select: { id: true, nom: true } },
+        fournisseurs: { include: { fournisseur: { select: { id: true, nom: true } } } },
         mouvements: {
           orderBy: [{ date: "desc" }, { createdAt: "desc" }],
           take: MOUVEMENTS_CHARGES,
@@ -73,6 +77,25 @@ export default async function ArticleFichePage({
   if (!a) notFound();
   // Catégories ARCHIVÉES : plus proposées dans le choix, sauf celle que l'article porte déjà (il reste rattaché).
   const categories = toutesCategories.filter((c) => c.actif || c.id === a.categorieId);
+
+  // Fournisseurs de l'article et dernier prix de chacun (calculé depuis l'historique : Liste d'achat, factures, bons).
+  const comparaison = await chargerPrixParFournisseur(a.id, { unite: a.unite, uniteParCarton: a.uniteParCarton, contenance: a.contenance, contenanceUnite: a.contenanceUnite }, taux);
+  const prixDe = new Map(comparaison.lignes.map((l) => [l.fournisseurId, l]));
+  const lignesFournisseurs: LigneFournisseurArticle[] = a.fournisseurs
+    .map((l): LigneFournisseurArticle => {
+      const p = prixDe.get(l.fournisseurId);
+      return {
+        fournisseurId: l.fournisseurId, nom: l.fournisseur.nom, habituel: l.habituel,
+        prix: p ? {
+          devise: p.devise, prix: p.prix, prixSaisi: p.prixSaisi, uniteLigne: p.uniteLigne, motif: p.motif, date: new Date(p.date).toISOString().slice(0, 10),
+          origine: p.origine, refId: p.refId, refLibelle: p.refLibelle, autre: p.autre, moinsCher: p.moinsCher, ecartPct: p.ecartPct, nbAchats: p.nbAchats,
+        } : null,
+      };
+    })
+    // L'habituel d'abord, puis le moins cher, puis ceux qui ont un prix, puis par nom.
+    .sort((x, y) => Number(y.habituel) - Number(x.habituel) || Number(y.prix?.moinsCher ?? false) - Number(x.prix?.moinsCher ?? false) || Number(y.prix !== null) - Number(x.prix !== null) || x.nom.localeCompare(y.nom, "fr"));
+  const dejaLies = new Set(a.fournisseurs.map((l) => l.fournisseurId));
+  const fournisseursAAjouter = fournisseurs.filter((f) => !dejaLies.has(f.id));
 
   const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : 0;
@@ -144,7 +167,8 @@ export default async function ArticleFichePage({
             <span>· {a.categorie?.nom ?? "à classer"}</span>
             {a.code && <span>· Code {a.code}</span>}
             {a.unite && <span>· {a.unite}{a.contenance !== null ? ` de ${a.contenance.toString().replace(".", ",")} ${a.contenanceUnite}` : ""}</span>}
-            {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link></span>}
+            {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link>{a.fournisseurs.length > 1 && <> <a href="#fournisseurs" className="rounded bg-muted px-1 py-0.5 text-[11px] font-semibold text-muted-foreground hover:underline" title="Voir tous les fournisseurs de cet article">+{a.fournisseurs.length - 1}</a></>}</span>}
+            {!a.fournisseur && a.fournisseurs.length > 0 && <span>· <a href="#fournisseurs" className="hover:underline">{a.fournisseurs.length} fournisseur{a.fournisseurs.length > 1 ? "s" : ""}, sans habituel</a></span>}
           </p>
           {/* Le nom et la contenance se contredisent : le logiciel le dit, la Direction corrige l'un ou l'autre. */}
           {incoherence && (
@@ -231,6 +255,9 @@ export default async function ArticleFichePage({
           {Number(a.stock.seuilUrgent) > 0 && <> · seuil urgent : <span className="font-medium">{qte(a.stock.seuilUrgent)}</span></>}
         </p>
       )}
+
+      {/* Fournisseurs de l'article, fournisseur habituel marqué, dernier prix de chacun (2026-10-16) */}
+      <FournisseursArticle articleId={a.id} unite={a.unite} lignes={lignesFournisseurs} autres={fournisseursAAjouter} etat={comparaison.etat} estDirection={estDirection} />
 
       {/* Évolution du prix d'achat (lignes de facture) */}
       <section className="rounded-xl border p-4">
@@ -323,6 +350,7 @@ export default async function ArticleFichePage({
             <div className="divide-y">
               {mouvementsAffiches.map((m) => {
                 const sortie = m.type === "SORTIE";
+                const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
                 const src = source(m);
                 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
                 return (
@@ -334,12 +362,14 @@ export default async function ArticleFichePage({
                         {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
                         {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
                         {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
-                        {sortie && m.categorieSortie && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{m.categorieSortie === "PERTE" ? "Perte" : "Livraison restaurant"}</span>}
+                        {/* Mêmes pastilles que l'écran Mouvements : le type (couleur + libellé), puis le motif d'une sortie. */}
+                        <PastilleType type={m.type} />
+                        {sortie && <PastilleMotif motif={m.categorieSortie} />}
                         {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
                       </div>
                     </div>
-                    <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : "text-emerald-700"}`}>
-                      {sortie ? "−" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
+                    <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-amber-800" : "text-emerald-700"}`}>
+                      {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
                     </div>
                   </div>
                 );

@@ -12,7 +12,8 @@ import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
-import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
+import { optionsArticles } from "@/lib/recherche-options";
+import { liensParArticle, optionsFournisseursPourArticles } from "@/lib/fournisseurs-article";
 import { formaterMontantFacture, libelleAutreDevise } from "@/lib/facture-devise";
 import { formaterNombre } from "@/lib/montant";
 
@@ -38,7 +39,7 @@ type Art = { id: string; designation: string; contenance?: string | null; conten
 type Devise = "USD" | "CDF";
 type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
-type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
+type Bon = { id: string; numero: string; /** Devise du bon (ses prix de ligne sont dans cette devise). */ devise?: Devise; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
 /** `suggestion` : article PROCHE proposé à la lecture d'un PDF (ligne « à choisir ») — jamais appliqué sans clic. */
 type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string; suggestion?: { id: string; libelle: string; unite: string | null } | null };
 /** Doublon de facture signalé par le serveur (même fournisseur, même montant à ±14 jours). */
@@ -47,10 +48,9 @@ type DoublonFactureEcran = { message: string; factures: { id: string; numero: st
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", quantite: "", prix: "" });
 
-export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, estDirection = true, taux = null }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null; estDirection?: boolean; taux?: number | null }) {
+export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, estDirection = true, taux = null, liens = [] }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null; estDirection?: boolean; taux?: number | null; /** Fournisseurs connus de chaque article (2026-10-16), l'habituel marqué. */ liens?: { articleId: string; fournisseurId: string; habituel: boolean }[] }) {
   // Une liste d'options par écran, partagée par toutes les lignes (recherche par désignation, nom court, code).
   const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
-  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const bon0 = bons.find((b) => b.id === bcInitial) ?? null;
   // Devise de LA facture (2026-10-09) : ses prix de ligne, son total et son reste sont dans cette devise.
   const [devise, setDevise] = useState<Devise>("USD");
@@ -60,10 +60,10 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     const a = articleId ? articles.find((x) => x.id === articleId) : null;
     return canoniqueVersSaisie((d === "USD" ? a?.prix : a?.prixCDF) ?? "");
   };
-  // Un bon de commande est en dollars : en francs, ses prix ne sont PAS repris (jamais convertis en
-  // silence) — le prix catalogue en francs de l'article est proposé à la place.
+  // Les prix d'un bon ne sont repris que dans SA devise (jamais convertis en silence) : facture et bon dans la même
+  // devise, ses prix tels quels ; sinon le prix catalogue de l'article dans la devise de la facture est proposé à la place.
   const lignesDeBon = (b: Bon | null, d: Devise = devise): Ligne[] =>
-    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: d === "USD" ? canoniqueVersSaisie(l.prix) : prixPropose(l.articleId, "CDF") })) : [vide(), vide(), vide()];
+    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: (b.devise ?? "USD") === d ? canoniqueVersSaisie(l.prix) : prixPropose(l.articleId, d) })) : [vide(), vide(), vide()];
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [doublon, setDoublon] = useState<string | null>(null);
@@ -81,6 +81,10 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const [date, setDate] = useState(jourCourantKinshasaISO());
   const [echeance, setEcheance] = useState("");
   const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0, "USD"));
+  // Fournisseurs proposés d'abord : ceux qui fournissent les articles déjà choisis sur les lignes (« 3 sur 4 articles ») ; tous les autres restent dans la liste.
+  const liensDe = useMemo(() => liensParArticle(liens), [liens]);
+  const cleArticles = lignes.map((l) => l.articleId).join("|");
+  const optionsFour = useMemo(() => optionsFournisseursPourArticles(fournisseurs, liensDe, cleArticles.split("|")), [fournisseurs, liensDe, cleArticles]);
   /**
    * Changer la devise de la facture : un prix saisi dans l'autre devise n'est JAMAIS réinterprété
    * (12 $ ne deviennent pas 12 FC). Ligne reliée au catalogue : son prix catalogue dans la nouvelle

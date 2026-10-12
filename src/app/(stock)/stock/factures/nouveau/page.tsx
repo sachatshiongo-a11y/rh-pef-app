@@ -5,6 +5,7 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouvelleFactureForm } from "./nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 
 function delaiEnJours(s: string | null): number | null {
   if (!s) return null;
@@ -17,7 +18,7 @@ function delaiEnJours(s: string | null): number | null {
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
   const user = await exigerPageStock();
   const { bc } = await searchParams;
-  const [articles, taux, fournisseurs, bons] = await Promise.all([
+  const [articles, taux, fournisseurs, bons, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
@@ -26,11 +27,12 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
       orderBy: [{ annee: "desc" }, { sequence: "desc" }],
       take: 120,
       select: {
-        id: true, numero: true, fournisseurId: true, delaiPaiement: true,
+        id: true, numero: true, fournisseurId: true, delaiPaiement: true, devise: true,
         fournisseur: { select: { nom: true } },
-        lignes: { select: { articleId: true, designation: true, unite: true, quantite: true, prixUnitaireUSD: true } },
+        lignes: { select: { articleId: true, designation: true, unite: true, quantite: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
       },
     }),
+    chargerLiensFournisseurs(),
   ]);
 
   return (
@@ -55,11 +57,12 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
         taux={taux}
         fournisseurs={fournisseurs.map((f) => ({ id: f.id, nom: f.nom, delaiJours: delaiEnJours(f.delaiPaiement) }))}
         bons={bons.map((b) => ({
-          id: b.id, numero: b.numero, fournisseurId: b.fournisseurId,
+          id: b.id, numero: b.numero, fournisseurId: b.fournisseurId, devise: b.devise,
           fournisseurNom: b.fournisseur?.nom ?? "", delaiJours: delaiEnJours(b.delaiPaiement),
-          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD?.toString() ?? "" })),
+          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: (b.devise === "CDF" ? l.prixUnitaireCDF : l.prixUnitaireUSD)?.toString() ?? "" })), // dans la devise du bon
         }))}
         bcInitial={bc ?? null}
+        liens={liens}
         estDirection={user.role === "ADMIN"}
       />
     </div>

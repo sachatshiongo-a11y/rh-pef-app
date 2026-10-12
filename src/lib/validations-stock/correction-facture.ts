@@ -24,6 +24,7 @@ import { facturesDuFournisseur } from "@/lib/facture-doublon-serveur";
 import { exigerAucunPaiementDemande } from "./demandes";
 import { statutDe, verrouillerFacture } from "./reglement";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { alimenterFournisseursTx } from "@/lib/article-fournisseurs";
 
 type Tx = Prisma.TransactionClient;
 
@@ -167,6 +168,12 @@ export async function corrigerEnteteFactureTx(tx: Tx, userId: string, id: string
   if (reste > 0.001 && f.datePaiement) data.datePaiement = null;
 
   await tx.factureFournisseur.update({ where: { id }, data });
+  // Fournisseur corrigé : le bon fournisseur rejoint la liste des articles facturés (fait constaté, sans validation).
+  // L'ancien, saisi par erreur, n'est pas retiré en silence : la Direction le retire de la fiche de l'article si besoin.
+  if (data.fournisseurId && fournisseurId) {
+    const lignes = await tx.ligneFacture.findMany({ where: { factureId: id, articleId: { not: null } }, select: { articleId: true } });
+    await alimenterFournisseursTx(tx, lignes.map((l) => ({ articleId: l.articleId, fournisseurId })), "FACTURE", userId);
+  }
   if (statut !== ancienStatut) journal.push({ entite: "FactureFournisseur", entiteId: id, champ: "correction statut", ancienneValeur: STATUT_FACTURE_LABEL[ancienStatut], nouvelleValeur: STATUT_FACTURE_LABEL[statut], userId });
   await journaliserPlusieurs(tx, journal);
   return { changements };

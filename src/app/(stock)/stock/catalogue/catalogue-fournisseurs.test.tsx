@@ -12,9 +12,11 @@ import { champChoix, choisirEnTapant, libellesOuverts, ouvrirChoix } from "@/lib
 
 const modifierArticle = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 const enMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const ajouterEnMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const retirerEnMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 vi.mock("./actions", () => ({
   creerArticle: vi.fn(), modifierArticle: (...a: unknown[]) => modifierArticle(...a), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: (...a: unknown[]) => enMasse(...a), definirSeuilEnMasse: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: (...a: unknown[]) => enMasse(...a), ajouterFournisseurEnMasse: (...a: unknown[]) => ajouterEnMasse(...a), retirerFournisseurEnMasse: (...a: unknown[]) => retirerEnMasse(...a), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
 
@@ -32,7 +34,7 @@ let conteneur: HTMLDivElement;
 let racine: Root;
 beforeEach(() => {
   modifierArticle.mockClear();
-  enMasse.mockClear();
+  enMasse.mockClear(); ajouterEnMasse.mockClear(); retirerEnMasse.mockClear();
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -77,7 +79,7 @@ describe("Inventaire — fournisseur choisi en tapant (action groupée)", () => 
     const champ = champChoix(conteneur, "Fournisseur de l'action groupée");
     expect(champ).toBeTruthy();
     await choisirEnTapant(champ, "nord");
-    const appliquer = [...conteneur.querySelectorAll("button")].filter((b) => b.textContent === "Appliquer")[1]!;
+    const appliquer = [...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Définir habituel")!;
     expect(appliquer.disabled).toBe(false);
     await act(async () => appliquer.click());
     expect(enMasse).toHaveBeenCalledTimes(1);
@@ -94,5 +96,34 @@ describe("Inventaire — fournisseur choisi en tapant (action groupée)", () => 
     expect(libellesOuverts()).toContain("Grossiste Nord");
     expect(libellesOuverts()).toHaveLength(4); // « — » + 3 fournisseurs
     expect(document.querySelector('[role="listbox"]')!.closest("table")).toBeNull(); // portail : le défilement du tableau ne la coupe pas
+  });
+});
+
+describe("Inventaire — plusieurs fournisseurs par article (2026-10-16)", () => {
+  it("la colonne Fournisseur montre l'habituel, avec « +2 » quand l'article a d'autres fournisseurs ; « sans habituel » sinon", () => {
+    act(() => racine.render(h(CatalogueTable, {
+      articles: [{ ...base, id: "a1", designation: "Riz", fournisseurId: "f1", nbFournisseurs: 3 }, { ...base, id: "a2", designation: "Farine", fournisseurId: null, nbFournisseurs: 2 }, { ...base, id: "a3", designation: "Sel", fournisseurId: "f1", nbFournisseurs: 1 }],
+      categories: [{ id: "c1", nom: "Farines", domaine: "NOURRITURE" }], fournisseurs: FOURNISSEURS,
+    })));
+    const cell = (nom: string) => [...conteneur.querySelectorAll("table tbody tr")].find((tr) => [...tr.querySelectorAll("a")].some((a) => a.textContent === nom))!.querySelectorAll("td")[8];
+    expect(cell("Riz").textContent).toBe("Marché central+2");
+    expect(cell("Riz").querySelector("a")!.getAttribute("href")).toBe("/stock/fournisseurs/f1");
+    expect(cell("Farine").textContent).toBe("2 fournisseurs, sans habituel");
+    expect(cell("Sel").textContent).toBe("Marché central");
+  });
+
+  it("actions groupées : « Ajouter » et « Retirer » envoient les articles cochés et le fournisseur choisi", async () => {
+    const cases = [...conteneur.querySelectorAll<HTMLInputElement>('table tbody input[type="checkbox"]')];
+    await act(async () => { cases[0].click(); cases[1].click(); });
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur de l'action groupée"), "nord");
+    const bouton = (t: string) => [...conteneur.querySelectorAll("button")].find((b) => b.textContent === t)!;
+    await act(async () => bouton("Ajouter").click());
+    expect(ajouterEnMasse).toHaveBeenCalledTimes(1);
+    expect(ajouterEnMasse.mock.calls[0]).toEqual([expect.arrayContaining(["a1", "a2"]), "f2"]);
+    await act(async () => { cases[0].click(); cases[1].click(); });
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur de l'action groupée"), "nord");
+    await act(async () => bouton("Retirer").click());
+    expect(retirerEnMasse).toHaveBeenCalledTimes(1);
+    expect(retirerEnMasse.mock.calls[0]).toEqual([expect.arrayContaining(["a1", "a2"]), "f2"]);
   });
 });

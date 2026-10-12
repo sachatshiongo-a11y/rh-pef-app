@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import { cleAlnum } from "@/lib/texte";
 import { type DoublonFournisseur } from "@/lib/fournisseur-doublon";
 import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fournisseur-doublon-serveur";
+import { reporterArticlesDuFournisseurTx } from "@/lib/article-fournisseurs";
 
 const CHAMPS = ["nom", "produits", "telephone", "ville", "pays", "adresse", "rccm", "idNational", "email", "contactNom", "delaiPaiement", "delaiLivraison", "modePaiement"] as const;
 
@@ -92,20 +93,24 @@ export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibl
     if ((actuel == null || actuel === "") && remplacant) (majCible as Record<string, unknown>)[c] = remplacant;
   }
 
-  await prisma.$transaction([
-    prisma.articleStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
-    prisma.bonDeCommande.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
+  const bilan = await prisma.$transaction(async (tx) => {
+    // Fournisseurs des articles (2026-10-16) : les liens de la source passent à la cible, sans doublon de couple ;
+    // un article qui avait les deux garde un seul lien (habituel si l'un des deux l'était). Avant la suppression.
+    const liens = await reporterArticlesDuFournisseurTx(tx, sourceId, cibleId);
+    await tx.articleStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } });
+    await tx.bonDeCommande.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } });
     // Achats DIRECTS de la Liste d'achat : sans ce report, la suppression de la source les
     // détacherait en silence (FK SET NULL) et ils disparaîtraient de la fiche du fournisseur.
-    prisma.mouvementStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
+    await tx.mouvementStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } });
     // Factures reliées par identifiant OU par libellé figé (import) portant le nom de la source.
-    prisma.factureFournisseur.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
-    prisma.factureFournisseur.updateMany({ where: { fournisseurId: null, fournisseurNom: source.nom }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
-    ...(Object.keys(majCible).length ? [prisma.fournisseur.update({ where: { id: cibleId }, data: majCible })] : []),
-    prisma.fournisseur.delete({ where: { id: sourceId } }),
-  ]);
+    await tx.factureFournisseur.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } });
+    await tx.factureFournisseur.updateMany({ where: { fournisseurId: null, fournisseurNom: source.nom }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } });
+    if (Object.keys(majCible).length) await tx.fournisseur.update({ where: { id: cibleId }, data: majCible });
+    await tx.fournisseur.delete({ where: { id: sourceId } });
+    return liens;
+  });
 
-  await journaliser(prisma, { entite: "Fournisseur", entiteId: cibleId, champ: "fusion", ancienneValeur: source.nom, nouvelleValeur: cible.nom, userId: user.id });
+  await journaliser(prisma, { entite: "Fournisseur", entiteId: cibleId, champ: "fusion", ancienneValeur: source.nom, nouvelleValeur: `${cible.nom}${bilan.repointes + bilan.fusionnes > 0 ? ` · ${bilan.repointes + bilan.fusionnes} article(s) (dont ${bilan.fusionnes} qui avaient déjà les deux)` : ""}`, userId: user.id });
   revalidatePath("/stock/fournisseurs");
   revalidatePath("/stock/factures");
   revalidatePath("/stock/commandes");

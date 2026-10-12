@@ -19,6 +19,7 @@ import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
+import { fournisseursConnus, optionsFournisseursPourArticle } from "@/lib/fournisseurs-article";
 import {
   aEnregistrer, artDeCandidat, avecArticle, avecArticleChoisi, avecChangement, avecNomDeLigne, avecDevise, construireFormData, etatsLignes, indexFournisseurs, memeNomLibre, quatreVides, sansArticleDisparu, vide, vierge,
   type Art, type Brouillon, type Devise, type Fourn, type Ligne,
@@ -58,6 +59,10 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
     () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, marque: c.marque, actif: c.actif, contenance: c.contenance, contenanceUnite: c.contenanceUnite })), { marquerInactifs: true })],
     [articles, horsListe],
   );
+  // Fournisseurs connus de l'article de CHAQUE ligne (2026-10-16) : proposés en tête, l'habituel d'abord ; tous les autres
+  // restent dans la liste. Rien n'est présélectionné — un fournisseur posé à la place de la personne s'ajouterait à l'article.
+  const articleParId = useMemo(() => new Map(articles.map((a) => [a.id, a])), [articles]);
+  const connusDeLigne = (l: Ligne) => (l.articleId ? fournisseursConnus(fournisseurs, articleParId.get(l.articleId)?.fournisseurs ?? []) : []);
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const refMsg = useRef<HTMLParagraphElement>(null);
   // Devise par défaut des NOUVELLES lignes (sélecteur du haut). Aussi tenue par référence : « + Ligne »
@@ -343,7 +348,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                     aria-label={`DLC (facultatif), ligne ${i + 1}`} aria-invalid={!!etats[i]?.erreurDlc || undefined} title="Date limite de consommation (facultative)"
                     className={`${champ} px-1 text-xs [&::-webkit-calendar-picker-indicator]:hidden ${etats[i]?.erreurDlc ? "border-destructive" : ""} ${l.dlc ? "" : "text-muted-foreground"}`} />
                   {/* Fournisseur DE CETTE LIGNE : suggestions des fournisseurs connus ; un nom nouveau est créé. */}
-                  <input name="fournisseurNom" list="fournisseurs-connus" autoComplete="off" placeholder="Fournisseur" aria-label={`Fournisseur de la ligne ${i + 1}`} value={l.fournNom} onChange={(e) => majLigne(i, { fournNom: e.target.value })} className={champ} />
+                  <input name="fournisseurNom" list={connusDeLigne(l).length > 0 ? `fournisseurs-ligne-${i}` : "fournisseurs-connus"} autoComplete="off" placeholder={connusDeLigne(l).find((c) => c.habituel) ? `Habituel : ${connusDeLigne(l).find((c) => c.habituel)!.nom}` : "Fournisseur"} aria-label={`Fournisseur de la ligne ${i + 1}`} value={l.fournNom} onChange={(e) => majLigne(i, { fournNom: e.target.value })} className={champ} />
                   <input type="hidden" name="fournisseurId" value={idFourn(l.fournNom)} />
                   <input type="hidden" name="creerNouveau" value={l.creerNouveau ? "1" : ""} />
                   <button type="button" onClick={() => setLignes((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : ls.map((x, j) => (j === i ? vide(deviseDefautRef.current) : x))))} aria-label={`Retirer la ligne ${i + 1}`} title="Retirer la ligne"
@@ -380,6 +385,12 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
       <datalist id="fournisseurs-connus">
         {fournisseurs.map((f) => <option key={f.id} value={f.nom} />)}
       </datalist>
+      {/* Une liste par ligne dont l'article a des fournisseurs connus : les siens d'abord (« habituel » en étiquette), puis tous les autres. */}
+      {lignes.map((l, i) => connusDeLigne(l).length > 0 && (
+        <datalist key={`fournisseurs-ligne-${i}`} id={`fournisseurs-ligne-${i}`}>
+          {optionsFournisseursPourArticle(fournisseurs, articleParId.get(l.articleId)?.fournisseurs ?? []).map((o) => <option key={o.id} value={o.libelle} label={o.detail ? `${o.libelle} — ${o.detail}` : undefined} />)}
+        </datalist>
+      ))}
       {nouveauxFournisseurs.length > 0 && (
         <p className="hidden text-xs text-muted-foreground @4xl:block">Nouveau(x) fournisseur(s), créé(s) à l&apos;enregistrement : <b>{nouveauxFournisseurs.join(", ")}</b>.</p>
       )}

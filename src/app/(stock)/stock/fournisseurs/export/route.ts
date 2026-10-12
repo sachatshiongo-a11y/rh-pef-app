@@ -9,13 +9,13 @@ export async function GET() {
 
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
-    include: { _count: { select: { articles: true, factures: true, bonsCommande: true } } },
+    include: { _count: { select: { liensArticles: true, factures: true, bonsCommande: true } } },
   });
 
   const lignes = fournisseurs.map((f) => [
     f.nom, f.contactNom ?? "", f.telephone ?? "", f.email ?? "", f.ville ?? "", f.pays ?? "",
     f.rccm ?? "", f.idNational ?? "", f.delaiPaiement ?? "", f.delaiLivraison ?? "", f.modePaiement ?? "",
-    f.produits ?? "", f._count.articles, f._count.bonsCommande, f._count.factures,
+    f.produits ?? "", f._count.liensArticles, f._count.bonsCommande, f._count.factures,
   ]);
 
   const buf = await classeurExcel({
