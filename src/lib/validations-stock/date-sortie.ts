@@ -109,7 +109,7 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
         ? `Un comptage du même article tombe entre l'ancienne et la nouvelle date (l'écart de ce comptage a été calculé avec la sortie à sa date d'origine : la déplacer fausserait le stock reconstitué) — ${nomsBornes(fautesComptage)}.`
         : null,
       fautesDemande.length > 0
-        ? `Une réconciliation de l'article attend la décision de la Direction (« Demandes à valider ») — ${nomsBornes(fautesDemande)}.`
+        ? `Une réconciliation de l'article attend la décision de la Direction (« À valider ») — ${nomsBornes(fautesDemande)}.`
         : null,
     ].filter(Boolean);
     return { erreur: `${RIEN} ${parties.join(" ")}` };

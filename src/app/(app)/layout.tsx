@@ -1,50 +1,10 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
-import { totalAValiderRH } from "@/lib/a-valider-compteur";
+import { chargerBadgesRH } from "@/lib/a-valider-chargeurs";
 import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { AppShell } from "./app-shell";
-
-// Cache mémoire court des compteurs de badges : évite de refaire ces requêtes à CHAQUE
-// navigation (coûteux sur lien lent). 20 s de fraîcheur suffisent pour des badges d'attente.
-let cacheBadges: { at: number; badges: Record<string, number> } | null = null;
-const TTL_BADGES = 20_000;
-
-async function chargerBadges(): Promise<Record<string, number>> {
-  if (cacheBadges && Date.now() - cacheBadges.at < TTL_BADGES) return cacheBadges.badges;
-
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
-  const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente, changementsShift] = await Promise.all([
-    prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
-    compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
-    // À payer : tous mois confondus — la clôture fait passer l'espace RH au mois suivant, les bulletins
-    // validés du mois clôturé restent dus (« À valider » les liste).
-    prisma.payrollLine.count({ where: { statutPaiement: "VALIDE" } }),
-    prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
-    prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
-  ]);
-  const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
-  const modifsFicheEnAttente =
-    (await prisma.demandeModifFiche.count({ where: { statut: "EN_ATTENTE" } })) +
-    (await prisma.demandeCreationFiche.count({ where: { statut: "EN_ATTENTE" } }));
-  const attestationsDemandees = await prisma.attestation.count({ where: { statut: "DEMANDEE" } });
-  const badges = {
-    // La définition du compteur est PARTAGÉE avec la page « Demandes de validation »
-    // (`lib/a-valider-compteur.ts`) : le chiffre du menu est celui de la page, bulletins du mois à
-    // valider compris (décision de la Direction du 2026-10-12).
-    "/a-valider": totalAValiderRH({
-      conges: congesEnAttente, fiches: modifsFicheEnAttente, acomptes: acomptesEnAttente, attestations: attestationsDemandees,
-      echanges: echangesEnAttente, changements: changementsShift, bulletinsAValider: bulletinsPasValide, bulletinsAPayer: bulletinsValide,
-    }),
-    "/conges": congesEnAttente,
-    "/paie": bulletinsPasValide + bulletinsValide,
-  };
-  cacheBadges = { at: Date.now(), badges };
-  return badges;
-}
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
@@ -53,7 +13,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // repose donc pas sur le seul masquage des liens.
   if (!estRH(user.role)) redirect("/entree");
   const [badges, notif, moi, salarieActif] = await Promise.all([
-    chargerBadges(),
+    // Badges par rôle (`lib/a-valider-chargeurs.ts`) : la Direction compte toute la file « À valider »,
+    // les autres leurs seules demandes — le chiffre du menu est celui de la page.
+    chargerBadgesRH(user),
     // Cloche RH : notifications partagées + celles ADRESSÉES à ce compte (paie : « à payer » pour la
     // RH, « payés » / « clôturée » pour la Direction — 2026-10-01).
     chargerNotifications("RH", user.id),

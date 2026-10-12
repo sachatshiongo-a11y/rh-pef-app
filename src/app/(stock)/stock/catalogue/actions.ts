@@ -31,7 +31,7 @@ async function garde() {
 
 /**
  * Réponse d'une modification d'article faite par un compte qui n'est pas la Direction : RIEN ne
- * change sur l'article, une proposition part à la Direction (« Demandes à valider »), qui valide
+ * change sur l'article, une proposition part à la Direction (« À valider »), qui valide
  * (même écriture que la sienne) ou refuse. Règle de Sacha du 2026-09-30.
  */
 export type PropositionEnvoyee = { proposition: boolean; message: string };

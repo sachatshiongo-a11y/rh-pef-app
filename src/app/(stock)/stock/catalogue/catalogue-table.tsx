@@ -78,7 +78,7 @@ export type ArticleRow = {
   stockMinimum: string;
   niveau: NiveauAlerte | null;
   haussePct?: number | null; // % de hausse du dernier prix d'achat vs moyenne précédente (si anormale)
-  /** Une proposition de modification attend la décision de la Direction (« Demandes à valider »). */
+  /** Une proposition de modification attend la décision de la Direction (« À valider »). */
   propositionEnAttente?: boolean;
 };
 /** `actif` faux = catégorie ARCHIVÉE : elle nomme encore ses groupes, mais n'est plus proposée dans les listes de choix. */

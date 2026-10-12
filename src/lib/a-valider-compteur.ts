@@ -32,3 +32,61 @@ export function totalAValiderRH(e: ElementsAValider): number {
 export function totalAValiderStock(e: { bonsEnBrouillon: number; demandes: number }): number {
   return e.bonsEnBrouillon + e.demandes;
 }
+
+// ── Par rôle (plan d'ergonomie, V1) ───────────────────────────────────────────────────────────
+// La boîte « À valider » est visible par TOUS les rôles de l'espace. Le badge du menu et le compteur
+// de la page doivent donc compter ce que CE rôle voit — jamais les demandes des autres (annexe D).
+
+/** Les demandes de fiche (modifications + créations) en attente dont `auteurId` est l'auteur. */
+export type MesDemandesFiche = number;
+
+/**
+ * Ce que le rôle voit dans l'espace RH, à partir des chiffres de TOUTE la file.
+ *  - Direction (ADMIN) : toute la file ;
+ *  - Responsable RH (MANAGER) : ses propres demandes de fiche + les deux gestes qu'il avait déjà —
+ *    payer les bulletins validés et acter les échanges / changements de shift (c'est lui qui tient le planning) ;
+ *  - tout autre rôle (consultation) : ses propres demandes de fiche (en pratique aucune).
+ * Ni congés, ni acomptes, ni attestations, ni bulletins à valider : ce sont les demandes des salariés, à la Direction.
+ */
+export function elementsAValiderPour(role: string, toute: ElementsAValider, mesDemandesFiche: MesDemandesFiche): ElementsAValider {
+  if (role === "ADMIN") return toute;
+  return {
+    conges: 0, fiches: mesDemandesFiche, acomptes: 0, attestations: 0, bulletinsAValider: 0,
+    echanges: role === "MANAGER" ? toute.echanges : 0,
+    changements: role === "MANAGER" ? toute.changements : 0,
+    bulletinsAPayer: role === "MANAGER" ? toute.bulletinsAPayer : 0,
+  };
+}
+
+/** Le chiffre du badge « À valider » RH et du compteur de la page, pour ce rôle. */
+export function totalAValiderRHPour(role: string, toute: ElementsAValider, mesDemandesFiche: MesDemandesFiche): number {
+  return totalAValiderRH(elementsAValiderPour(role, toute, mesDemandesFiche));
+}
+
+/** Exploitation : les demandes de ratios en attente (toutes pour la Direction, les siennes pour la Compta). */
+export function totalAValiderExploitation(e: { demandesRatios: number }): number {
+  return e.demandesRatios;
+}
+
+// ── Entre espaces (V11) ───────────────────────────────────────────────────────────────────────
+export type EspaceAValider = "rh" | "stock" | "exploitation";
+export type AttenteParEspace = Record<EspaceAValider, number>;
+
+/** Les trois boîtes « À valider », dans l'ordre où le sélecteur et le rappel croisé les présentent. */
+export const BOITES_A_VALIDER: { espace: EspaceAValider; nom: string; href: string }[] = [
+  { espace: "rh", nom: "RH", href: "/a-valider" },
+  { espace: "stock", nom: "Stock", href: "/stock/a-valider" },
+  { espace: "exploitation", nom: "Exploitation", href: "/exploitation/a-valider" },
+];
+
+/** « Aussi en attente » : les AUTRES espaces dont la boîte n'est pas vide (jamais celui qu'on regarde, jamais un zéro). */
+export function autresEnAttente(courant: EspaceAValider, attente: AttenteParEspace): { espace: EspaceAValider; nom: string; href: string; nombre: number }[] {
+  return BOITES_A_VALIDER
+    .filter((b) => b.espace !== courant && attente[b.espace] > 0)
+    .map((b) => ({ ...b, nombre: attente[b.espace] }));
+}
+
+/** Mention d'une carte du sélecteur : « 4 à valider » ou « Rien à valider ». */
+export function libelleAValider(n: number): string {
+  return n > 0 ? `${n} à valider` : "Rien à valider";
+}

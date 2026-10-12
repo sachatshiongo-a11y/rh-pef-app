@@ -166,6 +166,44 @@ describe("barre du bas — chaque entrée existe dans la navigation de son espac
     expect(choisirBarreDuBas(nav.NAV_GROUPS, nav.BARRE_DU_BAS, role)).toHaveLength(ENTREES_BARRE_MAX);
   });
 
+  // V1 : la boîte « À valider » a le même nom et la même place dans les trois espaces, et TOUS les rôles
+  // de l'espace la voient dans le menu (la Direction y décide, les autres y suivent leurs demandes).
+  it.each(ESPACES)("$nom : « À valider » est la 2ᵉ ligne du menu (groupe Pilotage), visible de tous les rôles", ({ groupe, nav }) => {
+    const pilotage = nav.NAV_GROUPS[0];
+    expect(pilotage.titre).toBe("Pilotage");
+    const entree = pilotage.items[1];
+    expect(entree.label).toBe("À valider");
+    expect(entree.href).toMatch(/\/a-valider$/);
+    expect(entree.adminOnly, "« À valider » ne doit pas être réservé à la Direction").toBeFalsy();
+    expect(existsSync(path.join(APP, groupe, entree.href, "page.tsx"))).toBe(true);
+    // Un seul « À valider » par menu.
+    expect(nav.NAV_GROUPS.flatMap((g) => g.items).filter((i) => i.label === "À valider")).toHaveLength(1);
+  });
+
+  // V10 : sur téléphone, « À valider » est le 4ᵉ bouton de la DIRECTION seulement ; les autres rôles gardent leur barre.
+  it.each(ESPACES)("$nom : barre du bas — « À valider » en 4ᵉ position pour la Direction, jamais pour les autres", ({ nav, roles }) => {
+    const aValider = nav.NAV_GROUPS[0].items[1].href;
+    const direction = choisirBarreDuBas(nav.NAV_GROUPS, nav.BARRE_DU_BAS, "ADMIN").map((e) => e.href);
+    expect(direction[3]).toBe(aValider);
+    for (const role of roles.filter((r) => r !== "ADMIN")) {
+      const barre = choisirBarreDuBas(nav.NAV_GROUPS, nav.BARRE_DU_BAS, role).map((e) => e.href);
+      expect(barre, role).not.toContain(aValider);
+      // Les trois premiers boutons sont communs ; le 4ᵉ est celui que la Direction cède à « À valider ».
+      expect(barre.slice(0, 3), role).toEqual(direction.slice(0, 3));
+      expect(barre[3], role).not.toBe(direction[3]);
+    }
+  });
+
+  it("le bouton cédé à « À valider » : Conso. en Stock, Rapports en Exploitation, Congés en RH", () => {
+    const cede = (nav: { NAV_GROUPS: GroupeMenu[]; BARRE_DU_BAS: CandidatBarre[] }, role: string) => choisirBarreDuBas(nav.NAV_GROUPS, nav.BARRE_DU_BAS, role)[3].court;
+    expect(cede(navStock, "STOCK")).toBe("Conso.");
+    expect(cede(navExploitation, "COMPTA")).toBe("Rapports");
+    expect(cede(navRH, "MANAGER")).toBe("Congés");
+    expect(cede(navStock, "ADMIN")).toBe("À valider");
+    expect(cede(navExploitation, "ADMIN")).toBe("À valider");
+    expect(cede(navRH, "ADMIN")).toBe("À valider");
+  });
+
   it("espace salarié : chaque entrée de la barre est une entrée du menu", () => {
     const menu = new Set(LIENS_ESPACE.map((l) => l.href));
     expect(BARRE_SALARIE).toHaveLength(ENTREES_BARRE_MAX);
@@ -226,6 +264,33 @@ async function monter(cas: string) {
   act(() => racine.render(createElement(EspaceShell, { nom: "Awa", matricule: "M1", photoUrl: null, notifs: { items: [], nonLues: 0 }, autresEspaces: commun.autresEspaces, children: null })));
   return { labels: LIENS_ESPACE.map((l) => l.label), actif: "/espace/conges", badge: null, sortie: "Se déconnecter" };
 }
+
+describe("barre du bas — montée : « À valider » pour la Direction, la barre habituelle pour les autres (V10)", () => {
+  const libelles = () => [...conteneur.querySelectorAll("nav[data-barre-du-bas] a")].map((a) => a.textContent?.replace(/\d+$/, "").trim());
+
+  it.each([
+    { cas: "RH", role: "MANAGER", pathname: "/accueil", cede: "Congés" },
+    { cas: "Stock", role: "STOCK", pathname: "/stock", cede: "Conso." },
+    { cas: "Exploitation", role: "COMPTA", pathname: "/exploitation", cede: "Rapports" },
+  ])("$cas : le rôle $role garde « $cede », la Direction a « À valider » à la place", async ({ cas, role, pathname, cede }) => {
+    const rendre = async (userRole: string) => {
+      nav.pathname = pathname;
+      const props = { ...commun, userRole, badges: {} };
+      if (cas === "RH") { const { AppShell } = await import("./(app)/app-shell"); act(() => racine.render(createElement(AppShell, { ...props, employeeId: null }))); }
+      else if (cas === "Stock") { const { StockShell } = await import("./(stock)/stock-shell"); act(() => racine.render(createElement(StockShell, props))); }
+      else { const { ExploitationShell } = await import("./(exploitation)/exploitation-shell"); act(() => racine.render(createElement(ExploitationShell, props))); }
+      return libelles();
+    };
+    const autre = await rendre(role);
+    expect(autre).toHaveLength(ENTREES_BARRE_MAX);
+    expect(autre).toContain(cede);
+    expect(autre).not.toContain("À valider");
+    const direction = await rendre("ADMIN");
+    expect(direction).toHaveLength(ENTREES_BARRE_MAX);
+    expect(direction[3]).toBe("À valider");
+    expect(direction).not.toContain(cede);
+  });
+});
 
 describe("barre du bas — montée dans chaque coquille", () => {
   it.each(["RH", "Stock", "Exploitation", "Salarié"])("%s : Menu ouvre le tiroir complet, entrée active et badge dans la barre", async (cas) => {

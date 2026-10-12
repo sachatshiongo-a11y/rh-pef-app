@@ -367,8 +367,8 @@ describe("motifs lisibles par le salarié", () => {
   });
 });
 
-describe("course entre la fiche et « Demandes de validation » (relecture du 2026-09-28)", () => {
-  // Transaction A = « Demandes de validation » traite la demande, arrêtée avant COMMIT ; pendant ce
+describe("course entre la fiche et « À valider » (relecture du 2026-09-28)", () => {
+  // Transaction A = « À valider » traite la demande, arrêtée avant COMMIT ; pendant ce
   // temps, B = « Délivrer une attestation » depuis la fiche, même salarié, même type.
   async function course(traitementA: "DELIVREE" | "REFUSEE") {
     const a = await salarie();

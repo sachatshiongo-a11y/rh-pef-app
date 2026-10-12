@@ -38,6 +38,26 @@ describe("choix de la barre du bas", () => {
     expect(choisirBarreDuBas(GROUPES, [{ href: "/inconnu", court: "?" }, ...CANDIDATS], "ADMIN").map((e) => e.href)).not.toContain("/inconnu");
   });
 
+  it("un candidat réservé (`roles`) n'entre que dans la barre de ces rôles : les autres reçoivent le suivant (V10)", () => {
+    const groupes: GroupeMenu[] = [{ titre: "A", items: [
+      ...GROUPES[0].items.map((i) => ({ ...i, adminOnly: false })), // « À valider » visible de tous dans le menu
+      ...GROUPES[1].items,
+    ] }];
+    const candidats = [
+      { href: "/accueil", court: "Accueil" },
+      { href: "/presences", court: "Présences" },
+      { href: "/planning", court: "Planning" },
+      { href: "/a-valider", court: "À valider", roles: ["ADMIN"] },
+      { href: "/conges", court: "Congés" },
+    ];
+    expect(choisirBarreDuBas(groupes, candidats, "ADMIN").map((e) => e.href)).toEqual(["/accueil", "/presences", "/planning", "/a-valider"]);
+    for (const role of ["MANAGER", "VIEWER"]) {
+      expect(choisirBarreDuBas(groupes, candidats, role).map((e) => e.href), role).toEqual(["/accueil", "/presences", "/planning", "/conges"]);
+    }
+    // L'entrée reste dans le MENU de tous : seule la barre est réservée.
+    expect(entreesVisibles(groupes[0].items, "VIEWER").map((i) => i.href)).toContain("/a-valider");
+  });
+
   it("entrées visibles du menu : les entrées « Direction » masquées aux autres rôles", () => {
     expect(entreesVisibles(GROUPES[0].items, "VIEWER").map((i) => i.href)).toEqual(["/accueil"]);
     expect(entreesVisibles(GROUPES[0].items, "ADMIN")).toHaveLength(2);

@@ -4,14 +4,19 @@
 //
 // Barre du bas (téléphone, 2026-09-29) : quatre écrans du quotidien + un bouton « Menu » qui ouvre
 // le tiroir complet. Chaque espace déclare une liste ORDONNÉE de candidats ; on garde les quatre
-// premiers que le rôle a le droit de voir. Ainsi un Responsable RH, qui n'a pas « Demandes de
-// validation » (réservé Direction), reçoit l'entrée suivante au lieu d'un trou dans la barre.
+// premiers que le rôle a le droit de voir. Un candidat peut en plus être RÉSERVÉ à certains rôles
+// (`roles`) : « À valider » n'est le quatrième bouton que de la Direction (plan d'ergonomie, V10) ;
+// les autres rôles reçoivent l'entrée suivante au lieu d'un trou dans la barre.
 
 export type EntreeMenu = { href: string; label: string; icone: string; adminOnly?: boolean };
 export type GroupeMenu = { titre: string; items: EntreeMenu[] };
 
-/** Un candidat de la barre du bas : un écran DU MENU (même adresse) et son libellé court. */
-export type CandidatBarre = { href: string; court: string };
+/**
+ * Un candidat de la barre du bas : un écran DU MENU (même adresse) et son libellé court.
+ * `roles` (facultatif) : seuls ces rôles reçoivent ce bouton dans leur barre ; absent = tous ceux qui
+ * voient l'entrée dans le menu. L'entrée reste dans le menu pour tout le monde.
+ */
+export type CandidatBarre = { href: string; court: string; roles?: string[] };
 
 /** Ce que la barre du bas affiche pour une entrée. */
 export type EntreeBarre = { href: string; icone: string; court: string; badge?: number };
@@ -26,7 +31,7 @@ export function entreesVisibles(items: EntreeMenu[], role: string): EntreeMenu[]
 
 /**
  * Les entrées de la barre du bas pour un rôle : les candidats, dans leur ordre, qui existent dans le
- * menu ET que le rôle voit — quatre au plus. L'icône vient du menu : une seule source.
+ * menu ET que le rôle voit (et auxquels `roles` ne le ferme pas) — quatre au plus. L'icône vient du menu : une seule source.
  */
 export function choisirBarreDuBas(
   groupes: GroupeMenu[],
@@ -39,6 +44,7 @@ export function choisirBarreDuBas(
   for (const c of candidats) {
     const it = visibles.get(c.href);
     if (!it) continue;
+    if (c.roles && !c.roles.includes(role)) continue;
     out.push({ href: c.href, icone: it.icone, court: c.court, badge: badges[c.href] ?? 0 });
     if (out.length === ENTREES_BARRE_MAX) break;
   }

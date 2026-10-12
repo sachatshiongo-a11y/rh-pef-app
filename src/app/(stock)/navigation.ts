@@ -8,7 +8,8 @@ export const NAV_GROUPS: GroupeMenu[] = [
     titre: "Pilotage",
     items: [
       { href: "/stock", label: "Tableau de bord", icone: "accueil" },
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "valider", adminOnly: true },
+      // Visible par tous les rôles du Stock : la Direction décide, les autres suivent leurs demandes (V1).
+      { href: "/stock/a-valider", label: "À valider", icone: "valider" },
       { href: "/stock/archives", label: "Archives", icone: "archives" },
     ],
   },
@@ -50,12 +51,14 @@ export const NAV_GROUPS: GroupeMenu[] = [
  * Barre du bas (téléphone) — la journée du magasinier : le tableau de bord, l'Inventaire (les
  * quantités du dépôt, badge rouge des ruptures), « Achats & mouvements » où l'on enregistre ce qui
  * entre et sort (liste d'achat, légumes du marché) et la Conso. journalière du restaurant, saisie
- * chaque jour. Bons de commande, factures et fournisseurs suivent le rythme des livraisons : menu.
+ * chaque jour. La Direction reçoit « À valider » à la place de la Conso. (V10). Bons de commande,
+ * factures et fournisseurs suivent le rythme des livraisons : menu.
  */
 export const BARRE_DU_BAS: CandidatBarre[] = [
   { href: "/stock", court: "Accueil" },
   { href: "/stock/catalogue", court: "Inventaire" },
   { href: ENTREE_MENU_ACHATS.href, court: "Achats" },
+  { href: "/stock/a-valider", court: "À valider", roles: ["ADMIN"] },
   { href: "/stock/journalier", court: "Conso." },
 ];
 

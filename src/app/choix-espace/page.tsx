@@ -6,15 +6,20 @@ import { verifySession, espacesDe } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { FormulaireDeconnexion } from "@/components/formulaire-deconnexion";
 import { Icone } from "@/components/icones";
+import { chargerAttenteDirection } from "@/lib/a-valider-chargeurs";
+import { libelleAValider } from "@/lib/a-valider-compteur";
 
 // Sélecteur d'espace — pour les comptes à accès multiple (Direction RH+Stock, ou salarié + stock).
 // Un compte à accès unique n'a rien à choisir : on le renvoie au résolveur d'entrée.
 // Le dernier espace visité (cookie posé par le middleware) est mis en avant.
+// DIRECTION : chaque carte d'un espace de bureau dit combien d'éléments y attendent une décision (V11) —
+// les mêmes chiffres que la pastille « À valider » du menu de l'espace.
 export default async function ChoixEspacePage() {
   const user = await verifySession();
   const espaces = espacesDe(user, await espaceEmployeActif());
   if (espaces.length < 2) redirect("/entree");
   const dernier = (await cookies()).get("dernier-espace")?.value ?? null;
+  const attente = user.role === "ADMIN" ? await chargerAttenteDirection({ id: user.id, role: user.role }) : null;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-6">
@@ -28,13 +33,13 @@ export default async function ChoixEspacePage() {
           <EspaceCard href="/espace" icone="employes" titre="Mon espace salarié" sous="Planning, congés, pointage, documents" dernier={dernier === "salarie"} />
         )}
         {espaces.includes("rh") && (
-          <EspaceCard href="/accueil" icone="mallette" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
+          <EspaceCard href="/accueil" icone="mallette" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} aValider={attente?.rh} />
         )}
         {espaces.includes("stock") && (
-          <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Inventaire, fournisseurs, bons de commande" dernier={dernier === "stock"} />
+          <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Inventaire, fournisseurs, bons de commande" dernier={dernier === "stock"} aValider={attente?.stock} />
         )}
         {espaces.includes("exploitation") && (
-          <EspaceCard href="/exploitation" icone="balance" titre="Exploitation" sous="Journal de caisse, comptes, plan comptable" dernier={dernier === "exploitation"} />
+          <EspaceCard href="/exploitation" icone="balance" titre="Exploitation" sous="Journal de caisse, comptes, plan comptable" dernier={dernier === "exploitation"} aValider={attente?.exploitation} />
         )}
       </div>
 
@@ -47,7 +52,7 @@ export default async function ChoixEspacePage() {
   );
 }
 
-function EspaceCard({ href, icone, titre, sous, dernier }: { href: string; icone: string; titre: string; sous: string; dernier: boolean }) {
+function EspaceCard({ href, icone, titre, sous, dernier, aValider }: { href: string; icone: string; titre: string; sous: string; dernier: boolean; aValider?: number }) {
   return (
     <Link
       href={href}
@@ -57,6 +62,9 @@ function EspaceCard({ href, icone, titre, sous, dernier }: { href: string; icone
       <span aria-hidden className="rounded-full bg-primary/10 p-3 text-primary"><Icone nom={icone} taille={30} /></span>
       <span className="text-lg font-semibold">{titre}</span>
       <span className="text-xs text-muted-foreground">{sous}</span>
+      {aValider !== undefined && (
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${aValider > 0 ? "bg-red-100 text-red-800" : "bg-muted text-muted-foreground"}`}>{libelleAValider(aValider)}</span>
+      )}
     </Link>
   );
 }

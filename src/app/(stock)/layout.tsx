@@ -4,7 +4,7 @@ import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { urgentsParDomaine } from "@/lib/indicateurs/urgents";
-import { totalAValiderStock } from "@/lib/a-valider-compteur";
+import { chargerAValiderStock } from "@/lib/a-valider-chargeurs";
 import { exigerMotDePassePersonnel } from "@/app/espace/garde";
 import { StockShell } from "./stock-shell";
 
@@ -14,12 +14,11 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user)) redirect("/entree");
 
-  const [moi, nbAValider, nbDemandes, notifs, urgents, espaceSalarieActif] = await Promise.all([
+  const [moi, aValider, notifs, urgents, espaceSalarieActif] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true, employe: { select: { photoUrl: true } } } }),
-    prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
-    // Paiements, réconciliations et modifications d'articles en attente de la Direction.
+    // Bons en brouillon + paiements, réconciliations et modifications d'articles en attente de la Direction.
     // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
-    prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE", ...(user.role === "ADMIN" ? {} : { auteurId: user.id }) } }),
+    chargerAValiderStock(user),
     chargerNotifications("STOCK", user.id), // + les réponses de la Direction adressées à ce compte
     urgentsParDomaine(), // même règle et mêmes articles (actifs) que le tableau de bord
     espaceEmployeActif(),
@@ -34,7 +33,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
     espaceOuvert: espaceSalarieActif,
   });
 
-  // Badge persistant par catalogue, à la manière des « Demandes à valider ».
+  // Badge persistant par catalogue, à la manière d'« À valider ».
   const urgent = urgents;
 
   return (
@@ -44,8 +43,8 @@ export default async function StockLayout({ children }: { children: React.ReactN
       maPhoto={moi?.employe?.photoUrl ?? null}
       autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{
-        "/stock/a-valider": totalAValiderStock({ bonsEnBrouillon: nbAValider, demandes: nbDemandes }), // même définition que le compteur de la page
-        "/stock/commandes": nbAValider,
+        "/stock/a-valider": aValider.total, // même définition que le compteur de la page
+        "/stock/commandes": aValider.bonsEnBrouillon,
         "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}
       notif={{ items: notifs.items, nonLues: notifs.nonLues, cloture: null }}

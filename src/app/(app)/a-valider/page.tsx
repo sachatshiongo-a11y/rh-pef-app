@@ -21,6 +21,20 @@ import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { exigerPageRH } from "@/lib/garde-page";
 import { totalAValiderRH } from "@/lib/a-valider-compteur";
 import { RubriquesAValider, type RubriqueAValider } from "@/components/rubriques-a-valider";
+import { DernieresDecisions } from "@/components/dernieres-decisions";
+import { AussiEnAttente } from "@/components/aussi-en-attente";
+import { chargerAttenteDirection } from "@/lib/a-valider-chargeurs";
+import { chargerMesDemandesFicheTraitees } from "@/lib/mes-demandes-fiche";
+
+/**
+ * Les rubriques d'un rôle qui n'est pas la Direction : SES demandes de fiche (le badge du menu compte
+ * les mêmes) et, pour le Responsable RH, les deux gestes qu'il avait déjà : payer les bulletins validés
+ * et acter les échanges / changements de shift (rien de tout cela pour la consultation). Le reste de
+ * la file — congés, acomptes, attestations, bulletins à valider — est celle des salariés et de la Direction (V1, annexe D : jamais
+ * les demandes des autres).
+ */
+const RUBRIQUES_DU_PERSONNEL = new Set(["modifications-fiches"]);
+const RUBRIQUES_DU_RESPONSABLE_RH = new Set(["bulletins-a-payer", "echanges", "changements"]);
 
 function joursAvant(date: Date): number {
   // Échéances stockées à minuit UTC (jour civil) : l'écart se mesure au jour civil de Kinshasa.
@@ -42,69 +56,77 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   // Refus renvoyé par une approbation (planning verrouillé par une paie validée ou payée).
   const { erreur } = await searchParams;
   const peutValider = user.role === "ADMIN";
+  const estDirection = peutValider;
+  // Chaque requête de la file des autres n'est lancée que pour la Direction ; un autre rôle ne lit que ses demandes.
+  const pourDirection = <T,>(requete: () => Promise<T[]>): Promise<T[]> => (estDirection ? requete() : Promise.resolve([]));
   // La RH paie les bulletins que la Direction a validés (2026-10-01) ; elle voit ceux qui attendent
   // la Direction, sans bouton.
   const peutPayer = user.role === "ADMIN" || user.role === "MANAGER";
+  const siPeutPayer = <T,>(requete: () => Promise<T[]>): Promise<T[]> => (peutPayer ? requete() : Promise.resolve([]));
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
+  const siPeutPlanning = <T,>(requete: () => Promise<T[]>): Promise<T[]> => (peutPlanning ? requete() : Promise.resolve([]));
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   // Comme /paie, et par la MÊME fonction : les lignes non figées du mois sont recalculées avant
   // d'être listées. Sinon « À valider » montrait des montants d'un /paie ouvert il y a longtemps, que
   // la validation refusait ensuite (6 lignes sur 24, mesuré le 2026-09-24).
-  if (config) await rafraichirPaieAffichee(config.moisCourant, config.anneeCourante);
+  if (config && estDirection) await rafraichirPaieAffichee(config.moisCourant, config.anneeCourante);
   const filtreRun = config
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};
 
+  const miennes = estDirection ? {} : { auteurId: user.id };
   const [conges, prepare, valide, acomptes, changements, echanges, attestations, modifsFiche, creationsFiche] = await Promise.all([
-    prisma.leaveRequest.findMany({
+    pourDirection(() => prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { dateDebut: "asc" },
-    }),
-    prisma.payrollLine.findMany({
+    })),
+    pourDirection(() => prisma.payrollLine.findMany({
       where: { statutPaiement: "PAS_VALIDE", ...filtreRun },
       include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true } } },
       orderBy: { employee: { nom: "asc" } },
-    }),
+    })),
     // À PAYER : tous les bulletins validés, QUEL QUE SOIT LEUR MOIS. La clôture fait passer l'espace RH
     // au mois suivant (2026-10-08) : les bulletins de septembre validés mais pas encore payés restent
     // dus et se paient d'ici (une ligne validée compte toujours, paie-hors-calcul.ts). Plus anciens d'abord.
-    prisma.payrollLine.findMany({
+    // Bulletins validés à payer : la Direction et le Responsable RH (qui les paie), pas la consultation.
+    siPeutPayer(() => prisma.payrollLine.findMany({
       where: { statutPaiement: "VALIDE" },
       include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true, mois: true, annee: true } } },
       orderBy: [{ payrollRun: { annee: "asc" } }, { payrollRun: { mois: "asc" } }, { employee: { nom: "asc" } }],
-    }),
-    prisma.acompteSalaire.findMany({
+    })),
+    pourDirection(() => prisma.acompteSalaire.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { dateDemande: "asc" },
-    }),
+    })),
     // Demandes de changement de shift en attente (avec noms de shifts).
-    prisma.demandeChangementShift.findMany({
+    siPeutPlanning(() => prisma.demandeChangementShift.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { date: "asc" },
-    }),
+    })),
     // Échanges de créneau en attente (avec noms des deux salariés).
-    prisma.echangeCreneau.findMany({
+    siPeutPlanning(() => prisma.echangeCreneau.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { demandeur: { select: { nom: true, photoUrl: true } }, collegue: { select: { nom: true } } },
       orderBy: { createdAt: "desc" },
-    }),
-    prisma.attestation.findMany({
+    })),
+    pourDirection(() => prisma.attestation.findMany({
       where: { statut: "DEMANDEE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { demandeLe: "asc" },
-    }),
+    })),
     // Modifications de champs sensibles d'une fiche (salaire, contrat, versement…) saisies par la RH.
+    // Un autre rôle que la Direction ne lit que les SIENNES.
     prisma.demandeModifFiche.findMany({
-      where: { statut: "EN_ATTENTE" },
+      where: { statut: "EN_ATTENTE", ...miennes },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { createdAt: "asc" },
     }),
     // Créations de fiches saisies par la RH : rien n'existe encore dans les employés.
-    prisma.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE" }, orderBy: { createdAt: "asc" } }),
+    prisma.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE", ...miennes }, orderBy: { createdAt: "asc" } }),
   ]);
   const anciennes = await nomsAnciennesFiches(creationsFiche.map((d) => d.donnees));
   const creationRows: FicheRow[] = creationsFiche.map((d) => {
@@ -189,9 +211,9 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     conges: congeRows.length, fiches: ficheRows.length, acomptes: acompteRows.length, attestations: attestationRows.length,
     echanges: echanges.length, changements: changements.length, bulletinsAValider: prepareRows.length, bulletinsAPayer: valideRows.length,
   });
-  const rubriques: RubriqueAValider[] = [
+  const toutesLesRubriques: RubriqueAValider[] = [
     { id: "conges", titre: "Demandes de congé", nombre: congeRows.length, contenu: <CongesInbox rows={congeRows} peutValider={peutValider} /> },
-    { id: "modifications-fiches", titre: "Modifications de fiches", nombre: ficheRows.length, contenu: <FichesInbox rows={ficheRows} peutValider={peutValider} /> },
+    { id: "modifications-fiches", titre: estDirection ? "Modifications de fiches" : "Mes demandes de fiche", nombre: ficheRows.length, contenu: <FichesInbox rows={ficheRows} peutValider={peutValider} /> },
     { id: "acomptes", titre: "Demandes d'acompte sur salaire", nombre: acompteRows.length, contenu: <AcomptesInbox rows={acompteRows} peutValider={peutValider} /> },
     { id: "attestations", titre: "Demandes d'attestation", nombre: attestationRows.length, contenu: <AttestationsInbox rows={attestationRows} peutValider={peutValider} /> },
     {
@@ -235,6 +257,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       { id: "bulletins-a-payer", titre: "Bulletins à payer", nombre: valideRows.length, contenu: <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" /> },
     ] : []),
   ];
+  // La Direction voit toute la file ; un autre rôle, ses demandes (et les bulletins qu'il paie) — pas celles des autres.
+  const rubriques = estDirection ? toutesLesRubriques : toutesLesRubriques.filter((r) => RUBRIQUES_DU_PERSONNEL.has(r.id) || (peutPayer && RUBRIQUES_DU_RESPONSABLE_RH.has(r.id)));
+  // Les autres boîtes de la Direction (Stock, Exploitation) : la ligne « Aussi en attente » (V11).
+  const [ailleurs, mesDecisions] = await Promise.all([
+    estDirection ? chargerAttenteDirection({ id: user.id, role: user.role }, "rh") : Promise.resolve(null),
+    estDirection ? Promise.resolve([]) : chargerMesDemandesFicheTraitees(user.id),
+  ]);
 
   return (
     <div className="max-w-5xl">
@@ -244,24 +273,28 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       {/* En-tête : titre à gauche, compteur à droite (le même chiffre que le badge du menu) */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Demandes de validation</h1>
-          <p className="text-sm text-muted-foreground">Demandes et bulletins en attente d&apos;action</p>
+          <h1 className="text-xl font-semibold sm:text-2xl">À valider</h1>
+          <p className="text-sm text-muted-foreground">{estDirection ? "Demandes et bulletins en attente d'action" : "Vos demandes en attente de la Direction"}</p>
         </div>
-        <div className="rounded-xl border bg-card px-6 py-4 shadow-sm" title="Demandes en attente et bulletins validés à payer. Les bulletins à valider du mois (recréés à chaque recalcul) ne sont pas comptés.">
+        <div className="rounded-xl border bg-card px-6 py-4 shadow-sm" title={estDirection ? "Même chiffre que la pastille du menu : demandes en attente, bulletins du mois à valider et bulletins validés à payer." : undefined}>
           <p className="text-xs text-muted-foreground">En attente</p>
           <p className="mt-1 text-3xl font-bold">{total}</p>
         </div>
       </div>
 
+      {ailleurs && <div className="mb-4"><AussiEnAttente courant="rh" attente={ailleurs} /></div>}
+
       {!peutValider && (
         <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           {peutPayer
-            ? "Vous pouvez consulter les éléments en attente et marquer payés les bulletins validés par la Direction. La validation est réservée à la Direction."
-            : "Vous pouvez consulter les éléments en attente. La validation et le paiement sont réservés à la Direction et à la RH."}
+            ? "Rien n'est modifié tant que la Direction n'a pas validé vos demandes. Vous marquez payés les bulletins qu'elle a validés."
+            : "Rien n'est modifié tant que la Direction n'a pas validé vos demandes."}
         </p>
       )}
 
       <RubriquesAValider rubriques={rubriques} />
+
+      {mesDecisions.length > 0 && <div className="mt-8"><DernieresDecisions titre="Mes dernières demandes traitées" decisions={mesDecisions} /></div>}
 
       {peutPayer && prepareHorsCalcul.length > 0 && (
         <p className="mt-4 text-xs text-muted-foreground">

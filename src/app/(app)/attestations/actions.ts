@@ -9,7 +9,7 @@ import { delivrerAttestation, refuserAttestation } from "@/lib/attestations";
 import { estTypeAttestation } from "@/lib/attestations-donnees";
 
 // DÉLIVRER / REFUSER une attestation — geste de la Direction (ADMIN), comme la validation des
-// bulletins et des congés dans « Demandes de validation ». Chaque ligne est traitée seule : une
+// bulletins et des congés dans « À valider ». Chaque ligne est traitée seule : une
 // demande inéligible ou déjà traitée n'empêche pas les autres, et revient avec SON message.
 
 export type ResultatLotAttestations = { traites: number; refus: { id: string; nom: string; message: string }[] };
