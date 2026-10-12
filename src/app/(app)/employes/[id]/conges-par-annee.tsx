@@ -100,11 +100,11 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
             </p>
           )}
           {ecartFiche && (
-            // Fiche passée en CDI sans contrat CDI enregistré (ou l'inverse) : le solde suit l'historique, et c'est dit.
+            // Stage sans date de fin sur une fiche CDI (ou l'inverse) : seule contradiction non tranchée — le solde suit le contrat en cours, et c'est dit.
             <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Contrat à vérifier</span>
-              La fiche indique {libelleType(ecartFiche.typeFiche)}, mais le contrat enregistré qui s&apos;applique est {libelleType(ecartFiche.typeHistorique)} : les congés suivent les contrats enregistrés.
-              Ajoutez le contrat manquant ou corrigez la fiche.
+              La fiche indique {libelleType(ecartFiche.typeFiche)}, mais le contrat enregistré encore en cours est {libelleType(ecartFiche.typeHistorique)} : les congés suivent ce contrat.
+              Donnez-lui sa date de fin, enregistrez le nouveau contrat, ou corrigez la fiche.
             </p>
           )}
           {trous.length > 0 && (

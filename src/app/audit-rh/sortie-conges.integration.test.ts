@@ -336,15 +336,23 @@ describe("relecture du 2026-10-12 : l'indemnité de congés du solde de tout com
   });
 });
 
-describe("relecture du 2026-10-12 : fiche dont le type contredit l'historique des contrats", () => {
-  it("fiche CDI, seul contrat enregistré = un stage terminé : le solde suit l'historique (0) et l'écart est signalé", async () => {
+describe("relecture du 2026-10-12 : après le dernier contrat terminé, la fiche fait foi ; un contrat en cours qui la contredit est signalé", () => {
+  it("fiche CDI, seul contrat = un stage TERMINÉ le 30/06/2025 : acquisition dès le 01/07/2025, aucun écart signalé", async () => {
     const id = await emp({ embauche: "2025-01-01", contrat: "CDI" });
     await contrat(id, "STAGE", "2025-01-01", "2025-06-30");
     const r = await SOLDE.chargerCongesParAnnee(prisma, id, MAINTENANT);
-    expect(r.ecartFiche).toEqual({ typeFiche: "CDI", typeHistorique: "STAGE" });
+    expect(r.ecartFiche).toBeNull();
+    expect(r.trous).toEqual([]); // l'après-dernier-contrat n'est pas un trou
+    expect(r.bilans.map((b) => [b.annee, b.acquisAnnee, b.solde])).toEqual([[2025, 7.5, 7.5], [2026, 15, 18]]); // crédits du 01/08 au 01/12/2025 : 5 mois ; 2026 (01/01 → 01/10) : 10 mois, plafonné à 18
+    expect((await soldeDe(id)).solde).toBe(18);
+  });
+
+  it("fiche CDI, stage SANS date de fin : rien ne s'acquiert et l'écart est signalé ; le stage clos, l'acquisition reprend", async () => {
+    const id = await emp({ embauche: "2025-01-01", contrat: "CDI" });
+    const stage = await contrat(id, "STAGE", "2025-01-01");
+    expect((await SOLDE.chargerCongesParAnnee(prisma, id, MAINTENANT)).ecartFiche).toEqual({ typeFiche: "CDI", typeHistorique: "STAGE" });
     expect((await soldeDe(id)).solde).toBe(0);
-    // Le contrat CDI ajouté : plus d'écart, les mois de CDI s'acquièrent.
-    await contrat(id, "CDI", "2025-07-01");
+    await prisma.contrat.update({ where: { id: stage.id }, data: { dateFin: j("2025-06-30") } });
     expect((await SOLDE.chargerCongesParAnnee(prisma, id, MAINTENANT)).ecartFiche).toBeNull();
     expect((await soldeDe(id)).solde).toBe(18);
   });

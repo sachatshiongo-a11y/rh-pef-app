@@ -300,7 +300,7 @@ async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: st
     // Les trous qui comptent : ceux qui touchent la vie professionnelle (de l'embauche à la sortie, ou à aujourd'hui).
     const finVie = Math.min(aujourdhui.getTime(), dateSortie ? dateSortie.getTime() : Infinity);
     const trous = trousDeContrat(sesContrats).filter((x) => x.debut.getTime() <= finVie && (x.fin === null || x.fin.getTime() >= new Date(emp.dateEmbauche).getTime()));
-    const typeHistorique = typeSelonHistorique(sesContrats, new Date(finVie));
+    const typeHistorique = typeSelonHistorique(sesContrats, new Date(finVie), emp.contrat); // après le dernier contrat terminé : la fiche, donc pas d'écart
     const ecartFiche = typeHistorique !== null && typeSansConges(typeHistorique) !== typeSansConges(emp.contrat) ? { typeFiche: String(emp.contrat), typeHistorique } : null;
     contextes.set(emp.id, { dateSortie, sortieInconnue: !emp.actif && dateSortie === null, periodesSansConges: periodes, trous: sesContrats.length > 0 ? trous : [], ecartFiche });
   }

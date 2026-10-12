@@ -70,7 +70,8 @@ function cas(rnd: () => number) {
     contrats.push({ type: types[Math.floor(rnd() * 3)], dateDebut: jour(debut), dateFin: fin === null ? null : jour(fin) });
     debut = (fin ?? debut + Math.floor(30 + rnd() * 400) * JOUR) + (rnd() < 0.3 ? Math.floor(rnd() * 90) * JOUR : JOUR);
   }
-  return { dateEmbauche: embauche, aujourdhui, droitsAnnuels: 18, prisParJour, cSansDemande, contrats };
+  // Type de la fiche : il régit les jours après le DERNIER contrat terminé (règle 3 bis) — toujours un type avec congés ici.
+  return { dateEmbauche: embauche, aujourdhui, droitsAnnuels: 18, prisParJour, cSansDemande, contrats, typeFiche: types[Math.floor(rnd() * 3)] };
 }
 
 describe("non-régression : un salarié en poste sans stage ni intérim garde STRICTEMENT le solde d'avant", () => {
@@ -79,7 +80,7 @@ describe("non-régression : un salarié en poste sans stage ni intérim garde ST
     for (let i = 0; i < 3000; i++) {
       const e = cas(rnd);
       const avant = ancienCalcul({ ...e, sansConges: false });
-      const apres = calculerSoldeAnneeCivile({ ...e, periodesSansConges: periodesSansConges(e.contrats, "CDI"), dateSortie: null });
+      const apres = calculerSoldeAnneeCivile({ ...e, periodesSansConges: periodesSansConges(e.contrats, e.typeFiche), dateSortie: null });
       expect(apres, `cas ${i} : ${JSON.stringify(e)}`).toEqual(avant);
     }
   });
@@ -88,7 +89,7 @@ describe("non-régression : un salarié en poste sans stage ni intérim garde ST
     const rnd = lcg(7);
     for (let i = 0; i < 300; i++) {
       const e = cas(rnd);
-      const nouveaux = bilansParAnnee({ ...e, periodesSansConges: periodesSansConges(e.contrats, "CDD"), dateSortie: null });
+      const nouveaux = bilansParAnnee({ ...e, periodesSansConges: periodesSansConges(e.contrats, e.typeFiche), dateSortie: null });
       for (const b of nouveaux) {
         const { enCours, ...r } = b;
         const ref = ancienCalcul({ ...e, sansConges: false, aujourdhui: enCours ? e.aujourdhui : new Date(Date.UTC(b.annee, 11, 31)) });
@@ -107,6 +108,25 @@ describe("non-régression : un salarié en poste sans stage ni intérim garde ST
 });
 
 const j = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+describe("règle 3 bis : après un stage TERMINÉ, une fiche CDI retrouve exactement le calcul de main", () => {
+  it("1 000 cas : stage fini au plus tard le 31/12 de N−3, aucun contrat ensuite, fiche CDI → solde de l'année N identique à main", () => {
+    // Après au moins 12 mois révolus de CDI, le compteur a atteint le plafond de 18 j des deux côtés : le report est le même, l'année
+    // N se rejoue à l'identique. Avant l'ajustement, ces fiches restaient à 0 j (stage prolongé à l'infini).
+    const rnd = lcg(303);
+    for (let i = 0; i < 1000; i++) {
+      const e = cas(rnd);
+      const finStage = jour(e.dateEmbauche.getTime() + Math.floor(rnd() * 400) * JOUR);
+      const n = finStage.getUTCFullYear() + 3; // ≥ 24 mois de CDI avant le 1er janvier de N (le mois à cheval est perdu, règle stricte)
+      const aujourdhui = jour(Date.UTC(n, 0, 1) + Math.floor(rnd() * 365) * JOUR);
+      const prisParJour = e.prisParJour.filter((x) => x.date.getUTCFullYear() >= n); // rien de pris avant N : le plafond est atteint à coup sûr
+      const cSansDemande = e.cSansDemande.filter((d) => d.getUTCFullYear() >= n);
+      const avant = ancienCalcul({ ...e, aujourdhui, prisParJour, cSansDemande, sansConges: false });
+      const apres = calculerSoldeAnneeCivile({ ...e, aujourdhui, prisParJour, cSansDemande, periodesSansConges: periodesSansConges([{ type: "STAGE", dateDebut: e.dateEmbauche, dateFin: finStage }], "CDI") });
+      expect(apres, `cas ${i}`).toEqual(avant);
+    }
+  });
+});
 
 describe("congé posé APRÈS la date de sortie : jamais déduit de l'indemnité de congés non pris, toujours signalé", () => {
   // CDI embauché le 01/01/2025, parti le 30/06/2026 : 18 j au compteur (plafond). Un congé de 10 j avait été

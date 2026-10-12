@@ -141,6 +141,22 @@ describe("stagiaire passé en CDI, CDI passé en stage : le régime se lit par p
   });
 });
 
+describe("après le dernier contrat terminé : la fiche fait foi (règle 3 bis), les mois partiels restent stricts", () => {
+  const avec = (contrats: ReturnType<typeof c>[], typeFiche: string, aujourdhui: string) =>
+    calculerSoldeAnneeCivile({ ...base, dateEmbauche: j("2025-01-01"), aujourdhui: j(aujourdhui), periodesSansConges: periodesSansConges(contrats, typeFiche) });
+
+  it("fiche CDI, seul contrat = stage fini le 30/06/2025 : acquisition dès le 01/07 (5 mois au 15/12 = 7,5 j)", () => {
+    // Avant cet ajustement : 0 j (le stage se poursuivait sans fin). Sur main : 16,5 j (stage compris, à tort).
+    expect(avec([c("STAGE", "2025-01-01", "2025-06-30")], "CDI", "2025-12-15")).toMatchObject({ acquisAnnee: 7.5, solde: 7.5 });
+  });
+  it("même cas, stage fini le 15/03 : mars à cheval n'acquiert pas (strict), avril → juin oui (4,5 j au 01/07)", () => {
+    expect(avec([c("STAGE", "2025-01-01", "2025-03-15")], "CDI", "2025-07-01")).toMatchObject({ acquisAnnee: 4.5, solde: 4.5 });
+  });
+  it("stage SANS date de fin sur une fiche CDI : rien ne s'acquiert (contradiction signalée, pas tranchée)", () => {
+    expect(avec([c("STAGE", "2025-01-01")], "CDI", "2025-12-15")).toMatchObject({ acquisAnnee: 0, solde: 0 });
+  });
+});
+
 describe("plafond de 18 j à tout instant", () => {
   it("stagiaire → CDI très ancien, rien pris : 18 j, jamais plus, à la fin de chaque année", () => {
     const e = { ...base, dateEmbauche: j("2020-01-01"), aujourdhui: j("2026-10-12"), periodesSansConges: periodesSansConges([c("STAGE", "2020-01-01", "2020-06-30"), c("CDI", "2020-07-01")], "CDI") };

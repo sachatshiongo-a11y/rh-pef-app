@@ -69,14 +69,36 @@ describe("moisOuvreDroit — un mois n'ouvre droit que s'il est ENTIÈREMENT ave
   it("aucune période sans congés : toujours oui", () => expect(moisOuvreDroit(j("2025-01-01"), j("2025-01-31"), [])).toBe(true));
 });
 
-describe("typeSelonHistorique — repère une fiche que l'historique contredit (relecture du 2026-10-12)", () => {
-  it("stage terminé, aucun CDI enregistré : l'historique dit encore « stage » après la fin (règle du trou)", () => {
-    // Fiche passée en CDI à la main sans contrat CDI : solde à zéro depuis le stage — d'où le signalement à l'écran.
-    expect(typeSelonHistorique([c("STAGE", "2025-01-01", "2025-06-30")], j("2026-10-12"))).toBe("STAGE");
+describe("typeSelonHistorique — repère une fiche qu'un contrat EN COURS contredit (relecture du 2026-10-12)", () => {
+  it("stage terminé, aucun CDI enregistré, fiche CDI : après la fin du stage, la fiche fait foi (règle 3 bis)", () => {
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01", "2025-06-30")], j("2026-10-12"), "CDI")).toBe("CDI");
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01", "2025-06-30")], j("2025-06-30"), "CDI")).toBe("STAGE");
+  });
+  it("stage SANS date de fin sur une fiche CDI : le stage couvre encore le jour (contradiction non tranchée)", () => {
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01")], j("2026-10-12"), "CDI")).toBe("STAGE");
   });
   it("le contrat qui couvre le jour l'emporte ; sans contrat : null", () => {
-    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2026-10-12"))).toBe("CDI");
-    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2025-03-01"))).toBe("STAGE");
-    expect(typeSelonHistorique([], j("2026-10-12"))).toBeNull();
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2026-10-12"), "CDI")).toBe("CDI");
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2025-03-01"), "CDI")).toBe("STAGE");
+    expect(typeSelonHistorique([], j("2026-10-12"), "CDI")).toBeNull();
+  });
+});
+
+describe("règle 3 bis — après le DERNIER contrat terminé, le type de la FICHE fait foi (décision Direction 2026-10-12)", () => {
+  it("fiche CDI, seul contrat = stage fini le 30/06/2025 : sans congés jusqu'au 30/06 seulement", () => {
+    expect(periodesSansConges([c("STAGE", "2025-01-01", "2025-06-30")], "CDI").map(plage)).toEqual([[null, "2025-06-30"]]);
+  });
+  it("fiche STAGE, CDI fini le 31/08 : sans congés dès le 01/09 (la fiche dit ce qu'il est aujourd'hui)", () => {
+    expect(periodesSansConges([c("CDI", "2025-01-01", "2025-08-31")], "STAGE").map(plage)).toEqual([["2025-09-01", null]]);
+  });
+  it("CDD échu, fiche CDD : toujours avec congés, et ce n'est plus un « trou » (aucun contrat suivant)", () => {
+    expect(periodesSansConges([c("CDD", "2025-01-01", "2025-06-30")], "CDD")).toEqual([]);
+    expect(trousDeContrat([c("CDD", "2025-01-01", "2025-06-30")])).toEqual([]);
+  });
+  it("les trous ENTRE deux contrats gardent le régime du précédent, quel que soit le type de la fiche", () => {
+    expect(periodesSansConges([c("STAGE", "2025-01-01", "2025-03-31"), c("CDI", "2025-06-01")], "CDI").map(plage)).toEqual([[null, "2025-05-31"]]);
+  });
+  it("stage SANS date de fin sur une fiche CDI : reste un stage (rien ne le termine)", () => {
+    expect(periodesSansConges([c("STAGE", "2025-01-01")], "CDI").map(plage)).toEqual([[null, null]]);
   });
 });
