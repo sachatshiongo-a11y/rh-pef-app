@@ -182,3 +182,17 @@ describe("la Direction crée directement, comme avant", () => {
     expect(await prisma.demandeCreationFiche.count()).toBe(avant);
   });
 });
+
+describe("double approbation", () => {
+  it("deux approbations simultanées de la même demande : UNE seule fiche, l'autre reçoit « déjà traitée »", async () => {
+    comme("MANAGER");
+    await url(RH.creerEmploye(nouveau({ nom: "Double Clic", telephone: "0994443333", dateNaissance: "1989-09-09" })));
+    const d = (await enAttente()).find((x) => x.nom === "Double Clic")!;
+    comme("ADMIN");
+    const [a, b] = await Promise.all([FICHE.approuverModifsFiche([d.id]), FICHE.approuverModifsFiche([d.id])]);
+    expect(a.traitees + b.traitees).toBe(1);
+    expect([...a.echecs, ...b.echecs].join(" ")).toContain("déjà traitée");
+    expect(await prisma.employee.count({ where: { nom: "Double Clic" } })).toBe(1);
+    expect(await prisma.tacheOnboarding.count({ where: { employee: { nom: "Double Clic" } } })).toBe(1);
+  });
+});
