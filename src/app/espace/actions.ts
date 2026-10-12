@@ -21,6 +21,7 @@ import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { actionLisible } from "@/lib/action-lisible";
 import { exigerAucunRecouvrement, exigerTypeCongeUtilisable, verrouillerCongesSalarie } from "@/lib/conges-regles";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { MESSAGE_MOT_DE_PASSE_COURT, MOT_DE_PASSE_MIN } from "@/lib/mot-de-passe";
 
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
@@ -63,7 +64,7 @@ export async function changerMonMotDePasse(formData: FormData) {
     if (!peutChangerSonMotDePasse(regle)) throw new Error("Accès refusé.");
     const mdp = String(formData.get("motDePasse") ?? "");
     const confirmation = String(formData.get("confirmation") ?? "");
-    if (mdp.length < 6) throw new Error("Le mot de passe doit faire au moins 6 caractères.");
+    if (mdp.length < MOT_DE_PASSE_MIN) throw new Error(MESSAGE_MOT_DE_PASSE_COURT);
     if (mdp !== confirmation) throw new Error("Les deux mots de passe ne correspondent pas.");
 
     await changerMotDePasseAdmin(user.id, mdp);
