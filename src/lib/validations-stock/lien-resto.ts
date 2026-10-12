@@ -13,7 +13,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { journaliserPlusieurs } from "@/lib/audit";
 import type { OperationLien } from "./charge";
-import { normaliserUnite, uniteManquante } from "@/lib/fiches/conversion";
+import Decimal from "decimal.js";
+import { facteurVersArticle, normaliserUnite, uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 
 type Tx = Prisma.TransactionClient;
 
@@ -24,6 +25,16 @@ export const CHAMP_LIEN = "lien article du catalogue";
 export function ecartUnite(uniteResto: string | null | undefined, uniteInventaire: string | null | undefined): "MANQUANTE" | "DIFFERENTE" | null {
   if (uniteManquante(uniteResto) || uniteManquante(uniteInventaire)) return "MANQUANTE";
   return normaliserUnite(uniteResto!) === normaliserUnite(uniteInventaire!) ? null : "DIFFERENTE";
+}
+
+/**
+ * Taille d'UNE unité de l'article, en grammes ET en millilitres (null : inconnue). Deux marques de même
+ * unité mais de tailles différentes (« Pièce » de 250 g et « Pièce » de 500 g) ne s'additionnent pas au
+ * restaurant : la quantité y serait comptée en unités, pas en grammes.
+ */
+function tailleUnite(a: UniteArticle): string {
+  const dans = (u: string) => { const f = facteurVersArticle(u, a); return f === null || f.num.isZero() ? "?" : new Decimal(f.den).div(f.num).toDecimalPlaces(9).toString(); };
+  return `${dans("g")}|${dans("ml")}`;
 }
 
 const NOM_ESPACE = { CUISINE: "Cuisine", BAR: "Bar" } as const;
@@ -41,9 +52,18 @@ export async function obstaclesLiens(tx: Tx | typeof prisma, ops: OperationLien[
   const stockIds = [...new Set(ops.map((o) => o.articleStockId))];
   const [restos, stocks, liens] = await Promise.all([
     tx.articleResto.findMany({ where: { id: { in: restoIds } }, select: { id: true, espace: true, unite: true } }),
-    tx.articleStock.findMany({ where: { id: { in: stockIds } }, select: { id: true, actif: true, unite: true } }),
+    tx.articleStock.findMany({ where: { id: { in: stockIds } }, select: { id: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
     tx.articleRestoStock.findMany({ where: { articleStockId: { in: stockIds } }, select: { articleRestoId: true, articleStockId: true, articleResto: { select: { designation: true, espace: true } } } }),
   ]);
+  const marquesLiees = ops.some((o) => o.op === "AJOUT")
+    ? await tx.articleRestoStock.findMany({ where: { articleRestoId: { in: restoIds } }, select: { articleRestoId: true, articleStock: { select: { id: true, designation: true, unite: true, contenance: true, contenanceUnite: true } } } })
+    : [];
+  const retirees = new Set(ops.filter((o) => o.op === "RETRAIT").map((o) => `${o.articleRestoId}|${o.articleStockId}`));
+  const reference = new Map<string, { nom: string; taille: string }>(); // marque déjà rattachée (ou ajoutée dans ce lot) par article du restaurant
+  for (const m of marquesLiees) {
+    if (retirees.has(`${m.articleRestoId}|${m.articleStock.id}`) || reference.has(m.articleRestoId)) continue;
+    reference.set(m.articleRestoId, { nom: m.articleStock.designation, taille: tailleUnite({ unite: m.articleStock.unite, contenance: m.articleStock.contenance?.toString() ?? null, contenanceUnite: m.articleStock.contenanceUnite }) });
+  }
   const resto = new Map(restos.map((r) => [r.id, r]));
   const stock = new Map(stocks.map((s) => [s.id, s]));
   const obstacles: string[] = [];
@@ -68,6 +88,14 @@ export async function obstaclesLiens(tx: Tx | typeof prisma, ops: OperationLien[
         : `« ${o.articleStockDesignation} » est en ${s.unite!.trim()} dans l'Inventaire, « ${o.articleRestoDesignation} » est en ${r.unite!.trim()} : alignez l'unité dans l'Inventaire d'abord (ou « Aligner sur l'Inventaire » au Stock restaurant)`);
       continue;
     }
+    // Même unité, mais pas la même TAILLE d'unité (Pièce de 250 g / de 500 g) : leurs quantités ne s'additionnent pas.
+    const taille = tailleUnite({ unite: s.unite, contenance: s.contenance?.toString() ?? null, contenanceUnite: s.contenanceUnite });
+    const ref = reference.get(o.articleRestoId);
+    if (ref && ref.taille !== taille) {
+      obstacles.push(`« ${o.articleStockDesignation} » n'a pas la même contenance par ${s.unite!.trim()} que « ${ref.nom} », déjà rattaché à « ${o.articleRestoDesignation} » : leurs quantités ne s'additionneraient pas (renseignez ou corrigez la contenance dans l'Inventaire, ou créez un autre article du restaurant)`);
+      continue;
+    }
+    if (!ref) reference.set(o.articleRestoId, { nom: o.articleStockDesignation, taille });
     const ailleurs = liens.find((l) => l.articleStockId === o.articleStockId && l.articleRestoId !== o.articleRestoId && l.articleResto.espace === r.espace);
     if (ailleurs) obstacles.push(`« ${o.articleStockDesignation} » est déjà rattaché à « ${ailleurs.articleResto.designation} » (${NOM_ESPACE[r.espace]}) : détachez-le d'abord de cet article du restaurant, ses livraisons iraient sinon aux deux`);
   }

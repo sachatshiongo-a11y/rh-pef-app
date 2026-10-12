@@ -121,6 +121,15 @@ describe("rattachement au catalogue", () => {
     expect(await ajouterLiensResto(bar.id, [beurre.id])).toEqual({ n: 1 }); // Cuisine et Bar : l'espace se lit au domaine
   }, 60_000);
 
+  it("Direction : une proposition d'unité DIFFÉRENTE de l'Inventaire, cochée à la main, n'est pas écrite (une seule unité par produit)", async () => {
+    await prisma.articleStock.create({ data: { designation: "Farine T55", domaine: "NOURRITURE", unite: "g" } });
+    const r = await resto("Farine T55"); // kg au restaurant, g à l'Inventaire
+    const e = erreurDe(await accepterPropositions([r.id]));
+    expect(e).toContain("alignez l'unité dans l'Inventaire d'abord");
+    expect(await rattaches(r.id)).toEqual([]);
+    expect(await prisma.journalAudit.count()).toBe(0);
+  }, 60_000);
+
   it("retirer un article du catalogue du lien fait retomber la proposition : l'article du restaurant sans lien redevient proposable", async () => {
     const beurre = await article("Beurre");
     const r = await resto("Beurre");

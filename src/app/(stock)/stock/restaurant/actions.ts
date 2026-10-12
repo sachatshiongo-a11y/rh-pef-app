@@ -281,6 +281,10 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   const operations: OperationLien[] = propositions.map((p) => ({
     op: "AJOUT", articleRestoId: p.articleRestoId, articleRestoDesignation: p.designationResto, espace: espace.get(p.articleRestoId)!, articleStockId: p.articleStockId, articleStockDesignation: p.designationCatalogue,
   }));
+  // Mêmes obstacles que le geste d'ajout, pour la Direction comme pour les autres : une proposition d'unité DIFFÉRENTE de
+  // l'Inventaire (cochée à la main, jamais d'office) ne s'écrit pas — « une seule unité par produit ».
+  const obstacles = await obstaclesLiens(prisma, operations);
+  if (obstacles.length > 0) return { erreur: `${obstacles.join(" ; ")}. Rien n'a été rattaché.` };
   if (!estDirection(user)) {
     // Une demande par ligne qui a un obstacle ne passerait pas : les obstacles sont dits, rien n'est demandé.
     await demanderLiensResto(user, operations);
