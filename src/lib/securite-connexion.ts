@@ -42,7 +42,8 @@ export async function secondesAttente(email: string, maintenant: Date = new Date
   ]);
   if (!dernier) return 0;
   const reste = dernier.createdAt.getTime() + delaiApresEchecs(n) * 1000 - maintenant.getTime();
-  return Math.max(0, Math.ceil(reste / 1000));
+  // Jamais plus que le plafond, même si l'horloge de la base devance celle de l'application (échec « dans le futur »).
+  return Math.min(ATTENTE_MAX_S, Math.max(0, Math.ceil(reste / 1000)));
 }
 
 /** Enregistre un échec de connexion. */

@@ -67,6 +67,13 @@ describe("anti-force-brute : un délai qui s'allonge, par identifiant", () => {
     expect(await secondesAttente("brute@pef.cd", new Date(dernier))).toBe(0);
   }, 60_000);
 
+  it("un échec daté dans le futur (horloges désaccordées) n'impose jamais plus que le plafond de 15 min", async () => {
+    const t0 = new Date("2026-10-13T11:00:00Z");
+    await prisma.tentativeConnexion.create({ data: { email: "futur@pef.cd", createdAt: new Date(t0.getTime() + 3 * 3600_000) } });
+    await prisma.tentativeConnexion.create({ data: { email: "futur@pef.cd", createdAt: new Date(t0.getTime() + 3 * 3600_000) } });
+    expect(await secondesAttente("futur@pef.cd", new Date(t0.getTime() + 60_000))).toBe(ATTENTE_MAX_S);
+  });
+
   it("enregistrerEchec journalise l'identifiant et l'adresse IP", async () => {
     await enregistrerEchec("Journal@Pef.cd", "9.9.9.9");
     const t = await prisma.tentativeConnexion.findFirstOrThrow({ where: { email: "journal@pef.cd" } });
