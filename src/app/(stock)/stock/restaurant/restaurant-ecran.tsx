@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 import { PropositionsRattachement } from "./propositions-rattachement";
 import type { DecisionAuto, Proposition } from "@/lib/fiches/rattachement-resto";
@@ -101,7 +102,7 @@ export function RestaurantEcran({
         filtre={afficherDesactives ? { libelle: "articles désactivés affichés", retirer: lienDesactives(false) } : undefined}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/stock/restaurant?espace=${espace}&semaine=${aujourdhui}${afficherDesactives ? "&desactives=1" : ""}`} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Cette semaine</a>
+          <Link href={`/stock/restaurant?espace=${espace}&semaine=${aujourdhui}${afficherDesactives ? "&desactives=1" : ""}`} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Cette semaine</Link>
           <BasculeVueSemaine />
           {estDirection && !afficherDesactives && (
             <a href={lienDesactives(true)} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Afficher les désactivés</a>

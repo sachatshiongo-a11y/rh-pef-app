@@ -50,7 +50,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
       <div className="flex flex-wrap gap-1.5 text-sm">
         {onglets.map(([k, label]) => (
-          <a key={k} href={`/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
+          <Link key={k} href={`/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
         ))}
       </div>
 

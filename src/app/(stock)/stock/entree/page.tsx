@@ -118,7 +118,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
           <span className="font-medium">Historique des achats</span>
           <span className="text-muted-foreground">·</span>
           {onglets.map((o) => (
-            <a key={o.k} href={`/stock/entree?periode=${o.k}${demande.par !== PAR_DEFAUT ? `&par=${demande.par}` : ""}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</a>
+            <Link key={o.k} href={`/stock/entree?periode=${o.k}${demande.par !== PAR_DEFAUT ? `&par=${demande.par}` : ""}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</Link>
           ))}
         </div>
 

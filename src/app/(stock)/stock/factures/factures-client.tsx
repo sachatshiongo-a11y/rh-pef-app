@@ -193,12 +193,12 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
-              {f.paiementDemande && <a href="/stock/a-valider" className={BADGE_DEMANDE}>Paiement demandé — en attente de la Direction</a>}
+              {f.paiementDemande && <Link href="/stock/a-valider" className={BADGE_DEMANDE}>Paiement demandé — en attente de la Direction</Link>}
               <div className="ml-auto flex items-center gap-2">
                 {f.documentUrl && (
                   <ApercuDocumentBouton href={f.documentUrl} titre={`Facture ${f.nom}${f.numero ? ` · N° ${f.numero}` : ""}`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</ApercuDocumentBouton>
                 )}
-                <a href={`/stock/factures/${f.id}${suffixeRetour}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
+                <Link href={`/stock/factures/${f.id}${suffixeRetour}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</Link>
                 {f.statut !== "REGLEE" && !f.paiementDemande && (
                   datePickerId === f.id ? (
                     <span className="flex items-center gap-1.5">
