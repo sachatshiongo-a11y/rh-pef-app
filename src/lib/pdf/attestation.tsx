@@ -12,7 +12,11 @@ registerPdfFonts();
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10.5, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.6 },
+  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10.5, fontFamily: "Optima", color: pdfColors.text },
+  // Interligne du texte : sur ce bloc qui enveloppe le contenu, PAS sur la page. Hérité de la page, il fait
+  // DISPARAÎTRE la ligne « Page x sur y » du pied de page commun (cf. fiche-poste.tsx). fontSize répété :
+  // sans lui le lineHeight du bloc se calcule sur 18 pt (interligne doublé).
+  corps: { fontSize: 10.5, lineHeight: 1.6 },
   numero: { textAlign: "right", fontSize: 9.5, color: pdfColors.textMuted, marginBottom: 4 },
   paragraphe: { marginBottom: 14, textAlign: "justify" },
   bloc: { marginTop: 10, marginBottom: 18 },
@@ -20,7 +24,7 @@ const styles = StyleSheet.create({
   lieuDate: { marginTop: 22, textAlign: "right" },
   mention: { marginTop: 4, textAlign: "right", fontSize: 9, color: pdfColors.textMuted },
   apercuBandeau: { textAlign: "center", fontSize: 11, fontWeight: 700, color: "#B42318", borderWidth: 1, borderColor: "#B42318", padding: 4, marginBottom: 6 },
-  filigrane: { position: "absolute", top: 380, left: 60, fontSize: 64, fontWeight: 700, color: "#B42318", opacity: 0.12, transform: "rotate(-30deg)" },
+  filigrane: { position: "absolute", top: 400, left: 50, fontSize: 44, lineHeight: 1.2, fontWeight: 700, color: "#B42318", opacity: 0.12, transform: "rotate(-30deg)" },
   signatures: { marginTop: 26, flexDirection: "row", justifyContent: "flex-end" },
   signCol: { width: "45%", alignItems: "center" },
   signSpace: { width: "100%", height: 56, justifyContent: "flex-end", alignItems: "center" },
@@ -101,6 +105,7 @@ export function AttestationDocument({
     <Document title={normaliserEspaces(apercu ? `${titre} (aperçu) — ${d.nom}` : `${titre} ${numero} — ${d.nom}`)}>
       <Page size="A4" style={styles.page}>
         {apercu && <Text style={styles.filigrane} fixed>APERÇU — non valable</Text>}
+        <View style={styles.corps}>
         <PdfHeader title={titre} subtitle={d.nom} logo={logo} />
         {apercu ? (
           <Text style={styles.apercuBandeau}>APERÇU — non valable : ni numérotée ni signée, cette attestation n&apos;est pas délivrée.</Text>
@@ -165,6 +170,8 @@ export function AttestationDocument({
             <View style={styles.signSpace}>{signatureSrc && <Image src={signatureSrc as string} style={styles.signImg} />}</View>
             <Text style={styles.signLine}>La Direction</Text>
           </View>
+        </View>
+
         </View>
 
         <PdfFooter docLabel={apercu ? `${titre} (aperçu, non valable)` : `${titre} n° ${numero}`} ent={entreprise} />

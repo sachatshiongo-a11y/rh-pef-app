@@ -12,7 +12,11 @@ registerPdfFonts();
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10.5, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.6 },
+  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10.5, fontFamily: "Optima", color: pdfColors.text },
+  // Interligne du texte : sur ce bloc qui enveloppe le contenu, PAS sur la page. Hérité de la page, il fait
+  // DISPARAÎTRE la ligne « Page x sur y » du pied de page commun (cf. fiche-poste.tsx). fontSize répété :
+  // sans lui le lineHeight du bloc se calcule sur 18 pt (interligne doublé).
+  corps: { fontSize: 10.5, lineHeight: 1.6 },
   paragraphe: { marginBottom: 14, textAlign: "justify" },
   bloc: { marginTop: 10, marginBottom: 18 },
   gras: { fontWeight: 700, color: pdfColors.brownDark },
@@ -76,6 +80,7 @@ export function AttestationPaieDocument({
   return (
     <Document title={`Attestation de paie — ${employee.nom} — ${periode}`}>
       <Page size="A4" style={styles.page}>
+        <View style={styles.corps}>
         <PdfHeader title="Attestation de paie" subtitle={`${employee.nom} — ${periode}`} logo={logo} />
 
         <View style={styles.bloc}>
@@ -130,6 +135,8 @@ export function AttestationPaieDocument({
             <View style={styles.signSpace}>{signatureSrc && <Image src={signatureSrc as string} style={styles.signImg} />}</View>
             <Text style={styles.signLine}>La Direction</Text>
           </View>
+        </View>
+
         </View>
 
         <PdfFooter docLabel="Attestation de paie" ent={entreprise} />

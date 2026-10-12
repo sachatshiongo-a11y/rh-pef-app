@@ -12,7 +12,11 @@ type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 registerPdfFonts();
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.55 },
+  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10, fontFamily: "Optima", color: pdfColors.text },
+  // Interligne du texte : sur ce bloc qui enveloppe le contenu, PAS sur la page. Hérité de la page, il fait
+  // DISPARAÎTRE la ligne « Page x sur y » du pied de page commun (cf. fiche-poste.tsx). fontSize répété :
+  // sans lui le lineHeight du bloc se calcule sur 18 pt (interligne doublé).
+  corps: { fontSize: 10, lineHeight: 1.55 },
   intro: { marginTop: 8, marginBottom: 6, textAlign: "justify" },
   // Pas de justification ici : les identifiants longs et insécables (RCCM, Id. Nat.) cassent la
   // ligne tôt et la justification écarte alors exagérément les mots restants.
@@ -75,6 +79,7 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
   return (
     <Document title={`Contrat de travail — ${employee.nom}`}>
       <Page size="A4" style={styles.page}>
+        <View style={styles.corps}>
         <PdfHeader title="Contrat de travail" subtitle={`${TYPE_LABEL[contrat.type] ?? contrat.type} — ${employee.nom}`} logo={logo} />
 
         <Text style={styles.intro}>
@@ -230,6 +235,8 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
             {accepteLe && !signatureSalarie?.mention && <Text style={styles.accepte}>Accepté numériquement le {dateHeureKinshasa(accepteLe)}</Text>}
             {signatureSalarie?.mention && <Text style={styles.mentionSign}>{signatureSalarie.mention}</Text>}
           </View>
+        </View>
+
         </View>
 
         <PdfFooter docLabel={`Contrat de travail — ${employee.matricule}`} ent={entreprise} />

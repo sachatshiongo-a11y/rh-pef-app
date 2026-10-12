@@ -91,4 +91,13 @@ describe("PDF d'attestation", () => {
     expect(dateLongue("2026-01-01")).toBe("1er janvier 2026");
     expect(dateLongue("2026-12-25")).toBe("25 décembre 2026");
   });
+
+  it("pied de page « Page 1 sur 1 » et numéro de l'attestation, délivrée comme en aperçu (le lineHeight de la page le faisait disparaître)", async () => {
+    const delivree = await texteDu(await rendre(base));
+    expect(delivree).toContain("Page 1 sur 1");
+    expect(delivree).toContain("Attestation de travail n° ATT-2026-0042");
+    const apercu = await texteDu(await renderPdfBuffer(AttestationDocument({ donnees: base, numero: "ATT-2026-0042", delivreeLe: new Date("2026-09-28T23:30:00Z"), signature: null, apercu: true })));
+    expect(apercu).toContain("Page 1 sur 1");
+    expect(apercu).toContain("aperçu, non valable");
+  });
 });
