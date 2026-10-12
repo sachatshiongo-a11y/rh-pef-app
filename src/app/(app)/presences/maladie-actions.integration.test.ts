@@ -11,7 +11,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/auth", () => ({ verifySession: async () => ({ id: H.userId, role: "MANAGER", nom: "RH" }), requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { marquerMaladieJustifiee } = await import("./maladie-actions");
+const { marquerMaladieJustifiee, joindreCertificatMaladie } = await import("./maladie-actions");
 const { saisirPresence } = await import("./actions");
 
 let prisma: PrismaClient; let fermer: () => Promise<void>; let emp = "";
@@ -48,5 +48,21 @@ describe("marquerMaladieJustifiee", () => {
     await saisirPresence(emp, iso(6), "M");
     const retour = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: emp, date: d(6) } } });
     expect([retour?.code, retour?.maladieJustifiee]).toEqual(["M", false]);
+  });
+
+  // Bulletin du mois VALIDÉ : on ne justifie (ni ne déjustifie) un jour, on ne joint pas de certificat
+  // sans rouvrir d'abord (Sacha, 2026-10-12) — rien n'est écrit.
+  it("bulletin d'octobre validé : justifier, déjustifier ou joindre un certificat est refusé", async () => {
+    await prisma.attendance.update({ where: { employeeId_date: { employeeId: emp, date: d(9) } }, data: { code: "M", maladieJustifiee: false } }).catch(async () =>
+      prisma.attendance.create({ data: { employeeId: emp, date: d(9), code: "M" } }));
+    const run = await prisma.payrollRun.create({ data: { mois: 10, annee: 2026, tauxChangeUtilise: 2800 } });
+    await prisma.payrollLine.create({ data: { payrollRunId: run.id, employeeId: emp, statutPaiement: "VALIDE", salBrutUSD: 300, cnssSalarieUSD: 15, netImposableUSD: 285, iprCalculeUSD: 10, allocFamilialeUSD: 0, salNetUSD: 275, salNetCDF: 770000, cnssPatronalUSD: 39, coutEmployeurUSD: 340, coutEmployeurCDF: 952000 } });
+    const r = await marquerMaladieJustifiee([{ employeeId: emp, date: iso(9) }], true);
+    expect(r.erreur).toMatch(/^Le bulletin d.* 2026 est déjà validé : rouvrez-le/);
+    expect((await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: emp, date: d(9) } } }))!.maladieJustifiee).toBe(false);
+    const fd = new FormData();
+    fd.set("employeeId", emp); fd.set("date", iso(9)); fd.set("fichier", new File(["%PDF"], "certificat.pdf", { type: "application/pdf" }));
+    expect((await joindreCertificatMaladie(fd)).erreur).toMatch(/déjà validé : rouvrez-le/);
+    expect(await prisma.documentEmploye.count({ where: { employeeId: emp } })).toBe(0);
   });
 });

@@ -6,9 +6,10 @@
 //  - back-office et stagiaires : chaque jour d'absence injustifiée (N) ou de congé sans solde (S, ou
 //    jour couvert par un congé sans solde approuvé) est retenu à 1/26e du salaire mensuel
 //    (`joursOuvrablesMois` des paramètres légaux) ;
-//  - entrée ou sortie en cours de mois : salaire au prorata des jours OUVRABLES (lundi → samedi, hors
-//    fériés) travaillables entre la date d'embauche / de fin de contrat et les bornes du mois, sur les
-//    jours ouvrables du mois ;
+//  - entrée ou sortie en cours de mois : salaire × jours OUVRABLES (lundi → samedi, hors fériés)
+//    travaillables entre la date d'embauche / de fin de contrat et les bornes du mois, / 26 (même base
+//    que la retenue d'absence, Sacha 2026-10-12), jamais plus que le salaire. Une période qui couvre
+//    TOUS les jours ouvrables du mois (embauche le 2 quand le 1er est un dimanche) n'est pas un prorata ;
 //  - maladie, TOUT le personnel : jour M justifié au préalable (certificat) payé 100 %, sinon 2/3.
 //    Pour un salaire au mois, le tiers non payé d'un jour M non justifié est retenu (1/26e × 1/3).
 // Seuls comptent les jours ouvrables de la période travaillable : un N posé un dimanche, un férié,
@@ -54,8 +55,9 @@ export function absencesDuMois(e: {
     return n;
   };
   const joursMois = compterOuvrables(debutMois, finMois);
-  const incomplet = debut > debutMois || fin < finMois;
-  const prorata = incomplet ? { joursTravailles: compterOuvrables(debut, fin), joursMois } : null;
+  const joursTravailles = compterOuvrables(debut, fin);
+  const incomplet = (debut > debutMois || fin < finMois) && joursTravailles < joursMois;
+  const prorata = incomplet ? { joursTravailles, joursMois } : null;
 
   const sansSolde = new Set(e.joursCongeSansSolde);
   const absence: string[] = [];

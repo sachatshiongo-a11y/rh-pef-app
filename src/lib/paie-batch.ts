@@ -292,7 +292,8 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
         remunerationMaladieJustifieeUSD:
           estStage || employee.categorie !== "BRIGADE" ? 0 : auCentime(ref.affichage.montantMaladieJustifieeNet * facteur),
         prorataJoursTravailles: absences?.prorata?.joursTravailles ?? null,
-        prorataJoursMois: absences?.prorata?.joursMois ?? null,
+        // Base du prorata : 26 (paramètre légal), comme la retenue d'absence — imprimé « N j sur 26 ».
+        prorataJoursMois: absences?.prorata ? parametres.joursOuvrablesMois : null,
         joursCongePris,
         indemniteCongesUSD: auCentime(ref.affichage.indemniteCongesNet * facteur),
         // Montants tels que le moteur les a comptés, au centime (jamais la valeur non arrondie

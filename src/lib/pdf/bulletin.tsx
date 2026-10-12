@@ -355,7 +355,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const joursMaladieOui = nb(ligne.joursMaladieJustifies);
   const maladieJustifieeUSD = nb(ligne.remunerationMaladieJustifieeUSD);
   const prorata = ligne.prorataJoursTravailles != null && ligne.prorataJoursMois != null
-    ? `${fmtQte(Number(ligne.prorataJoursTravailles))} j ouvrables sur ${fmtQte(Number(ligne.prorataJoursMois))}`
+    ? `${fmtQte(Number(ligne.prorataJoursTravailles))} j sur ${fmtQte(Number(ligne.prorataJoursMois))}`
     : null;
   /** Une retenue : entre parenthèses (convention maison des montants négatifs, jamais un signe moins). */
   const retenue = (usd: number) => `(${m(usd)})`;

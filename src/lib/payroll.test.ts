@@ -720,9 +720,9 @@ describe("back-office et stagiaires : retenue 1/26e, prorata des jours ouvrables
     // Base brute − retenue brute = brut dû : les lignes du bulletin s'additionnent.
     expect(Math.round((l.remuneration100 + l.retenueAbsencesUSD!) * 100) / 100).toBe(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0 }, pn).remuneration100);
   });
-  it("entrée le 15 octobre 2026 : 15 jours ouvrables sur 27 → 400 × 15/27 = 222,22", () => {
+  it("entrée le 15 octobre 2026 : 15 jours ouvrables travaillables (15 → 31, sans les dimanches 18 et 25) → 400 × 15/26 = 230,77", () => {
     const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, prorata: { joursTravailles: 15, joursMois: 27 } } }, params);
-    expect(l.remuneration100).toBe(222.22);
+    expect(l.remuneration100).toBe(230.77);
     expect(l.retenueAbsencesUSD).toBe(0);
   });
   it("maladie : 2 jours sans justificatif → retenue 2 × 400/26 × 1/3 = 10,26 ; un jour justifié ne retient rien", () => {
@@ -738,6 +738,10 @@ describe("back-office et stagiaires : retenue 1/26e, prorata des jours ouvrables
   });
   it("sans absence ni prorata : à l'identique d'avant", () => {
     expect(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: sans }, params)).toEqual(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0 }, params));
+  });
+  it("prorata borné au salaire : 26 jours travaillables ou plus → jamais plus de 26/26", () => {
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, prorata: { joursTravailles: 26, joursMois: 27 } } }, params);
+    expect(l.remuneration100).toBe(400);
   });
   it("toutes les retenues bornées à la base : jamais de salaire négatif", () => {
     const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 27, joursMaladieNonJustifies: 0, prorata: null } }, params);

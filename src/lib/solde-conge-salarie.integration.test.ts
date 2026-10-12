@@ -55,7 +55,9 @@ describe("chargerSoldesCongeSalaries", () => {
     for (const id of [a, b, c]) {
       expect(soldes.get(id), id).toEqual(await chargerSoldeCongeSalarie(prisma, id, MAINTENANT));
     }
-    expect(soldes.get(a)).toMatchObject({ acquis: 18, pris: 6.5, solde: 11.5 });
+    // Solde plafonné à 18 À TOUT INSTANT (Sacha, 2026-10-12) : 15 au 31/12/2025, puis l'acquisition de
+    // chaque 10 du mois remonte le solde jusqu'à 18 en juillet ; au-delà, perdu. Ancienne règle : 11,5.
+    expect(soldes.get(a)).toMatchObject({ report: 15, pris: 6.5, solde: 18, plafonne: true });
     expect(soldes.get(b)).toMatchObject({ acquis: 9, pris: 2, solde: 7 });
     expect(soldes.get(c)).toMatchObject({ acquis: 0, pris: 0, solde: 0 });
     expect(soldes.get(a)!.typesDeduits).toEqual(["Congé annuel"]);
@@ -72,9 +74,9 @@ describe("chargerSoldesCongeSalaries", () => {
     // 8 jours ouvrables (aucun férié saisi dans cette base) : 3 en 2025 (29-31/12), 5 en 2026.
     await conge(d, "Congé annuel", "2025-12-29", "2026-01-06", 8);
     const s = await chargerSoldeCongeSalarie(prisma, d, MAINTENANT);
-    // 2025 : 6 mois révolus = 9 j − 3 = 6 reportés ; 2026 : 9 mois = 13,5 → 19,5 plafonnés à 18 ; − 5 = 13.
-    // Ancienne règle : 18 − 0 (congé commencé en décembre, jamais décompté) = 18.
-    expect(s).toMatchObject({ annee: 2026, report: 6, acquisAnnee: 13.5, acquis: 18, plafonne: true, pris: 5, solde: 13 });
+    // 2025 : 6 mois révolus = 9 j − 3 = 6 reportés ; 2026 : 9 mois = 13,5, le solde ne touche jamais 18
+    // (5 j pris début janvier) : 6 + 13,5 − 5 = 14,5. Ancienne règle : 18 (congé commencé en décembre, jamais décompté).
+    expect(s).toMatchObject({ annee: 2026, report: 6, acquisAnnee: 13.5, acquis: 19.5, plafonne: false, pris: 5, solde: 14.5 });
   });
 
   it("un salarié inconnu : le chargement unitaire échoue, le lot l'ignore", async () => {

@@ -94,7 +94,7 @@ describe("back-office : absences retenues à 1/26e, entrée au prorata, maladie 
     expect((await calculerBulletinLive(ids.absent, 9, 2026))!.ligne.remuneration100).toBe(333.33);
   });
 
-  it("embauche le 15/09 : 14 jours ouvrables sur 26 → 400 × 14/26 = 215,38", async () => {
+  it("embauche le 15/09 : 14 jours ouvrables travaillables, base 26 → 400 × 14/26 = 215,38", async () => {
     const l = (await ligne(ids.entree))!;
     expect(Number(l.remuneration100)).toBe(215.38);
     expect([l.prorataJoursTravailles, l.prorataJoursMois]).toEqual([14, 26]);

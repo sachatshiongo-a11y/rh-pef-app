@@ -391,20 +391,22 @@ export type AbsencesSalaireMois = {
   joursAbsenceRetenus: number;
   /** Jours M sans justificatif préalable : payés aux 2/3, le tiers restant est retenu. */
   joursMaladieNonJustifies: number;
-  /** Entrée/sortie en cours de mois : prorata des jours ouvrables ; null = mois entier. */
+  /** Entrée/sortie en cours de mois : jours ouvrables travaillables (et ceux du mois, pour mémoire) ;
+   *  null = mois entier. Le salaire dû est salaire × travaillables / 26, borné au salaire. */
   prorata: { joursTravailles: number; joursMois: number } | null;
 };
 
 /**
  * Salaire au mois DÛ, dans l'unité de la saisie (net si les salaires sont saisis en net) :
- *   base = salaire × jours ouvrables travaillables / jours ouvrables du mois (mois entier : salaire) ;
+ *   base = salaire × jours ouvrables travaillables / 26, jamais plus que le salaire (Sacha,
+ *   2026-10-12 : même base 26 que la retenue d'absence) ; mois entier : salaire ;
  *   retenue absences = salaire / 26 × jours N/S ; retenue maladie = salaire / 26 × 1/3 × jours M non
  *   justifiés ; dû = base − retenues, jamais négatif (les retenues sont bornées à la base).
  * Le diviseur 26 est `params.joursOuvrablesMois` (paramètre légal), jamais un nombre en dur.
  */
 export function salaireMoisDu(salaire: number, a: AbsencesSalaireMois | undefined, params: ParametresPaie): { base: number; retenueAbsences: number; retenueMaladie: number; du: number } {
-  const base = a?.prorata && a.prorata.joursMois > 0 ? (salaire * a.prorata.joursTravailles) / a.prorata.joursMois : salaire;
   const jour = params.joursOuvrablesMois > 0 ? salaire / params.joursOuvrablesMois : 0;
+  const base = a?.prorata ? Math.min(salaire, jour * a.prorata.joursTravailles) : salaire;
   const retenueAbsences = Math.min(base, jour * (a?.joursAbsenceRetenus ?? 0));
   const retenueMaladie = Math.min(base - retenueAbsences, (jour * (a?.joursMaladieNonJustifies ?? 0)) / 3);
   return { base, retenueAbsences, retenueMaladie, du: Math.max(0, base - retenueAbsences - retenueMaladie) };

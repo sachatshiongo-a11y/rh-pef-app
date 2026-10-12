@@ -24,6 +24,10 @@ describe("absencesDuMois (décisions Direction 2026-10-12)", () => {
     expect(a.prorata).toEqual({ joursTravailles: 15, joursMois: 27 });
     expect(a.joursAbsenceRetenus).toBe(0);
   });
+  it("embauche le 02/11/2026 (le 1er est un dimanche) : tous les jours ouvrables du mois → pas de prorata", () => {
+    const a = absencesDuMois({ ...base, mois: 11, dateEmbauche: d("2026-11-02"), jours: [] });
+    expect(a.prorata).toBeNull();
+  });
   it("sortie le 10/10/2026 (fin de contrat) : 9 jours ouvrables sur 27, un férié exclu des deux", () => {
     const a = absencesDuMois({ ...base, dateFinContrat: d("2026-10-10"), joursFeries: new Set(["2026-10-13"]), jours: jours({}) });
     expect(a.prorata).toEqual({ joursTravailles: 9, joursMois: 26 });

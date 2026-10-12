@@ -89,7 +89,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       ],
       periodePresences,
       soldes: [
-        { label: `Droits ${soldeConge.annee}`, value: `${soldeConge.acquis} j (acquis ${soldeConge.acquisAnnee} j${soldeConge.report !== 0 ? `, report ${soldeConge.annee - 1} : ${soldeConge.report} j` : ""}${soldeConge.plafonne ? ", plafonné" : ""})` },
+        { label: `Droits ${soldeConge.annee}`, value: `${soldeConge.acquis} j (acquis ${soldeConge.acquisAnnee} j${soldeConge.report !== 0 ? `, report ${soldeConge.annee - 1} : ${soldeConge.report} j` : ""}${soldeConge.plafonne ? `, ${soldeConge.perdu} j perdus au plafond` : ""})` },
         { label: `Congés pris en ${soldeConge.annee}`, value: `${soldeConge.pris} j${soldeConge.cSansDemande > 0 ? ` (dont ${soldeConge.cSansDemande} j C posés sans demande)` : ""}` },
         { label: "Solde de congé annuel", value: `${soldeConge.solde} j` },
       ],

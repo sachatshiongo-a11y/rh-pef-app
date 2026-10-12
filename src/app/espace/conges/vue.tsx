@@ -73,7 +73,7 @@ export function VueMesConges({
           <Stat n={solde.pris} label={`Pris en ${annee}`} />
         </div>
         <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-          Acquis en {solde.annee} : {solde.acquisAnnee} j{solde.report !== 0 ? ` · report de ${solde.annee - 1} : ${solde.report} j` : ""}{solde.plafonne ? " · plafonné aux droits annuels" : ""}.
+          Acquis en {solde.annee} : {solde.acquisAnnee} j{solde.report !== 0 ? ` · report de ${solde.annee - 1} : ${solde.report} j` : ""}{solde.plafonne ? ` · ${solde.perdu} j perdus : le solde ne dépasse jamais les droits annuels` : ""}.
         </p>
         {solde.cSansDemande > 0 && (
           <p className="mt-3 border-t pt-3 text-xs text-amber-800">

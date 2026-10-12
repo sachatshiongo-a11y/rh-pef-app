@@ -3,7 +3,6 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { chargerDroitsCongesAnnuel } from "@/lib/config";
 import { ancienneteEnMois, congeDeductibleDuSolde } from "@/lib/payroll";
-import { compterJoursOuvrables } from "@/lib/jours-ouvrables";
 import { typeSansConges } from "@/lib/regles-contrats";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -23,16 +22,18 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 export type SoldeConge = {
   /** Année civile du solde (celle d'aujourd'hui à Kinshasa). */
   annee: number;
-  /** DROITS DE L'ANNÉE : report de l'année précédente + acquis de l'année, plafonnés aux droits
-   *  annuels (paramètre légal `droits_conges_annuel`, 18 j). C'est le « Acquis » des écrans. */
+  /** DROITS DE L'ANNÉE : report de l'année précédente + acquis de l'année − jours perdus au
+   *  plafond, soit solde + pris. C'est le « Droits » des écrans. */
   acquis: number;
   /** Acquis de l'année civile seule : 1,5 j par mois RÉVOLU d'ancienneté achevé dans l'année. */
   acquisAnnee: number;
   /** Reliquat de l'année précédente reporté (décision Direction 2026-10-12). Négatif = congé pris
    *  par anticipation l'an dernier, repris sur cette année. */
   report: number;
-  /** Vrai si report + acquis de l'année dépassaient le plafond : la part au-delà est perdue. */
+  /** Vrai si, cette année, une acquisition a été perdue parce que le solde atteignait le plafond. */
   plafonne: boolean;
+  /** Jours acquis cette année et perdus au plafond (le solde ne dépasse jamais les droits annuels). */
+  perdu: number;
   /** Jours pris DANS l'année civile (1er janvier → 31 décembre), des seuls types qui entament le
    *  solde, PLUS les « C » posés directement sur la grille sans demande approuvée (`cSansDemande`).
    *  Un congé à cheval sur deux années est réparti au prorata de ses jours ouvrables de chaque année. */
@@ -40,7 +41,7 @@ export type SoldeConge = {
   /** « C » de la grille (dans l'année civile, jours ouvrables) qu'aucune demande approuvée ne
    *  couvre : payés comme congé par la paie, donc décomptés — et signalés à l'écran. */
   cSansDemande: number;
-  /** acquis (droits de l'année) − pris, au dixième. */
+  /** acquis (droits de l'année) − pris, au dixième ; jamais au-dessus des droits annuels. */
   solde: number;
   /** Noms des types actifs qui entament le solde — pour le dire au salarié. */
   typesDeduits: string[];
@@ -50,20 +51,23 @@ const auDixieme = (x: number) => Math.round(x * 10) / 10;
 const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
 
 /**
- * LE SOLDE EN ANNÉE CIVILE — décisions de la Direction du 2026-10-12 (1 et 2). PUR, testable tel quel.
+ * LE SOLDE EN ANNÉE CIVILE — décisions de la Direction du 2026-10-12. PUR, testable tel quel.
  *
  * - Période de référence = l'ANNÉE CIVILE, pour les jours acquis COMME pour les jours pris (avant :
  *   acquis depuis l'embauche, pris depuis le 1er janvier — le solde remontait chaque 1er janvier).
- * - Acquis de l'année Y = droits annuels / 12 par mois RÉVOLU d'ancienneté achevé dans Y (règle du
- *   2026-07-07 inchangée : un mois entamé ne compte pas). Calculé par différence d'ancienneté
- *   cumulée, donc aucun mois n'est perdu ni compté deux fois au passage d'une année à l'autre.
- * - Le RELIQUAT d'une année est REPORTÉ sur la suivante. Plafond : report + acquis de l'année ≤
- *   droits annuels (18 j) — on ne dispose jamais de plus de 18 jours de droits sur une année.
- *   Un reliquat négatif (congé pris par anticipation) est reporté lui aussi : il se reprend.
+ * - Acquisition : droits annuels / 12 à chaque mois RÉVOLU d'ancienneté (règle du 2026-07-07 : un
+ *   mois entamé ne compte pas), crédités le jour où le mois s'achève.
+ * - Le RELIQUAT d'une année est REPORTÉ sur la suivante, négatif compris (congé pris par
+ *   anticipation, repris ensuite).
+ * - PLAFOND (Sacha, 2026-10-12) : le SOLDE ne dépasse JAMAIS les droits annuels (18 j), à aucun
+ *   instant. Une acquisition qui le ferait dépasser est perdue pour la part au-delà, le jour même.
+ *   Un salarié qui prend ses 18 j reportés en janvier réacquiert ensuite 1,5 j par mois (13,5 j en
+ *   octobre) : ce n'est PAS « report + acquis de l'année ≤ 18 ».
  * - Salarié sans congés (stage, intérim) : rien d'acquis, ce qui est pris se décompte quand même.
  *
- * `prisParAnnee` et `cSansDemandeParAnnee` : jours déjà répartis par année civile (voir
- * `repartirCongeParAnnee`, `compterCSansDemande`). Les années postérieures à aujourd'hui sont ignorées.
+ * Le compte se rejoue jour par jour depuis l'embauche : acquisitions jusqu'à aujourd'hui, jours pris
+ * jusqu'au 31 décembre de l'année en cours (un congé approuvé à venir cette année est déjà déduit ;
+ * celui d'une année suivante attend son année). Le même jour, l'acquisition passe avant le congé.
  */
 export function calculerSoldeAnneeCivile(p: {
   dateEmbauche: Date;
@@ -71,73 +75,82 @@ export function calculerSoldeAnneeCivile(p: {
   aujourdhui: Date;
   droitsAnnuels: number;
   sansConges: boolean;
-  prisParAnnee: Map<number, number>;
-  cSansDemandeParAnnee?: Map<number, number>;
+  /** Jours pris, jour par jour (voir `repartirCongeParJour`). */
+  prisParJour: { date: Date; jours: number }[];
+  /** « C » de la grille sans demande approuvée (voir `joursCSansDemande`) : un jour chacun. */
+  cSansDemande?: Date[];
 }): Omit<SoldeConge, "typesDeduits"> {
   const annee = p.aujourdhui.getUTCFullYear();
   const embauche = new Date(p.dateEmbauche);
   const parMois = p.droitsAnnuels / 12;
-  const cumul = (d: Date) => (p.sansConges ? 0 : ancienneteEnMois(embauche, d));
-  const prisDe = (y: number) => (p.prisParAnnee.get(y) ?? 0) + (p.cSansDemandeParAnnee?.get(y) ?? 0);
+  const auCent = (x: number) => Math.round(x * 100) / 100;
+  const debutAnnee = Date.UTC(annee, 0, 1);
+  const finAnnee = Date.UTC(annee, 11, 31);
+  const auj = p.aujourdhui.getTime();
+  const pris = new Map<number, number>();
+  const ajouter = (t: number, j: number) => { if (t <= finAnnee) pris.set(t, (pris.get(t) ?? 0) + j); };
+  for (const x of p.prisParJour) ajouter(new Date(x.date).getTime(), x.jours);
+  const cSans = (p.cSansDemande ?? []).filter((d) => new Date(d).getTime() <= finAnnee);
+  for (const d of cSans) ajouter(new Date(d).getTime(), 1);
+
+  const premier = Math.min(Date.UTC(embauche.getUTCFullYear(), embauche.getUTCMonth(), embauche.getUTCDate()), ...pris.keys(), debutAnnee);
+  let solde = 0;
+  let mois = 0;
   let report = 0;
-  let resultat: Omit<SoldeConge, "typesDeduits"> | null = null;
-  // De l'année d'embauche à l'année en cours (embauche future : la boucle ne tourne que sur l'année).
-  for (let y = Math.min(embauche.getUTCFullYear(), annee); y <= annee; y++) {
-    const debut = new Date(Date.UTC(y, 0, 1));
-    const finAnnee = new Date(Date.UTC(y + 1, 0, 1));
-    const fin = y === annee ? p.aujourdhui : finAnnee;
-    const acquisAnnee = auDixieme(parMois * Math.max(0, cumul(fin) - cumul(debut)));
-    const brut = auDixieme(report + acquisAnnee);
-    const droits = Math.min(p.droitsAnnuels, brut);
-    const pris = auDixieme(prisDe(y));
-    if (y === annee) {
-      resultat = {
-        annee,
-        acquis: droits,
-        acquisAnnee,
-        report,
-        plafonne: brut > p.droitsAnnuels,
-        pris,
-        cSansDemande: p.cSansDemandeParAnnee?.get(y) ?? 0,
-        solde: auDixieme(droits - pris),
-      };
+  let acquisAnnee = 0;
+  let perdu = 0;
+  let prisAnnee = 0;
+  for (let t = premier; t <= finAnnee; t += 86_400_000) {
+    if (t === debutAnnee) report = auCent(solde);
+    if (!p.sansConges && t <= auj) {
+      const m = ancienneteEnMois(embauche, new Date(t));
+      if (m > mois) {
+        const gagne = (m - mois) * parMois;
+        mois = m;
+        const apres = Math.min(p.droitsAnnuels, solde + gagne);
+        if (t >= debutAnnee) { acquisAnnee += gagne; perdu += solde + gagne - apres; }
+        solde = auCent(apres);
+      }
     }
-    report = auDixieme(droits - pris);
+    const j = pris.get(t);
+    if (j) {
+      solde = auCent(solde - j);
+      if (t >= debutAnnee) prisAnnee += j;
+    }
   }
-  return resultat!;
+  const prisR = auDixieme(prisAnnee);
+  const soldeR = auDixieme(solde);
+  return {
+    annee,
+    acquis: auDixieme(soldeR + prisR),
+    acquisAnnee: auDixieme(acquisAnnee),
+    report: auDixieme(report),
+    plafonne: perdu > 0.001,
+    perdu: auDixieme(perdu),
+    pris: prisR,
+    cSansDemande: cSans.filter((d) => new Date(d).getTime() >= debutAnnee).length,
+    solde: soldeR,
+  };
 }
 
 /**
- * Répartit un congé APPROUVÉ entre les années civiles qu'il couvre, au prorata de ses jours
- * ouvrables (lundi → samedi, hors fériés) dans chacune. Le nombre de jours SAISI fait foi pour le
- * total ; la dernière année reçoit l'arrondi (au dixième). Un congé sans aucun jour ouvrable
- * compte entièrement dans l'année de son début. PURE.
+ * Répartit un congé APPROUVÉ jour par jour sur ses jours ouvrables (lundi → samedi, hors fériés), à
+ * parts égales ; le nombre de jours SAISI fait foi pour le total. Un congé sans aucun jour ouvrable
+ * compte entièrement le jour de son début. PURE.
  */
-export function repartirCongeParAnnee(
+export function repartirCongeParJour(
   c: { dateDebut: Date; dateFin: Date; nbJours: number },
   feriesIso: Set<string>,
-): Map<number, number> {
+): { date: Date; jours: number }[] {
   const debut = new Date(c.dateDebut);
   const fin = new Date(c.dateFin);
-  const parts = new Map<number, number>();
-  const a0 = debut.getUTCFullYear();
-  const a1 = Math.max(a0, fin.getUTCFullYear());
-  if (a0 === a1) return parts.set(a0, c.nbJours);
-  const ouvrables = new Map<number, number>();
-  for (let y = a0; y <= a1; y++) {
-    const de = y === a0 ? debut : new Date(Date.UTC(y, 0, 1));
-    const a = y === a1 ? fin : new Date(Date.UTC(y, 11, 31));
-    ouvrables.set(y, compterJoursOuvrables(de, a, feriesIso));
+  const jours: Date[] = [];
+  for (let t = debut.getTime(); t <= fin.getTime(); t += 86_400_000) {
+    const d = new Date(t);
+    if (d.getUTCDay() !== 0 && !feriesIso.has(iso(d))) jours.push(d);
   }
-  const total = [...ouvrables.values()].reduce((s, n) => s + n, 0);
-  if (total === 0) return parts.set(a0, c.nbJours);
-  let reste = c.nbJours;
-  for (let y = a0; y <= a1; y++) {
-    const part = y === a1 ? auDixieme(reste) : auDixieme((c.nbJours * ouvrables.get(y)!) / total);
-    parts.set(y, part);
-    reste -= part;
-  }
-  return parts;
+  if (jours.length === 0) return [{ date: debut, jours: c.nbJours }];
+  return jours.map((date) => ({ date, jours: c.nbJours / jours.length }));
 }
 
 /**
@@ -152,12 +165,20 @@ export function compterCSansDemande(
   demandesApprouvees: { dateDebut: Date; dateFin: Date }[],
   feriesIso: Set<string>,
 ): number {
-  const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
+  return joursCSansDemande(joursC, demandesApprouvees, feriesIso).length;
+}
+
+/** Les mêmes jours, datés (le solde les déduit le jour où ils tombent). PURE. */
+export function joursCSansDemande(
+  joursC: Date[],
+  demandesApprouvees: { dateDebut: Date; dateFin: Date }[],
+  feriesIso: Set<string>,
+): Date[] {
   return joursC.filter((j) => {
     const d = new Date(j);
     if (d.getUTCDay() === 0 || feriesIso.has(iso(d))) return false;
     return !demandesApprouvees.some((c) => d >= new Date(c.dateDebut) && d <= new Date(c.dateFin));
-  }).length;
+  });
 }
 
 /**
@@ -207,28 +228,16 @@ export async function chargerSoldesCongeSalaries(
   const soldes = new Map<string, SoldeConge>();
   for (const emp of emps) {
     const demandes = approuvees.filter((l) => l.employeeId === emp.id);
-    const prisParAnnee = new Map<number, number>();
-    for (const l of demandes) {
-      if (!congeDeductibleDuSolde(compteDansSolde.get(l.type))) continue;
-      for (const [y, j] of repartirCongeParAnnee({ dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours) }, feriesIso)) {
-        prisParAnnee.set(y, (prisParAnnee.get(y) ?? 0) + j);
-      }
-    }
-    const cParAnnee = new Map<number, Date[]>();
-    for (const a of joursC) {
-      if (a.employeeId !== emp.id) continue;
-      const y = new Date(a.date).getUTCFullYear();
-      (cParAnnee.get(y) ?? cParAnnee.set(y, []).get(y)!).push(a.date);
-    }
-    const cSansDemandeParAnnee = new Map<number, number>();
-    for (const [y, dates] of cParAnnee) cSansDemandeParAnnee.set(y, compterCSansDemande(dates, demandes, feriesIso));
+    const prisParJour = demandes
+      .filter((l) => congeDeductibleDuSolde(compteDansSolde.get(l.type)))
+      .flatMap((l) => repartirCongeParJour({ dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours) }, feriesIso));
     const r = calculerSoldeAnneeCivile({
       dateEmbauche: new Date(emp.dateEmbauche),
       aujourdhui,
       droitsAnnuels: droitsCongesAnnuel,
       sansConges: typeSansConges(emp.contrat),
-      prisParAnnee,
-      cSansDemandeParAnnee,
+      prisParJour,
+      cSansDemande: joursCSansDemande(joursC.filter((a) => a.employeeId === emp.id).map((a) => a.date), demandes, feriesIso),
     });
     soldes.set(emp.id, { ...r, typesDeduits });
   }

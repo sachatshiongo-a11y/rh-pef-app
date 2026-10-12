@@ -329,7 +329,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
                       {e.nom}
                     </Link>
                   </td>
-                  <td className="px-3 py-1.5 text-center" title={s ? `Acquis ${s.annee} : ${s.acquisAnnee} j ; report ${s.annee - 1} : ${s.report} j${s.plafonne ? " ; plafonné" : ""}` : undefined}>
+                  <td className="px-3 py-1.5 text-center" title={s ? `Acquis ${s.annee} : ${s.acquisAnnee} j ; report ${s.annee - 1} : ${s.report} j${s.plafonne ? ` ; ${s.perdu} j perdus au plafond` : ""}` : undefined}>
                     {s ? `${s.acquis} j` : "—"}
                     {s && s.report !== 0 && <span className="ml-1 text-xs text-muted-foreground">dont report {s.report} j</span>}
                   </td>
@@ -357,8 +357,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
       <p className="mt-4 text-xs text-muted-foreground">
         Source : demandes de congé <span className="font-medium">approuvées</span>, plus les « C » posés
         directement dans la grille Présences sans demande (payés comme congé, donc décomptés). Solde en année civile :
-        droits = reliquat de l&apos;an dernier + acquis de l&apos;année (mois révolus), plafonnés aux droits
-        annuels − congés décomptés dans l&apos;année (un congé à cheval sur deux années est réparti ; seuls
+        droits = reliquat de l&apos;an dernier + acquis de l&apos;année (mois révolus) − congés décomptés dans
+        l&apos;année, le solde ne dépassant jamais les droits annuels (l&apos;acquis au-delà est perdu) (un congé à cheval sur deux années est réparti ; seuls
         les types cochés « Solde annuel » dans Paramètres se déduisent) — le même chiffre que sur la
         fiche employé et l&apos;espace salarié. Les droits légaux restent à valider
         par un comptable. Colonne orange = dimanche ou jour férié.

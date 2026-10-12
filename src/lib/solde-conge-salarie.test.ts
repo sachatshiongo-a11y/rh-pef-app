@@ -1,68 +1,72 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { calculerSoldeAnneeCivile, repartirCongeParAnnee } from "./solde-conge-salarie";
+import { calculerSoldeAnneeCivile, repartirCongeParJour } from "./solde-conge-salarie";
 
 const jour = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 const AUJ = jour("2026-10-12");
 const base = { aujourdhui: AUJ, droitsAnnuels: 18, sansConges: false };
+/** Un congé de n jours ouvrables consécutifs à partir d'un lundi (sans férié), réparti jour par jour. */
+const conge = (debut: string, fin: string, n: number) => repartirCongeParJour({ dateDebut: jour(debut), dateFin: jour(fin), nbJours: n }, new Set());
 
 // Décisions de la Direction du 2026-10-12 : ANNÉE CIVILE pour les acquis ET les pris, RELIQUAT
-// reporté, report + acquis de l'année plafonnés à 18 j.
-describe("calculerSoldeAnneeCivile — année civile, report, plafond", () => {
-  it("ancien salarié sans historique : 18 j de droits (report plafonné), 13,5 j acquis cette année, 5 pris → 13", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2020-03-01"), prisParAnnee: new Map([[2026, 5]]) });
-    // Acquis 2026 = 9 mois révolus (1er mars → 1er oct.) entre le 1er janvier et le 12 octobre = 13,5 j.
-    expect(r).toEqual({ annee: 2026, acquis: 18, acquisAnnee: 13.5, report: 18, plafonne: true, pris: 5, cSansDemande: 0, solde: 13 });
+// reporté, et (Sacha, 2026-10-12, second arbitrage) SOLDE ≤ 18 j À TOUT INSTANT : l'acquisition qui
+// le ferait dépasser est perdue au-delà, jamais « report + acquis de l'année ≤ 18 ».
+describe("calculerSoldeAnneeCivile — année civile, report, solde plafonné à tout instant", () => {
+  it("le cas de Sacha : 18 j reportés pris en janvier → de nouveau 13,5 j en octobre", () => {
+    // Embauché le 1er : un mois s'achève chaque 1er. Janvier : solde déjà à 18, l'acquis du 01/01 est perdu.
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2020-03-01"), prisParJour: conge("2026-01-05", "2026-01-26", 18) });
+    expect(r).toMatchObject({ report: 18, pris: 18, solde: 13.5, plafonne: true, perdu: 1.5, acquisAnnee: 15 });
+    expect(r.acquis).toBe(31.5); // droits = solde + pris : report 18 + 15 acquis − 1,5 perdu
   });
 
-  it("reliquat reporté : embauché le 20/03/2025, 10 j pris en 2025 → report 3,5 ; 2026 = 3,5 + 13,5 = 17 ; 4 pris → 13", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-03-20"), prisParAnnee: new Map([[2025, 10], [2026, 4]]) });
-    // 2025 : 9 mois révolus au 1er janvier 2026 (20/03 → 20/12) = 13,5 j ; 13,5 − 10 = 3,5 reportés.
-    // 2026 : 18 mois révolus au 12/10 − 9 = 9 mois = 13,5 j. Ancienne règle : 18 − 4 = 14 (le pris de
-    // 2025 était oublié au 1er janvier).
-    expect(r).toMatchObject({ acquis: 17, acquisAnnee: 13.5, report: 3.5, plafonne: false, pris: 4, solde: 13 });
+  it("ancien salarié sans historique, 5 j pris en mars : le solde remonte au plafond, jamais au-delà", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2020-03-01"), prisParJour: conge("2026-03-02", "2026-03-06", 5) });
+    // 13 après le congé, + 1,5 chaque 1er du mois d'avril à octobre (10,5) → 23,5 plafonné à 18.
+    expect(r).toMatchObject({ report: 18, pris: 5, solde: 18, plafonne: true });
+    // Ancienne règle : 18 − 5 = 13.
   });
 
-  it("plafond : report + acquis de l'année ne dépassent jamais les droits annuels", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-01-01"), prisParAnnee: new Map() });
-    // 2025 entier : 18 j acquis, rien pris → 18 reportés ; 2026 : 18 + 13,5 plafonnés à 18.
-    expect(r).toMatchObject({ report: 18, acquisAnnee: 13.5, acquis: 18, plafonne: true, solde: 18 });
+  it("reliquat reporté : embauché le 20/03/2025, 10 j pris en 2025 → report 3,5 ; 4 pris en 2026 → 13", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-03-20"), prisParJour: [...conge("2025-11-03", "2025-11-14", 10), ...conge("2026-08-03", "2026-08-06", 4)] });
+    // 2025 : 9 mois révolus (20/04 → 20/12) = 13,5 − 10 = 3,5 ; 2026 : 9 mois (20/01 → 20/09) = 13,5 ; 17 − 4 = 13.
+    expect(r).toMatchObject({ report: 3.5, acquisAnnee: 13.5, acquis: 17, plafonne: false, pris: 4, solde: 13 });
+  });
+
+  it("le solde affiché ne dépasse jamais 18 : rien pris depuis l'embauche → 18", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-01-01"), prisParJour: [] });
+    // 31/12/2025 : 11 mois révolus = 16,5 reportés ; le 12e mois s'achève le 01/01/2026 → 18, le reste est perdu.
+    expect(r).toMatchObject({ report: 16.5, solde: 18, plafonne: true, perdu: 13.5 });
   });
 
   it("reliquat NÉGATIF (congé pris par anticipation) : reporté et repris sur l'année suivante", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, aujourdhui: jour("2026-03-15"), dateEmbauche: jour("2025-10-01"), prisParAnnee: new Map([[2025, 5]]) });
-    // 2025 : 3 mois révolus = 4,5 j ; 5 pris → −0,5 reporté. 2026 au 15/03 : 2 mois = 3 j → 2,5.
-    expect(r).toMatchObject({ report: -0.5, acquisAnnee: 3, acquis: 2.5, pris: 0, solde: 2.5 });
+    const r = calculerSoldeAnneeCivile({ ...base, aujourdhui: jour("2026-03-15"), dateEmbauche: jour("2025-10-01"), prisParJour: conge("2025-12-15", "2025-12-19", 5) });
+    // 2025 : 01/11, 01/12 = 3 j (le 01/01 tombe en 2026) − 5 → −2 ; 2026 : 01/01, 01/02, 01/03 = 4,5 → 2,5.
+    expect(r).toMatchObject({ report: -2, acquisAnnee: 4.5, solde: 2.5, pris: 0 });
   });
 
   it("embauché dans l'année : ni report ni plafond, mois révolus seulement", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2026-03-20"), prisParAnnee: new Map() });
-    expect(r).toMatchObject({ report: 0, acquisAnnee: 9, acquis: 9, solde: 9 }); // 6 mois révolus au 12/10
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2026-03-20"), prisParJour: [] });
+    expect(r).toMatchObject({ report: 0, acquisAnnee: 9, acquis: 9, solde: 9, plafonne: false }); // 6 mois révolus au 12/10
   });
 
-  it("« C » sans demande : comptés dans l'année civile où ils tombent (report compris)", () => {
-    const r = calculerSoldeAnneeCivile({
-      ...base, dateEmbauche: jour("2025-07-01"), prisParAnnee: new Map(),
-      cSansDemandeParAnnee: new Map([[2025, 2], [2026, 1]]),
-    });
-    // 2025 : 6 mois = 9 j − 2 C = 7 reportés ; 2026 : 9 mois = 13,5 → 18 (plafond) − 1 C = 17.
-    expect(r).toMatchObject({ report: 7, acquis: 18, plafonne: true, pris: 1, cSansDemande: 1, solde: 17 });
+  it("« C » sans demande : déduits le jour où ils tombent (report compris)", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-07-01"), prisParJour: [], cSansDemande: [jour("2025-11-04"), jour("2025-11-05"), jour("2026-02-03")] });
+    // 2025 : 01/08 → 01/12 = 7,5 − 2 = 5,5 reportés ; 2026 : 01/01 → 01/10 = 15 → 20,5 plafonné à 18 avant le 01/10, − 1 le 03/02.
+    expect(r).toMatchObject({ report: 5.5, cSansDemande: 1, pris: 1, solde: 18, plafonne: true });
   });
 
   it("stage ou intérim : rien d'acquis, le pris se décompte", () => {
-    const r = calculerSoldeAnneeCivile({ ...base, sansConges: true, dateEmbauche: jour("2025-01-01"), prisParAnnee: new Map([[2026, 2]]) });
+    const r = calculerSoldeAnneeCivile({ ...base, sansConges: true, dateEmbauche: jour("2025-01-01"), prisParJour: conge("2026-02-02", "2026-02-03", 2) });
     expect(r).toMatchObject({ acquis: 0, report: 0, pris: 2, solde: -2 });
   });
 });
 
-describe("repartirCongeParAnnee — un congé à cheval sur deux années", () => {
+describe("repartirCongeParJour — un congé à cheval sur deux années", () => {
   it("29/12/2025 → 06/01/2026, 1er janvier férié : 3 j sur 2025, 4 j sur 2026", () => {
-    const parts = repartirCongeParAnnee({ dateDebut: jour("2025-12-29"), dateFin: jour("2026-01-06"), nbJours: 7 }, new Set(["2026-01-01"]));
-    expect([...parts]).toEqual([[2025, 3], [2026, 4]]);
-  });
-  it("dans une seule année : le nombre saisi tel quel", () => {
-    expect([...repartirCongeParAnnee({ dateDebut: jour("2026-03-02"), dateFin: jour("2026-03-06"), nbJours: 5 }, new Set())]).toEqual([[2026, 5]]);
+    const parts = repartirCongeParJour({ dateDebut: jour("2025-12-29"), dateFin: jour("2026-01-06"), nbJours: 7 }, new Set(["2026-01-01"]));
+    const parAnnee = (y: number) => parts.filter((p) => p.date.getUTCFullYear() === y).reduce((s, p) => s + p.jours, 0);
+    expect([parAnnee(2025), parAnnee(2026)]).toEqual([3, 4]);
   });
 });
 

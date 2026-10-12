@@ -730,7 +730,7 @@ export default async function FicheEmployePage({
         <p className="-mt-2 mb-4 text-xs text-muted-foreground">
           Acquis en {anneeConges} : {congesAcquisAnnee} j
           {reportConges !== 0 ? ` · report ${anneeConges - 1} : ${reportConges} j` : ""}
-          {congesPlafonnes ? " · plafonné aux droits annuels" : ""}
+          {congesPlafonnes ? ` · ${soldeConge.perdu} j perdus au plafond (le solde ne dépasse jamais les droits annuels)` : ""}
         </p>
         {cSansDemande > 0 && (
           // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.

@@ -334,7 +334,7 @@ describe("bulletin â€” les lignes s'additionnent au centime (moteur au centime Ã
     const bea = { ...employee, nom: "Bea Bureau", categorie: "BACKOFFICE", salaireMensuel: 400 } as unknown as Employee;
     const m = calculerPaieBackoffice({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 0, joursMaladieNonJustifies: 0, prorata: { joursTravailles: 14, joursMois: 26 } } }, params);
     const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: bea, ligne: ligne({ ...versLigne(m, 0), prorataJoursTravailles: 14, prorataJoursMois: 26 }), run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
-    expect(t).toMatch(/Salaire de base au prorata \(14 j ouvrables sur 26\)\s*256,25 \$/);
+    expect(t).toMatch(/Salaire de base au prorata \(14 j sur 26\)\s*256,25 \$/);
     expect(t).toMatch(/SALAIRE NET\s*215,38 \$/);
   }, 60_000);
 
