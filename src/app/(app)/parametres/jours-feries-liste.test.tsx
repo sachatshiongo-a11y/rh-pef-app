@@ -48,7 +48,7 @@ describe("JoursFeriesListe", () => {
   });
 
   it("le « Supprimer » d'une ligne demande aussi confirmation et ne retire que ce férié", async () => {
-    const confirmer = vi.fn(() => true);
+    const confirmer = vi.fn((_m?: string) => true);
     vi.stubGlobal("confirm", confirmer);
     monter();
     await act(async () => conteneur.querySelectorAll<HTMLButtonElement>("tbody button")[1].click());
