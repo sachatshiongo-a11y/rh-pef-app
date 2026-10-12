@@ -78,15 +78,35 @@ function rapprocher(l: MouvementCsv, idx: ReturnType<typeof indexer>, candidats:
     const m = l.designation
       ? meilleurArticle(l.designation, porteurs.map((a) => ({ id: a.id, designation: a.designation })), 0.5)
       : null;
-    if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "code" };
+    if (m) {
+      const r = departager(m, l, idx);
+      if (r) return { article: r, type: "code" };
+      return { article: null, type: "inconnu" }; // jumeaux de même nom, aucune marque pour trancher
+    }
     // Collision sans nom proche : on n'attribue PAS au hasard, le repli flou tranchera (ou inconnu).
   }
 
   // Nom porté par plusieurs articles et rien pour les départager : « inconnu » (à préciser par la colonne Marque), pas un choix au hasard.
   if (nomAmbigu) return { article: null, type: "inconnu" };
   const m = l.designation ? meilleurArticle(l.designation, candidats, 0.6) : null;
-  if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "flou" };
+  if (m) {
+    const r = departager(m, l, idx);
+    if (r) return { article: r, type: "flou" };
+  }
   return { article: null, type: "inconnu" };
+}
+
+/**
+ * Le meilleur article trouvé (par code en collision ou par ressemblance) a-t-il des JUMEAUX (même nom, marques différentes) ?
+ * Alors la marque du fichier tranche s'il y en a une qui désigne UN jumeau ; sinon null : jamais le premier de la liste.
+ * Sans jumeau : l'article trouvé, comme avant.
+ */
+function departager(m: { id: string; designation: string }, l: MouvementCsv, idx: ReturnType<typeof indexer>): ArticleRef | null {
+  const jumeaux = idx.parNom.get(cleAlnum(m.designation)) ?? [];
+  if (jumeaux.length <= 1) return { id: m.id, designation: m.designation, code: null };
+  const marque = cleMarque(l.marque);
+  const memes = marque ? jumeaux.filter((a) => cleMarque(a.marque) === marque) : [];
+  return memes.length === 1 ? memes[0] : null;
 }
 
 async function chargerArticles(): Promise<ArticleRef[]> {

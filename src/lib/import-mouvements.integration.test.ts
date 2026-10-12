@@ -158,4 +158,11 @@ describe("analyserMouvements — plusieurs marques du même nom (2026-10-14)", (
     const avec = await analyserMouvements(`${entete}10/07/2026,,Riz basmati 5kg,,1,0`);
     expect(avec.lignes[0].articleId).toBe(articleId);
   });
+  it("ressemblance (flou) ou code partagé vers des JUMEAUX de même nom : jamais le premier, la marque du fichier tranche", async () => {
+    const sans = await analyserMouvements("Date,Code article,Désignation,Entrées,Sorties\n10/07/2026,,Crème liquide Zorg 1 L,3,0");
+    expect(sans.lignes[0]).toMatchObject({ articleId: null, rapprochement: "inconnu" });
+    const avec = await analyserMouvements("Date,Code article,Désignation,Marque,Entrées,Sorties\n10/07/2026,,Crème liquide Zorg 1 L,Débic,3,0");
+    expect(avec.lignes[0].rapprochement).toBe("flou");
+    expect((await prisma.articleStock.findUniqueOrThrow({ where: { id: avec.lignes[0].articleId! } })).marque).toBe("Débic");
+  });
 });

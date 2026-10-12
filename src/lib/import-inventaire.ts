@@ -122,7 +122,16 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
     const byCode = parCode.get(dom + "|" + code);
     if (byCode) return { m: "code", a: byCode };
     const ne = OVERRIDE[normEx(nom)] ? normEx(OVERRIDE[normEx(nom)]) : normEx(nom);
-    for (const d of [dom, "AUTRE", "NOURRITURE", "BOISSON"] as Domaine[]) { const e = db.find((a) => a.domaine === d && a.ex === ne && !marquesDifferentes(marque, a.marque)); if (e) return { m: "nom", a: e }; }
+    for (const d of [dom, "AUTRE", "NOURRITURE", "BOISSON"] as Domaine[]) {
+      const memes = db.filter((a) => a.domaine === d && a.ex === ne && !marquesDifferentes(marque, a.marque));
+      if (memes.length === 0) continue;
+      // Plusieurs articles de même nom (marques différentes) : la marque du classeur départage ; sans elle, JAMAIS le premier venu —
+      // « aucun » : l'anti-doublon ci-dessous montre les articles et la Direction choisit.
+      const exacts = marque ? memes.filter((a) => a.marque && !marquesDifferentes(marque, a.marque)) : [];
+      const choix = exacts.length > 0 ? exacts : memes;
+      if (choix.length === 1) return { m: "nom", a: choix[0] };
+      return { m: "aucun", a: null };
+    }
     const t = toks(nom); let best: typeof db[number] | null = null, bs = 0;
     for (const a of db) { if (marquesDifferentes(marque, a.marque)) continue; const s = jac(t, a.tk); const sub = t.every((x) => a.tk.includes(x)) || a.tk.every((x) => t.includes(x)); if (sub && s >= 0.5 && s > bs) { bs = s; best = a; } }
     // Nom seulement APPROCHANT : jamais rattaché d'office. Proposé à la Direction (voir `approxId`).

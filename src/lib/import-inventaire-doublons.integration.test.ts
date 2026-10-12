@@ -143,4 +143,17 @@ describe("import d'inventaire — colonne Marque facultative (2026-10-14)", () =
     expect(p.articles[0]).toMatchObject({ match: "nom", articleId: amora });
     expect(p.articles[0].marque).toBeUndefined();
   });
+  it("sans colonne Marque et DEUX articles de même nom (marques différentes) : jamais le premier venu, la Direction choisit", async () => {
+    const amora = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Amora", domaine: "NOURRITURE" } })).id;
+    const maille = (await prisma.articleStock.create({ data: { designation: "Moutarde forte", marque: "Maille", domaine: "NOURRITURE" } })).id;
+    const buf = await classeur([{ code: "913", nom: "Moutarde forte", sinit: 2 }]);
+    const p = await analyserInventaire(buf);
+    expect(p.articles[0]).toMatchObject({ match: "aucun", articleId: null, creationPossible: false });
+    expect(p.articles[0].proches?.map((x) => x.id).sort()).toEqual([amora, maille].sort());
+    await expect(appliquerInventaire(buf, "Inv", userId)).rejects.toThrow(/Moutarde forte/);
+    expect(await prisma.importBatch.count()).toBe(0);
+    // Le classeur nomme la marque : rattaché à la bonne.
+    const p2 = await analyserInventaire(await classeurMarque([{ code: "913", nom: "Moutarde forte", marque: "Maille", sinit: 2 }]));
+    expect(p2.articles[0]).toMatchObject({ match: "nom", articleId: maille });
+  });
 });
