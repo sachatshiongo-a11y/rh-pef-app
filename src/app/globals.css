@@ -346,9 +346,11 @@ textarea,
 }
 
 /* Sur mobile, les champs de saisie < 16px déclenchent un zoom automatique iOS (effet saccadé) :
-   on force 16px pour les champs où l'on tape. */
+   on force 16px pour les champs où l'on tape — et pour les LISTES DÉROULANTES, que Safari zoome de la même
+   façon dès qu'on les touche (audit du 10/10/2026, ergonomie 12). */
 @media (max-width: 640px) {
   input:not([type="checkbox"]):not([type="radio"]),
+  select,
   textarea {
     font-size: 16px;
   }

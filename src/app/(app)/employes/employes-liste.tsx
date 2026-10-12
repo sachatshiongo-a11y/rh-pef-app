@@ -144,7 +144,7 @@ function TableEmployes({ employes, peutModifier, sel, toggle }: { employes: Lign
                 <td className="px-3 py-2 text-right">{e.heuresHebdomadaires}</td>
                 <td className="px-3 py-2">{e.contrat}</td>
                 <td className="px-3 py-2 text-right">
-                  {peutModifier && <Link href={`/employes/${e.id}/modifier`} className="text-primary underline">Modifier</Link>}
+                  {peutModifier && <Link href={`/employes/${e.id}/modifier`} className="inline-flex min-h-8 items-center text-primary underline">Modifier</Link>}
                 </td>
               </tr>
             ))}

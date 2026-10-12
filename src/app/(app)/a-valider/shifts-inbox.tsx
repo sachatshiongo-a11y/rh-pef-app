@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { BoutonApprouver, BoutonNeutre, BoutonRefuser } from "@/components/action-buttons";
@@ -12,7 +13,8 @@ import {
 /** Une demande en attente, déjà mise en phrases par le serveur. */
 export type LigneShift = {
   id: string;
-  nom: string;
+  /** Le ou les salariés concernés (le nom mène à sa fiche) : un pour un changement, deux pour un échange. */
+  salaries: { id: string; nom: string }[];
   photoUrl: string | null;
   /** Détail de la demande (jour, shifts, motif). */
   detail: string;
@@ -72,11 +74,15 @@ export function ShiftsInbox({ type, rows, peutPlanning }: { type: "echange" | "c
         {rows.map((r) => (
           <li key={r.id} className={`flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3 ${sel.has(r.id) ? "ring-1 ring-primary" : ""}`}>
             {peutPlanning && (
-              <input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Sélectionner la demande de ${r.nom}`} className="shrink-0" />
+              <input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Sélectionner la demande de ${r.salaries.map((e) => e.nom).join(" et ")}`} className="shrink-0" />
             )}
-            <Avatar nom={r.nom} taille={32} photoUrl={r.photoUrl} />
+            <Avatar nom={r.salaries[0]?.nom ?? "?"} taille={32} photoUrl={r.photoUrl} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{r.nom}</p>
+              <p className="text-sm font-medium">
+                {r.salaries.map((e, i) => (
+                  <span key={e.id}>{i > 0 && " ↔ "}<Link href={`/employes/${e.id}`} className="text-primary hover:underline">{e.nom}</Link></span>
+                ))}
+              </p>
               <p className="text-xs text-muted-foreground">{r.detail}</p>
               {r.accordCollegue !== undefined && (
                 <p className="mt-0.5 text-[11px] text-muted-foreground">

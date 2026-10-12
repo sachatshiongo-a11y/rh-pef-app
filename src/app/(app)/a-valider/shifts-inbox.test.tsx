@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   appEc: vi.fn<(ids: string[]) => Promise<{ traitees: number; echecs: string[] }>>(async (ids) => ({ traitees: ids.length, echecs: [] })),
   refEc: vi.fn<(ids: string[]) => Promise<{ traitees: number; echecs: string[] }>>(async (ids) => ({ traitees: ids.length, echecs: [] })),
 }));
+vi.mock("next/link", () => ({ default: ({ href, children, ...p }: { href: string; children: unknown }) => h("a", { href, ...p }, children as never) }));
 vi.mock("../planning/decisions-lot-actions", () => ({
   approuverChangementsEnLot: m.appCh, refuserChangementsEnLot: m.refCh, approuverEchangesEnLot: m.appEc, refuserEchangesEnLot: m.refEc,
 }));
@@ -21,8 +22,8 @@ import { ShiftsInbox, type LigneShift } from "./shifts-inbox";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ROWS: LigneShift[] = [
-  { id: "c1", nom: "Aimée Mutita", photoUrl: null, detail: "lundi 12 octobre · Matin → Soir" },
-  { id: "c2", nom: "Esther Nsundi", photoUrl: null, detail: "mardi 13 octobre · → Soir" },
+  { id: "c1", salaries: [{ id: "e1", nom: "Aimée Mutita" }], photoUrl: null, detail: "lundi 12 octobre · Matin → Soir" },
+  { id: "c2", salaries: [{ id: "e2", nom: "Esther Nsundi" }], photoUrl: null, detail: "mardi 13 octobre · → Soir" },
 ];
 let conteneur: HTMLDivElement;
 let racine: Root;
@@ -49,7 +50,7 @@ describe("ShiftsInbox", () => {
   });
 
   it("les échanges passent par les actions d'échange, pas par celles des changements", async () => {
-    monter({ type: "echange", rows: [{ id: "x1", nom: "Aimée ↔ Esther", photoUrl: null, detail: "…", accordCollegue: true }] });
+    monter({ type: "echange", rows: [{ id: "x1", salaries: [{ id: "e1", nom: "Aimée" }, { id: "e2", nom: "Esther" }], photoUrl: null, detail: "…", accordCollegue: true }] });
     expect(conteneur.textContent).toContain("Collègue : accepté");
     act(() => cases()[0].click());
     await act(async () => boutons(/Refuser \(1\)/)[0].click());
@@ -78,6 +79,11 @@ describe("ShiftsInbox", () => {
     expect(cases()).toHaveLength(0);
     expect(conteneur.textContent).toContain("En attente");
     expect(boutons(/Approuver|Refuser/)).toHaveLength(0);
+  });
+
+  it("le nom du salarié mène à sa fiche (les deux noms d'un échange)", () => {
+    monter({ type: "echange", rows: [{ id: "x1", salaries: [{ id: "e1", nom: "Aimée" }, { id: "e2", nom: "Esther" }], photoUrl: null, detail: "…", accordCollegue: false }] });
+    expect([...conteneur.querySelectorAll("li a")].map((a) => [a.textContent, a.getAttribute("href")])).toEqual([["Aimée", "/employes/e1"], ["Esther", "/employes/e2"]]);
   });
 
   it("aucune demande : le message vide", () => {

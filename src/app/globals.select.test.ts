@@ -43,4 +43,11 @@ describe("globals.css — le garde-fou des listes déroulantes", () => {
     const surLeLabel = /label:has\( *select *\) *\{[^}]*min-width: *0[^}]*\}/.test(css);
     expect(surLeLabel, "la règle sur `label:has(select)` a disparu — la barre de filtres redéborde").toBe(true);
   }, 60_000);
+
+  // Audit du 10/10/2026 (ergonomie 12) : sous 16 px, Safari iOS zoome la page dès qu'on touche une liste déroulante.
+  it("sur téléphone, la liste déroulante est à 16 px comme les champs de saisie", async () => {
+    const css = await compiler();
+    const media = css.match(/@media \(max-width: *640px\) \{[^@]*?font-size: *16px[^}]*\}/g) ?? [];
+    expect(media.some((m) => /\bselect\b/.test(m)), "`select` a disparu de la règle 16 px mobile").toBe(true);
+  }, 60_000);
 });

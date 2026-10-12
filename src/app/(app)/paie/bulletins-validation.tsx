@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { StatusActions } from "./status-actions";
@@ -76,7 +77,7 @@ export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Rol
                 <div className="flex min-w-0 items-center gap-2">
                   <Avatar nom={r.nom} taille={32} photoUrl={r.photoUrl} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{r.nom}</p>
+                    <p className="truncate text-sm font-medium"><Link href={`/employes/${r.employeeId}`} className="text-primary hover:underline">{r.nom}</Link></p>
                     <BadgeReference sourceReference={r.sourceReference} motifReference={r.motifReference} avertissements={r.avertissements} />
                     <p className="text-xs text-muted-foreground">Salaire net : {money(r.salaireNetUSD)}</p>
                   </div>

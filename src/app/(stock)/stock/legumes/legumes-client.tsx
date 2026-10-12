@@ -162,7 +162,7 @@ export function SupprimerAchatBtn({ id, legume, estDirection = false }: { id: st
         disabled={isPending}
         aria-label={legume ? `Supprimer l'achat ${legume}` : "Supprimer cette ligne"}
         title="Supprimer cette ligne"
-        className="rounded-md border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+        className="min-h-8 min-w-8 rounded-md border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
       >
         ✕
       </button>

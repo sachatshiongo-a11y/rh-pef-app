@@ -952,7 +952,7 @@ export default async function FicheEmployePage({
                   {a.nature} : {formatMoney(Number(a.montantUSD))}{a.motif ? ` · ${a.motif}` : ""}
                   {estAdmin && (
                     <form action={supprimerAvantageNature.bind(null, a.id)} className="inline">
-                      <ConfirmSubmitButton message={`Supprimer l'avantage en nature « ${a.nature} » (${formatMoney(Number(a.montantUSD))}) ? Le bulletin du mois ne le mentionnera plus.`} className="text-amber-900/70 hover:text-amber-900" title="Supprimer" aria-label={`Supprimer l'avantage ${a.nature}`}>✕</ConfirmSubmitButton>
+                      <ConfirmSubmitButton message={`Supprimer l'avantage en nature « ${a.nature} » (${formatMoney(Number(a.montantUSD))}) ? Le bulletin du mois ne le mentionnera plus.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-amber-900/70 hover:text-amber-900" title="Supprimer" aria-label={`Supprimer l'avantage ${a.nature}`}>✕</ConfirmSubmitButton>
                     </form>
                   )}
                 </span>
@@ -971,7 +971,7 @@ export default async function FicheEmployePage({
                   {f.certificatUrl && <ApercuDocumentBouton href={f.certificatUrl} titre={`Certificat médical — ${employee.nom}`} libelle="certificat" className="underline" />}
                   {estAdmin && (
                     <form action={supprimerFraisMedical.bind(null, f.id)} className="inline">
-                      <ConfirmSubmitButton message={`Supprimer ce frais médical de ${formatMoney(Number(f.montantUSD))} ? Il ne sera plus remboursé sur le bulletin du mois.`} className="text-sky-900/70 hover:text-sky-900" title="Supprimer" aria-label="Supprimer le frais médical">✕</ConfirmSubmitButton>
+                      <ConfirmSubmitButton message={`Supprimer ce frais médical de ${formatMoney(Number(f.montantUSD))} ? Il ne sera plus remboursé sur le bulletin du mois.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-sky-900/70 hover:text-sky-900" title="Supprimer" aria-label="Supprimer le frais médical">✕</ConfirmSubmitButton>
                     </form>
                   )}
                 </span>
@@ -990,7 +990,7 @@ export default async function FicheEmployePage({
                 {p.nom} : {formatMoney(Number(p.montantUSD))}
                 {estAdmin && (
                   <form action={supprimerPrime.bind(null, p.id)} className="inline">
-                    <ConfirmSubmitButton message={`Supprimer la prime « ${p.nom} » de ${formatMoney(Number(p.montantUSD))} ? Elle sort du bulletin du mois.`} className="text-emerald-900/70 hover:text-emerald-900" title="Supprimer" aria-label={`Supprimer la prime ${p.nom}`}>✕</ConfirmSubmitButton>
+                    <ConfirmSubmitButton message={`Supprimer la prime « ${p.nom} » de ${formatMoney(Number(p.montantUSD))} ? Elle sort du bulletin du mois.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-emerald-900/70 hover:text-emerald-900" title="Supprimer" aria-label={`Supprimer la prime ${p.nom}`}>✕</ConfirmSubmitButton>
                   </form>
                 )}
               </span>
@@ -1024,7 +1024,7 @@ export default async function FicheEmployePage({
                 {estAdmin && (
                   <td className="px-3 py-2 text-right">
                     <form action={supprimerAcompte.bind(null, a.id)} className="inline">
-                      <ConfirmSubmitButton message={`Supprimer l'acompte de ${formatMoney(Number(a.montantUSD))} (${a.mois}/${a.annee}) ? Il ne sera plus déduit du bulletin.`} className="text-muted-foreground hover:text-destructive" title="Supprimer l'acompte" aria-label="Supprimer l'acompte">✕</ConfirmSubmitButton>
+                      <ConfirmSubmitButton message={`Supprimer l'acompte de ${formatMoney(Number(a.montantUSD))} (${a.mois}/${a.annee}) ? Il ne sera plus déduit du bulletin.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-muted-foreground hover:text-destructive" title="Supprimer l'acompte" aria-label="Supprimer l'acompte">✕</ConfirmSubmitButton>
                     </form>
                   </td>
                 )}

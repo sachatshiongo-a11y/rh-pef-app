@@ -64,7 +64,7 @@ export function PolyvalenceManager({ postes, polyvalences, peutRetirer = false }
                       startTransition(async () => { const r = await supprimerPolyvalence(p.id); if (r && "erreur" in r) setErreur(r.erreur); });
                     }}
                     disabled={pending}
-                    className="text-xs text-destructive underline disabled:opacity-50"
+                    className="min-h-8 text-xs text-destructive underline disabled:opacity-50"
                   >
                     Retirer
                   </button>

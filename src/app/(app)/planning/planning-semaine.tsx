@@ -500,7 +500,7 @@ export function PlanningSemaine({
                       </label>
                     )}
                     <Avatar nom={e.nom} taille={34} photoUrl={e.photoUrl} />
-                    <div className="min-w-0 flex-1 truncate text-sm font-medium">{e.nom}</div>
+                    <div className="min-w-0 flex-1 truncate text-sm font-medium"><Link href={`/employes/${e.id}`} className="hover:text-primary hover:underline">{e.nom}</Link></div>
                     <div>{celluleCarte(e.id, j)}</div>
                   </div>
                 );

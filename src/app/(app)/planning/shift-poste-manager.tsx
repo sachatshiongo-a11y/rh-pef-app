@@ -121,7 +121,7 @@ export function ShiftPosteManager({
                           startTransition(async () => { const r = await supprimerShiftPoste(sp.id); if (r && "erreur" in r) setErreur(r.erreur); });
                         }}
                         disabled={pending}
-                        className="px-0.5 opacity-70 hover:opacity-100"
+                        className="min-h-6 min-w-6 px-0.5 opacity-70 hover:opacity-100"
                         title="Retirer"
                         aria-label={`Retirer ${nomShift.get(sp.shiftId) ?? "ce shift"} du poste ${p}`}
                       >

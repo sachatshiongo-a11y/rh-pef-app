@@ -246,7 +246,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
           peutPlanning={peutPlanning}
           rows={echanges.map((e) => ({
             id: e.id,
-            nom: `${e.demandeur.nom} ↔ ${e.collegue.nom}`,
+            salaries: [{ id: e.demandeurId, nom: e.demandeur.nom }, { id: e.collegueId, nom: e.collegue.nom }],
             photoUrl: e.demandeur.photoUrl,
             detail: `${e.demandeur.nom} cède ${frDate(e.demandeurDate)} (${shiftsMap.get(e.demandeurShiftId) ?? "—"}) · prend ${frDate(e.collegueDate)} (${shiftsMap.get(e.collegueShiftId) ?? "—"})${e.motif ? ` · ${e.motif}` : ""}`,
             accordCollegue: e.reponseCollegue === "ACCEPTE",
@@ -263,7 +263,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
           peutPlanning={peutPlanning}
           rows={changements.map((dem) => ({
             id: dem.id,
-            nom: dem.employee.nom,
+            salaries: [{ id: dem.employeeId, nom: dem.employee.nom }],
             photoUrl: dem.employee.photoUrl,
             detail: `${new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} · ${dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}${shiftsMap.get(dem.shiftDemandeId) ?? "—"}${dem.motif ? ` · ${dem.motif}` : ""}`,
           }))}
