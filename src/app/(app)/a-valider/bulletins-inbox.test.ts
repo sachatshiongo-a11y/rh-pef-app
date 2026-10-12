@@ -56,9 +56,13 @@ describe("/a-valider : le paiement (Direction et RH, 2026-10-01)", () => {
 describe("/a-valider : rouvrir un bulletin validé (Direction), repris de l'écran Paie", () => {
   const s = src("bulletins-inbox.tsx");
   it("deux boutons « ↩ Rouvrir » (lot et ligne), de la famille action-buttons, derrière peutRouvrir, qui visent « Pas validé »", () => {
-    const boutons = [...s.matchAll(/\{peutRouvrir && <BoutonNeutre onClick=\{\(\) => (lancer\([^)]*\))\} disabled=\{isPending\}>↩ Rouvrir<\/BoutonNeutre>\}/g)].map((m) => m[1]);
-    expect(boutons).toEqual(['lancer(idsSelection, "PAS_VALIDE")', 'lancer([r.id], "PAS_VALIDE")']);
+    const boutons = [...s.matchAll(/\{peutRouvrir (&& !r\.periode )?&& <BoutonNeutre onClick=\{\(\) => (lancer\([^)]*\))\} disabled=\{isPending\}>↩ Rouvrir<\/BoutonNeutre>\}/g)].map((m) => `${m[1] ?? ""}${m[2]}`);
+    // La ligne d'un mois clôturé (« Paie de septembre 2026 ») n'a pas de « Rouvrir » (relecture du lot 8).
+    expect(boutons).toEqual(['lancer(idsSelection, "PAS_VALIDE")', '&& !r.periode lancer([r.id], "PAS_VALIDE")']);
     expect(s).toContain('import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";');
+  });
+  it("un lot « Rouvrir » écarte les bulletins d'un mois clôturé (le serveur les refuse de toute façon)", () => {
+    expect(s).toMatch(/if \(vers === "PAS_VALIDE"\) \{[\s\S]*?ids = ids\.filter\(\(id\) => !rows\.find\(\(x\) => x\.id === id\)\?\.periode\);[\s\S]*?window\.confirm\(question\)/);
   });
   it("une confirmation avant de rouvrir, et ni avertissements ni date de versement envoyés", () => {
     expect(s).toMatch(/if \(vers === "PAS_VALIDE"\) \{[\s\S]*?window\.confirm\(question\)/);

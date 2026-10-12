@@ -68,6 +68,7 @@ export function BulletinsInbox({
   const [dateVersement, setDateVersement] = useState(() => jourKinshasaISO());
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   function toggle(cle: string) {
     setSelection((s) => {
@@ -86,17 +87,28 @@ export function BulletinsInbox({
       if (message && !window.confirm(message)) return;
     }
     if (vers === "PAS_VALIDE") {
+      // Seuls les bulletins du mois en cours se rouvrent (le serveur refuse les autres) : un bulletin d'un mois
+      // clôturé rouvert sortirait des totaux de son mois sans pouvoir être revalidé (paie-hors-calcul.ts).
+      const autresMois = rows.filter((x) => ids.includes(x.id) && x.periode).length;
+      ids = ids.filter((id) => !rows.find((x) => x.id === id)?.periode);
+      if (ids.length === 0) { setErreur("Un bulletin d'un mois clôturé ne se rouvre pas : il reste à payer."); return; }
       const n = ids.length;
-      const question = n > 1
+      const question = (n > 1
         ? `Rouvrir ces ${n} bulletins validés ? Ils repassent « pas validé » et devront être validés de nouveau.`
-        : "Rouvrir ce bulletin validé ? Il repasse « pas validé » et devra être validé de nouveau.";
+        : "Rouvrir ce bulletin validé ? Il repasse « pas validé » et devra être validé de nouveau.")
+        + (autresMois > 0 ? `\n\n${autresMois} bulletin${autresMois > 1 ? "s" : ""} d'un mois clôturé ${autresMois > 1 ? "restent" : "reste"} à payer (il${autresMois > 1 ? "s" : ""} ne se rouvre${autresMois > 1 ? "nt" : ""} pas).` : "");
       if (!window.confirm(question)) return;
     }
     setErreur(null);
+    setInfo(null);
+    const envoyes = ids;
     startTransition(async () => {
-      const jetons = Object.fromEntries(rows.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, vers, vers === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons, vers === "PAYE" ? dateVersement : null);
+      const jetons = Object.fromEntries(rows.filter((x) => envoyes.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
+      const r = await changerStatutEnLot(envoyes, vers, vers === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons, vers === "PAYE" ? dateVersement : null);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
+      // Lignes ignorées par le serveur (payées, rouvertes ou validées entre-temps par un autre compte) : le dire,
+      // comme le faisait l'écran Paie, au lieu d'un succès muet.
+      if (r < envoyes.length) setInfo(`${envoyes.length - r} bulletin(s) non modifié(s) : leur état a changé entre-temps (autre compte, autre onglet). Rechargez la page.`);
       setSelection(new Set());
     });
   }
@@ -104,6 +116,7 @@ export function BulletinsInbox({
   return (
     <div>
       {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
       {avisEcartes && (
         <p className="mb-3 text-xs text-muted-foreground">
           {avisEcartes}{" "}
@@ -168,7 +181,7 @@ export function BulletinsInbox({
               ) : (
                 <>
                   <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
-                  {peutRouvrir && <BoutonNeutre onClick={() => lancer([r.id], "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
+                  {peutRouvrir && !r.periode && <BoutonNeutre onClick={() => lancer([r.id], "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
                 </>
               )}
             </div>

@@ -34,6 +34,11 @@ import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
+/** Refus de rouvrir un bulletin d'un autre mois que le mois en cours (voir `appliquerTransitionPaie`). */
+function messageRouvrirAutreMois(nom: string, periode: Periode): string {
+  return `${nom} : ce bulletin appartient à la paie de ${libellePeriode(periode)}, qui n'est plus le mois en cours — il ne se rouvre pas d'ici (rouvert, il sortirait des totaux et des déclarations de ce mois sans pouvoir être revalidé). Il reste à payer ; pour le corriger, la Direction revient d'abord à ce mois (Paramètres → mois en cours).`;
+}
+
 export async function calculerPaieDuMois() {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
@@ -105,6 +110,17 @@ async function appliquerTransitionPaie(
     include: { employee: true, payrollRun: true },
   });
   if (!ligne || !transitionPermise(acteur.role, ligne.statutPaiement, versStatut, { enLot: opts.enLot })) return null;
+  // Rouvrir : le bulletin du MOIS COURANT seulement (relecture du lot 8, 2026-10-12). « À valider » liste les
+  // bulletins à payer de TOUS les mois (un mois clôturé garde ses validés impayés) : rouvert, un bulletin d'un
+  // mois quitté devient « hors calcul » (paie-hors-calcul.ts) — sorti des totaux et des déclarations de son
+  // mois, plus recalculé ni revalidable nulle part, son échéance de prêt et ses frais médicaux rendus à la
+  // fiche du mois en cours. Refus lisible, rien d'écrit (un lot est refusé en entier).
+  if (versStatut === "PAS_VALIDE") {
+    const config = await tx.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
+    if (config && !memePeriode(ligne.payrollRun, { mois: config.moisCourant, annee: config.anneeCourante })) {
+      throw new ValidationPaieRefuseeError(messageRouvrirAutreMois(ligne.employee.nom, ligne.payrollRun));
+    }
+  }
   if (versStatut === "VALIDE" && ligne.statutPaiement === "PAS_VALIDE" && !opts.controlees?.has(payrollLineId)) {
     throw new Error(`appliquerTransitionPaie : ligne ${payrollLineId} validée sans contrôle du montant (controlerLignesAValider)`);
   }

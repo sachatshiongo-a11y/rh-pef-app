@@ -290,3 +290,54 @@ describe("À valider : les gestes marchent, aux droits d'avant (actions serveur)
 });
 
 const texteLiens = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+// RELECTURE DU LOT 8 (2026-10-12) : « À valider » liste les bulletins à payer de TOUS les mois, et y offrait
+// « Rouvrir » sur chacun. Rouvert, le bulletin validé-impayé d'un mois clôturé devient « hors calcul »
+// (paie-hors-calcul.ts) : il sort des totaux et des déclarations de son mois, n'est plus revalidable nulle part
+// (la file « à valider » ne suit que le mois courant), et son échéance de prêt comme ses frais médicaux
+// reviennent à la fiche du mois en cours. Sur l'écran Paie (mois courant seulement) le geste n'existait pas.
+describe("Rouvrir : le bulletin du mois en cours seulement, jamais celui d'un mois clôturé", () => {
+  let sept = "";
+  beforeAll(async () => {
+    const run = await prisma.payrollRun.create({ data: { mois: 9, annee: 2026, tauxChangeUtilise: 2750, statut: "VALIDE" } });
+    sept = (await ligne(run.id, await employe("Salarie Septembre Impaye"), "VALIDE", { tauxChangeFige: 2750 })).id;
+  });
+
+  it("l'écran : la ligne de septembre est à payer, sans « Rouvrir » ; celle du mois en cours le garde", async () => {
+    CHARGEURS.reinitialiserCacheAValider();
+    en("DIR");
+    const html = await aValider();
+    const t = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(t).toContain("Salarie Septembre Impaye");
+    expect(t).toContain("Paie de septembre 2026");
+    // Deux lignes à payer (octobre : « A-payer Deux » ; septembre) mais un seul « Rouvrir » de ligne.
+    expect(t).toContain("Bulletins à payer (2)");
+    expect(t.match(/↩ Rouvrir/g)).toHaveLength(1);
+  });
+
+  it("le serveur refuse, à l'unité comme en lot, et n'écrit rien (statut, taux figé, transitions)", async () => {
+    en("DIR");
+    const lot = await tenter(() => PAIE.changerStatutEnLot([sept], "PAS_VALIDE", null, {}));
+    expect(lot?.message).toMatch(/Salarie Septembre Impaye : ce bulletin appartient à la paie de septembre 2026, qui n'est plus le mois en cours/);
+    // Un lot mêlant une ligne du mois et une de septembre est refusé EN ENTIER.
+    const mixte = await tenter(() => PAIE.changerStatutEnLot([S.aPayer2, sept], "PAS_VALIDE", null, {}));
+    expect(mixte?.message).toMatch(/septembre 2026/);
+    expect(await statut(S.aPayer2)).toBe("VALIDE");
+    const unite = await tenter(() => PAIE.changerStatutPaie(sept, fd({ versStatut: "PAS_VALIDE", retour: "/a-valider" })));
+    expect(unite?.page).toBe("/a-valider");
+    expect(unite?.message).toMatch(/n'est plus le mois en cours/);
+    const l = await prisma.payrollLine.findUniqueOrThrow({ where: { id: sept } });
+    expect(l.statutPaiement).toBe("VALIDE");
+    expect(Number(l.tauxChangeFige)).toBe(2750);
+    expect(await prisma.transitionPaie.count({ where: { payrollLineId: sept } })).toBe(0);
+  });
+
+  it("il reste payable : la RH le marque payé depuis À valider (taux figé conservé)", async () => {
+    en("MGR");
+    const jetons = { [sept]: await jetonDe(prisma, sept) };
+    expect(await tenter(() => PAIE.changerStatutEnLot([sept], "PAYE", null, jetons, "2026-10-07"))).toBeNull();
+    const l = await prisma.payrollLine.findUniqueOrThrow({ where: { id: sept } });
+    expect(l.statutPaiement).toBe("PAYE");
+    expect(Number(l.tauxChangeFige)).toBe(2750);
+  });
+});
