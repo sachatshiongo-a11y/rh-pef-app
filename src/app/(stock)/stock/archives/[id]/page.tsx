@@ -25,10 +25,10 @@ export default async function ArchiveDetailPage({ params, searchParams }: { para
 
   return (
     <div className="w-full space-y-4">
-      <FilAriane segments={[{ label: "Archives", href: "/stock/archives" }, { label: `Comptage du ${new Date(session.date).toLocaleDateString("fr-FR")}` }]} />
+      <FilAriane segments={[{ label: "Comptages passés", href: "/stock/reconciliation?vue=comptages" }, { label: `Comptage du ${new Date(session.date).toLocaleDateString("fr-FR")}` }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Comptage du {new Date(session.date).toLocaleDateString("fr-FR")}</h1>
-        <Link href="/stock/archives" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
+        <Link href="/stock/reconciliation?vue=comptages" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
       </div>
 
       <div className="flex flex-wrap gap-3 text-sm">

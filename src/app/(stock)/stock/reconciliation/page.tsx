@@ -6,17 +6,41 @@ import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { FichesVierges } from "./fiches-vierges";
 import { lireDomaine } from "@/components/stock/pilules-domaine";
-import { lirePagination } from "@/lib/pagination";
+import { PAR_DEFAUT, lirePagination } from "@/lib/pagination";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { OngletsDefilants } from "@/components/onglets-defilants";
+import { ComptagesPasses } from "./comptages-passes";
 
-type SP = { domaine?: string; page?: string; par?: string };
+type SP = { vue?: string; domaine?: string; page?: string; par?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const { page, par } = lirePagination(sp);
+  const vue = sp.vue === "comptages" ? "comptages" : "saisie";
   const domaine = lireDomaine(sp.domaine); // domaine de départ (pilules) ; l'écran change de domaine sans recharger
+
+  const suffixePar = par !== PAR_DEFAUT ? `par=${par}` : "";
+  const onglets = (
+    <OngletsDefilants
+      libelle="Vues de la réconciliation"
+      onglets={[
+        { href: "/stock/reconciliation", label: "Comptage", actif: vue === "saisie" },
+        { href: `/stock/reconciliation?vue=comptages${suffixePar ? `&${suffixePar}` : ""}`, label: "Comptages passés", actif: vue === "comptages" },
+      ]}
+    />
+  );
+  // Comptages passés (ex-Archives > Comptages) : pas besoin de charger les articles ni les demandes.
+  if (vue === "comptages") {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold sm:text-2xl">Réconciliation</h1>
+        {onglets}
+        <ComptagesPasses page={page} par={par} sp={{ vue: "comptages", ...(sp.par ? { par: sp.par } : {}), ...(sp.page ? { page: sp.page } : {}) }} />
+      </div>
+    );
+  }
 
   // TOUS les articles actifs, tous domaines : l'écran masque ceux des autres domaines au lieu de les recharger,
   // pour que le comptage déjà tapé ne soit jamais perdu en changeant de pilule.
@@ -32,7 +56,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     AUTRE: rows.filter((r) => r.domaine === "AUTRE").length,
   };
 
-  // Trois derniers comptages appliqués — l'historique complet vit dans Archives.
+  // Trois derniers comptages appliqués — l'historique complet est dans l'onglet « Comptages passés ».
   const [comptages, enAttente] = await Promise.all([
     prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 3 }),
     // Comptages soumis à la Direction, pas encore décidés (tous pour elle, les siens pour un autre compte).
@@ -52,6 +76,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           {!estDirection && " Un comptage avec écart est soumis à la Direction : le stock n'est ajusté qu'après sa validation."}
         </p>
       </div>
+
+      {onglets}
 
       <FichesVierges nombres={nombres} />
 
@@ -98,7 +124,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               </Link>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Tous les comptages sont aussi conservés dans <Link href="/stock/archives?vue=comptages" className="underline">Archives</Link>.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Tous les comptages sont dans l&apos;onglet <Link href="/stock/reconciliation?vue=comptages" className="underline">Comptages passés</Link>.</p>
         </div>
       )}
     </div>

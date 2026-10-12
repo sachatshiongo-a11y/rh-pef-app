@@ -254,7 +254,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           )}
         </Bloc>
 
-        <Bloc titre="Derniers comptages" periode={etiquette(libelleMois)} lien="/stock/archives">
+        <Bloc titre="Derniers comptages" periode={etiquette(libelleMois)} lien="/stock/reconciliation?vue=comptages">
           {derniersComptages.length === 0 ? <Vide t="Aucun comptage archivé." /> : (
             <ul className="divide-y text-sm">
               {derniersComptages.map((s) => (

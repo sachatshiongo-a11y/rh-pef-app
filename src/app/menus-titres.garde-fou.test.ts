@@ -92,7 +92,7 @@ describe("menus — le libellé de chaque entrée est le titre de la page qu'ell
     for (const g of groupes) {
       for (const entree of g.items) {
         it(`${espace} · « ${entree.label} » (${entree.href})`, () => {
-          const r = routeDe(entree.href);
+          const r = routeDe(entree.href.split("?")[0]); // une entrée peut viser une vue : « /stock/archives?vue=rapports »
           expect(r, `aucune page pour ${entree.href}`).toBeTruthy();
           expect(titresDe(r!.dossier), `le <h1> de ${entree.href} doit être « ${entree.label} »`).toContain(entree.label);
         });

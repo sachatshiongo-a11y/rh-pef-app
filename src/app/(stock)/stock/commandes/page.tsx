@@ -10,9 +10,10 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
 import { ChampTaillePage, LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
+import { FILTRE_STATUT_BON, lireStatutBon } from "@/lib/filtre-statut-bon";
 import { WHERE_LIGNE_SANS_PRIX, deviseBon, totalBon } from "@/lib/bon-commande-devise";
 
-type SP = { annee?: string; mois?: string; fournisseurId?: string; page?: string; par?: string };
+type SP = { annee?: string; mois?: string; fournisseurId?: string; statut?: string; page?: string; par?: string };
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
@@ -22,11 +23,13 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
   const annee = sp.annee && /^\d{4}$/.test(sp.annee) ? Number(sp.annee) : undefined;
   const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;
   const fournisseurId = sp.fournisseurId || undefined;
+  const statut = lireStatutBon(sp.statut); // « Validés » : ancienne vue des Archives (V3)
 
   const where: Prisma.BonDeCommandeWhereInput = {
     ...(annee ? { annee } : {}),
     ...(mois ? { mois } : {}),
     ...(fournisseurId ? { fournisseurId } : {}),
+    ...(statut ? { statut } : {}),
   };
   const [commandes, sansPrixParBon, fournisseurs, anneesRaw] = await Promise.all([
     prisma.bonDeCommande.findMany({ where, orderBy: [{ annee: "desc" }, { sequence: "desc" }], include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } } }),
@@ -59,6 +62,10 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
           <option value="">Tous les mois</option>
           {MOIS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
+        <select name="statut" defaultValue={statut ?? ""} aria-label="État" className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les états</option>
+          {Object.entries(FILTRE_STATUT_BON).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
         <ChoixRecherche options={optionsFournisseurs(fournisseurs)} name="fournisseurId" defaultValue={fournisseurId ?? ""} vide="Tous les fournisseurs" aria-label="Fournisseur" className="rounded-md border border-input bg-background px-2 py-1.5" />
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
         {estDirection && <LienGardantTaille doux={false} href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</LienGardantTaille>}
@@ -67,7 +74,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
       <CommandesListe
         estDirection={estDirection}
         paginer
-        cleFiltre={[annee, mois, fournisseurId].join("|")}
+        cleFiltre={[annee, mois, fournisseurId, statut].join("|")}
         pageInit={page}
         parInit={par}
         commandes={commandes.map((c) => ({

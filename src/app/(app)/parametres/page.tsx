@@ -181,7 +181,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </form>
       </Section>
 
-      <Section title="Utilisateurs & accès">
+      <Section id="utilisateurs" title="Utilisateurs & accès">
         <UsersAdmin users={userRows} employes={employesActifs} monId={user.id} />
       </Section>
 
@@ -454,16 +454,18 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
 }
 
 function Section({
+  id,
   title,
   badge,
   children,
 }: {
+  id?: string;
   title: string;
   badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 rounded-lg border p-5">
+    <div id={id} className="mb-6 scroll-mt-4 rounded-lg border p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-base font-semibold">{title}</h2>
         {badge}

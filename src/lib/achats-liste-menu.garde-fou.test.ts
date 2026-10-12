@@ -42,7 +42,7 @@ describe("menu Stock — « Achats & mouvements »", () => {
   });
 
   it("l'entrée est active sur ses trois sous-onglets", () => {
-    expect(navigation).toMatch(/href === ENTREE_MENU_ACHATS\.href \? sousOngletActif\(pathname\) !== null/);
+    expect(navigation).toMatch(/chemin === ENTREE_MENU_ACHATS\.href \? sousOngletActif\(pathname\) !== null/);
     expect(lire(SHELL)).toMatch(/const actif = \(href: string\) => lienActif\(href, pathname\);/);
   });
 

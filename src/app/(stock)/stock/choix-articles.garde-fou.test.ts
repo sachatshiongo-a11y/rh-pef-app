@@ -30,7 +30,7 @@ const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
   "src/app/(stock)/stock/mouvements/mouvements-client.tsx": { n: 2, raison: "motif de sortie (Perte / Livraison restaurant) et nature de l'entrée (Retour restaurant / autre) : listes fixes de 2-3 motifs" },
   "src/app/(stock)/stock/mouvements/page.tsx": { n: 2, raison: "filtres mois et motif" },
   "src/app/(stock)/stock/mouvements/changer-motif.tsx": { n: 1, raison: "motif" },
-  "src/app/(stock)/stock/commandes/page.tsx": { n: 2, raison: "filtres année et mois" },
+  "src/app/(stock)/stock/commandes/page.tsx": { n: 3, raison: "filtres année, mois et état" },
   "src/app/(stock)/stock/commandes/[id]/lier-facture.tsx": { n: 1, raison: "factures encore sans bon de commande (liste de documents, pas d'article)" },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raison: "statut du bon" },
   "src/app/(stock)/stock/imports/doublons-client.tsx": { n: 1, raison: "import d'inventaire à choisir (liste de fichiers importés)" },

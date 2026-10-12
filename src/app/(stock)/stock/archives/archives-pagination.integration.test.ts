@@ -32,6 +32,13 @@ async function rendre(sp: Record<string, string> = {}) {
   await flux.allReady;
   return await new Response(flux).text();
 }
+/** L'onglet « Comptages passés » de Réconciliation (ex-Archives > Comptages) : même rendu en flux. */
+async function rendreComptagesPasses(sp: Record<string, string> = {}) {
+  const { default: Page } = await import("../reconciliation/page");
+  const flux = await renderToReadableStream(await Page({ searchParams: Promise.resolve({ vue: "comptages", ...sp }) }));
+  await flux.allReady;
+  return await new Response(flux).text();
+}
 const lignesJournal = (html: string) => [...html.matchAll(/entrée n° (\d+)/g)].map((m) => Number(m[1]));
 
 beforeAll(async () => {
@@ -55,9 +62,6 @@ beforeAll(async () => {
     data: Array.from({ length: 120 }, (_, i) => ({ sessionId: session.id, designation: `Article ${String(i + 1).padStart(3, "0")}`, theorique: 10, physique: 9, ecart: -1 })),
   });
   await prisma.rapport.createMany({ data: Array.from({ length: 30 }, (_, i) => ({ titre: `R${i}`, type: "FACTURES", createdAt: jour(i) })) });
-  await prisma.bonDeCommande.createMany({
-    data: Array.from({ length: 120 }, (_, i) => ({ numero: `${i + 1}/PEF/X/26`, sequence: i + 1, annee: 2026, mois: 1 + (i % 12), date: jour(i), statut: "VALIDE" as const, totalUSD: 10 })),
-  });
 }, 120_000);
 afterAll(async () => { await fermer?.(); });
 
@@ -98,22 +102,17 @@ describe("Archives — journal d'activité", () => {
   it("les liens de page gardent le type filtré et la taille ; changer d'onglet garde la taille", async () => {
     const html = await rendre({ vue: "journal", entite: "ArticleStock", par: "100" });
     expect(html).toContain('href="/stock/archives?vue=journal&amp;entite=ArticleStock&amp;page=2&amp;par=100"');
-    expect(html).toContain('href="/stock/archives?vue=bons&amp;par=100"');
+    expect(html).toContain('href="/stock/archives?vue=rapports&amp;par=100"');
   });
 });
 
-describe("Archives — comptages, bons, rapports", () => {
-  it("comptages : 50 par page sur 121 (120 + celui du détail), compteur et page 3", async () => {
-    const html = await rendre({ vue: "comptages" });
+describe("Réconciliation > Comptages passés et Archives > Rapports", () => {
+  it("comptages passés : 50 par page sur 121 (120 + celui du détail), compteur, page 3 et liens de page", async () => {
+    const html = await rendreComptagesPasses();
     expect((html.match(/hors tol\./g) ?? [])).toHaveLength(50);
     expect(texte(html)).toContain("1–50 sur 121");
-    expect((await rendre({ vue: "comptages", page: "3" }).then((h) => h.match(/hors tol\./g) ?? []))).toHaveLength(21);
-  });
-  it("bons validés : 50 par page, total du mois coupé annoncé « (cette page) »", async () => {
-    const html = await rendre({ vue: "bons" });
-    expect((html.match(/\/PEF\/X\/26/g) ?? [])).toHaveLength(50);
-    expect(texte(html)).toContain("1–50 sur 120");
-    expect(texte(html)).toContain("(cette page)");
+    expect(html).toContain('href="/stock/reconciliation?vue=comptages&amp;page=2"');
+    expect((await rendreComptagesPasses({ page: "3" }).then((h) => h.match(/hors tol\./g) ?? []))).toHaveLength(21);
   });
   it("rapports : 30 → une seule page, pas de barre", async () => {
     const html = await rendre({ vue: "rapports" });

@@ -367,7 +367,10 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
   const parId = useMemo(() => new Map(articles.map((a) => [a.id, a])), [articles]);
   const stockConnu = useMemo(() => new Map(articles.flatMap((a) => (typeof a.quantite === "number" ? [[a.id, a.quantite] as const] : []))), [articles]);
-  const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
+  // Sens de départ (plan d'ergonomie, V7) : le geste du jour d'un compte Stock est la SORTIE ; la Direction, elle,
+  // saisit surtout des entrées. Le formulaire revient à ce sens après chaque saisie.
+  const typeDeDepart: "ENTREE" | "SORTIE" = estDirection ? "ENTREE" : "SORTIE";
+  const [type, setType] = useState<"ENTREE" | "SORTIE">(typeDeDepart);
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [motifEntree, setMotifEntree] = useState<"RETOUR_RESTAURANT" | "">("");
   /** Refus du serveur (stock insuffisant) : par article, les articles proches qui ont du stock. */
@@ -376,7 +379,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   // quel que soit le compte : la Direction en est notifiée, elle ne la valide plus.
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setLignes(LIGNES_VIDES()); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setRefus(new Map()); setCle((c) => c + 1); };
+  const reinitialiser = () => { setLignes(LIGNES_VIDES()); setType(typeDeDepart); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setRefus(new Map()); setCle((c) => c + 1); };
   const majLigne = (i: number, l: Partial<LigneSaisie>) => {
     // Une ligne retouchée n'est plus celle que le serveur a refusée : son cadre de refus s'efface.
     const avant = lignes[i]?.articleId;

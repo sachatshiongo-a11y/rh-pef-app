@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
-import { WHERE_LIGNE_SANS_PRIX, bonDeListe, libelleTotalGroupe, libelleTotalListe } from "@/lib/bon-commande-devise";
 import { grouperParMois } from "@/lib/dates-fr";
 import { MoisAccordeon } from "@/components/mois-accordeon";
+import { redirect } from "next/navigation";
 import { exigerPageStock } from "@/lib/garde-page";
 import type { Prisma } from "@prisma/client";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -36,17 +35,25 @@ const TYPE_RAPPORT_LABEL: Record<string, string> = {
 export default async function ArchivesPage({ searchParams }: { searchParams: Promise<SP> }) {
   await exigerPageStock();
   const sp = await searchParams;
-  const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : sp.vue === "bons" ? "bons" : "comptages";
+  // Les comptages et les bons validés ont quitté les Archives (V3) : les anciennes adresses — dont la nue
+  // « /stock/archives », qui ouvrait les comptages — arrivent là où ils sont maintenant.
+  if (sp.vue === "bons") redirect("/stock/commandes?statut=VALIDE");
+  if (sp.vue !== "rapports" && sp.vue !== "journal") {
+    const q = new URLSearchParams({ vue: "comptages" });
+    if (sp.page) q.set("page", sp.page);
+    if (sp.par) q.set("par", sp.par);
+    redirect(`/stock/reconciliation?${q}`);
+  }
+  const vue = sp.vue;
   const { page, par } = lirePagination(sp);
   const pg: Pg = { page, par, sp };
 
-  const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
+  const onglets: [string, string][] = [["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
   return (
     <div className="w-full space-y-4">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Archives</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Historique de l’application : comptages d’inventaire, rapports générés et journal d’activité.</p>
       </div>
 
       <OngletsDefilants
@@ -54,8 +61,6 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
         onglets={onglets.map(([k, label]) => ({ href: `/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`, label, actif: vue === k }))}
       />
 
-      {vue === "comptages" && <Comptages pg={pg} />}
-      {vue === "bons" && <BonsValides pg={pg} />}
       {vue === "rapports" && <Rapports pg={pg} />}
       {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} pg={pg} />}
     </div>
@@ -64,77 +69,6 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
 function BarrePages({ total, pg, page, libelle }: { total: number; pg: Pg; page: number; libelle: string }) {
   return <Pagination plafondTout={PLAFOND_TOUT} total={total} page={page} par={pg.par} chemin="/stock/archives" params={pg.sp} libelle={libelle} />;
-}
-
-async function Comptages({ pg }: { pg: Pg }) {
-  const nb = await prisma.sessionComptage.count();
-  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
-  const sessions = await prisma.sessionComptage.findMany({ orderBy: [{ date: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
-  if (nb === 0) return <EtatVide message="Aucun comptage archivé." />;
-  const groupes = grouperParMois(sessions, (s) => s.date);
-  return (
-    <div className="space-y-2">
-      {groupes.map((g, i) => (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, groupePartiel(i, groupes.length, fen), "comptage(s)")} defaultOpen={i === 0}>
-          <ul className="divide-y border-t text-sm">
-            {g.items.map((s) => (
-              <li key={s.id}>
-                <Link href={`/stock/archives/${s.id}`} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
-                  <span className="min-w-0">
-                    <span className="font-medium">{jfr(s.date)}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"} · {s.nbArticles} articles · {s.nbEcarts} écart(s)</span>
-                  </span>
-                  {s.nbHorsTol > 0 ? <span className="shrink-0 text-xs font-semibold text-red-700">{s.nbHorsTol} hors tol.</span> : <span className="shrink-0 text-xs text-muted-foreground">0 hors tol.</span>}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </MoisAccordeon>
-      ))}
-      <BarrePages total={nb} pg={pg} page={fen.page} libelle="comptages" />
-    </div>
-  );
-}
-
-async function BonsValides({ pg }: { pg: Pg }) {
-  const where = { statut: { notIn: ["BROUILLON", "ANNULE"] } } satisfies Prisma.BonDeCommandeWhereInput;
-  const nb = await prisma.bonDeCommande.count({ where });
-  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
-  const bcs = await prisma.bonDeCommande.findMany({
-    where,
-    orderBy: [{ annee: "desc" }, { date: "desc" }, { id: "asc" }],
-    skip: fen.skip,
-    take: fen.take,
-    include: { fournisseur: { select: { id: true, nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } },
-  });
-  if (nb === 0) return <EtatVide message="Aucun bon de commande validé." />;
-  const groupes = grouperParMois(bcs, (b) => b.date);
-  return (
-    <div className="space-y-2">
-      {groupes.map((g, i) => {
-        const partiel = groupePartiel(i, groupes.length, fen);
-        return (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, partiel, "bon(s)")} resume={<>{libelleTotalGroupe(g.items.map((b) => bonDeListe(b, b.lignes.length, b._count.lignes)))}{partiel ? " (cette page)" : ""}</>} defaultOpen={i === 0}>
-          <ul className="divide-y border-t text-sm">
-            {g.items.map((b) => (
-              <li key={b.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
-                <span className="min-w-0">
-                  <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
-                  <span className="ml-2 text-xs text-muted-foreground">{b.fournisseur ? <Link href={`/stock/fournisseurs/${b.fournisseur.id}`} className="text-primary hover:underline">{b.fournisseur.nom}</Link> : "—"} · {jfr(b.date)} · {b._count.lignes} ligne(s)</span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
-                  <span className="font-semibold tabular-nums">{libelleTotalListe(bonDeListe(b, b.lignes.length, b._count.lignes))}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </MoisAccordeon>
-        );
-      })}
-      <BarrePages total={nb} pg={pg} page={fen.page} libelle="bons de commande" />
-    </div>
-  );
 }
 
 const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${String(new Date(d).getUTCMonth() + 1).padStart(2, "0")}` : "");
