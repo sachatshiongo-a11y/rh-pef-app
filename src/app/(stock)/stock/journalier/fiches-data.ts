@@ -7,6 +7,7 @@ import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-rest
 import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes";
 import { ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
 import { LEGUMES } from "../legumes/legumes-data";
+import { lignesLegumesCommande } from "@/lib/legumes-semaine";
 import { chargerVentesSemaine } from "./ventes-data";
 
 // Chargement des fiches de l'onglet Consommation (lecture seule, requêtes groupées).
@@ -102,15 +103,8 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
       achatsLegumes.map((a) => ({ legume: a.legume, unite: a.unite, quantite: Number(a.quantite), montantCDF: null, montantUSD: null })),
       0,
     ).lignes;
-    legumes = achats.map((l, i) => ({
-      designation: l.designation,
-      unite: l.unite || null,
-      commande: i < LEGUMES.length ? cmdLeg.get(LEGUMES[i]!.nom) ?? null : null,
-      livraison: l.quantite,
-    }));
-    // Commande saisie sous un libellé hors de la liste (renommé depuis) : ajoutée, jamais perdue.
-    const connus = new Set(LEGUMES.map((l) => l.nom));
-    for (const [nom, q] of cmdLeg) if (!connus.has(nom)) legumes.push({ designation: nom, unite: null, commande: q, livraison: null });
+    // Commande (unité de la liste) et achat dans une autre unité : jamais sur la même ligne.
+    legumes = lignesLegumesCommande(achats, cmdLeg, LEGUMES);
   }
 
   const fiches = espaces.map((espace) =>

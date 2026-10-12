@@ -10,8 +10,11 @@ import { ZoneTableur } from "@/components/tableur/messages";
 import { useJourAffiche } from "@/components/selecteur-jour";
 import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
 import { CASE_JOUR, LigneJour, RubriqueJour, TitreJour } from "@/components/liste-jour";
+import { sommeExacte, totauxParUnite } from "@/lib/journalier-restaurant";
+import { TotauxUnites, UniteArticle, texteTotauxUnites } from "./totaux-unites";
 
-export type CmdArticle = { id: string; designation: string; categorie: string };
+/** `unite` : unité du catalogue (ou de la liste des légumes) — la quantité commandée est dans cette unité. */
+export type CmdArticle = { id: string; designation: string; unite?: string | null; categorie: string };
 export type CmdJour = { iso: string; label: string };
 
 const inp = "w-14 rounded border border-input bg-background px-1 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
@@ -87,7 +90,9 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
     const v = k in saisies ? saisies[k] : commandes[k];
     return v ? v : null; // 0 = pas de commande : case vide (« — »)
   };
-  const totauxJour = jours.map((j) => visibles.reduce((t, a) => t + (valeur(a.id, j.iso) ?? 0), 0));
+  // Un total PAR UNITÉ et par jour : des kg et des bouteilles ne s'additionnent pas.
+  const totauxJour = jours.map((j) => totauxParUnite(visibles.map((a) => ({ unite: a.unite, valeur: valeur(a.id, j.iso) ?? 0 }))));
+  const totauxSemaine = totauxParUnite(visibles.map((a) => ({ unite: a.unite, valeur: sommeExacte(jours.map((j) => valeur(a.id, j.iso) ?? 0)) })));
 
   return (
     <div className="space-y-2">
@@ -121,8 +126,8 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
             <tfoot className="sticky bottom-0 z-20 bg-background">
               <tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
                 <td className="sticky left-0 z-10 bg-muted/60">Total jour</td>
-                {totauxJour.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
-                <td className="text-right">{qte(totauxJour.reduce((x, y) => x + y, 0))}</td>
+                {totauxJour.map((t, i) => <td key={i} className="text-right"><TotauxUnites totaux={t} /></td>)}
+                <td className="text-right"><TotauxUnites totaux={totauxSemaine} /></td>
               </tr>
             </tfoot>
           )}
@@ -144,16 +149,16 @@ type PropsLigne = {
 // Comparaison PAR VALEURS : un rafraîchissement serveur renvoie de nouveaux objets aux mêmes
 // valeurs — la ligne ne doit pas se re-rendre pour autant (avant : les 178 lignes à chaque case).
 const memesProps = (p: PropsLigne, n: PropsLigne) =>
-  p.a.id === n.a.id && p.a.designation === n.a.designation &&
+  p.a.id === n.a.id && p.a.designation === n.a.designation && p.a.unite === n.a.unite &&
   p.peutModifier === n.peutModifier && p.onEnregistrer === n.onEnregistrer &&
   p.jours.length === n.jours.length && p.jours.every((j, i) => j.iso === n.jours[i].iso && j.label === n.jours[i].label) &&
   p.valeurs.length === n.valeurs.length && p.valeurs.every((v, i) => v === n.valeurs[i]);
 
 const LigneCommande = memo(function LigneCommande({ a, jours, valeurs, peutModifier, onEnregistrer }: PropsLigne) {
-  const total = valeurs.reduce<number>((x, y) => x + (y ?? 0), 0);
+  const total = sommeExacte(valeurs.map((y) => y ?? 0));
   return (
     <tr className="even:bg-muted/25 hover:bg-accent/40">
-      <td className="sticky left-0 z-10 bg-background font-medium">{a.designation}</td>
+      <td className="sticky left-0 z-10 bg-background font-medium">{a.designation}<UniteArticle unite={a.unite} /></td>
       {jours.map((j, i) => (
         <td key={j.iso} className="text-right">
           <CelluleNombre ligne={a.id} col={i} donnee={j.iso} groupe={a.categorie} valeur={valeurs[i]} onEnregistrer={onEnregistrer} min={0} quantite
@@ -178,10 +183,11 @@ function ListeCommandeJour({ visibles, total, jours, valeur, peutModifier, onEnr
 }) {
   const [rang] = useJourAffiche(jours.map((j) => j.iso));
   const jour = jours[rang]!;
-  const totalJour = visibles.reduce((t, a) => t + (valeur(a.id, jour.iso) ?? 0), 0);
+  // Total du jour PAR UNITÉ (« 12 kg · 5 bouteille »), jamais des unités additionnées.
+  const totalJour = texteTotauxUnites(totauxParUnite(visibles.map((a) => ({ unite: a.unite, valeur: valeur(a.id, jour.iso) ?? 0 }))));
   return (
     <div data-tableur="" data-vue-liste="commande" className="space-y-1">
-      <TitreJour iso={jour.iso} resume={<>{totalJour > 0 ? <>Total du jour : <span className="font-semibold text-foreground">{qte(totalJour)}</span></> : "Rien commandé"} · {visibles.length} / {total} article(s)</>} />
+      <TitreJour iso={jour.iso} resume={<>{totalJour ? <>Total du jour : <span className="font-semibold text-foreground">{totalJour}</span></> : "Rien commandé"} · {visibles.length} / {total} article(s)</>} />
       {visibles.map((a, i) => (
         <Fragment key={a.id}>
           {(i === 0 || visibles[i - 1].categorie !== a.categorie) && <RubriqueJour>{a.categorie}</RubriqueJour>}
@@ -199,7 +205,7 @@ type PropsLigneJour = {
   onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
 };
 const memesPropsJour = (p: PropsLigneJour, n: PropsLigneJour) =>
-  p.a.id === n.a.id && p.a.designation === n.a.designation && p.a.categorie === n.a.categorie &&
+  p.a.id === n.a.id && p.a.designation === n.a.designation && p.a.unite === n.a.unite && p.a.categorie === n.a.categorie &&
   p.jour.iso === n.jour.iso && p.jour.label === n.jour.label &&
   p.valeur === n.valeur && p.peutModifier === n.peutModifier && p.onEnregistrer === n.onEnregistrer;
 
@@ -207,7 +213,7 @@ const memesPropsJour = (p: PropsLigneJour, n: PropsLigneJour) =>
 const LigneCommandeJour = memo(function LigneCommandeJour({ a, jour, valeur, peutModifier, onEnregistrer }: PropsLigneJour) {
   return (
     <LigneJour
-      nom={a.designation}
+      nom={<>{a.designation}<UniteArticle unite={a.unite} /></>}
       droite={
         <CelluleNombre ligne={a.id} col={0} donnee={jour.iso} groupe={a.categorie} valeur={valeur} onEnregistrer={onEnregistrer} min={0} quantite
           disabled={!peutModifier} placeholder="—" className={CASE_JOUR} aria-label={`${a.designation} — ${jour.label}`} />

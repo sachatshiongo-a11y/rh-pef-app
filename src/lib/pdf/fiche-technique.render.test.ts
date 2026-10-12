@@ -328,3 +328,17 @@ describe("glyphes : texte saisi hostile et ratios à quatre chiffres", () => {
     }
   }, 60_000);
 });
+
+describe("coût « ≈ » (prix en francs converti au taux du jour) — audit du 10/10/2026", () => {
+  it("le « ≈ » du coût, de la ligne et du total est posé sur la page, sans police de repli", async () => {
+    const riz: ArticleOption = { ...art("riz", "Riz (prix en francs)", "kg", "3"), prixApprox: true, prixSaisi: { devise: "CDF", montant: "8400" } };
+    const plat = fiche({ id: "plat-fc", nom: "Riz au poulet", nbPortions: 1, prixVenteTTC: "20", lignes: [ligne(1, "riz", "kg", "2")] });
+    const articles = new Map([...ARTICLES, riz].map((a) => [a.id, a]));
+    const ctx = { contexte: construireContexte([plat], articles), articles, noms: new Map([["plat-fc", { nom: plat.nom }]]), vues: new Map([["plat-fc", plat]]) };
+    const pdf = await renderPdfBuffer(FichesTechniquesDocument({ fiches: [versFichePdf(plat, ctx, { avecPrix: true, photo: null })], editeLe: "10/10/2026" }));
+    expect(policesDeRepli(pdf)).toEqual([]);
+    const t = await texte(pdf);
+    expect(t).toContain("≈ 6,00 $");
+    expect(t).toContain("converti en dollars au taux du jour");
+  }, 60_000);
+});

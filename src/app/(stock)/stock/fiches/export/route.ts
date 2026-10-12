@@ -2,7 +2,7 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fiche";
-import { construireContexte, TYPE_LABEL } from "../_data/fiche-calc";
+import { construireContexte, coutEnFrancsConvertis, TYPE_LABEL } from "../_data/fiche-calc";
 import { familleBoisson, FAMILLES_BOISSON } from "@/lib/fiches/famille-boisson";
 import { fichesAExporter } from "../_data/selection-export";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
@@ -20,7 +20,9 @@ export async function GET(req: Request) {
   const libelleFamille = new Map(FAMILLES_BOISSON.map((f) => [f.valeur, f.libelle]));
 
   const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches()]);
-  const contexte = construireContexte(vues, new Map(articles.map((a) => [a.id, a])));
+  const mapArticles = new Map(articles.map((a) => [a.id, a]));
+  const mapVues = new Map(vues.map((v) => [v.id, v]));
+  const contexte = construireContexte(vues, mapArticles);
   // Sélection et ordre : la même règle que le PDF des fiches (Boissons : cocktails & mocktails d'abord).
   const { retenues, vue } = fichesAExporter(vues, new URL(req.url).searchParams);
   const boissons = vue === "boissons";
@@ -32,6 +34,9 @@ export async function GET(req: Request) {
     // Fiche sans aucune ligne : son coût n'est pas 0, il est INCONNU. Troisième motif
     // d'incomplétude, à ne confondre ni avec « coût partiel » ni avec « portions inexploitables ».
     const aucunIngredient = v.lignes.length === 0;
+    // Un article au prix en FRANCS converti au taux du jour : le coût en dollars est « ≈ » (comme à l'écran).
+    const approx = coutEnFrancsConvertis(v.id, mapVues, mapArticles);
+    const NOTE_TAUX = "converti au taux du jour";
 
     // ⚠️ Dans un tableur, une colonne se copie, se trie, s'imprime et se recolle SANS le reste de sa
     // ligne : une mention rangée dans une autre colonne ne protège rien. Chaque chiffre issu d'un
@@ -46,12 +51,18 @@ export async function GET(req: Request) {
     const noteCout = !r.incomplet ? null : aucunIngredient ? "coût inconnu" : "coût partiel";
     const qualifie = (
       n: number | null,
-      { minorant = false, conseille = false }: { minorant?: boolean; conseille?: boolean } = {},
+      // `depCout` : la valeur dérive du coût (faux pour un prix de vente DÉCIDÉ, qui n'en dépend pas).
+      { minorant = false, conseille = false, depCout = true }: { minorant?: boolean; conseille?: boolean; depCout?: boolean } = {},
     ) => {
       if (n === null) return "";
-      const notes = [conseille ? "conseillé" : null, noteCout].filter(Boolean);
-      return notes.length === 0 ? n : `${minorant ? "≥ " : ""}${n} (${notes.join(", ")})`;
+      const ici = approx && depCout;
+      const notes = [conseille ? "conseillé" : null, noteCout, ici ? NOTE_TAUX : null].filter(Boolean);
+      return notes.length === 0 ? n : `${minorant ? "≥ " : ici && !noteCout ? "≈ " : ""}${n} (${notes.join(", ")})`;
     };
+    // Coût : « ≥ » (partiel) prime sur « ≈ », comme à l'écran ; la cause « taux du jour » reste dite dans la cellule.
+    const cout = (n: number) => (partiel
+      ? `≥ ${n} (coût partiel${approx ? `, ${NOTE_TAUX}` : ""})`
+      : approx ? `≈ ${n} (${NOTE_TAUX})` : n);
 
     return [
       v.nom,
@@ -62,8 +73,8 @@ export async function GET(req: Request) {
       v.nbPortions,
       v.lignes.length,
       // Le coût, lui, est un minorant certain : ce qui manque ne peut qu'ajouter.
-      coutConnu ? (partiel ? `≥ ${arrondirCentime(r.coutTotal)} (coût partiel)` : arrondirCentime(r.coutTotal)) : "",
-      coutConnu ? (partiel ? `≥ ${arrondirCentime(r.coutParPortion)} (coût partiel)` : arrondirCentime(r.coutParPortion)) : "",
+      coutConnu ? cout(arrondirCentime(r.coutTotal)) : "",
+      coutConnu ? cout(arrondirCentime(r.coutParPortion)) : "",
       partiel
         ? `OUI — ${r.ingredientsSansPrix.length} ingrédient(s)`
         : aucunIngredient
@@ -73,8 +84,8 @@ export async function GET(req: Request) {
             : "Non",
       r.ingredientsSansPrix.join(" ; "),
       r.prixEstConseille ? "Conseillé (coefficient)" : r.prixVenteHT === null ? "—" : "Décidé (prix TTC saisi)",
-      qualifie(r.prixVenteHT, { conseille: r.prixEstConseille }),
-      qualifie(r.prixVenteTTC, { conseille: r.prixEstConseille }),
+      qualifie(r.prixVenteHT, { conseille: r.prixEstConseille, depCout: r.prixEstConseille }),
+      qualifie(r.prixVenteTTC, { conseille: r.prixEstConseille, depCout: r.prixEstConseille }),
       qualifie(r.margeBrute, { conseille: r.prixEstConseille }),
       // Coefficient, taux de marque et ratio matière sont des RATIOS, pas des montants : on les met
       // en forme ici (comme `coef()`/`pct()` à l'écran). Aucun montant n'est arrondi ailleurs que

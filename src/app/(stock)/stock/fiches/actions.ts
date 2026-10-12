@@ -74,7 +74,7 @@ export const creerFiche = actionLisible(async (formData: FormData) => {
  */
 export const modifierFiche = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
-  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true, actif: true } });
+  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true, actif: true, estSousRecette: true, type: true } });
   if (!avant) throw new Error("Fiche introuvable.");
   // Désactiver une fiche la fait disparaître des listes et des ventes : réservé à la Direction
   // (arbitrage du 2026-10-01). La réactiver, et toute autre modification, restent ouvertes.
@@ -87,7 +87,10 @@ export const modifierFiche = actionLisible(async (id: string, formData: FormData
 
   const nbPortions = portions(formData.get("nbPortions"));
 
-  const tauxTVA = decSaisiOptionnel(formData.get("tauxTVA"), "TVA") ?? 0;
+  // Une case TVA vide n'est PAS « 0 % » : refusée, avec le chemin (écrire 0 si la fiche n'est pas soumise).
+  const tauxTVASaisi = decSaisiOptionnel(formData.get("tauxTVA"), "TVA");
+  if (tauxTVASaisi === null) throw new Error("La TVA est vide : saisissez 0 si la fiche n'est pas soumise à la TVA, ou 0,16 pour 16 %. Une case vide n'est pas comptée comme 0 %.");
+  const tauxTVA = tauxTVASaisi;
   if (tauxTVA < 0) throw new Error("Le taux de TVA ne peut pas être négatif.");
   if (tauxTVA > 1) throw new Error("Saisissez la TVA en décimal : 0,16 pour 16 %.");
 
@@ -98,6 +101,17 @@ export const modifierFiche = actionLisible(async (id: string, formData: FormData
   if (prixVenteTTC !== null && prixVenteTTC <= 0) throw new Error("Le prix de vente TTC doit être supérieur à 0.");
 
   const estSousRecette = coche(formData, "estSousRecette");
+  const type = txt(formData, "type") === "BAR" ? "BAR" : "PLAT";
+  // Une fiche qui porte des ventes (Conso. journalière → Ventes) ne devient pas sous-recette et ne
+  // change pas d'espace (PLAT ↔ BAR) : ses ventes — mois clos compris — disparaîtraient du rapport
+  // journalier, ou passeraient d'une feuille à l'autre (audit du 10/10/2026). La refuser, nommer le chemin.
+  if ((estSousRecette && !avant.estSousRecette) || type !== avant.type) {
+    const ventes = await prisma.venteJournaliere.count({ where: { ficheId: id } });
+    if (ventes > 0) {
+      const quoi = estSousRecette && !avant.estSousRecette ? "devenir une sous-recette" : `passer de ${avant.type === "BAR" ? "Bar" : "Plat"} à ${type === "BAR" ? "Bar" : "Plat"}`;
+      throw new Error(`« ${avant.nom} » ne peut pas ${quoi} : elle porte ${ventes} vente(s) enregistrée(s) (Conso. journalière → Ventes), qui disparaîtraient du rapport journalier. Désactivez-la (Direction) et créez une nouvelle fiche à la place.`);
+    }
+  }
   const rendementQuantite = decSaisiOptionnel(formData.get("rendementQuantite"), "rendement");
   const rendementUnite = txtOuNull(formData, "rendementUnite");
   if (rendementQuantite !== null && rendementQuantite <= 0) throw new Error("Le rendement doit être supérieur à 0.");
@@ -109,7 +123,7 @@ export const modifierFiche = actionLisible(async (id: string, formData: FormData
     data: {
       nom,
       categorie: txtOuNull(formData, "categorie"),
-      type: txt(formData, "type") === "BAR" ? "BAR" : "PLAT",
+      type,
       nbPortions,
       tauxTVA,
       prixVenteTTC,
