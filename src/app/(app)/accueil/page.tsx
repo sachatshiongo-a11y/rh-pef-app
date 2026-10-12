@@ -313,7 +313,7 @@ export default async function AccueilPage() {
           </div>
 
           <div className="space-y-2">
-            <LienCarte href="/documents" titre="Documents & archives" desc="Contrats, bulletins, congés" />
+            <LienCarte href="/documents" titre="Documents" desc="Contrats, bulletins, congés" />
             <LienCarte href="/conges?vue=calendrier" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
             <LienCarte href="/paie?vue=historique" titre="Historique de paie" desc="Masse salariale par mois" />
           </div>

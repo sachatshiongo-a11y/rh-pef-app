@@ -176,7 +176,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Factures</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
           {estDirection && <Link href="/stock/imports" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent" title="Aperçu, doublons signalés, devise obligatoire, import annulable">Importer des factures</Link>}

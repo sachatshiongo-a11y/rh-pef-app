@@ -28,7 +28,7 @@ export default async function ChoixEspacePage() {
           <EspaceCard href="/espace" icone="employes" titre="Mon espace salarié" sous="Planning, congés, pointage, documents" dernier={dernier === "salarie"} />
         )}
         {espaces.includes("rh") && (
-          <EspaceCard href="/accueil" icone="employes" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
+          <EspaceCard href="/accueil" icone="mallette" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
         )}
         {espaces.includes("stock") && (
           <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Inventaire, fournisseurs, bons de commande" dernier={dernier === "stock"} />

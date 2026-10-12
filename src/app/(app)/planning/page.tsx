@@ -181,7 +181,7 @@ export default async function PlanningPage({
         {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Modèle hebdomadaire</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Planning</h1>
             <p className="text-sm text-muted-foreground">Le shift/rôle habituel de chaque employé, par jour de la semaine</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">{ongletsDefaut}</div>
@@ -259,7 +259,7 @@ export default async function PlanningPage({
         {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Planning mensuel</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Planning</h1>
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -326,7 +326,7 @@ export default async function PlanningPage({
       <div>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Écart prévu / réalisé</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Planning</h1>
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -420,7 +420,7 @@ export default async function PlanningPage({
       {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Planning hebdomadaire</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Planning</h1>
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">

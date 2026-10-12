@@ -91,7 +91,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Réservez cette liste aux achats <strong>sans facture</strong> : chaque ligne alimente directement
             l&apos;inventaire. Un achat avec facture s&apos;enregistre dans <strong>Factures</strong> (c&apos;est la facture

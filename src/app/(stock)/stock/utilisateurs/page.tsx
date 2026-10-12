@@ -27,7 +27,7 @@ export default async function UtilisateursStockPage() {
   return (
     <div className="w-full space-y-4">
       <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Utilisateurs &amp; accès</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Utilisateurs</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Créez et gérez les comptes. Rôle <span className="font-medium">Stock</span> = accès à cet
           espace uniquement ; <span className="font-medium">Direction</span> = accès total (RH + Stock).

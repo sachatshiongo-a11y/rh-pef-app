@@ -107,7 +107,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     <div className="space-y-4">
       <OngletsAchats />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
         <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
       </div>
 

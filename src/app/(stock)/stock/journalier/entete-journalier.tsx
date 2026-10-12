@@ -56,7 +56,7 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
   return (
     <div className="space-y-3">
       <div>
-        <h1 className="text-lg font-semibold sm:text-2xl">Consommation journalière</h1>
+        <h1 className="text-lg font-semibold sm:text-2xl">Conso. journalière</h1>
         <p className="mt-1 text-sm text-muted-foreground max-lg:hidden">
           Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant, ce qui lui est <strong>livré</strong> (sorties « Livraison restaurant ») et ce qu&apos;il <strong>consomme</strong> (comptages du restaurant). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
         </p>

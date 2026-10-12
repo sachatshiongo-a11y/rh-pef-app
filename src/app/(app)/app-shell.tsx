@@ -163,7 +163,7 @@ export function AppShell({
               s'ouvre depuis la barre du bas (« Menu »), plus de hamburger en haut. */}
           <header className={`${ENTETE_COLLANT} flex px-4 lg:hidden`}>
             <BoutonRetour />
-            <span className="truncate font-medium">Pâtes en Folie — Ressources humaines</span>
+            <span className="truncate font-medium">Ressources humaines</span>
             <div className="ml-auto flex items-center gap-2">
               {notif && <NotificationBell {...notif} />}
               {employeeId ? (

@@ -45,7 +45,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Réconciliation d&apos;inventaire</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Réconciliation</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Saisissez les quantités physiques comptées : les écarts avec le stock théorique génèrent un
           ajustement et le stock est mis au réel. Choisissez un domaine pour compter par lot : les quantités tapées sont conservées d&apos;un domaine à l&apos;autre.

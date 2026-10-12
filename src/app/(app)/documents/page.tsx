@@ -256,7 +256,7 @@ export default async function DocumentsPage({
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-xl font-semibold sm:text-2xl">Documents &amp; archives</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Documents</h1>
         <p className="text-sm text-muted-foreground">Tous les bulletins, contrats, documents et demandes</p>
       </div>
 

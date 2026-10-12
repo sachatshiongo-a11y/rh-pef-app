@@ -76,7 +76,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
       <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
           <p className="mt-1 text-sm text-muted-foreground">Achats du marché : montant en CDF, converti en USD au taux courant. Journal daté, hors stock (l&apos;inventaire n&apos;est pas touché).</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
