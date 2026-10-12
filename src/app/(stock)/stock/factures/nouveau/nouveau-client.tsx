@@ -84,7 +84,6 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   // Fournisseurs proposés d'abord : ceux qui fournissent les articles déjà choisis sur les lignes (« 3 sur 4 articles ») ; tous les autres restent dans la liste.
   const liensDe = useMemo(() => liensParArticle(liens), [liens]);
   const cleArticles = lignes.map((l) => l.articleId).join("|");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des articles choisis suffit
   const optionsFour = useMemo(() => optionsFournisseursPourArticles(fournisseurs, liensDe, cleArticles.split("|")), [fournisseurs, liensDe, cleArticles]);
   /**
    * Changer la devise de la facture : un prix saisi dans l'autre devise n'est JAMAIS réinterprété

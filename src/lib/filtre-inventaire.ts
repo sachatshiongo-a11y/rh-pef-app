@@ -62,7 +62,7 @@ export type ArticleFiltrable = {
 /** Détecte un champ manquant (« À compléter »). */
 export const manqueDe = (a: ArticleFiltrable, m: ManqueKey): boolean =>
   m === "prix" ? (a.devisePrix === "CDF" ? !a.prixCDF || Number(a.prixCDF) === 0 : !a.prix || Number(a.prix) === 0) :
-  m === "fournisseur" ? (a.nbFournisseurs !== undefined ? a.nbFournisseurs === 0 : !a.fournisseurId) :
+  m === "fournisseur" ? (!a.fournisseurId && (a.nbFournisseurs === undefined || a.nbFournisseurs === 0)) :
   m === "seuil" ? !a.stockMinimum || Number(a.stockMinimum) <= 0 :
   m === "unite" ? !a.unite || !a.unite.trim() :
   m === "negatif" ? Number(a.quantite) < 0 : false;

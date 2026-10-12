@@ -51,7 +51,6 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   // Fournisseurs proposés d'abord : ceux qui fournissent les articles déjà choisis sur les lignes (« 3 sur 4 articles ») ; tous les autres restent dans la liste.
   const liensDe = useMemo(() => liensParArticle(liens), [liens]);
   const cleArticles = lignes.map((l) => l.articleId).join("|");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des articles choisis suffit
   const optionsFour = useMemo(() => optionsFournisseursPourArticles(fournisseurs, liensDe, cleArticles.split("|")), [fournisseurs, liensDe, cleArticles]);
   // Devise du bon : ses prix de ligne, son total sont dans cette devise, sans conversion (la devise de saisie fait foi).
   const [devise, setDevise] = useState<Devise>(initial?.devise === "CDF" ? "CDF" : "USD");
