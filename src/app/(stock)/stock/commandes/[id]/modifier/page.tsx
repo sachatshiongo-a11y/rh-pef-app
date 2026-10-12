@@ -7,6 +7,7 @@ import { NouveauBonForm } from "../../nouveau/nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contenancePourClient } from "@/lib/libelle-article";
 import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
+import { prixLigneBon } from "@/lib/bon-commande-devise";
 
 export default async function ModifierBonPage({ params }: { params: Promise<{ id: string }> }) {
   await exigerPageStock();
@@ -27,10 +28,13 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
     ...contenancePourClient(a), // libellé du choix d'article (contenance comprise)
     nomCourt: a.nomCourt,
     code: a.code,
-    // Un bon de commande est en dollars : un article au prix en FRANCS y est proposé converti au taux
-    // du jour (« ≈ », 4 décimales), son prix en francs rappelé sous la case. Sans taux : pas de prix.
+    // Prix proposé dans CHAQUE devise de bon (2026-10-16 : bon en $ ou en FC) : exact dans la devise du prix de référence
+    // de l'article, converti au taux du jour dans l'autre (« ≈ » sous la case, le prix de référence rappelé). Sans taux : pas de prix.
     prix: (() => { const p = prixProposeEn(a, "USD", taux); return p === null ? null : String(p); })(),
+    prixCDF: (() => { const p = prixProposeEn(a, "CDF", taux); return p === null ? null : String(p); })(),
     prixFC: a.devisePrix === "CDF" ? (() => { const ps = prixSaisi(a); return ps ? formaterPrix(Number(ps.montant), "CDF") : null; })() : null,
+    refDevise: prixSaisi(a)?.devise ?? null,
+    prixRef: (() => { const ps = prixSaisi(a); return ps ? formaterPrix(Number(ps.montant), ps.devise) : null; })(),
     uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
   }));
 
@@ -48,8 +52,10 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
         articles={arts}
         fournisseurs={fournisseurs}
         liens={liens}
+        taux={taux}
         initial={{
           bcId: bc.id,
+          devise: bc.devise,
           fournisseurId: bc.fournisseurId,
           delaiPaiement: bc.delaiPaiement ?? "",
           modePaiement: bc.modePaiement ?? "",
@@ -58,7 +64,7 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
             articleId: l.articleId ?? "",
             designation: l.designation,
             quantite: l.quantite.toString(),
-            prix: l.prixUnitaireUSD && Number(l.prixUnitaireUSD) > 0 ? l.prixUnitaireUSD.toString() : "", // sans prix (ou 0 d'une ancienne saisie sans prix) : case vide, jamais 0
+            prix: (() => { const p = prixLigneBon(l, bc.devise); return p === null ? "" : (bc.devise === "CDF" ? l.prixUnitaireCDF : l.prixUnitaireUSD)!.toString(); })(), // dans la devise du bon ; sans prix (ou 0 d'une ancienne saisie) : case vide, jamais 0
             uniteParCarton: l.uniteParCarton !== null ? l.uniteParCarton.toString() : "",
           })),
         }}

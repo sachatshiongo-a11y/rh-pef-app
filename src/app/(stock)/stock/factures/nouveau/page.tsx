@@ -27,9 +27,9 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
       orderBy: [{ annee: "desc" }, { sequence: "desc" }],
       take: 120,
       select: {
-        id: true, numero: true, fournisseurId: true, delaiPaiement: true,
+        id: true, numero: true, fournisseurId: true, delaiPaiement: true, devise: true,
         fournisseur: { select: { nom: true } },
-        lignes: { select: { articleId: true, designation: true, unite: true, quantite: true, prixUnitaireUSD: true } },
+        lignes: { select: { articleId: true, designation: true, unite: true, quantite: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
       },
     }),
     chargerLiensFournisseurs(),
@@ -57,9 +57,9 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
         taux={taux}
         fournisseurs={fournisseurs.map((f) => ({ id: f.id, nom: f.nom, delaiJours: delaiEnJours(f.delaiPaiement) }))}
         bons={bons.map((b) => ({
-          id: b.id, numero: b.numero, fournisseurId: b.fournisseurId,
+          id: b.id, numero: b.numero, fournisseurId: b.fournisseurId, devise: b.devise,
           fournisseurNom: b.fournisseur?.nom ?? "", delaiJours: delaiEnJours(b.delaiPaiement),
-          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD?.toString() ?? "" })),
+          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: (b.devise === "CDF" ? l.prixUnitaireCDF : l.prixUnitaireUSD)?.toString() ?? "" })), // dans la devise du bon
         }))}
         bcInitial={bc ?? null}
         liens={liens}

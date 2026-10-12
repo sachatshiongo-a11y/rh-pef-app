@@ -134,6 +134,58 @@ const colonneOptionnelle = (fd: FormData, nom: string, libelle: string) => fd.ge
 /** Total d'une ligne ; null sans prix. Total du bon = somme des lignes CHIFFRÉES (le bon est annoncé incomplet sinon). */
 const totalLigne = (quantite: number, prix: number | null) => (prix === null ? null : quantite * prix);
 const totalDesLignes = (ls: { quantite: number; prixUnitaireUSD: number | null }[]) => ls.reduce((t, l) => t + (l.prixUnitaireUSD === null ? 0 : l.quantite * l.prixUnitaireUSD), 0);
+const arr2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Devise du bon (2026-10-16, « bons de commande en francs congolais aussi ») : la devise de SAISIE fait foi. Champ
+ * absent = celle du bon (ou dollars à la création : formulaire d'avant) ; toute autre valeur que USD / CDF est
+ * refusée — on ne devine jamais la devise d'un montant.
+ */
+function lireDeviseBon(formData: FormData, defaut: DeviseBon = "USD"): DeviseBon {
+  if (!formData.has("devise")) return defaut;
+  const d = String(formData.get("devise") ?? "").trim();
+  if (d !== "USD" && d !== "CDF") throw new Error("Devise du bon inconnue : choisissez dollars ($) ou francs (FC).");
+  return d;
+}
+
+type LigneSaisie = { articleId: string | null; designation: string; quantite: number; prix: number | null; uniteParCarton: number | null };
+
+/** Lit les lignes du formulaire : prix VIDE = SANS PRIX (null), jamais 0. */
+function lireLignesBon(formData: FormData): LigneSaisie[] {
+  const ids = formData.getAll("ligne_articleId").map(String);
+  const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
+  const qtes = colonne(formData, "ligne_quantite", "quantité");
+  const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
+  const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
+  const lignes = desigs
+    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prix: prixs[i] ?? null, uniteParCarton: cartons[i] || null }))
+    .filter((l) => l.designation && l.quantite > 0);
+  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
+  return lignes;
+}
+
+/**
+ * Lignes et en-tête d'un bon DANS SA DEVISE. Dollars : comme avant (prix tel que saisi, `totalCDF` = équivalent figé au
+ * taux du jour). Francs : prix au centime de franc (précision de la colonne), total de ligne au centime, `totalCDF` = la
+ * somme des lignes chiffrées, `totalUSD` NUL (contrainte `BonDeCommande_devise_check`), aucune conversion ; une ligne
+ * sans prix (vide, 0, ou arrondi à 0) a un prix NUL. Une ligne ne porte jamais ses prix dans les deux devises.
+ */
+function calculerBon(lignes: LigneSaisie[], devise: DeviseBon, taux: number | null) {
+  const commun = (l: LigneSaisie) => ({ articleId: l.articleId, designation: l.designation, quantite: l.quantite, uniteParCarton: l.uniteParCarton, nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null });
+  if (devise === "USD") {
+    const totalUSD = totalDesLignes(lignes.map((l) => ({ quantite: l.quantite, prixUnitaireUSD: l.prix })));
+    return {
+      entete: { devise: "USD" as const, totalUSD, totalCDF: taux ? totalUSD * taux : null, tauxChangeUtilise: taux },
+      lignes: lignes.map((l) => ({ ...commun(l), prixUnitaireUSD: l.prix, totalLigneUSD: totalLigne(l.quantite, l.prix), prixUnitaireCDF: null, totalLigneCDF: null })),
+    };
+  }
+  const chiffrees = lignes.map((l) => { const pu = l.prix !== null && arr2(l.prix) > 0 ? arr2(l.prix) : null; return { l, pu, tot: pu === null ? null : arr2(l.quantite * pu) }; });
+  const totalCDF = arr2(chiffrees.reduce((t, c) => t + (c.tot ?? 0), 0));
+  return {
+    entete: { devise: "CDF" as const, totalUSD: null, totalCDF, tauxChangeUtilise: null },
+    lignes: chiffrees.map((c) => ({ ...commun(c.l), prixUnitaireUSD: null, totalLigneUSD: null, prixUnitaireCDF: c.pu, totalLigneCDF: c.tot })),
+  };
+}
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
 
@@ -166,28 +218,12 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
 
-  const ids = formData.getAll("ligne_articleId").map(String);
-  const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
-  const qtes = colonne(formData, "ligne_quantite", "quantité");
-  const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
-  const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
-
-  const lignes = desigs
-    .map((designation, i) => ({
-      articleId: ids[i] || null,
-      designation,
-      quantite: qtes[i] ?? 0,
-      prixUnitaireUSD: prixs[i] ?? null, // vide = SANS PRIX (null), jamais 0
-      uniteParCarton: cartons[i] || null,
-    }))
-    .filter((l) => l.designation && l.quantite > 0);
-
-  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
-
-  const totalUSD = totalDesLignes(lignes);
-  const nbSansPrix = lignes.filter((l) => l.prixUnitaireUSD === null).length;
+  const devise = lireDeviseBon(formData);
+  const lignes = lireLignesBon(formData);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
+  const calcul = calculerBon(lignes, devise, taux);
+  const nbSansPrix = calcul.lignes.filter((l) => l.prixUnitaireUSD === null && l.prixUnitaireCDF === null).length;
 
   const now = jourCivilKinshasa(new Date()); // le numéro du bon suit le mois de Kinshasa
   const annee = now.getUTCFullYear();
@@ -215,21 +251,9 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
         commentaire: String(formData.get("commentaire") ?? "").trim() || null,
-        totalUSD,
-        totalCDF: taux ? totalUSD * taux : null,
-        tauxChangeUtilise: taux,
+        ...calcul.entete,
         creeParId: user.id,
-        lignes: {
-          create: lignes.map((l) => ({
-            articleId: l.articleId,
-            designation: l.designation,
-            quantite: l.quantite,
-            prixUnitaireUSD: l.prixUnitaireUSD,
-            uniteParCarton: l.uniteParCarton,
-            nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null,
-            totalLigneUSD: totalLigne(l.quantite, l.prixUnitaireUSD),
-          })),
-        },
+        lignes: { create: calcul.lignes },
       },
     });
     if (autoValide) await alimenterDepuisBons(tx, [cree.id], "BON_COMMANDE", user.id); // né validé : déjà une commande
@@ -241,9 +265,9 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   // Cloche TOUJOURS émise (choix client : trace visible de chaque bon, même auto-validé) :
   // « à valider » quand un autre rôle l'émet, « créé et validé » quand la Direction auto-valide.
   if (autoValide) {
-    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${libelleTotalBon({ totalUSD }, nbSansPrix, lignes.length)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${libelleTotalBon(calcul.entete, nbSansPrix, lignes.length)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
   } else if (user.role !== "ADMIN") {
-    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${libelleTotalBon({ totalUSD }, nbSansPrix, lignes.length)})`, lien: "/stock/a-valider", refId: bc.id });
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${libelleTotalBon(calcul.entete, nbSansPrix, lignes.length)})`, lien: "/stock/a-valider", refId: bc.id });
   }
 
   revalidatePath("/stock/commandes");
@@ -256,25 +280,16 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
   const user = await garde();
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true, devise: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
-  // Un bon importé d'un PDF en francs garde ses montants en francs : l'écran de modification ne saisit que des
-  // dollars (il ne convertit jamais en silence) — le réécrire en dollars violerait la contrainte de devise en base.
-  if (bc.devise === "CDF") throw new Error("Ce bon de commande est en francs (importé d'un PDF) : il ne se modifie pas ici (la modification saisit des dollars). Créez un nouveau bon si besoin.");
+  // La devise du bon se choisit (2026-10-16) : un bon en francs — créé à l'écran ou importé d'un PDF — se modifie comme
+  // un bon en dollars, dans SA devise. Champ absent = celle du bon. Changer de devise remplace les prix par ceux saisis
+  // dans la nouvelle devise : jamais de conversion en silence.
+  const devise = lireDeviseBon(formData, bc.devise === "CDF" ? "CDF" : "USD");
 
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
-  const ids = formData.getAll("ligne_articleId").map(String);
-  const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
-  const qtes = colonne(formData, "ligne_quantite", "quantité");
-  const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
-  const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
-
-  const lignes = desigs
-    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prixUnitaireUSD: prixs[i] ?? null, uniteParCarton: cartons[i] || null }))
-    .filter((l) => l.designation && l.quantite > 0);
-  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
-
-  const totalUSD = totalDesLignes(lignes);
+  const lignes = lireLignesBon(formData);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
+  const calcul = calculerBon(lignes, devise, taux);
 
   // Les lignes sont REMPLACÉES (modification) ; mais un formulaire qui en compte MOINS en retire une :
   // c'est une suppression, réservée à la Direction (règle de Sacha, 2026-10-01), même sur un brouillon.
@@ -292,15 +307,8 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
         commentaire: String(formData.get("commentaire") ?? "").trim() || null,
-        totalUSD, totalCDF: taux ? totalUSD * taux : null, tauxChangeUtilise: taux,
-        lignes: {
-          create: lignes.map((l) => ({
-            articleId: l.articleId, designation: l.designation, quantite: l.quantite,
-            prixUnitaireUSD: l.prixUnitaireUSD, uniteParCarton: l.uniteParCarton,
-            nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null,
-            totalLigneUSD: totalLigne(l.quantite, l.prixUnitaireUSD),
-          })),
-        },
+        ...calcul.entete,
+        lignes: { create: calcul.lignes },
       },
     });
   });

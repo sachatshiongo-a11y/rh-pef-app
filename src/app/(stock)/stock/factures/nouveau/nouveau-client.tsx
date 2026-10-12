@@ -39,7 +39,7 @@ type Art = { id: string; designation: string; contenance?: string | null; conten
 type Devise = "USD" | "CDF";
 type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
-type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
+type Bon = { id: string; numero: string; /** Devise du bon (ses prix de ligne sont dans cette devise). */ devise?: Devise; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
 /** `suggestion` : article PROCHE proposé à la lecture d'un PDF (ligne « à choisir ») — jamais appliqué sans clic. */
 type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string; suggestion?: { id: string; libelle: string; unite: string | null } | null };
 /** Doublon de facture signalé par le serveur (même fournisseur, même montant à ±14 jours). */
@@ -60,10 +60,10 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     const a = articleId ? articles.find((x) => x.id === articleId) : null;
     return canoniqueVersSaisie((d === "USD" ? a?.prix : a?.prixCDF) ?? "");
   };
-  // Un bon de commande est en dollars : en francs, ses prix ne sont PAS repris (jamais convertis en
-  // silence) — le prix catalogue en francs de l'article est proposé à la place.
+  // Les prix d'un bon ne sont repris que dans SA devise (jamais convertis en silence) : facture et bon dans la même
+  // devise, ses prix tels quels ; sinon le prix catalogue de l'article dans la devise de la facture est proposé à la place.
   const lignesDeBon = (b: Bon | null, d: Devise = devise): Ligne[] =>
-    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: d === "USD" ? canoniqueVersSaisie(l.prix) : prixPropose(l.articleId, "CDF") })) : [vide(), vide(), vide()];
+    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: (b.devise ?? "USD") === d ? canoniqueVersSaisie(l.prix) : prixPropose(l.articleId, d) })) : [vide(), vide(), vide()];
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [doublon, setDoublon] = useState<string | null>(null);
