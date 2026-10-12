@@ -121,7 +121,7 @@ describe("plusieurs marques pour un article du restaurant (base réelle)", () =>
 });
 
 describe("migration 20261012100000 : les liens existants sont recopiés dans la table de liaison", () => {
-  const sql = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261012100000_article_resto_plusieurs_articles/migration.sql"), "utf8");
+  const sql = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261013110000_article_resto_plusieurs_articles/migration.sql"), "utf8");
   const insertion = sql.slice(sql.indexOf('INSERT INTO "stock"."ArticleRestoStock"')).replace(/;\s*$/, "");
 
   it("chaque ancien articleStockId devient un lien ; rien pour un article sans lien ; rejouable sans doublon", async () => {
