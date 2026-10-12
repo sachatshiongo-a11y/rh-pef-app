@@ -28,6 +28,7 @@ vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 
 const { ajouterLiensResto, retirerLiensResto, accepterPropositions } = await import("./actions");
 const { validerDemandes, refuserDemandes } = await import("../a-valider/actions");
+const { apercusDemandes } = await import("@/lib/validations-stock/apercu");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -166,6 +167,10 @@ describe("la Direction décide", () => {
     expect((await demandes())[0]!.statut).toBe("EN_ATTENTE");
     expect(await liens()).toEqual([ids.lurpak]);
     expect((await journal()).length).toBe(avant);
+    // L'écran de la Direction le dit AVANT qu'elle décide : alerte « refusez-la », avec le contenu de la demande.
+    const [a] = await apercusDemandes({ id: d!.id }, { detail: true });
+    expect(a!.alertes.join(" ")).toContain("déjà rattaché");
+    expect(a!.lien!.operations).toMatchObject([{ op: "AJOUT", articleStockDesignation: "Beurre Lurpak", articleRestoDesignation: "Beurre" }]);
   });
 
   it("détachement PÉRIMÉ (déjà retiré entre-temps) : refusé de même", async () => {
