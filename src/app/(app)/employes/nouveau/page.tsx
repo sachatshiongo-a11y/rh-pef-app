@@ -48,6 +48,7 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
         postes={postes}
         parametres={parametres}
         impact={impact}
+        champsDirection={user.role === "ADMIN" ? "modifiables" : "validation"}
         doublons={{ fiches: fichesPourEcran(identites), ecartees: [], peutReactiver: user.role === "ADMIN" }}
       />
     </div>

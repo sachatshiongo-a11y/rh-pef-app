@@ -359,6 +359,7 @@ model Employee {
   signatures            SignatureElectronique[]
   scansPointage        ScanPointage[]
   attestations         Attestation[]
+  demandesModifFiche   DemandeModifFiche[]
 
   @@schema("public")
 }
@@ -2249,5 +2250,77 @@ model CompteurAttestation {
   annee   Int @id
   dernier Int @default(0)
 
+  @@schema("public")
+}
+
+enum StatutDemandeFiche {
+  EN_ATTENTE
+  VALIDEE
+  REFUSEE
+
+  @@schema("public")
+}
+
+/// Modification de champs SENSIBLES d'une fiche salarié (paie, contrat, versement) saisie par un autre
+/// rôle que la Direction (décision de Sacha, 2026-10-12 : « la direction valide les changements
+/// effectués par les autres rôles »). Rien n'est appliqué à la fiche avant la validation ; la Direction
+/// approuve (application sous transaction, refusée si un champ a changé depuis la demande) ou refuse
+/// (motif obligatoire). `changements` : [{ champ, avant, apres }] en valeurs canoniques (texte,
+/// `lib/fiche-sensible.ts`), `avant` = la fiche au moment de la demande. Une seule demande EN ATTENTE
+/// par champ et par salarié, tenue par l'application sous verrou (`lib/demandes-fiche.ts`).
+model DemandeModifFiche {
+  id           String             @id @default(uuid())
+  employeeId   String
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  statut       StatutDemandeFiche @default(EN_ATTENTE)
+  /// MODIFIER (formulaire « Modifier ») | CHANGER_SALAIRE (« Changer le salaire / poste »)
+  origine      String
+  changements  Json
+  /// Motif facultatif saisi par l'auteur (pour « Changer le salaire » : Ajustement, Promotion…).
+  motif        String?
+  auteurId     String
+  auteurNom    String
+  decideurId   String?
+  decideurNom  String?
+  decideLe     DateTime?
+  motifRefus   String?
+  /// Ce que la décision a dû dire (paie du mois validée : bulletin figé inchangé, etc.).
+  noteDecision String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([statut, createdAt])
+  @@index([employeeId, statut])
+  @@schema("public")
+}
+
+/// CRÉATION d'une fiche salarié saisie par un autre rôle que la Direction (décision de Sacha,
+/// 2026-10-13 : « la création passe par la validation également »). Table à part de DemandeModifFiche :
+/// la demande précède la fiche (pas d'employeeId, pas de clé étrangère), donc aucune requête existante
+/// sur les employés ne peut la voir — pas de fiche « fantôme » dans les listes, la paie, les présences,
+/// le planning. `donnees` : toutes les valeurs saisies (dates en ISO). Approuver crée la fiche dans une
+/// transaction (anti-doublon et matricule revérifiés) et renseigne `employeeId`.
+model DemandeCreationFiche {
+  id              String             @id @default(uuid())
+  statut          StatutDemandeFiche @default(EN_ATTENTE)
+  nom             String
+  /// Matricule saisi (vide = attribué à l'approbation).
+  matricule       String?
+  donnees         Json
+  /// Ids de fiches déclarées « c'est une autre personne » à la saisie (virgules).
+  doublonsEcartes String             @default("")
+  auteurId        String
+  auteurNom       String
+  decideurId      String?
+  decideurNom     String?
+  decideLe        DateTime?
+  motifRefus      String?
+  noteDecision    String?
+  /// La fiche créée à l'approbation.
+  employeeId      String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([statut, createdAt])
   @@schema("public")
 }

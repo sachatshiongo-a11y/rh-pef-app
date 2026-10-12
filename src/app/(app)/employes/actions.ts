@@ -4,61 +4,25 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { genererMatricule } from "@/lib/matricule";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
+import { CHAMPS_SENSIBLES, CHAMP_ORIGINES, changementsDeLUtilisateur, estChampSensible, libelleValeur, lireOrigines, messagePerime, versDonnee, type ChampSensible } from "@/lib/fiche-sensible";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, verrouillerFiche } from "@/lib/demandes-fiche";
 import {
   clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
   type IdentiteFiche,
 } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
+import { controlerDonneesCreation } from "@/lib/creation-fiche-donnees";
+import { creerDemandeCreation, creerFicheTx, exigerIdentifiantsLibres, lisibleSiDoublon, notifierNouvelleCreation } from "@/lib/creation-fiche";
 
 // Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
 // lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
 function decimalField(formData: FormData, name: string, libelle: string): number {
   return decSaisi(formData.get(name), libelle);
-}
-
-/** Champs réservés à la Direction dans « Modifier » (audit RH 2026-10-10) : ils font la paie et
- *  les droits (ancienneté, congés, régime). Absents du formulaire hors Direction, REFUSÉS par le
- *  serveur s'ils arrivent quand même. Le salaire suit, pour la Direction, le chemin journalisé de
- *  « Changer le salaire » (historique). */
-const CHAMPS_DIRECTION = ["salaireMensuel", "dateEmbauche", "contrat", "fraisMedicauxMoisCourant"] as const;
-
-const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
-
-/**
- * Unicité lisible (au lieu de l'erreur brute de la base) : matricule non vide et libre ; identifiant
- * de pointeuse IVMS libre — ni l'ID IVMS d'un autre, ni le matricule d'un autre (l'import apparie
- * aussi par matricule : la pointeuse confondrait les deux salariés).
- */
-async function exigerIdentifiantsLibres(p: { matricule: string; idExterneIVMS: string | null }, exclureId?: string): Promise<void> {
-  const autres = exclureId ? { id: { not: exclureId } } : {};
-  if (p.matricule) {
-    const pris = await prisma.employee.findFirst({ where: { matricule: p.matricule, ...autres }, select: { nom: true } });
-    if (pris) throw new Error(`Le matricule « ${p.matricule} » est déjà celui de ${pris.nom}. Rien n'a été enregistré.`);
-  }
-  if (p.idExterneIVMS) {
-    const autre = await prisma.employee.findFirst({
-      where: { OR: [{ idExterneIVMS: p.idExterneIVMS }, { matricule: p.idExterneIVMS }], ...autres },
-      select: { nom: true, matricule: true, idExterneIVMS: true },
-    });
-    if (autre) {
-      const comment = autre.idExterneIVMS === p.idExterneIVMS ? "est déjà l'identifiant de pointeuse de" : "est le matricule de";
-      throw new Error(`L'identifiant IVMS « ${p.idExterneIVMS} » ${comment} ${autre.nom} (${autre.matricule}) : la pointeuse confondrait les deux. Rien n'a été enregistré.`);
-    }
-  }
-}
-
-/** Erreur d'unicité de la base (course entre deux enregistrements) → message lisible. */
-function lisibleSiDoublon(e: unknown): never {
-  if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
-    throw new Error("Ce matricule (ou cet identifiant) vient d'être pris par une autre fiche. Rien n'a été enregistré : vérifiez et réessayez.");
-  }
-  throw e;
 }
 
 function toEmployeeInput(formData: FormData) {
@@ -128,30 +92,27 @@ export async function creerEmploye(formData: FormData) {
     requireRole(user, ["ADMIN", "MANAGER"]);
 
     const data = toEmployeeInput(formData);
+    // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
+    const modeBrut = formData.get("modePaiement");
+    const ctrl = controlerDonneesCreation({ ...data, ...(modeBrut !== null ? { modePaiement: String(modeBrut) as typeof data.modePaiement } : {}) });
+    if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
     const ecartes = await exigerDoublonsTranches(data, formData);
-    // Matricule auto-généré si laissé vide, selon la logique de la catégorie (brigade / back-office).
-    if (!data.matricule) {
-      const existants = await prisma.employee.findMany({
-        where: { categorie: data.categorie },
-        select: { matricule: true },
-      });
-      data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
+
+    // Hors Direction : RIEN n'est créé (aucune fiche visible nulle part) ; une demande part à la Direction.
+    // Les contrôles de la saisie (matricule et pointeuse libres) s'appliquent dès maintenant, puis sont refaits à l'approbation.
+    if (!estDirection(user)) {
+      await exigerIdentifiantsLibres(prisma, data);
+      const demande = await creerDemandeCreation({ donnees: data, ecartes, auteur: { id: user.id, nom: user.nom, role: user.role } });
+      await notifierNouvelleCreation(demande);
+      revalidatePath("/employes");
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      redirect("/employes?creation=envoyee");
     }
 
-    await exigerIdentifiantsLibres(data);
-    const nouvel = await prisma.employee.create({ data }).catch(lisibleSiDoublon);
-    // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
-    if (ecartes.length > 0) {
-      await journaliser(prisma, { entite: "Employee", entiteId: nouvel.id, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
-    }
-
-    // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
-    const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
-    if (modeleOnboarding.length > 0) {
-      await prisma.tacheOnboarding.createMany({
-        data: modeleOnboarding.map((m) => ({ employeeId: nouvel.id, libelle: m.libelle, ordre: m.ordre })),
-      });
-    }
+    // Direction : création directe, comme avant (matricule auto-généré si laissé vide, selon la catégorie).
+    await exigerIdentifiantsLibres(prisma, data);
+    await prisma.$transaction((tx) => creerFicheTx(tx, data, ecartes, user.id)).catch(lisibleSiDoublon);
 
     revalidatePath("/employes");
     redirect("/employes");
@@ -163,55 +124,74 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
-    const direction = user.role === "ADMIN";
-    // Hors Direction : salaire, date d'embauche, contrat et frais médicaux ne se modifient pas ici.
-    // Le formulaire ne les envoie pas ; s'ils arrivent quand même, rien n'est enregistré.
-    if (!direction) {
-      const envoyes = CHAMPS_DIRECTION.filter((c) => formData.has(c));
-      if (envoyes.length > 0) {
-        throw new Error("Le salaire, la date d'embauche, le type de contrat et les frais médicaux se modifient par la Direction seulement. Rien n'a été enregistré.");
-      }
-    }
+    const direction = estDirection(user);
     const complet = toEmployeeInput(formData);
-    const { salaireMensuel, dateEmbauche, contrat, fraisMedicauxMoisCourant, ...commun } = complet;
+    // Champs SENSIBLES (paie, contrat, versement — lib/fiche-sensible) : seuls ceux que le formulaire
+    // envoie sont pris en compte (un champ absent n'est jamais lu comme « 0 » ou « vide »).
+    const sensiblesEnvoyes = CHAMPS_SENSIBLES.filter((c) => formData.has(c));
+    const commun = Object.fromEntries(Object.entries(complet).filter(([c]) => !estChampSensible(c))) as Omit<typeof complet, ChampSensible>;
     if (!commun.matricule) throw new Error("Le matricule ne peut pas être vide (il sert à la connexion et à la pointeuse). Rien n'a été enregistré.");
-    await exigerIdentifiantsLibres(commun, employeeId);
+    if (sensiblesEnvoyes.includes("dateEmbauche") && Number.isNaN(complet.dateEmbauche.getTime())) throw new Error("Date d'embauche invalide.");
+    await exigerIdentifiantsLibres(prisma, commun, employeeId);
     // La question des doublons ne se repose que si l'identité (nom, téléphone, date de naissance) change.
     const avant = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const ecartes = identiteModifiee(avant, commun) ? await exigerDoublonsTranches(commun, formData, employeeId) : [];
+    // Ce que la personne a RÉELLEMENT changé (valeur soumise ≠ valeur d'origine du formulaire) : un champ
+    // laissé tel quel n'écrase jamais une valeur changée entre-temps (formulaire périmé → refus lisible).
+    // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
+    const soumis: Partial<Record<ChampSensible, unknown>> = Object.fromEntries(sensiblesEnvoyes.map((c) => [c, c === "modePaiement" ? String(formData.get("modePaiement") ?? "") : complet[c]]));
+    const origines = lireOrigines(formData.get(CHAMP_ORIGINES));
 
-    await prisma.$transaction(async (tx) => {
+    // Champs non sensibles ET (Direction) écriture directe des sensibles, ou (autres rôles) demande à
+    // valider : dans UNE transaction, sous le verrou de la fiche (la comparaison se fait sur la fiche
+    // relue SOUS verrou) — une demande refusée (champ déjà en attente) n'enregistre rien.
+    const demande = await prisma.$transaction(async (tx) => {
+      await verrouillerFiche(tx, employeeId);
+      const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      const { changements, perimes, invalides } = changementsDeLUtilisateur(fiche as unknown as Record<string, unknown>, soumis, origines);
+      if (invalides.length > 0) throw new Error(`${invalides.join(" ")} Rien n'a été enregistré.`);
+      if (perimes.length > 0) throw new Error(messagePerime(perimes));
       await tx.employee.update({ where: { id: employeeId }, data: commun });
-      if (!direction) return;
-      if (Number.isNaN(dateEmbauche.getTime())) throw new Error("Date d'embauche invalide.");
-      // Direction : le salaire passe par le chemin de « Changer le salaire » (historique + journal).
-      if (Number(avant.salaireMensuel) !== salaireMensuel) {
+      if (changements.length === 0) return null;
+      if (!direction) {
+        return creerDemandeFicheTx(tx, { employeeId, changements, origine: "MODIFIER", auteur: { id: user.id, nom: user.nom, role: user.role } });
+      }
+      // Direction : le salaire passe par le chemin de « Changer le salaire » (historique + journal) ;
+      // chaque autre champ sensible laisse sa trace.
+      const salaire = changements.find((c) => c.champ === "salaireMensuel");
+      if (salaire) {
         await enregistrerChangementSalaire(tx, {
           employeeId,
-          ancienSalaire: avant.salaireMensuel,
-          nouveauSalaire: salaireMensuel,
-          ancienPoste: avant.poste,
-          nouveauPoste: commun.poste || avant.poste,
+          ancienSalaire: fiche.salaireMensuel,
+          nouveauSalaire: Number(versDonnee("salaireMensuel", salaire.apres)),
+          ancienPoste: fiche.poste,
+          nouveauPoste: commun.poste || fiche.poste,
           motif: "Modification de la fiche",
           userId: user.id,
         });
       }
-      await tx.employee.update({ where: { id: employeeId }, data: { dateEmbauche, contrat, fraisMedicauxMoisCourant } });
-      // Les autres champs de la Direction laissent aussi leur trace (ancienneté, régime, frais du mois).
-      const traces = [
-        { champ: "dateEmbauche", a: jjmmaaaa(new Date(avant.dateEmbauche)), n: jjmmaaaa(dateEmbauche) },
-        { champ: "contrat", a: avant.contrat, n: contrat },
-        { champ: "fraisMedicauxMoisCourant", a: String(Number(avant.fraisMedicauxMoisCourant)), n: String(fraisMedicauxMoisCourant) },
-      ].filter((t) => t.a !== t.n);
-      for (const t of traces) {
-        await journaliser(tx, { entite: "Employee", entiteId: employeeId, champ: t.champ, ancienneValeur: t.a, nouvelleValeur: t.n, userId: user.id });
+      const autres = changements.filter((c) => c.champ !== "salaireMensuel");
+      if (autres.length > 0) {
+        await tx.employee.update({ where: { id: employeeId }, data: Object.fromEntries(autres.map((c) => [c.champ, versDonnee(c.champ, c.apres)])) });
+        for (const c of autres) {
+          await journaliser(tx, { entite: "Employee", entiteId: employeeId, champ: c.champ, ancienneValeur: libelleValeur(c.champ, c.avant), nouvelleValeur: libelleValeur(c.champ, c.apres), userId: user.id });
+        }
       }
+      return null;
     }).catch(lisibleSiDoublon);
     if (ecartes.length > 0) {
       await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
     }
 
     revalidatePath("/employes");
+    revalidatePath(`/employes/${employeeId}`);
+    if (demande) {
+      // La Direction est prévenue APRÈS la transaction ; la fiche montre le bandeau « en attente ».
+      await notifierNouvelleDemandeFiche(demande, commun.nom || avant.nom);
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      redirect(`/employes/${employeeId}`);
+    }
     redirect("/employes");
   });
 }
