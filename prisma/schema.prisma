@@ -2292,7 +2292,7 @@ model DemandeCreationFiche {
   /// La fiche créée à l'approbation.
   employeeId      String?
   createdAt       DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  updatedAt       DateTime           @updatedAt
 
   @@index([statut, createdAt])
   @@schema("public")

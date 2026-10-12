@@ -6,6 +6,7 @@ import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { envoyerPush } from "@/lib/push";
 import { genererMatricule } from "@/lib/matricule";
+import { enregistrerSalaireEmbauche } from "@/lib/historique-salaire";
 import { MAX_MOTIF_REFUS } from "@/lib/conges-liste";
 import { fichesProches, libelleMotif, memeNom, JOURNAL_DOUBLON_ECARTE, type IdentiteFiche } from "@/lib/employe-doublon";
 import { controlerDonneesCreation, donneesPourEcriture, lignesCreation, type DonneesCreation } from "@/lib/creation-fiche-donnees";
@@ -80,6 +81,8 @@ export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: str
   }
   await exigerIdentifiantsLibres(tx, data);
   const nouvel = await tx.employee.create({ data: data as Prisma.EmployeeUncheckedCreateInput });
+  // Première ligne de l'historique salarial (décision de Sacha, 2026-10-13) : « Salaire d'embauche », à la date d'embauche.
+  await enregistrerSalaireEmbauche(tx, { employeeId: nouvel.id, salaire: nouvel.salaireMensuel, poste: nouvel.poste, dateEmbauche: nouvel.dateEmbauche, userId });
   // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
   if (ecartes.length > 0) {
     await journaliser(tx, { entite: "Employee", entiteId: nouvel.id, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId });

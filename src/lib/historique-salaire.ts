@@ -42,3 +42,33 @@ export async function enregistrerChangementSalaire(
     userId: p.userId,
   });
 }
+
+/**
+ * PREMIÈRE ligne de l'historique salarial d'une fiche qui vient d'être créée : « Salaire d'embauche »,
+ * à la date d'embauche, sans ancien salaire. Même table que `enregistrerChangementSalaire` ; la fiche porte
+ * déjà ce salaire (aucune écriture sur `Employee`). Dans la transaction de la création.
+ */
+export async function enregistrerSalaireEmbauche(
+  tx: Prisma.TransactionClient,
+  p: { employeeId: string; salaire: { toString(): string } | number; poste: string; dateEmbauche: Date; userId: string },
+): Promise<void> {
+  await tx.historiqueSalaire.create({
+    data: {
+      employeeId: p.employeeId,
+      date: p.dateEmbauche,
+      ancienSalaire: null,
+      nouveauSalaire: Number(p.salaire),
+      ancienPoste: null,
+      nouveauPoste: p.poste,
+      motif: "Salaire d'embauche",
+      decideParId: p.userId,
+    },
+  });
+  await journaliser(tx, {
+    entite: "Employee",
+    entiteId: p.employeeId,
+    champ: "salaireMensuel",
+    nouvelleValeur: `${Number(p.salaire)} (salaire d'embauche)`,
+    userId: p.userId,
+  });
+}

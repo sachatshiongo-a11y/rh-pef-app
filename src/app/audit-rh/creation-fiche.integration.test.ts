@@ -196,3 +196,35 @@ describe("double approbation", () => {
     expect(await prisma.tacheOnboarding.count({ where: { employee: { nom: "Double Clic" } } })).toBe(1);
   });
 });
+
+describe("historique salarial : première ligne « Salaire d'embauche »", () => {
+  const lignes = (employeeId: string) => prisma.historiqueSalaire.findMany({ where: { employeeId } });
+
+  it("création directe par la Direction : une ligne (montant de la fiche, date d'embauche, sans ancien salaire, auteur = la Direction)", async () => {
+    comme("ADMIN");
+    await url(RH.creerEmploye(nouveau({ nom: "Histo Direct", telephone: "0980000001", dateNaissance: "1984-01-01", dateEmbauche: "2026-09-15", salaireMensuel: "410" })));
+    const e = await prisma.employee.findFirstOrThrow({ where: { nom: "Histo Direct" } });
+    const l = await lignes(e.id);
+    expect(l).toHaveLength(1);
+    expect([Number(l[0].nouveauSalaire), l[0].ancienSalaire, l[0].motif, l[0].decideParId, l[0].nouveauPoste, l[0].date.toISOString().slice(0, 10)])
+      .toEqual([410, null, "Salaire d'embauche", ids.direction, "Commis", "2026-09-15"]);
+  });
+
+  it("approbation d'une demande RH : une ligne, auteur = la Direction qui approuve ; refus ou doublon : aucune ligne", async () => {
+    comme("MANAGER");
+    await url(RH.creerEmploye(nouveau({ nom: "Histo Approuvé", telephone: "0980000002", dateNaissance: "1983-02-02", dateEmbauche: "2026-08-03", salaireMensuel: "275,50" })));
+    await url(RH.creerEmploye(nouveau({ nom: "Histo Refusé", telephone: "0980000003", dateNaissance: "1982-03-03" })));
+    const dA = (await enAttente()).find((x) => x.nom === "Histo Approuvé")!;
+    const dR = (await enAttente()).find((x) => x.nom === "Histo Refusé")!;
+    const avant = await prisma.historiqueSalaire.count();
+    comme("ADMIN");
+    expect((await FICHE.refuserModifsFiche([dR.id], "Non")).traitees).toBe(1);
+    expect(await prisma.historiqueSalaire.count()).toBe(avant); // refus : aucune ligne
+    expect((await FICHE.approuverModifsFiche([dA.id])).traitees).toBe(1);
+    const e = await prisma.employee.findFirstOrThrow({ where: { nom: "Histo Approuvé" } });
+    const l = await lignes(e.id);
+    expect(l).toHaveLength(1);
+    expect([Number(l[0].nouveauSalaire), l[0].motif, l[0].decideParId, l[0].date.toISOString().slice(0, 10)]).toEqual([275.5, "Salaire d'embauche", ids.direction, "2026-08-03"]);
+    expect(await prisma.historiqueSalaire.count()).toBe(avant + 1);
+  });
+});
