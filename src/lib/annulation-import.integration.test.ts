@@ -163,14 +163,20 @@ describe("annulation d'un import de FACTURES : aucune perte de paiement en casca
     expect((await prisma.importBatch.findUniqueOrThrow({ where: { id: batch } })).statut).toBe("APPLIQUE");
   }, 60_000);
 
-  it("réglé > 0 sans ligne de paiement, entrée de stock, ligne liée : refusés aussi", async () => {
+  it("entrée de stock, ligne liée : refusées aussi", async () => {
     const { batch, mk } = await lot();
-    await mk("R-1", { montantRegleUSD: 10, resteAPayerUSD: 90 });
     const art = await prisma.articleStock.create({ data: { designation: "Farine facture", domaine: "NOURRITURE" } });
     const avecEntree = await mk("R-2");
     await prisma.mouvementStock.create({ data: { articleId: art.id, type: "ENTREE", quantite: 1, factureId: avecEntree } });
     await mk("R-3", { lignes: { create: [{ designation: "x", quantite: 1, prixUnitaireUSD: 1, totalLigneUSD: 1 }] } });
-    await expect(annulerImport(batch, userId)).rejects.toThrow(/R-1 : un montant réglé[\s\S]*R-2 : 1 entrée\(s\) en stock[\s\S]*R-3 : 1 ligne\(s\)/);
+    await expect(annulerImport(batch, userId)).rejects.toThrow(/R-2 : 1 entrée\(s\) en stock[\s\S]*R-3 : 1 ligne\(s\)/);
+  }, 60_000);
+
+  it("réglé sans ligne de paiement (facture importée « Réglée » du classeur) : n'empêche PAS l'annulation du lot", async () => {
+    const { batch, mk } = await lot();
+    const r = await mk("IMP-REGLEE", { montantRegleUSD: 100, resteAPayerUSD: 0, statut: "REGLEE" });
+    await annulerImport(batch, userId);
+    expect(await prisma.factureFournisseur.count({ where: { id: r } })).toBe(0);
   }, 60_000);
 
   it("un paiement demandé en cours : refusé", async () => {

@@ -7,7 +7,7 @@ import { categorieSortieImport } from "./motif-sorties-import";
 import { journaliser } from "./audit";
 import { poserStocksTx, variationsStockTx } from "./validations-stock/stock-positif";
 import { verrouillerStocks } from "./validations-stock/comptage";
-import { verrouillerMouvements } from "./validations-stock/verrou-suppression";
+import { verrouillerFactures, verrouillerMouvements } from "./validations-stock/verrou-suppression";
 import { derniereClotureStock, estDansPeriodeFigee, exigerPeriodesOuvertes } from "./cloture-stock";
 import { tauxDuJour } from "./taux-du-jour";
 import { PREFIXE_STOCK_POSTERIEUR } from "./annulation-import-texte";
@@ -420,14 +420,16 @@ export async function annulerImport(batchId: string, userId?: string, opts: { re
     }
 
     // 0 quater) Import de FACTURES : supprimer une facture emporte ses paiements (cascade). Refus, factures nommées,
-    //    si l'une a reçu un paiement (ligne Paiement ou réglé > 0), a un paiement demandé en cours, une entrée de stock
+    //    si l'une a reçu un paiement (ligne Paiement — un « réglé » sans ligne vient de l'import lui-même, classeur « Réglée », et ne bloque pas), a un paiement demandé en cours, une entrée de stock
     //    ou une ligne liée depuis l'import. Pas de « quand même » : annuler d'abord les paiements (« Annuler ce paiement »).
     const idsFactures = creations.filter((o) => o.entite === "FactureFournisseur").map((o) => o.entiteId);
     if (idsFactures.length > 0) {
+      // Verrou d'abord (Facture → Mouvement → Stock) : un paiement enregistré pendant la vérification ne se ferait pas emporter par la suppression.
+      await verrouillerFactures(tx, idsFactures);
       const [facs, demandes] = await Promise.all([
         tx.factureFournisseur.findMany({
           where: { id: { in: idsFactures } },
-          select: { id: true, fournisseurNom: true, numero: true, montantRegleUSD: true, montantRegleCDF: true, _count: { select: { paiements: true, lignes: true, mouvements: true } } },
+          select: { id: true, fournisseurNom: true, numero: true, _count: { select: { paiements: true, lignes: true, mouvements: true } } },
         }),
         tx.cibleDemandeStock.findMany({ where: { cle: { in: idsFactures.map(cleFacture) }, demande: { statut: "EN_ATTENTE" } }, select: { cle: true } }),
       ]);
@@ -435,7 +437,6 @@ export async function annulerImport(batchId: string, userId?: string, opts: { re
       const fautives = facs.flatMap((f) => {
         const raisons = [
           f._count.paiements > 0 ? `${f._count.paiements} paiement(s)` : null,
-          f._count.paiements === 0 && (Number(f.montantRegleUSD ?? 0) > 0 || Number(f.montantRegleCDF ?? 0) > 0) ? "un montant réglé" : null,
           enDemande.has(cleFacture(f.id)) ? "un paiement demandé en cours" : null,
           f._count.mouvements > 0 ? `${f._count.mouvements} entrée(s) en stock` : null,
           f._count.lignes > 0 ? `${f._count.lignes} ligne(s) d'articles` : null,
