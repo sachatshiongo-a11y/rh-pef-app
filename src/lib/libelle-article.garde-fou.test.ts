@@ -44,7 +44,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
   "src/app/(stock)/stock/catalogue/_view.tsx": { n: 1, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/catalogue/actions.ts": { n: 10, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 9, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
@@ -52,9 +52,9 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/entree/actions.ts": { n: 24, raisons: ["AUDIT_ACTION"] },
+  "src/app/(stock)/stock/entree/actions.ts": { n: 23, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/entree/alertes-ligne.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // nom tapé d'un nouvel article
-  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 5, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 6, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/entree-telephone.tsx": { n: 5, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/[id]/page.tsx": { n: 5, raisons: ["CLE", "FIGE"] }, // clé du rapprochement bon/facture, ligne libre
