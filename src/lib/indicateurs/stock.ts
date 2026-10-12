@@ -12,7 +12,11 @@ import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 // bord de l'Exploitation. Formules recopiées à l'identique de l'accueil Stock (un test de
 // non-régression le prouve) ; les alertes passent par `niveauAlerte`, sans rien changer à sa règle.
 
-export type ArticleEnAlerte = { articleId: string; designation: string; quantite: number; niveau: "URGENT" | "APPRO" };
+/**
+ * `domaine`, `unite`, `stockMinimum` (2026-10-12, envois automatiques du Stock) : lus sur les MÊMES lignes que le niveau,
+ * pour que l'e-mail du matin range les alertes par domaine et dise le seuil ; l'accueil Stock ne s'en sert pas.
+ */
+export type ArticleEnAlerte = { articleId: string; designation: string; quantite: number; niveau: "URGENT" | "APPRO"; domaine: string; unite: string | null; stockMinimum: number };
 
 /**
  * `montant` : null quand il n'y a rien à sommer (l'accueil affiche alors « — », jamais « 0,00 $ »).
@@ -86,7 +90,7 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
 
   const taux = await tauxDuJour();
   const [stocks, facturesDues, facturesSemaine, facturesEchues, legumesMois, consoMois] = await Promise.all([
-    prisma.stock.findMany({ where: { article: { actif: true } }, include: { article: { select: { ...CHAMPS_LIBELLE, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
+    prisma.stock.findMany({ where: { article: { actif: true } }, include: { article: { select: { ...CHAMPS_LIBELLE, domaine: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
     prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
@@ -114,6 +118,9 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     articleId: s.articleId,
     designation: libelleArticle(s.article), // nom affiché des alertes (contenance comprise)
     quantite: Number(s.quantite),
+    domaine: s.article.domaine,
+    unite: s.article.unite,
+    stockMinimum: Number(s.stockMinimum),
     niveau: niveauAlerte(s.quantite, s.stockMinimum, s.seuilUrgent),
     // Article en dollars : calcul d'avant, à l'identique ; en francs : au taux du jour (« ≈ »).
     valeur: s.article.devisePrix === "CDF"
@@ -126,7 +133,7 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     .filter((a) => a.niveau === "URGENT" || a.niveau === "APPRO")
     .sort((a, b) => (a.niveau === "URGENT" ? 0 : 1) - (b.niveau === "URGENT" ? 0 : 1))
     .slice(0, nbAlertes)
-    .map((a) => ({ articleId: a.articleId, designation: a.designation, quantite: a.quantite, niveau: a.niveau as "URGENT" | "APPRO" }));
+    .map((a) => ({ articleId: a.articleId, designation: a.designation, quantite: a.quantite, niveau: a.niveau as "URGENT" | "APPRO", domaine: a.domaine, unite: a.unite, stockMinimum: a.stockMinimum }));
 
   // « Sans motif » = tout ce qui n'est ni livraison ni perte (sorties anciennes : le motif est obligatoire depuis 2026-10-07).
   const part = (garde: (motif: string | null) => boolean): PartConso => {

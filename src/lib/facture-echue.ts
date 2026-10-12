@@ -52,6 +52,14 @@ export function whereAReglerNonEchues(auj: string = aujourdhuiEcheance()): Prism
   return { statut: { not: "REGLEE" }, AND: [RESTE_OUVERT, { OR: [{ dateEcheance: null }, { dateEcheance: { gte: new Date(auj) } }] }] };
 }
 
+/**
+ * Filtre Prisma : factures à payer dont l'échéance tombe AU PLUS TARD à `limite` (échues comprises ; sans échéance : exclues).
+ * La règle des rappels — l'alerte « factures à payer sous 7 jours » de l'accueil et le courriel quotidien du Stock la partagent.
+ */
+export function whereAEcheanceAvant(limite: Date): Prisma.FactureFournisseurWhereInput {
+  return { statut: { not: "REGLEE" }, ...RESTE_OUVERT, dateEcheance: { not: null, lte: limite } };
+}
+
 /** Filtre Prisma : factures à payer (échues ou non) — tout ce qui n'est pas réglé. */
 export const whereDues: Prisma.FactureFournisseurWhereInput = { statut: { not: "REGLEE" } };
 
