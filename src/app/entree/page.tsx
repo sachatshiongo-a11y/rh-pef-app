@@ -3,7 +3,7 @@ import { verifySession, espacesDe, accueilEspace, estSalarie } from "@/lib/auth"
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { exigerMotDePassePersonnel } from "@/app/espace/garde";
-import { logout } from "@/app/login/actions";
+import { FormulaireDeconnexion } from "@/components/formulaire-deconnexion";
 
 // Résolveur d'entrée après connexion : oriente chaque compte vers SON espace.
 // - un compte salarié (EMPLOYE, ou relié à une fiche) : mot de passe à changer si temporaire, d'abord ;
@@ -42,11 +42,11 @@ export default async function EntreePage() {
           ? "La Direction a fermé l'espace salarié pour le moment. Vous pourrez y revenir lorsqu'il sera rouvert."
           : "Ce compte n'a accès à aucun espace de l'application. Adressez-vous à la Direction."}
       </p>
-      <form action={logout}>
+      <FormulaireDeconnexion>
         <button type="submit" className="text-sm text-muted-foreground underline hover:text-foreground">
           Déconnexion
         </button>
-      </form>
+      </FormulaireDeconnexion>
     </main>
   );
 }
