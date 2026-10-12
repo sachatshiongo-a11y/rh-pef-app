@@ -22,6 +22,7 @@ function Carte({ label, valeur, rouge = false }: { label: string; valeur: string
 const fr = (iso: string) => iso.split("-").reverse().join("/");
 const frDate = (d: Date) => fr(new Date(d).toISOString().slice(0, 10));
 const anneeDe = (d: Date) => new Date(d).getUTCFullYear();
+const libelleType = (t: string) => ({ CDI: "un CDI", CDD: "un CDD", STAGE: "un stage", INTERIM: "un intérim", JOURNALIER: "un contrat journalier" } as Record<string, string>)[t] ?? t;
 
 /** Une demande touche l'année si elle commence au plus tard, et finit au plus tôt, cette année-là. */
 const touche = (d: DemandeCongeFiche, annee: number) => anneeDe(d.dateDebut) <= annee && anneeDe(d.dateFin) >= annee;
@@ -32,7 +33,7 @@ const touche = (d: DemandeCongeFiche, annee: number) => anneeDe(d.dateDebut) <= 
  * les années. Les chiffres viennent de `calculerSoldeAnneeCivile` (via `chargerCongesParAnnee`) : la
  * source du solde de l'en-tête de la fiche, de l'espace salarié et des PDF. Rien n'est recalculé ici.
  */
-export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, demandes, sansConges, periodesSansConges = [], trous = [], dateSortie = null }: {
+export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, demandes, sansConges, periodesSansConges = [], trous = [], dateSortie = null, ecartFiche = null }: {
   employeeId: string;
   annee: number;
   anneeCourante: number;
@@ -45,6 +46,8 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
   trous?: { debut: Date; fin: Date | null }[];
   /** Dernier jour de présence d'un salarié parti : le bilan s'arrête à son année. */
   dateSortie?: Date | null;
+  /** Type de la fiche contredit par l'historique des contrats (droit aux congés) : le solde suit l'historique. */
+  ecartFiche?: { typeFiche: string; typeHistorique: string } | null;
 }) {
   const annees = anneesDeConges(bilans, demandes, anneeCourante);
   const effectifs: Record<string, number> = Object.fromEntries(annees.map((a) => [String(a), demandes.filter((d) => touche(d, a)).length]));
@@ -96,6 +99,14 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
               rien ne s&apos;acquiert, et un mois à cheval sur une de ces périodes n&apos;acquiert pas.
             </p>
           )}
+          {ecartFiche && (
+            // Fiche passée en CDI sans contrat CDI enregistré (ou l'inverse) : le solde suit l'historique, et c'est dit.
+            <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Contrat à vérifier</span>
+              La fiche indique {libelleType(ecartFiche.typeFiche)}, mais le contrat enregistré qui s&apos;applique est {libelleType(ecartFiche.typeHistorique)} : les congés suivent les contrats enregistrés.
+              Ajoutez le contrat manquant ou corrigez la fiche.
+            </p>
+          )}
           {trous.length > 0 && (
             <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Contrat manquant</span>
@@ -109,6 +120,13 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
               <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
               {bilan.cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences en {annee} : décompté(s) des congés pris.
               Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
+            </p>
+          )}
+          {sortieLe && bilan.annee === Number(sortieLe.slice(0, 4)) && (bilan.prisApresSortie ?? 0) > 0 && (
+            // Congé daté après le départ : il ne se prendra pas, il n'entame donc pas le solde de sortie — et c'est dit.
+            <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Après la sortie</span>
+              {jours(bilan.prisApresSortie ?? 0)} de congé posé(s) après la sortie du {fr(sortieLe)} : non déduit(s) du solde. Annulez ces congés.
             </p>
           )}
         </>

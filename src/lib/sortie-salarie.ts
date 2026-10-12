@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { ancienneteEnMois } from "@/lib/payroll";
 
 // LA DATE DE SORTIE D'UN SALARIÉ — UNE SEULE RÉPONSE (décision de la Direction du 2026-10-12 : « il faut une date de
 // sortie si le salarié part »). Module sans `server-only` : la partie pure se teste telle quelle.
@@ -65,6 +66,16 @@ export function controlerDateSortie(dateEmbauche: Date, dateSortie: Date): strin
     return `La date de sortie (${iso(dateSortie).split("-").reverse().join("/")}) ne peut pas précéder la date d'embauche (${iso(dateEmbauche).split("-").reverse().join("/")}).`;
   }
   return null;
+}
+
+/**
+ * ANCIENNETÉ À LA SORTIE, en mois révolus : celle de l'indemnité de licenciement du solde de tout compte. Même
+ * convention que l'acquisition des congés : la sortie est le DERNIER jour de présence, inclus — le mois qui
+ * s'achève ce jour-là est révolu (on compte au lendemain). Jamais l'ancienneté d'aujourd'hui ni du mois de paie :
+ * un départ enregistré après coup (ou annoncé) ne gagne ni ne perd de mois. PURE.
+ */
+export function ancienneteALaSortie(dateEmbauche: Date, dateSortie: Date): number {
+  return ancienneteEnMois(jourPur(new Date(dateEmbauche)), new Date(jourPur(dateSortie).getTime() + 86_400_000));
 }
 
 /**

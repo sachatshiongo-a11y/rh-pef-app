@@ -84,6 +84,18 @@ export function trousDeContrat(contrats: ContratPeriode[]): { debut: Date; fin: 
 }
 
 /**
+ * Le type de contrat qui régit un jour donné selon l'HISTORIQUE (règles 1 et 3 : contrat qui le couvre, sinon le
+ * précédent, sinon le premier) ; null sans aucun contrat. Sert à signaler une fiche dont le type (`Employee.contrat`)
+ * contredit l'historique — p. ex. fiche passée en CDI sans contrat CDI enregistré : l'historique dit « stage », le
+ * solde suit l'historique, la Direction doit compléter les contrats. PURE.
+ */
+export function typeSelonHistorique(contrats: ContratPeriode[], jour: Date): string | null {
+  const x = t(jour);
+  const seg = segments(contrats).find((s) => s.debut <= x && x <= s.fin);
+  return seg ? seg.type : null;
+}
+
+/**
  * Vrai si le mois [debut, fin] (jours inclus) ouvre droit à ses jours : aucun de ses jours ne tombe dans une
  * période sans congés. PURE.
  */

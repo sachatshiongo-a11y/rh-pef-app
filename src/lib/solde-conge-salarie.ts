@@ -3,7 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { chargerDroitsCongesAnnuel } from "@/lib/config";
 import { ancienneteEnMois, congeDeductibleDuSolde } from "@/lib/payroll";
-import { moisOuvreDroit, periodesSansConges, trousDeContrat, type PeriodeSansConges } from "@/lib/conges-periodes";
+import { moisOuvreDroit, periodesSansConges, trousDeContrat, typeSansConges, typeSelonHistorique, type PeriodeSansConges } from "@/lib/conges-periodes";
 import { resoudreDateSortie } from "@/lib/sortie-salarie";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -46,6 +46,9 @@ export type SoldeConge = {
   solde: number;
   /** Noms des types actifs qui entament le solde — pour le dire au salarié. */
   typesDeduits: string[];
+  /** Salarié parti : jours de congé (approuvés ou « C » de la grille) datés APRÈS sa sortie. Ils ne sont PAS
+   *  déduits (il n'est plus là pour les prendre) et sont à signaler — absent quand il n'y en a pas. */
+  prisApresSortie?: number;
 };
 
 const auDixieme = (x: number) => Math.round(x * 10) / 10;
@@ -69,6 +72,8 @@ const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
  *   quand même. Un stagiaire passé en CDI acquiert dès son CDI.
  * - SORTIE (décision Direction du 2026-10-12) : l'acquisition s'arrête à la date de sortie (dernier jour de
  *   présence, inclus). Le mois qui s'achève CE jour-là est révolu et crédité ce jour-là ; plus rien ensuite.
+ *   Un congé (ou un « C » de la grille) daté APRÈS la sortie n'est pas déduit : il est rendu à part
+ *   (`prisApresSortie`) pour être signalé — jamais retiré en silence de l'indemnité de congés non pris.
  *   Le bilan s'arrête à l'année de la sortie : `annee` vaut alors l'année de la sortie, jamais l'année en cours
  *   (les années d'après n'ont plus de bilan), et le solde est celui de la sortie.
  *
@@ -105,10 +110,17 @@ export function calculerSoldeAnneeCivile(p: {
   const finAnnee = Date.UTC(annee, 11, 31);
   const auj = reference;
   const pris = new Map<number, number>();
-  const ajouter = (t: number, j: number) => { if (t <= finAnnee) pris.set(t, (pris.get(t) ?? 0) + j); };
+  // Un jour de congé daté APRÈS la sortie ne se prend plus (le salarié est parti) : il n'entame pas le solde de
+  // sortie — sinon l'indemnité de congés non pris du solde de tout compte serait amputée d'un congé jamais pris.
+  // Il est compté à part (`prisApresSortie`) pour être signalé.
+  let apresSortie = 0;
+  const ajouter = (t: number, j: number) => {
+    if (t > sortie) { apresSortie += j; return; }
+    if (t <= finAnnee) pris.set(t, (pris.get(t) ?? 0) + j);
+  };
   for (const x of p.prisParJour) ajouter(new Date(x.date).getTime(), x.jours);
-  const cSans = (p.cSansDemande ?? []).filter((d) => new Date(d).getTime() <= finAnnee);
-  for (const d of cSans) ajouter(new Date(d).getTime(), 1);
+  const cSans = (p.cSansDemande ?? []).filter((d) => new Date(d).getTime() <= finAnnee && new Date(d).getTime() <= sortie);
+  for (const d of p.cSansDemande ?? []) ajouter(new Date(d).getTime(), 1);
 
   const premier = Math.min(Date.UTC(embauche.getUTCFullYear(), embauche.getUTCMonth(), embauche.getUTCDate()), ...pris.keys(), debutAnnee);
   let solde = 0;
@@ -153,6 +165,7 @@ export function calculerSoldeAnneeCivile(p: {
     pris: prisR,
     cSansDemande: cSans.filter((d) => new Date(d).getTime() >= debutAnnee).length,
     solde: soldeR,
+    ...(apresSortie > 0 ? { prisApresSortie: auDixieme(apresSortie) } : {}),
   };
 }
 
@@ -213,6 +226,9 @@ type ContexteSortieContrats = {
   periodesSansConges: PeriodeSansConges[];
   /** Plages couvertes par aucun contrat (le régime du contrat précédent s'y poursuit). */
   trous: { debut: Date; fin: Date | null }[];
+  /** Le type de la fiche contredit l'historique des contrats sur le droit aux congés (au dernier jour compté) :
+   *  le solde suit l'historique ; à signaler (contrat manquant ou fiche à corriger). null sinon. */
+  ecartFiche: { typeFiche: string; typeHistorique: string } | null;
 };
 
 /** Ce que `calculerSoldeAnneeCivile` demande, pour un salarié (sans la date de référence). */
@@ -284,7 +300,9 @@ async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: st
     // Les trous qui comptent : ceux qui touchent la vie professionnelle (de l'embauche à la sortie, ou à aujourd'hui).
     const finVie = Math.min(aujourdhui.getTime(), dateSortie ? dateSortie.getTime() : Infinity);
     const trous = trousDeContrat(sesContrats).filter((x) => x.debut.getTime() <= finVie && (x.fin === null || x.fin.getTime() >= new Date(emp.dateEmbauche).getTime()));
-    contextes.set(emp.id, { dateSortie, sortieInconnue: !emp.actif && dateSortie === null, periodesSansConges: periodes, trous: sesContrats.length > 0 ? trous : [] });
+    const typeHistorique = typeSelonHistorique(sesContrats, new Date(finVie));
+    const ecartFiche = typeHistorique !== null && typeSansConges(typeHistorique) !== typeSansConges(emp.contrat) ? { typeFiche: String(emp.contrat), typeHistorique } : null;
+    contextes.set(emp.id, { dateSortie, sortieInconnue: !emp.actif && dateSortie === null, periodesSansConges: periodes, trous: sesContrats.length > 0 ? trous : [], ecartFiche });
   }
   return {
     aujourdhui,
@@ -416,6 +434,7 @@ export async function chargerCongesParAnnee(
   trous: { debut: Date; fin: Date | null }[];
   dateSortie: Date | null;
   sortieInconnue: boolean;
+  ecartFiche: { typeFiche: string; typeHistorique: string } | null;
 }> {
   const { aujourdhui, entrees, contextes, feriesIso, entameLeSolde } = await chargerEntreesSolde(db, [employeeId], maintenant);
   const e = entrees.get(employeeId);
@@ -438,5 +457,5 @@ export async function chargerCongesParAnnee(
     return { id: l.id, type: l.type, dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours), statut: l.statut, motifRefus: l.motifRefus, entameLeSolde: entame, joursParAnnee };
   });
   const tousSansConges = ctx.periodesSansConges.some((p) => p.debut === null && p.fin === null);
-  return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: tousSansConges, periodesSansConges: ctx.periodesSansConges, trous: ctx.trous, dateSortie: ctx.dateSortie, sortieInconnue: ctx.sortieInconnue };
+  return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: tousSansConges, periodesSansConges: ctx.periodesSansConges, trous: ctx.trous, dateSortie: ctx.dateSortie, sortieInconnue: ctx.sortieInconnue, ecartFiche: ctx.ecartFiche };
 }

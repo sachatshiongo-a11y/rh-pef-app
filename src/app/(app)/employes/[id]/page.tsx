@@ -786,6 +786,7 @@ export default async function FicheEmployePage({
           periodesSansConges={congesAnnees.periodesSansConges}
           trous={congesAnnees.trous}
           dateSortie={congesAnnees.dateSortie}
+          ecartFiche={congesAnnees.ecartFiche}
         />
       </Section>
       )}

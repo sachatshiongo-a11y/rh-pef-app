@@ -109,8 +109,9 @@ describe("le solde s'arrête à la date de sortie — un seul calcul pour l'en-t
     const id = await emp({ embauche: "2026-01-01" }); // encore actif, on prépare son départ
     expect((await soldeDe(id)).solde).toBe(13.5); // aujourd'hui : 9 mois
     comme("ADMIN");
-    expect(await DOSSIER.proposerSoldeConges(id, "2026-04-15")).toEqual({ jours: 4.5, annee: 2026 });
-    expect(await DOSSIER.proposerSoldeConges(id, "2026-06-30")).toEqual({ jours: 9, annee: 2026 }); // 01/02 … 30/06 : 6 mois
+    // L'ancienneté (indemnité de licenciement) suit la même date de sortie : 3 mois au 15/04, 6 au 30/06.
+    expect(await DOSSIER.proposerSoldeConges(id, "2026-04-15")).toEqual({ jours: 4.5, annee: 2026, ancienneteMois: 3, prisApresSortie: 0 });
+    expect(await DOSSIER.proposerSoldeConges(id, "2026-06-30")).toEqual({ jours: 9, annee: 2026, ancienneteMois: 6, prisApresSortie: 0 }); // 01/02 … 30/06 : 6 mois
     expect(await DOSSIER.proposerSoldeConges(id, "")).toMatchObject({ erreur: expect.stringContaining("obligatoire") });
     comme("MANAGER");
     await expect(DOSSIER.proposerSoldeConges(id, "2026-04-15")).rejects.toThrow("Accès refusé");
@@ -297,5 +298,83 @@ describe("la RH saisit une date de sortie : elle passe par « À valider » comm
     expect(rapport.traitees).toBe(0);
     expect(rapport.echecs[0]).toContain("Une fin de contrat est enregistrée au 10/05/2026");
     expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).dateSortie).toBeNull();
+  });
+});
+
+describe("relecture du 2026-10-12 : l'indemnité de congés du solde de tout compte, à la date de sortie", () => {
+  const solde = (extra: Record<string, string> = {}) => fd({ motif: "DEMISSION", dateFin: "2026-06-30", joursTravaillesMois: "0", joursCongesNonPris: "0", preavisJours: "0", indemniteLicenciementUSD: "0", autresUSD: "0", ...extra });
+
+  it("un congé approuvé APRÈS la sortie n'ampute pas l'indemnité : il est signalé, pas déduit", async () => {
+    comme("ADMIN");
+    await prisma.typeConge.upsert({ where: { nom: "Congé annuel" }, update: {}, create: { nom: "Congé annuel", compteDansSolde: true, ordre: 1 } });
+    const id = await emp({ embauche: "2026-01-01" });
+    // 10 jours approuvés du lundi 13 au vendredi 24 juillet 2026 ; le salarié part le 30 juin.
+    await prisma.leaveRequest.create({ data: { employeeId: id, type: "Congé annuel", dateDebut: j("2026-07-13"), dateFin: j("2026-07-24"), nbJours: 10, statut: "APPROUVE" } });
+    // Avant la correction : 9 − 10 = −1 j proposé (ramené à 0) — 9 j × salaire journalier perdus.
+    expect(await DOSSIER.proposerSoldeConges(id, "2026-06-30")).toEqual({ jours: 9, annee: 2026, ancienneteMois: 6, prisApresSortie: 10 });
+    // Départ annoncé APRÈS le congé : il se prend avant de partir, il se déduit.
+    expect(await DOSSIER.proposerSoldeConges(id, "2026-07-31")).toMatchObject({ jours: 0.5, prisApresSortie: 0 }); // 7 mois (10,5 j) − 10
+  });
+
+  it("proposition de l'écran (« 0 ») : le serveur la revérifie au solde À LA DATE DE SORTIE — une proposition périmée est refusée", async () => {
+    comme("ADMIN");
+    const id = await emp({ embauche: "2026-01-01" });
+    // L'écran portait encore le solde d'aujourd'hui (13,5 j) : la date a été choisie puis le formulaire envoyé aussitôt.
+    expect(await erreur(DOSSIER.terminerContrat(id, solde({ joursCongesNonPris: "13,5", congesSaisisMain: "0" })))).toMatch(/Le solde de congés au 30\/06\/2026 \(date de sortie\) est de 9 j/);
+    expect(await prisma.finContrat.count({ where: { employeeId: id } })).toBe(0);
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).actif).toBe(true);
+    // La bonne proposition passe.
+    expect(await erreur(DOSSIER.terminerContrat(id, solde({ joursCongesNonPris: "9", congesSaisisMain: "0" })))).toBeNull();
+    expect(Number((await prisma.finContrat.findFirstOrThrow({ where: { employeeId: id } })).joursCongesNonPris)).toBe(9);
+  });
+
+  it("saisie retouchée à la main (« 1 ») : elle fait foi, la Direction tranche", async () => {
+    comme("ADMIN");
+    const id = await emp({ embauche: "2026-01-01" });
+    expect(await erreur(DOSSIER.terminerContrat(id, solde({ joursCongesNonPris: "12", congesSaisisMain: "1" })))).toBeNull();
+    expect(Number((await prisma.finContrat.findFirstOrThrow({ where: { employeeId: id } })).joursCongesNonPris)).toBe(12);
+  });
+});
+
+describe("relecture du 2026-10-12 : fiche dont le type contredit l'historique des contrats", () => {
+  it("fiche CDI, seul contrat enregistré = un stage terminé : le solde suit l'historique (0) et l'écart est signalé", async () => {
+    const id = await emp({ embauche: "2025-01-01", contrat: "CDI" });
+    await contrat(id, "STAGE", "2025-01-01", "2025-06-30");
+    const r = await SOLDE.chargerCongesParAnnee(prisma, id, MAINTENANT);
+    expect(r.ecartFiche).toEqual({ typeFiche: "CDI", typeHistorique: "STAGE" });
+    expect((await soldeDe(id)).solde).toBe(0);
+    // Le contrat CDI ajouté : plus d'écart, les mois de CDI s'acquièrent.
+    await contrat(id, "CDI", "2025-07-01");
+    expect((await SOLDE.chargerCongesParAnnee(prisma, id, MAINTENANT)).ecartFiche).toBeNull();
+    expect((await soldeDe(id)).solde).toBe(18);
+  });
+});
+
+describe("relecture du 2026-10-12 : réactiver puis désactiver ne perd ni ne double aucune date", () => {
+  it("sortie par fin de contrat : réactivée, le solde reprend son cours ; redésactivée, la date de la fin de contrat revient, sans copie", async () => {
+    comme("ADMIN");
+    const id = await emp({ embauche: "2026-01-01" });
+    expect(await erreur(DOSSIER.terminerContrat(id, fd({ motif: "DEMISSION", dateFin: "2026-04-15", joursTravaillesMois: "0", joursCongesNonPris: "4,5", preavisJours: "0", indemniteLicenciementUSD: "0", autresUSD: "0" })))).toBeNull();
+    expect((await soldeDe(id)).solde).toBe(4.5);
+    await RH.reactiverEmploye(id);
+    expect((await soldeDe(id)).solde).toBe(13.5); // fiche active : pas de sortie, l'acquisition court
+    expect(await erreur(RH.desactiverEmploye(id, fd({})))).toBe("REDIRECT /employes");
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([e.actif, e.dateSortie]).toEqual([false, null]);
+    expect(await prisma.finContrat.count({ where: { employeeId: id } })).toBe(1);
+    expect((await soldeDe(id)).solde).toBe(4.5);
+  });
+
+  it("sortie saisie sur la fiche : réactivée, la date reste en base ; redésactivée, la nouvelle date la remplace (l'ancienne reste au journal)", async () => {
+    comme("ADMIN");
+    const id = await emp({ embauche: "2026-01-01" });
+    expect(await erreur(RH.desactiverEmploye(id, fd({ dateSortie: "2026-03-31" })))).toBe("REDIRECT /employes");
+    await RH.reactiverEmploye(id);
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).dateSortie?.toISOString().slice(0, 10)).toBe("2026-03-31");
+    expect(await erreur(RH.desactiverEmploye(id, fd({ dateSortie: "2026-06-30" })))).toBe("REDIRECT /employes");
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).dateSortie?.toISOString().slice(0, 10)).toBe("2026-06-30");
+    expect((await soldeDe(id)).solde).toBe(9);
+    const journal = await prisma.journalAudit.findMany({ where: { entiteId: id, champ: "actif" }, orderBy: { date: "asc" }, select: { nouvelleValeur: true } });
+    expect(journal.map((l) => l.nouvelleValeur)).toEqual(["false — sortie le 31/03/2026", "true", "false — sortie le 30/06/2026"]);
   });
 });

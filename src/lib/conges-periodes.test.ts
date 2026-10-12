@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moisOuvreDroit, periodesSansConges, trousDeContrat, typeSansConges } from "./conges-periodes";
+import { moisOuvreDroit, periodesSansConges, trousDeContrat, typeSansConges, typeSelonHistorique } from "./conges-periodes";
 
 const j = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 const c = (type: string, debut: string, fin: string | null = null) => ({ type, dateDebut: j(debut), dateFin: fin ? j(fin) : null });
@@ -67,4 +67,16 @@ describe("moisOuvreDroit — un mois n'ouvre droit que s'il est ENTIÈREMENT ave
     expect(moisOuvreDroit(j("2025-03-16"), j("2025-04-15"), stageJusquAu15Mars)).toBe(true);
   });
   it("aucune période sans congés : toujours oui", () => expect(moisOuvreDroit(j("2025-01-01"), j("2025-01-31"), [])).toBe(true));
+});
+
+describe("typeSelonHistorique — repère une fiche que l'historique contredit (relecture du 2026-10-12)", () => {
+  it("stage terminé, aucun CDI enregistré : l'historique dit encore « stage » après la fin (règle du trou)", () => {
+    // Fiche passée en CDI à la main sans contrat CDI : solde à zéro depuis le stage — d'où le signalement à l'écran.
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01", "2025-06-30")], j("2026-10-12"))).toBe("STAGE");
+  });
+  it("le contrat qui couvre le jour l'emporte ; sans contrat : null", () => {
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2026-10-12"))).toBe("CDI");
+    expect(typeSelonHistorique([c("STAGE", "2025-01-01"), c("CDI", "2025-07-01")], j("2025-03-01"))).toBe("STAGE");
+    expect(typeSelonHistorique([], j("2026-10-12"))).toBeNull();
+  });
 });
