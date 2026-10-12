@@ -25,9 +25,17 @@ import type { PaymentStatus, Prisma, PrismaClient } from "@prisma/client";
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /** Le salarié est-il dans le calcul de la paie ? Actif, et son régime (type du contrat ACTIF le plus
- *  récent, sinon celui de la fiche) n'est pas l'intérim (salarié de l'agence, payé par elle). */
-export function estCalculeEnPaie(e: { actif: boolean; contrat: string }, typeContratActif: string | undefined): boolean {
+ *  récent, sinon celui de la fiche) n'est pas l'intérim (salarié de l'agence, payé par elle). Pour une
+ *  paie donnée (`periode`), il doit aussi être EMBAUCHÉ au plus tard le dernier jour du mois (audit du
+ *  2026-10-10 : un salarié embauché le 1er novembre touchait septembre entier, la brigade ses
+ *  allocations familiales pour zéro heure). Sans `periode` (écrans hors paie), seul l'état compte. */
+export function estCalculeEnPaie(
+  e: { actif: boolean; contrat: string; dateEmbauche?: Date | null },
+  typeContratActif: string | undefined,
+  periode?: { mois: number; annee: number },
+): boolean {
   if (!e.actif) return false;
+  if (periode && e.dateEmbauche && new Date(e.dateEmbauche).getTime() > Date.UTC(periode.annee, periode.mois, 0)) return false;
   return (typeContratActif ?? e.contrat) !== "INTERIM";
 }
 
@@ -55,18 +63,24 @@ export async function idsLignesHorsCalcul(db: Db, lignes: LigneMinimale[]): Prom
   if (candidates.length === 0) return new Set();
   const ids = [...new Set(candidates.map((l) => l.employeeId))];
   const [employes, types, runs, config] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, actif: true, contrat: true } }),
+    db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, actif: true, contrat: true, dateEmbauche: true } }),
     typesContratActifs(db, ids),
     db.payrollLine.findMany({ where: { id: { in: candidates.map((l) => l.id) } }, select: { id: true, payrollRun: { select: { statut: true, mois: true, annee: true } } } }),
     db.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } }),
   ]);
-  const calcule = new Map(employes.map((e) => [e.id, estCalculeEnPaie(e, types.get(e.id))]));
+  const employeParId = new Map(employes.map((e) => [e.id, e]));
+  const periodeParLigne = new Map(runs.map((l) => [l.id, { mois: l.payrollRun.mois, annee: l.payrollRun.annee }]));
+  // Calculé POUR LE MOIS de la ligne (embauche postérieure au mois = hors calcul de ce mois-là).
+  const calcule = (l: LigneMinimale) => {
+    const e = employeParId.get(l.employeeId);
+    return e ? estCalculeEnPaie(e, types.get(e.id), periodeParLigne.get(l.id)) : undefined;
+  };
   const moisPasseClos = new Set(
     runs
       .filter(({ payrollRun: r }) => r.statut === "VALIDE" && !(config && r.mois === config.moisCourant && r.annee === config.anneeCourante))
       .map((l) => l.id),
   );
-  return new Set(candidates.filter((l) => calcule.get(l.employeeId) === false || moisPasseClos.has(l.id)).map((l) => l.id));
+  return new Set(candidates.filter((l) => calcule(l) === false || moisPasseClos.has(l.id)).map((l) => l.id));
 }
 
 /** Sépare les lignes qui COMPTENT (totaux, livre, déclarations, exports) de celles hors calcul. */

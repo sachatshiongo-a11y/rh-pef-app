@@ -79,12 +79,12 @@ describe("facture déjà saisie", () => {
 });
 
 describe("fournisseur proche", () => {
-  const PROCHES = `FOURNISSEUR_PROCHE|${JSON.stringify([{ id: "f9", nom: "Maison Kathy" }])}`;
+  const PROCHES = `FOURNISSEUR_PROCHE|${JSON.stringify({ candidats: [{ id: "f9", nom: "Maison Kathy" }], creationPossible: true })}`;
   it("propose « Utiliser » et « Créer » ; « Utiliser » renvoie l'identifiant et le nom choisis", async () => {
     envois.facture.mockResolvedValueOnce({ erreur: PROCHES });
     monter();
     await cliquer(bouton("Enregistrer la facture"));
-    expect(conteneur.querySelector("[data-fournisseur-proche]")).not.toBeNull();
+    expect(conteneur.querySelector("[data-choix-fournisseur]")).not.toBeNull();
     envois.facture.mockClear();
     await cliquer(bouton("Utiliser « Maison Kathy »"));
     const fd = envois.facture.mock.calls[0][0];

@@ -57,7 +57,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
         bons={bons.map((b) => ({
           id: b.id, numero: b.numero, fournisseurId: b.fournisseurId,
           fournisseurNom: b.fournisseur?.nom ?? "", delaiJours: delaiEnJours(b.delaiPaiement),
-          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD.toString() })),
+          lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD?.toString() ?? "" })),
         }))}
         bcInitial={bc ?? null}
         estDirection={user.role === "ADMIN"}

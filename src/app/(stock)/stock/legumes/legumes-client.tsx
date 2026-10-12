@@ -87,7 +87,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
       <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Date de l&apos;achat</span>
-          <input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} />
+          <input name="date" type="date" defaultValue={jourCourantKinshasaISO()} max={jourCourantKinshasaISO()} className={inp} />
         </label>
         <span className="pb-1.5 text-xs text-muted-foreground">Taux : 1 USD = {taux ? taux.toLocaleString("fr-FR") : "—"} CDF</span>
       </div>

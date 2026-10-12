@@ -72,7 +72,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const [forcerFacture, setForcerFacture] = useState(false);
   const [fournisseurNouveau, setFournisseurNouveau] = useState(false);
   const [doublonFacture, setDoublonFacture] = useState<DoublonFactureEcran | null>(null);
-  const [proches, setProches] = useState<{ id: string; nom: string }[] | null>(null);
+  const [proches, setProches] = useState<{ candidats: { id: string; nom: string }[]; creationPossible: boolean } | null>(null);
   const [isPending, start] = useTransition();
   const [bonId, setBonId] = useState(bon0?.id ?? "");
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
@@ -189,7 +189,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
       if (!estErreur(r)) return;
       if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
       else if (r.erreur.startsWith("DOUBLON_FACTURE|")) setDoublonFacture(JSON.parse(r.erreur.slice("DOUBLON_FACTURE|".length)) as DoublonFactureEcran);
-      else if (r.erreur.startsWith("FOURNISSEUR_PROCHE|")) setProches(JSON.parse(r.erreur.slice("FOURNISSEUR_PROCHE|".length)) as { id: string; nom: string }[]);
+      else if (r.erreur.startsWith("FOURNISSEUR_PROCHE|")) setProches(JSON.parse(r.erreur.slice("FOURNISSEUR_PROCHE|".length)) as { candidats: { id: string; nom: string }[]; creationPossible: boolean });
       else setErreur(r.erreur);
     });
   };
@@ -261,7 +261,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         </div>
       )}
       {proches && (
-        <ChoixFournisseurProche nom={fournisseurNom} candidats={proches} desactive={isPending} onUtiliser={utiliserFournisseur} onCreer={creerFournisseur} />
+        <ChoixFournisseurProche nom={fournisseurNom} candidats={proches.candidats} creationPossible={proches.creationPossible} libelleCreer={`Créer « ${fournisseurNom.trim()} »`} desactive={isPending} onUtiliser={utiliserFournisseur} onCreer={creerFournisseur} />
       )}
 
       {forcerStock && <input type="hidden" name="forcerDoublons" value="1" />}
@@ -282,7 +282,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
             {analyse.match ? (
               <p className="text-emerald-700">Fournisseur : associé à <span className="font-medium">« {analyse.match.nom} »</span> (même nom que « {analyse.fournisseur.nom} » lu).</p>
             ) : analyse.fournisseur.nom && analyse.proches.length > 0 && !fournisseurId && !fournisseurNouveau ? (
-              <ChoixFournisseurProche nom={analyse.fournisseur.nom} candidats={analyse.proches} onUtiliser={(p) => { choisirFournisseur(p.id); setCoord(null); }} onCreer={() => setFournisseurNouveau(true)} />
+              <ChoixFournisseurProche nom={analyse.fournisseur.nom} candidats={analyse.proches} creationPossible libelleCreer={`Créer « ${analyse.fournisseur.nom.trim()} »`} onUtiliser={(p) => { choisirFournisseur(p.id); setCoord(null); }} onCreer={() => setFournisseurNouveau(true)} />
             ) : analyse.fournisseur.nom ? (
               <p className="text-sky-700">
                 Nouveau fournisseur <span className="font-medium">« {analyse.fournisseur.nom} »</span> — sera créé à l’enregistrement

@@ -11,7 +11,7 @@ import type { LigneVente } from "./ventes-journalieres";
  */
 
 const SEMAINE = ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-27"];
-const connue = (q: string, negative = false): ConsommationReelle => ({ etat: "CONNUE", quantite: q, negative, stockVeille: "0", recu: "0", compte: "0", veilleEstimee: false });
+const connue = (q: string, negative = false): ConsommationReelle => ({ etat: "CONNUE", quantite: q, negative, stockVeille: "0", recu: "0", compte: "0", veilleEstimee: false, depuis: null, nbJours: 1 });
 const inconnue: ConsommationReelle = { etat: "INCONNUE", raison: "PAS_DE_COMPTAGE" };
 
 describe("dates des fiches", () => {

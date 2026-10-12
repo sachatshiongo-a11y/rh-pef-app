@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { jourDuVersement, jourKinshasaISO, lireDatePaiement, lireDateVersementPaie } from "./date-paiement";
+import { jourDuVersement, jourKinshasaISO, lireDateEcriture, lireDatePaiement, lireDateVersementPaie } from "./date-paiement";
 
 // Même instant piège que heure-kinshasa.test.ts : 23 h 30 UTC = 00 h 30 à Kinshasa le lendemain.
 const MINUIT_ET_DEMIE_A_KINSHASA = new Date("2026-09-22T23:30:00.000Z"); // 23/09 00 h 30 à Kinshasa
@@ -85,5 +85,22 @@ describe("lireDateVersementPaie (versement des salaires)", () => {
 describe("jourDuVersement", () => {
   it("transforme le jour ISO en date pure (minuit UTC), comme les autres dates civiles stockées", () => {
     expect(jourDuVersement("2026-09-23").toISOString()).toBe("2026-09-23T00:00:00.000Z");
+  });
+});
+
+describe("lireDateEcriture (journal de caisse de l'Exploitation)", () => {
+  it("une date valide, aujourd'hui ou passée, est rendue telle quelle", () => {
+    expect(lireDateEcriture("2026-09-23", MINUIT_ET_DEMIE_A_KINSHASA)).toBe("2026-09-23");
+    expect(lireDateEcriture("2026-08-01", MINUIT_ET_DEMIE_A_KINSHASA)).toBe("2026-08-01");
+  });
+  it("future (jour civil de Kinshasa) → refus, même règle que les paiements", () => {
+    expect(() => lireDateEcriture("2026-09-24", MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/futur/);
+    expect(() => lireDateEcriture("2062-10-10", MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/d'écriture ne peut pas être dans le futur/);
+  });
+  it("illisible → refus ; absente → refus (jamais « aujourd'hui » sans le dire)", () => {
+    expect(() => lireDateEcriture("hier", MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/Date d'écriture invalide/);
+    expect(() => lireDateEcriture("2026-02-30", MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/invalide/);
+    expect(() => lireDateEcriture("  ", MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/obligatoire/);
+    expect(() => lireDateEcriture(undefined, MINUIT_ET_DEMIE_A_KINSHASA)).toThrow(/obligatoire/);
   });
 });

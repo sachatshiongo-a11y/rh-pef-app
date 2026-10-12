@@ -95,7 +95,7 @@ export function ImportFacturesClient() {
                 return (
                   <div key={nom} className="space-y-1">
                     <p className="text-xs">{nom}{utilise ? <b> → factures rattachées à « {utilise.nom} »</b> : c === "CREER" ? <b> → nouveau fournisseur créé</b> : null}</p>
-                    <ChoixFournisseurProche nom={nom} candidats={ps} desactive={isPending}
+                    <ChoixFournisseurProche nom={nom} candidats={ps} creationPossible libelleCreer={`Créer « ${nom.trim()} »`} desactive={isPending}
                       onUtiliser={(p) => setChoix((x) => ({ ...x, [nom]: p.id }))} onCreer={() => setChoix((x) => ({ ...x, [nom]: "CREER" }))} />
                   </div>
                 );

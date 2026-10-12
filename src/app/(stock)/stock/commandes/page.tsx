@@ -10,6 +10,7 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
 import { ChampTaillePage, LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
+import { WHERE_LIGNE_SANS_PRIX, deviseBon, totalBon } from "@/lib/bon-commande-devise";
 
 type SP = { annee?: string; mois?: string; fournisseurId?: string; page?: string; par?: string };
 
@@ -27,12 +28,15 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
     ...(mois ? { mois } : {}),
     ...(fournisseurId ? { fournisseurId } : {}),
   };
-  const [commandes, fournisseurs, anneesRaw] = await Promise.all([
+  const [commandes, sansPrixParBon, fournisseurs, anneesRaw] = await Promise.all([
     prisma.bonDeCommande.findMany({ where, orderBy: [{ annee: "desc" }, { sequence: "desc" }], include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } } }),
+    // Lignes sans prix par bon (comptées en base) : le total d'un bon incomplet est annoncé tel, jamais « 0,00 $ ».
+    prisma.ligneBonDeCommande.groupBy({ by: ["bonDeCommandeId"], where: WHERE_LIGNE_SANS_PRIX, _count: { _all: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     prisma.bonDeCommande.findMany({ distinct: ["annee"], select: { annee: true }, orderBy: { annee: "desc" } }),
   ]);
   const annees = anneesRaw.map((a) => a.annee);
+  const sansPrix = new Map(sansPrixParBon.map((g) => [g.bonDeCommandeId, g._count._all]));
 
   return (
     <div className="space-y-4">
@@ -68,7 +72,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         parInit={par}
         commandes={commandes.map((c) => ({
           id: c.id, numero: c.numero, fournisseurId: c.fournisseurId ?? null, fournisseurNom: c.fournisseur?.nom ?? null,
-          date: new Date(c.date).toISOString(), nbLignes: c._count.lignes, total: Number(c.totalUSD), statut: c.statut, documentUrl: c.documentUrl ?? null,
+          date: new Date(c.date).toISOString(), nbLignes: c._count.lignes, total: totalBon(c), devise: deviseBon(c), sansPrix: sansPrix.get(c.id) ?? 0, statut: c.statut, documentUrl: c.documentUrl ?? null,
         }))}
       />
     </div>

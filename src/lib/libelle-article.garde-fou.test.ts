@@ -50,7 +50,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/commandes/[id]/reception-client.tsx": { n: 2, raisons: ["AMONT"] },
   "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
-  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 2, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/actions.ts": { n: 24, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/entree/alertes-ligne.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // nom tapé d'un nouvel article
@@ -63,14 +63,14 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/factures/nouveau/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/fiches/[id]/disponibilite-fiche.tsx": { n: 2, raisons: ["AMONT"] }, // lib/fiches/disponibilite
   "src/app/(stock)/stock/fiches/_data/charger-fiche.ts": { n: 2, raisons: ["FORMULAIRE", "RESTO"] },
-  "src/app/(stock)/stock/fiches/import-bar-actions.ts": { n: 6, raisons: ["IMPORT"] },
+  "src/app/(stock)/stock/fiches/import-bar-actions.ts": { n: 10, raisons: ["IMPORT"] }, // + anti-doublon d'article (messages de refus : nom au catalogue)
   "src/app/(stock)/stock/fiches/import-bar.tsx": { n: 9, raisons: ["IMPORT"] },
   "src/app/(stock)/stock/imports/import-client.tsx": { n: 1, raisons: ["IMPORT"] },
   "src/app/(stock)/stock/journalier/commande-grid.tsx": { n: 9, raisons: ["AMONT"] }, // journalier/page
   "src/app/(stock)/stock/journalier/comparaison-jour.tsx": { n: 3, raisons: ["AMONT"] },
   "src/app/(stock)/stock/journalier/comparaison-semaine.tsx": { n: 3, raisons: ["AMONT"] },
   "src/app/(stock)/stock/journalier/conso-jour.tsx": { n: 3, raisons: ["AMONT", "RESTO"] },
-  "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 3, raisons: ["CLE", "LEGUMES", "RESTO"] }, // fiche « Commande journalière » = classeur de la Direction
+  "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 2, raisons: ["CLE", "LEGUMES", "RESTO"] }, // fiche « Commande journalière » = classeur de la Direction
   "src/app/(stock)/stock/journalier/import-classeur-actions.ts": { n: 1, raisons: ["IMPORT"] },
   "src/app/(stock)/stock/journalier/import-commande-actions.ts": { n: 1, raisons: ["IMPORT"] },
   "src/app/(stock)/stock/journalier/table-conso.tsx": { n: 3, raisons: ["AMONT", "RESTO"] },
@@ -83,7 +83,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/reconciliation/fiche/charger-articles.ts": { n: 1, raisons: ["CLE"] },
   "src/app/(stock)/stock/reconciliation/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/reconciliation/reconciliation-client.tsx": { n: 2, raisons: ["CLE"] },
-  "src/app/(stock)/stock/restaurant/actions.ts": { n: 3, raisons: ["RESTO"] },
+  "src/app/(stock)/stock/restaurant/actions.ts": { n: 4, raisons: ["RESTO"] }, // + message de refus du changement d'unité
   "src/app/(stock)/stock/restaurant/bandeau-livraisons.tsx": { n: 6, raisons: ["AMONT", "RESTO"] }, // stock-restaurant-charger, rattachement-auto
   "src/app/(stock)/stock/restaurant/choix-article.tsx": { n: 2, raisons: ["AMONT"] }, // restaurant/page
   "src/app/(stock)/stock/restaurant/export-data.ts": { n: 1, raisons: ["RESTO"] },
@@ -105,7 +105,7 @@ const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
   "src/lib/import-inventaire.ts": { n: 5, raison: "import d'inventaire : rapprochement et messages d'import, refus d'annulation (articles nommés avec leurs saisies postérieures)" },
   "src/lib/import-mouvements.ts": { n: 1, raison: "import de mouvements : rapprochement par nom et code" },
   "src/lib/rattachement-auto.ts": { n: 2, raison: "rattachement au restaurant : la règle (homonymes, « rattaché à ») compare des noms" },
-  "src/lib/validations-stock/article.ts": { n: 2, raison: "modification d'article : message d'erreur et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
+  "src/lib/validations-stock/article.ts": { n: 3, raison: "modification d'article : messages d'erreur (domaine, catégorie du domaine de l'article) et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
   "src/lib/validations-stock/demandes.ts": { n: 2, raison: "demandes à valider : noms figés dans la demande et contrôle d'unicité de la désignation" },
 };
 

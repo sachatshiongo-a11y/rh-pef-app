@@ -16,12 +16,12 @@ import { entrerEnStockTx, sortirDuStockTx } from "./stock-positif";
 import { decSaisi } from "@/lib/nombre";
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { lireDateJour } from "@/lib/achats-liste";
 import { prisma } from "@/lib/prisma";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { notifierGesteStock, type AuteurGeste } from "./geste-notifie";
 import { cleMouvement } from "./charge";
-import { MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
+import { MESSAGE_MOTIF_ENTREE, MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
 import { rattacherAutomatiquement, type CompteRenduAuto } from "@/lib/rattachement-auto";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
@@ -46,9 +46,8 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   const type = String(formData.get("type") ?? "SORTIE") === "ENTREE" ? "ENTREE" : "SORTIE";
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`)); // illisible : refus lisible, jamais un zéro
-  const dateStr = String(formData.get("date") ?? "").trim();
-  const date = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date()); // jour civil de Kinshasa
-  if (Number.isNaN(date.getTime())) throw new Error("Date du mouvement invalide.");
+  // Jour civil de Kinshasa par défaut ; illisible ou FUTURE : refus (un mouvement ne se date pas de demain).
+  const date = new Date(lireDateJour(String(formData.get("date") ?? ""), "du mouvement"));
 
   let categorieSortie: MotifSortie = null;
   let raisonSortie: string | null = null;
@@ -63,7 +62,9 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
     origine = origine || origineDuMotif(motif!, raisonSortie);
   } else {
     retourRestaurant = String(formData.get("motifEntree") ?? "") === "RETOUR_RESTAURANT";
-    origine = origine || (retourRestaurant ? ORIGINE_RETOUR_RESTAURANT : "Entrée manuelle");
+    // Motif OBLIGATOIRE pour toute entrée manuelle, comme pour la sortie : « Retour restaurant » ou un motif écrit.
+    if (!retourRestaurant && !origine) throw new Error(MESSAGE_MOTIF_ENTREE);
+    origine = origine || ORIGINE_RETOUR_RESTAURANT;
   }
 
   const lignes = ids

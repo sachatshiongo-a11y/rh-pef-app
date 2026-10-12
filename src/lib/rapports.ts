@@ -1,5 +1,6 @@
 import "server-only";
 import { statutAffiche, whereEchues } from "@/lib/facture-echue";
+import { deviseBon, prixLigneBon, totalBon, totalLigneBon } from "@/lib/bon-commande-devise";
 import { prixArticleEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
@@ -91,11 +92,14 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
   }
 
   if (type === "BONS_COMMANDE") {
-    const rows = await prisma.bonDeCommande.findMany({ select: { annee: true, mois: true, totalUSD: true } });
-    const parMois = new Map<string, { nb: number; tot: number }>();
-    for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { nb: 0, tot: 0 }; e.nb += 1; e.tot += Number(r.totalUSD); parMois.set(k, e); }
+    // Bons en dollars ET en francs (import d'un PDF en francs, 2026-10-10) : deux totaux à part, jamais additionnés.
+    const rows = await prisma.bonDeCommande.findMany({ select: { annee: true, mois: true, devise: true, totalUSD: true, totalCDF: true } });
+    const parMois = new Map<string, { nb: number; tot: number; fc: number }>();
+    for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { nb: 0, tot: 0, fc: 0 }; e.nb += 1; if (r.devise === "CDF") e.fc += Number(r.totalCDF ?? 0); else e.tot += Number(r.totalUSD ?? 0); parMois.set(k, e); }
+    const avecFC = rows.some((r) => r.devise === "CDF");
     let prev: number | null = null;
-    const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { nb: 0, tot: 0 }; const l = [labelMois(annee, m), e.nb, arr(e.tot), variation(e.tot, prev)]; prev = e.tot; return l; });
+    const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { nb: 0, tot: 0, fc: 0 }; const l = [labelMois(annee, m), e.nb, arr(e.tot), ...(avecFC ? [arr(e.fc)] : []), variation(e.tot, prev)]; prev = e.tot; return l; });
+    if (avecFC) return { titre, entete: ["Mois", "Nb BC", "Total USD", "Total CDF", "Variation total USD"], lignes, largeurs: ["28%", "12%", "22%", "22%", "16%"], droite: [1, 2, 3], sommables: [1, 2, 3], variationCol: 4 };
     return { titre, entete: ["Mois", "Nb BC", "Total USD", "Variation total"], lignes, largeurs: ["34%", "16%", "26%", "24%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
   }
 
@@ -169,11 +173,17 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   if (type === "BONS_COMMANDE") {
     const bcs = (await prisma.bonDeCommande.findMany({ orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } }))
       .filter((b) => dansJour(b.date, b.annee, b.mois));
+    // Une ligne sans prix reste VIDE (jamais 0) ; un bon en francs a sa colonne à part (jamais additionné aux dollars).
+    const avecFC = bcs.some((b) => deviseBon(b) === "CDF");
     const lignes: (string | number)[][] = [];
+    const montants = (devise: "USD" | "CDF", pu: number | null, tot: number | null): (string | number)[] =>
+      avecFC ? [pu === null ? "" : arr(pu), devise, devise === "USD" && tot !== null ? arr(tot) : "", devise === "CDF" && tot !== null ? arr(tot) : ""] : [pu === null ? "" : arr(pu), tot === null ? "" : arr(tot)];
     for (const b of bcs) {
-      if (b.lignes.length === 0) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", "—", "", "", arr(Number(b.totalUSD))]);
-      for (const l of b.lignes) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", libelleLigneArticle(l), q3(l.quantite), arr(Number(l.prixUnitaireUSD)), arr(Number(l.totalLigneUSD))]);
+      const devise = deviseBon(b);
+      if (b.lignes.length === 0) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", "—", "", ...montants(devise, null, totalBon(b))]);
+      for (const l of b.lignes) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", libelleLigneArticle(l), q3(l.quantite), ...montants(devise, prixLigneBon(l, devise), totalLigneBon(l, devise))]);
     }
+    if (avecFC) return { titre, entete: ["N° BC", "Date", "Fournisseur", "Article", "Qté", "P.U.", "Devise", "Total USD", "Total CDF"], lignes, largeurs: ["11%", "9%", "18%", "23%", "8%", "9%", "6%", "8%", "8%"], droite: [4, 5, 7, 8], sommables: [7, 8] };
     return { titre, entete: ["N° BC", "Date", "Fournisseur", "Article", "Qté", "P.U. USD", "Total USD"], lignes, largeurs: ["13%", "10%", "20%", "27%", "9%", "10%", "11%"], droite: [4, 5, 6], sommables: [6] };
   }
 
@@ -318,7 +328,7 @@ function libellePointMortRapport(pointMortDate: string | null, pointMortAtteint:
  */
 export async function genererRapportExploitation(type: TypeRapportExploitation, debut: Date, fin: Date): Promise<DonneesRapport> {
   const horizon = type === "ANNUEL" ? "annuel" : "mensuel";
-  const { resultat: r, totalCouverts } = await chargerExploitation(jourIso(debut), jourIso(fin), horizon);
+  const { resultat: r, totalCouverts, couvertsSaisis } = await chargerExploitation(jourIso(debut), jourIso(fin), horizon);
   const titre = TYPES_RAPPORT_EXPLOITATION[type];
 
   const lignes: (string | number)[][] = [
@@ -358,10 +368,15 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
   ]);
   lignesTable2.push(
     ["Jours ouvrés", r.nbJoursOuvres, "—", "—"],
-    ["Recette journalière moyenne (USD)", r.recetteJournaliereMoyenne === null ? "—" : arr(r.recetteJournaliereMoyenne), "—", "—"],
+    [`Recette journalière moyenne (USD${r.recetteMoyenneADate ? ", à date" : ""})`, r.recetteJournaliereMoyenne === null ? "—" : arr(r.recetteJournaliereMoyenne), "—", "—"],
     ["Ticket moyen (USD)", r.ticketMoyen === null ? "—" : arr(r.ticketMoyen), "—", "—"],
-    ["Couverts (période)", totalCouverts, "—", "—"],
   );
+  // Ticket partiel : annoncé, jamais présenté comme complet (il ne repose que sur les jours qui ont des couverts).
+  if (r.ticketMoyenPartiel && r.ticketMoyenJours) {
+    lignesTable2.push(["Ticket moyen : jours retenus", `partiel (${r.ticketMoyenJours.avecCouverts}/${r.ticketMoyenJours.avecCA} jours)`, "—", "—"]);
+  }
+  // Couverts jamais saisis sur la période : « — », pas un 0 inventé.
+  lignesTable2.push(["Couverts (période)", couvertsSaisis ? totalCouverts : "—", "—", "—"]);
 
   return {
     titre,

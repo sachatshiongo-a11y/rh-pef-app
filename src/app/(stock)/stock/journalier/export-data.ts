@@ -4,8 +4,10 @@ import { lundiDe, lundiCourantKinshasa } from "@/lib/dates-fr";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
 import {
-  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type EcartExport, type RoleCol,
+  consoApproximativeParArticleCatalogue, consommationParArticleCatalogue, libelleAvecUnite, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, sommeExacte,
+  type EcartExport, type RoleCol,
 } from "@/lib/journalier-restaurant";
+import { achatsLegumesParLigne, lignesLegumesComparaison } from "@/lib/legumes-semaine";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
@@ -56,17 +58,11 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   // ---------- CONSOMMATION (sorties par motif + légumes frais + consommation réelle) ----------
   if (vue === "conso") {
     const donnees = await chargerDonneesRestaurant(lundi, domaine);
-    const legumes: { nom: string; jours: number[] }[] = [];
+    const legumes: { nom: string; unite?: string | null; jours: number[] }[] = [];
     if (domaine !== "BOISSON") {
-      const achats = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } });
-      const parLeg = new Map<string, number[]>();
-      for (const l of achats) {
-        const arr = parLeg.get(l.legume) ?? Array(7).fill(0);
-        const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
-        if (idx >= 0 && idx < 7) arr[idx] += Number(l.quantite);
-        parLeg.set(l.legume, arr);
-      }
-      legumes.push(...[...parLeg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, jours]) => ({ nom, jours })));
+      const achats = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, unite: true, date: true, quantite: true } });
+      // Par ligne (légume + unité) : jamais des unités différentes additionnées.
+      legumes.push(...achatsLegumesParLigne(achats.map((l) => ({ legume: l.legume, unite: l.unite, jour: iso(new Date(l.date)), quantite: Number(l.quantite) })), donnees.jours, LEGUMES));
     }
     const { lignes, sectionRows, rolesLignes } = lignesExportConso({ sorties: donnees.sorties, legumes, consoResto: donnees.consoResto });
     return {
@@ -81,7 +77,7 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   const articles = await prisma.articleStock.findMany({
     where: { actif: true, ...(domaine ? { domaine } : {}) },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-    select: { id: true, ...CHAMPS_LIBELLE, categorie: { select: { nom: true } } },
+    select: { id: true, ...CHAMPS_LIBELLE, unite: true, categorie: { select: { nom: true } } },
   });
   const cmds = await prisma.commandeResto.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { articleId: true, date: true, quantite: true } });
   const cmdMap: Record<string, number[]> = {};
@@ -89,14 +85,15 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
 
   // Légumes frais (cuisine) : commande (CommandeLegumeResto) et achat (AchatLegume).
   const inclureLeg = domaine !== "BOISSON";
-  const cmdLeg = new Map<string, number[]>(), achatLeg = new Map<string, number[]>();
+  const cmdLeg = new Map<string, number[]>();
+  let achatsLeg: ReturnType<typeof achatsLegumesParLigne> = [];
   if (inclureLeg) {
     const [cl, al] = await Promise.all([
       prisma.commandeLegumeResto.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } }),
-      prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } }),
+      prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, unite: true, date: true, quantite: true } }),
     ]);
     for (const c of cl) { const a = cmdLeg.get(c.legume) ?? Array(7).fill(0); a[Math.floor((new Date(c.date).getTime() - lundi.getTime()) / 86_400_000)] += Number(c.quantite); cmdLeg.set(c.legume, a); }
-    for (const c of al) { const a = achatLeg.get(c.legume) ?? Array(7).fill(0); a[Math.floor((new Date(c.date).getTime() - lundi.getTime()) / 86_400_000)] += Number(c.quantite); achatLeg.set(c.legume, a); }
+    achatsLeg = achatsLegumesParLigne(al.map((l) => ({ legume: l.legume, unite: l.unite, jour: iso(new Date(l.date)), quantite: Number(l.quantite) })), jours.map(iso), LEGUMES);
   }
 
   // ---------- COMMANDE ----------
@@ -108,10 +105,10 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       const cat = a.categorie?.nom ?? "À classer";
       if (cat !== derniereCat) { sectionRows.push(lignes.length); lignes.push([cat]); derniereCat = cat; }
       const j = cmdMap[a.id] ?? Array(7).fill(0);
-      lignes.push([libelleArticle(a), ...j.map(nb), nb(j.reduce((x, y) => x + y, 0))]);
+      lignes.push([libelleAvecUnite(libelleArticle(a), a.unite), ...j.map(nb), nb(sommeExacte(j))]);
     }
-    const legCmd = LEGUMES.map((l) => ({ nom: l.nom, j: cmdLeg.get(l.nom) ?? Array(7).fill(0) })).filter((x) => x.j.some((v) => v > 0));
-    if (legCmd.length) { sectionRows.push(lignes.length); lignes.push(["Légumes frais"]); for (const x of legCmd) lignes.push([x.nom, ...x.j.map(nb), nb(x.j.reduce((a, b) => a + b, 0))]); }
+    const legCmd = LEGUMES.map((l) => ({ nom: l.nom, unite: l.unite, j: cmdLeg.get(l.nom) ?? Array(7).fill(0) })).filter((x) => x.j.some((v) => v > 0));
+    if (legCmd.length) { sectionRows.push(lignes.length); lignes.push(["Légumes frais"]); for (const x of legCmd) lignes.push([libelleAvecUnite(x.nom, x.unite), ...x.j.map(nb), nb(sommeExacte(x.j))]); }
     return {
       titre: "Commande journalière", sousTitre, fichierBase: `Commande${suffixe}_${iso(lundi)}`,
       entete: ["Article", ...labels, "Total"],
@@ -126,13 +123,15 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   for (const [id, j] of Object.entries(cmdMap)) j.forEach((q, i) => { if (q) commandes[`${id}_${donnees.jours[i]}`] = q; });
   const lignesComp = lignesComparaison({
     jours: donnees.jours,
-    articles: articles.map((a) => ({ id: a.id, designation: libelleArticle(a), categorie: a.categorie?.nom ?? "À classer" })),
+    articles: articles.map((a) => ({ id: a.id, designation: libelleArticle(a), unite: a.unite, categorie: a.categorie?.nom ?? "À classer" })),
     commandes,
     livraisons: donnees.sorties.livraisons,
     consoParArticle: consommationParArticleCatalogue(donnees.entrees, donnees.jours),
+    consoApproxParArticle: consoApproximativeParArticleCatalogue(donnees.entrees, donnees.jours),
     inclureHorsCatalogue: !domaine,
+    // Commande (unité de la liste) et achat dans une autre unité : deux lignes, jamais la même.
     legumes: inclureLeg
-      ? [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])].map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
+      ? lignesLegumesComparaison({ liste: LEGUMES, achats: achatsLeg, commandes: (nom) => cmdLeg.get(nom) ?? Array(7).fill(0), nbJours: 7 })
       : [],
   });
   const { lignes, sectionRows, entete, colRole, ecarts, colonnes, ecartsCL, signes, enteteCourt, groupes } = lignesExportComparaison(lignesComp, labels);

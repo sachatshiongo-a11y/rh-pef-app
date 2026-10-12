@@ -41,6 +41,7 @@ export async function GET(req: Request) {
     contexte: construireContexte(vues, mapArticles),
     articles: mapArticles,
     noms: new Map(vues.map((v) => [v.id, { nom: v.nom }])),
+    vues: new Map(vues.map((v) => [v.id, v])),
   };
   const photos = await chargerPhotosPdf(retenues);
   const fiches = retenues.map((v) => versFichePdf(v, ctx, { avecPrix, photo: photos.get(v.id) ?? null }));

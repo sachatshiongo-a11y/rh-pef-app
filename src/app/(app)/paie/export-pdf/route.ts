@@ -3,17 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { LivrePaieDocument } from "@/lib/pdf/livre-paie";
+import { lireMoisAnnee } from "@/lib/mois-route";
 
 /**
- * Livre de paie du mois courant en PDF (mêmes colonnes que l'onglet Paie). Depuis le 2026-09-24
+ * Livre de paie d'un mois (le mois courant, ou `?mois=&annee=` pour un mois clôturé) en PDF (mêmes colonnes que l'onglet Paie). Depuis le 2026-09-24
  * (demande Direction) : la Brigade sur ses pages, le Back-office à partir d'une nouvelle page,
  * puis une page « Récapitulatif ».
  */
-export async function GET() {
+export async function GET(request: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const { moisCourant: mois, anneeCourante: annee } = config;
+  const lu = lireMoisAnnee(new URL(request.url).searchParams, { mois: config.moisCourant, annee: config.anneeCourante });
+  if (!lu.ok) return new Response(lu.message, { status: 400 });
+  const { mois, annee } = lu;
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },

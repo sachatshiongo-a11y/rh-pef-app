@@ -186,7 +186,7 @@ describe("consommation réelle", () => {
 
   it("cas nominal : stock compté la veille + livré le jour − compté le jour", () => {
     // 1500 (compté le 20) + 2000 (livré le 21) − 2800 (compté le 21) = 700.
-    expect(consommationReelle(e, "farine", "2026-09-21")).toEqual({ etat: "CONNUE", quantite: "700", negative: false, stockVeille: "1500", recu: "2000", compte: "2800", veilleEstimee: false });
+    expect(consommationReelle(e, "farine", "2026-09-21")).toEqual({ etat: "CONNUE", quantite: "700", negative: false, stockVeille: "1500", recu: "2000", compte: "2800", veilleEstimee: false, depuis: null, nbJours: 1 });
   });
 
   it("veille sans comptage : stock théorique de la veille (dernier comptage + livraisons depuis)", () => {

@@ -7,6 +7,8 @@ import { VueTelephone } from "./entree-telephone";
 import { AlertesLigne, aSignaler } from "./alertes-ligne";
 import { useBrouillonListe } from "./use-brouillon";
 import { estErreur } from "@/lib/action-lisible";
+import { decisionFournisseur } from "@/lib/fournisseur-doublon";
+import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
 import { cleAlnum } from "@/lib/texte";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
@@ -73,12 +75,22 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const [verif, setVerif] = useState<{ cle: string; liste: string[]; lignes: (AnalyseLigne | null)[] }>({ cle: "", liste: [], lignes: [] });
   const [avertissementsEnregistres, setAvertissementsEnregistres] = useState<string[]>([]); // du dernier enregistrement
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setMsg(null); deviseDefautRef.current = "USD"; setDeviseDefaut("USD"); setLignes(quatreVides("USD")); setDate(aujourdhui); setDateChangee(false); setOrigine(""); setAvertissementsEnregistres([]); setCle((c) => c + 1); };
+  const reinitialiser = () => { setMsg(null); deviseDefautRef.current = "USD"; setDeviseDefaut("USD"); setLignes(quatreVides("USD")); setDate(aujourdhui); setDateChangee(false); setOrigine(""); setFournQuandMeme([]); setAvertissementsEnregistres([]); setCle((c) => c + 1); };
 
   // Nom tapé → fournisseur connu (même clé que le serveur : casse et accents ignorés).
   const fournParCle = useMemo(() => indexFournisseurs(fournisseurs), [fournisseurs]);
   const idFourn = useCallback((nom: string) => (nom.trim() ? fournParCle.get(cleAlnum(nom)) ?? "" : ""), [fournParCle]);
   const nouveauxFournisseurs = [...new Set(lignes.map((l) => l.fournNom.trim()).filter((n) => n && !idFourn(n)))];
+  // Anti-doublon de FOURNISSEUR (audit du 10/10/2026) : un nom NOUVEAU (sur une ligne qui sera enregistrée) qui
+  // ressemble à un fournisseur existant demande « Utiliser … » ou « Créer quand même », comme les articles.
+  // Le serveur revérifie (`fournisseurCreerQuandMeme`) : cet écran informe, il ne décide pas.
+  const [fournQuandMeme, setFournQuandMeme] = useState<string[]>([]);
+  const propositionsFournisseur = [...new Set(lignes.filter(aEnregistrer).map((l) => l.fournNom.trim()).filter((n) => n && !idFourn(n)))]
+    .flatMap((nom) => {
+      const d = decisionFournisseur(nom, fournisseurs);
+      return d.type === "choix" && !(d.creationPossible && fournQuandMeme.some((x) => cleAlnum(x) === cleAlnum(nom))) ? [{ nom, d }] : [];
+    });
+  const utiliserFournisseur = (nom: string, nomExistant: string) => setLignes((ls) => ls.map((l) => (cleAlnum(l.fournNom) === cleAlnum(nom) ? { ...l, fournNom: nomExistant } : l)));
 
   // Anti-doublon d'ARTICLE vérifié PENDANT la saisie (Direction, 2026-10-08), ligne par ligne et dans
   // l'ordre : rattachement automatique au même nom, ou articles proches à choisir ; plus les
@@ -180,6 +192,10 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
     if (!date) { setMsg({ ok: false, texte: "Choisissez la date de l'achat." }); return; }
     if (date > aujourdhui) { setMsg({ ok: false, texte: "La date de l'achat ne peut pas être dans le futur." }); return; }
     // Ce que l'écran sait déjà bloquer (le serveur le revérifie, et refuse aussi ce que l'écran n'a pas encore vu).
+    if (propositionsFournisseur.length > 0) {
+      setMsg({ ok: false, texte: `Rien n'a été enregistré. ${propositionsFournisseur.length > 1 ? `${propositionsFournisseur.length} fournisseurs ressemblent` : "Un fournisseur ressemble"} à un fournisseur déjà enregistré : choisissez « Utiliser … » ou « Créer quand même » (encadré orange en haut de la liste).` });
+      return;
+    }
     const aCompter = etats.filter((e, i) => aEnregistrer(lignes[i]) && (e.erreurDlc || (analyseFraiche && e.choixEnAttente)));
     if (aCompter.length > 0) {
       const n = (f: (e: (typeof etats)[number]) => boolean) => aCompter.filter(f).length;
@@ -190,7 +206,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
       ].filter(Boolean).join(" ; ")}. Voir les lignes signalées.` });
       return;
     }
-    const fd = construireFormData({ date, origine, lignes, idFourn });
+    const fd = construireFormData({ date, origine, lignes, idFourn, fournCreerQuandMeme: fournQuandMeme });
     startTransition(async () => {
       const r = await entreeListeAchat(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
@@ -201,6 +217,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
       brouillon.apresEnregistrement(); // le brouillon n'a plus lieu d'être, même si son bandeau est encore ouvert
       setLignes(quatreVides(deviseDefautRef.current));
       setOrigine("");
+      setFournQuandMeme([]);
       setCle((c) => c + 1);
       // L'achat est enregistré ; ses avertissements restent sous les yeux : à la personne de trancher.
       setAvertissementsEnregistres(r.avertissements);
@@ -216,6 +233,15 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         <p ref={refMsg} role={msg.ok ? "status" : "alert"} className={`scroll-mt-16 rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
           {msg.texte}
         </p>
+      )}
+
+      {propositionsFournisseur.length > 0 && (
+        <div data-fournisseurs-proches className="space-y-2">
+          {propositionsFournisseur.map(({ nom, d }) => (
+            <ChoixFournisseurProche key={nom} nom={nom} candidats={d.type === "choix" ? d.candidats : []} creationPossible={d.type === "choix" && d.creationPossible}
+              onUtiliser={(c) => utiliserFournisseur(nom, c.nom)} onCreer={() => setFournQuandMeme((x) => [...x, nom])} />
+          ))}
+        </div>
       )}
 
       <VueTelephone

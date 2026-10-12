@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { qte } from "@/lib/stock";
+import { UniteArticle } from "./totaux-unites";
 import { LIBELLE_ECART, ecartConsoLivre, ecartLivreCommande, livreDiffereDuCommande, type LigneComparaison } from "@/lib/journalier-restaurant";
 import { useJourAffiche } from "@/components/selecteur-jour";
 import { TitreJour } from "@/components/liste-jour";
@@ -52,6 +53,7 @@ export function ComparaisonJour({ jours, lignes, sansMotif }: { jours: Jour[]; l
         const ecart = r.ecarts[rang] ?? null;
         const signeCL = ecartCL ? ecartLivreCommande(c, l) : null;
         const signeCs = ecart ? ecartConsoLivre(l, r.conso[rang] ?? null) : null;
+        const approx = r.conso[rang] != null ? r.consoApprox?.[rang] ?? null : null; // consommé sur plusieurs jours ou estimé
         return (
           <Fragment key={r.id}>
             {nouvelleCat && (
@@ -65,6 +67,7 @@ export function ComparaisonJour({ jours, lignes, sansMotif }: { jours: Jour[]; l
             <div className="flex min-h-14 items-center gap-1.5 border-b px-1 py-1.5" data-article={r.designation}>
               <div className="min-w-0 flex-1 break-words text-sm font-medium">
                 {r.lien ? <Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link> : r.designation}
+                <UniteArticle unite={r.unite} />
               </div>
               <span className={`${COL} rounded-md py-1 text-sm font-medium tabular-nums text-emerald-700 ${ecartCL ? "bg-orange-50" : ""}`}><span data-valeur>{c > 0 ? qte(c) : ecartCL ? "0" : ""}</span></span>
               <span className={`${COL} rounded-md py-1 text-sm font-medium tabular-nums text-red-700 ${ecartCL ? "bg-orange-100" : ""}`}><span data-valeur>{l > 0 ? qte(l) : ecartCL ? "0" : ""}</span>{signeCL && <Signe nature="LIVRE_DIFFERE" signe={signeCL} titre="livré différent du commandé" />}</span>
@@ -72,7 +75,8 @@ export function ComparaisonJour({ jours, lignes, sansMotif }: { jours: Jour[]; l
                 className={`${COL} rounded-md py-1 text-sm tabular-nums text-indigo-700 ${ecart ? FOND_ECART[ecart] : ""}`}
                 data-ecart={ecart ?? undefined} aria-label={ecart ? `${qteConso(r.conso[rang] ?? null)} — ${LIBELLE_ECART[ecart]}` : undefined}
               >
-                <span data-valeur>{qteConso(r.conso[rang] ?? null)}</span>
+                <span data-valeur>{approx !== null ? "≈ " : ""}{qteConso(r.conso[rang] ?? null)}</span>
+                {approx && <span className="block text-[10px] leading-tight text-muted-foreground">{approx}</span>}
                 {ecart && signeCs && <Signe nature={ecart} signe={signeCs} titre={LIBELLE_ECART[ecart]} />}
               </span>
             </div>

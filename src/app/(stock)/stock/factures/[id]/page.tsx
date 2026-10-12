@@ -21,6 +21,7 @@ import { statutAffiche } from "@/lib/facture-echue";
 import { CorrigerEntete } from "./corriger-entete";
 import { AnnulerPaiementBtn } from "./annuler-paiement-btn";
 import { ecrireSaisieNombre } from "@/lib/nombre";
+import { deviseBon, formaterMontantBon, prixLigneBon, totalBon, totalLigneBon } from "@/lib/bon-commande-devise";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -36,7 +37,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
       fournisseur: { select: { nom: true } },
       // Contenance de l'article lié : libellé AFFICHÉ de la ligne (la désignation figée reste la clé du rapprochement).
       lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } },
-      bonDeCommande: { select: { id: true, numero: true, totalUSD: true, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } },
+      bonDeCommande: { select: { id: true, numero: true, devise: true, totalUSD: true, totalCDF: true, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } },
       paiements: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
     },
   });
@@ -70,17 +71,22 @@ export default async function FactureDetailPage({ params, searchParams }: { para
     where: { statut: { not: "ANNULE" }, ...(facture.fournisseurId ? { fournisseurId: facture.fournisseurId } : {}) },
     orderBy: [{ annee: "desc" }, { sequence: "desc" }],
     take: 100,
-    select: { id: true, numero: true, totalUSD: true },
+    select: { id: true, numero: true, devise: true, totalUSD: true, totalCDF: true },
   });
-  const bonsLiables = bonsLiablesRaw.map((b) => ({ id: b.id, numero: b.numero, total: Number(b.totalUSD) }));
+  // Total du bon DANS SA DEVISE (un bon importé en francs a un total en dollars nul : jamais lu comme 0 $).
+  const bonsLiables = bonsLiablesRaw.map((b) => ({ id: b.id, numero: b.numero, total: totalBon(b), devise: deviseBon(b) }));
 
   // Réconciliation : croise les lignes du BC (commandé) et de la facture (facturé).
   type L = { designation: string; libelle: string; articleId: string | null; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
   const recon = new Map<string, L>();
+  // Le bon se lit dans SA devise ; ses montants ne se comparent à ceux de la facture que si c'est la même.
+  const deviseBC = bc ? deviseBon(bc) : "USD";
+  const comparable = !bc || deviseBC === (enFC ? "CDF" : "USD");
+  const fmBC = (n: number) => formaterMontantBon(n, deviseBC);
   if (bc) for (const l of bc.lignes) {
     const k = cle(l.articleId, l.designation);
     const e = recon.get(k) ?? { designation: l.designation, libelle: libelleLigneArticle(l), articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
-    e.qteBC += Number(l.quantite); e.puBC = Number(l.prixUnitaireUSD); e.totBC += Number(l.totalLigneUSD);
+    e.qteBC += Number(l.quantite); e.puBC = prixLigneBon(l, deviseBC) ?? 0; e.totBC += totalLigneBon(l, deviseBC) ?? 0;
     recon.set(k, e);
   }
   for (const l of facture.lignes) {
@@ -90,7 +96,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
     recon.set(k, e);
   }
   const lignesRecon = [...recon.values()];
-  const totBC = bc ? Number(bc.totalUSD) : 0;
+  const totBC = bc ? totalBon(bc) ?? 0 : 0;
   const totFac = m.montant;
   const ecartTotal = totFac - totBC;
   // L'écart à SIGNALER porte sur les QUANTITÉS (commandé vs livré/facturé), pas sur le montant :
@@ -253,10 +259,10 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                         <td className="px-3 py-2 text-right text-muted-foreground">{l.qteBC ? qte(l.qteBC) : "—"}</td>
                         <td className="px-3 py-2 text-right">{l.qteFac ? qte(l.qteFac) : "—"}</td>
                         <td className={`px-3 py-2 text-right ${eQte ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{eQte ? `${eQte > 0 ? "+" : ""}${qte(eQte)}` : "0"}</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">{l.totBC ? usd(l.totBC) : "—"}</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">{l.totBC ? fmBC(l.totBC) : "—"}</td>
                         <td className="px-3 py-2 text-right">{l.totFac ? fm(l.totFac) : "—"}</td>
                         {/* Bon en dollars, facture en francs : pas d'écart de montant entre deux devises (jamais converti en silence). */}
-                        <td className="px-3 py-2 text-right text-muted-foreground">{enFC ? "—" : Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${usd(eTot)}` : "0"}</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">{!comparable ? "—" : Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${fmBC(eTot)}` : "0"}</td>
                       </tr>
                     );
                   })}
@@ -264,9 +270,9 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                 <tfoot>
                   <tr className="border-t bg-muted/40 font-semibold [&>td]:px-3 [&>td]:py-2">
                     <td colSpan={4}>Totaux</td>
-                    <td className="text-right">{usd(totBC)}</td>
+                    <td className="text-right">{fmBC(totBC)}</td>
                     <td className="text-right">{fm(totFac)}</td>
-                    <td className="text-right text-muted-foreground">{enFC ? "—" : <>{ecartTotal >= 0 ? "+" : ""}{usd(ecartTotal)}</>}</td>
+                    <td className="text-right text-muted-foreground">{!comparable ? "—" : <>{ecartTotal >= 0 ? "+" : ""}{fmBC(ecartTotal)}</>}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -283,7 +289,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                     })}
                   </ul>
                   <p className="mt-1 text-[11px]">Une différence de montant n’affecte pas la somme à payer : c’est le montant de la facture qui fait foi.</p>
-                  {enFC && <p className="mt-1 text-[11px]">Bon de commande en dollars, facture en francs : les montants ne se comparent pas (devises différentes) ; seules les quantités le sont.</p>}
+                  {!comparable && <p className="mt-1 text-[11px]">Bon de commande en {deviseBC === "CDF" ? "francs" : "dollars"}, facture en {enFC ? "francs" : "dollars"} : les montants ne se comparent pas (devises différentes) ; seules les quantités le sont.</p>}
                 </div>
               )}
           </>

@@ -104,9 +104,9 @@ describe("import de factures : probables doublons et fournisseurs proches", () =
     const appliquer = () => parLabel("Appliquer l'import");
     const caseConfirmer = conteneur.querySelector<HTMLInputElement>("[data-a-confirmer] input[type=checkbox]")!;
     expect(caseConfirmer.checked).toBe(false);
-    expect(conteneur.querySelector("[data-fournisseur-proche]")).not.toBeNull();
+    expect(conteneur.querySelector("[data-choix-fournisseur]")).not.toBeNull();
     expect(appliquer().disabled).toBe(true); // « Kathy » ressemble à « Maison Kathy » : à décider
-    await clic(conteneur.querySelector<HTMLButtonElement>("[data-fournisseur-proche] [data-utiliser='f-kathy']")!);
+    await clic(conteneur.querySelector<HTMLButtonElement>("[data-choix-fournisseur] [data-utiliser='f-kathy']")!);
     expect(appliquer().disabled).toBe(false);
     await clic(caseConfirmer);
     expect(appliquer().textContent).toContain("(3)"); // 2 nouvelles + 1 cochée

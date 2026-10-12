@@ -15,6 +15,9 @@ import type {
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
+import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
+import { formaterUSD } from "@/lib/montant";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -23,6 +26,18 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  * ⚠️ Les indemnités LÉGALES (préavis, licenciement) sont SAISIES par l'utilisateur (jamais
  * inventées) et à faire valider par un juriste — droit du travail RDC. Le logiciel ne calcule
  * mécaniquement que le salaire au prorata et l'indemnité de congés non pris.
+ *
+ * Audit paie du 2026-10-10 — acte grave, UNITAIRE, tracé :
+ *  - UNE transaction (fiche verrouillée) : solde archivé, prêts repris, contrats résiliés, fiche et
+ *    compte désactivés — tout ou rien ;
+ *  - refus si le salarié est déjà inactif, ou si une fin de contrat est déjà enregistrée depuis son
+ *    embauche (double clic, second onglet : jamais deux soldes) ;
+ *  - le solde REPREND le reste des prêts en cours et les acomptes approuvés non retenus
+ *    (`chargerReprisesSolde`, les mêmes chiffres que l'écran : un écart depuis l'affichage refuse) ;
+ *    un net à verser négatif est refusé — la Direction décide (annuler le prêt, accord de
+ *    remboursement) avant d'archiver ;
+ *  - un bulletin du mois déjà validé ou payé est SIGNALÉ à l'écran (double paiement possible), la
+ *    paie n'est jamais recalculée ici. CNSS/IPR sur le solde : non traités, avertissement affiché.
  */
 export async function terminerContrat(employeeId: string, formData: FormData) {
   await formulaireLisible(`/employes/${employeeId}`, async () => {
@@ -31,6 +46,7 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
 
     const motif = String(formData.get("motif") ?? "AUTRE");
     const dateFin = new Date(String(formData.get("dateFin")));
+    if (Number.isNaN(dateFin.getTime())) throw new Error("Date de fin invalide : choisissez un jour du calendrier.");
     // Saisies lues à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux
     // dans un solde de tout compte. Les minimums du champ natif (>= 0) sont repris ici.
     const positif = (nom: string, libelle: string) => {
@@ -48,69 +64,117 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
     const indemniteLicenciementUSD = positif("indemniteLicenciementUSD", "Indemnité de licenciement");
     const autresUSD = positif("autresUSD", "Autres indemnités");
     const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
+    // Reprises que l'écran a MONTRÉES (champs cachés) : revérifiées au centime dans la transaction.
+    const repriseAffichee = (nom: string) => {
+      const v = String(formData.get(nom) ?? "").trim();
+      return v === "" ? null : Number(v);
+    };
+    const reprisePretAffichee = repriseAffichee("reprisePretUSD");
+    const repriseAcomptesAffichee = repriseAffichee("repriseAcomptesUSD");
 
-    const [employee, parametres] = await Promise.all([
-      prisma.employee.findUniqueOrThrow({ where: { id: employeeId } }),
-      chargerParametresPaie(),
-    ]);
-    // Solde de tout compte sur la base BRUTE (décision client 2026-07-22) : si les salaires sont
-    // saisis en net (`salairesSaisisEnNet`), on reconstitue d'abord le brut mensuel puis on le divise
-    // par les jours ouvrables → journalier BRUT, base légale RDC pour prorata et indemnités. Sinon
-    // (flag inactif), `salaireMensuel` est déjà un brut. NB : aucune CNSS/IPR n'est déduite du solde
-    // lui-même (comportement antérieur à ce lot) — À FAIRE VALIDER PAR UN JURISTE/COMPTABLE.
-    const baseMensuelleUSD = parametres.salairesSaisisEnNet
-      ? reconstituerBrutDepuisNet(Number(employee.salaireMensuel), parametres, employee.enfants)
-      : Number(employee.salaireMensuel);
-    const salaireJournalier = r2(baseMensuelleUSD / parametres.joursOuvrablesMois);
-    const salaireProrataUSD = r2(salaireJournalier * joursTravaillesMois);
-    const indemniteCongesUSD = r2(salaireJournalier * joursCongesNonPris);
-    const indemnitePreavisUSD = r2(salaireJournalier * preavisJours);
-    const totalUSD = r2(
-      salaireProrataUSD + indemniteCongesUSD + indemnitePreavisUSD + indemniteLicenciementUSD + autresUSD
-    );
+    const parametres = await chargerParametresPaie();
+    const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
+    const periode = { mois: config?.moisCourant ?? numeroMoisCourantKinshasa(), annee: config?.anneeCourante ?? anneeCouranteKinshasa() };
 
-    await prisma.finContrat.create({
-      data: {
-        employeeId,
-        motif,
-        dateFin,
-        salaireJournalierUSD: salaireJournalier,
-        joursTravaillesMois,
-        salaireProrataUSD,
-        joursCongesNonPris,
-        indemniteCongesUSD,
-        preavisJours,
-        indemnitePreavisUSD,
-        indemniteLicenciementUSD,
-        autresUSD,
-        totalUSD,
-        commentaire,
-        creeParId: user.id,
-      },
-    });
+    const compte = await prisma.$transaction(async (tx) => {
+      // Fiche verrouillée : deux soldes concurrents (double clic, deux onglets) s'attendent ; le second
+      // lit la fiche déjà désactivée et refuse.
+      await tx.$queryRaw`SELECT "id" FROM "public"."Employee" WHERE "id" = ${employeeId} FOR UPDATE`;
+      const employee = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      if (!employee.actif) {
+        throw new Error(`${employee.nom} n'est plus actif : son contrat est déjà terminé. Un seul solde de tout compte par départ — rien n'a été enregistré.`);
+      }
+      const dejaFin = await tx.finContrat.findFirst({
+        where: { employeeId, dateFin: { gte: employee.dateEmbauche } },
+        orderBy: { createdAt: "desc" },
+        select: { dateFin: true },
+      });
+      if (dejaFin) {
+        throw new Error(`Une fin de contrat au ${dejaFin.dateFin.toISOString().slice(0, 10).split("-").reverse().join("/")} est déjà enregistrée pour ${employee.nom} depuis son embauche : rien n'a été enregistré.`);
+      }
 
-    // Sortie de l'employé : contrats actifs résiliés + employé désactivé (jamais supprimé).
-    await prisma.contrat.updateMany({ where: { employeeId, statut: "ACTIF" }, data: { statut: "RESILIE" } });
-    await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
+      // Solde de tout compte sur la base BRUTE (décision client 2026-07-22) : si les salaires sont
+      // saisis en net (`salairesSaisisEnNet`), on reconstitue d'abord le brut mensuel puis on le divise
+      // par les jours ouvrables → journalier BRUT, base légale RDC pour prorata et indemnités. Sinon
+      // (flag inactif), `salaireMensuel` est déjà un brut. NB : aucune CNSS/IPR n'est déduite du solde
+      // lui-même — À FAIRE VALIDER PAR UN JURISTE/COMPTABLE (avertissement affiché sur le formulaire).
+      const baseMensuelleUSD = parametres.salairesSaisisEnNet
+        ? reconstituerBrutDepuisNet(Number(employee.salaireMensuel), parametres, employee.enfants)
+        : Number(employee.salaireMensuel);
+      const salaireJournalier = r2(baseMensuelleUSD / parametres.joursOuvrablesMois);
+      const salaireProrataUSD = r2(salaireJournalier * joursTravaillesMois);
+      const indemniteCongesUSD = r2(salaireJournalier * joursCongesNonPris);
+      const indemnitePreavisUSD = r2(salaireJournalier * preavisJours);
+      const totalUSD = r2(
+        salaireProrataUSD + indemniteCongesUSD + indemnitePreavisUSD + indemniteLicenciementUSD + autresUSD
+      );
 
-    // Sécurité : couper l'accès du compte lié (espace salarié / stock) — l'ex-salarié ne doit plus
-    // pouvoir se connecter. Le compte n'est pas supprimé (réactivable si erreur).
-    const compte = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, actif: true } });
-    if (compte?.actif) {
-      await prisma.user.update({ where: { id: compte.id }, data: { actif: false } });
-      invaliderProfil(compte.id); // prise en compte immédiate (la session est refusée à la prochaine requête)
-    }
+      const reprises = await chargerReprisesSolde(tx, employeeId, periode);
+      const ecart = (affichee: number | null, calculee: number) => affichee !== null && Math.round(affichee * 100) !== Math.round(calculee * 100);
+      if (ecart(reprisePretAffichee, reprises.reprisePretUSD) || ecart(repriseAcomptesAffichee, reprises.repriseAcomptesUSD)) {
+        throw new Error("Le reste des prêts ou les acomptes à reprendre ont changé depuis l'affichage : rechargez la fiche et relisez le solde. Rien n'a été enregistré.");
+      }
+      const netAVerserUSD = r2(totalUSD - reprises.reprisePretUSD - reprises.repriseAcomptesUSD);
+      if (netAVerserUSD < 0) {
+        throw new Error(`Le reste des prêts (${formaterUSD(reprises.reprisePretUSD)}) et les acomptes non retenus (${formaterUSD(reprises.repriseAcomptesUSD)}) dépassent le solde (${formaterUSD(totalUSD)}) : ${formaterUSD(-netAVerserUSD)} resteraient dus par ${employee.nom}. À la Direction de décider (annuler le prêt, accord de remboursement) avant d'archiver — rien n'a été enregistré.`);
+      }
 
-    await journaliser(prisma, {
-      entite: "Employee",
-      entiteId: employeeId,
-      champ: "finContrat",
-      nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $${compte?.actif ? " · compte désactivé" : ""}`,
-      userId: user.id,
-    });
+      await tx.finContrat.create({
+        data: {
+          employeeId,
+          motif,
+          dateFin,
+          salaireJournalierUSD: salaireJournalier,
+          joursTravaillesMois,
+          salaireProrataUSD,
+          joursCongesNonPris,
+          indemniteCongesUSD,
+          preavisJours,
+          indemnitePreavisUSD,
+          indemniteLicenciementUSD,
+          autresUSD,
+          totalUSD,
+          reprisePretUSD: reprises.reprisePretUSD,
+          repriseAcomptesUSD: reprises.repriseAcomptesUSD,
+          commentaire,
+          creeParId: user.id,
+        },
+      });
+
+      // Prêts repris : soldés par le solde de tout compte (tracé ; aucune retenue de paie inventée).
+      for (const p of reprises.prets) {
+        await tx.pretPersonnel.update({ where: { id: p.id }, data: { statut: "SOLDE" } });
+        await journaliser(tx, { entite: "PretPersonnel", entiteId: p.id, champ: "statut", ancienneValeur: "EN_COURS", nouvelleValeur: `SOLDE — ${formaterUSD(p.resteUSD)} repris au solde de tout compte`, userId: user.id });
+      }
+
+      // Sortie de l'employé : contrats actifs résiliés + employé désactivé (jamais supprimé).
+      await tx.contrat.updateMany({ where: { employeeId, statut: "ACTIF" }, data: { statut: "RESILIE" } });
+      await tx.employee.update({ where: { id: employeeId }, data: { actif: false } });
+
+      // Sécurité : couper l'accès du compte lié (espace salarié / stock) — l'ex-salarié ne doit plus
+      // pouvoir se connecter. Le compte n'est pas supprimé (réactivable si erreur).
+      const compteLie = await tx.user.findUnique({ where: { employeeId }, select: { id: true, actif: true } });
+      if (compteLie?.actif) await tx.user.update({ where: { id: compteLie.id }, data: { actif: false } });
+
+      const reprisesTexte = [
+        reprises.reprisePretUSD > 0 ? `prêt repris ${formaterUSD(reprises.reprisePretUSD)}` : null,
+        reprises.repriseAcomptesUSD > 0 ? `acomptes repris ${formaterUSD(reprises.repriseAcomptesUSD)}` : null,
+      ].filter(Boolean).join(", ");
+      await journaliser(tx, {
+        entite: "Employee",
+        entiteId: employeeId,
+        champ: "finContrat",
+        nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $${reprisesTexte ? ` (${reprisesTexte} ; net à verser ${netAVerserUSD.toFixed(2)} $)` : ""}${reprises.bulletinFigeDuMois ? ` · bulletin du mois déjà ${reprises.bulletinFigeDuMois.statut === "PAYE" ? "payé" : "validé"}` : ""}${compteLie?.actif ? " · compte désactivé" : ""}`,
+        userId: user.id,
+      });
+      return compteLie?.actif ? compteLie : null;
+    }, { timeout: 30_000 });
+
+    if (compte) invaliderProfil(compte.id); // après le commit : la session est refusée à la prochaine requête
 
     revalidatePath(`/employes/${employeeId}`);
     revalidatePath("/employes");
+    revalidatePath("/paie");
 
   });
 }

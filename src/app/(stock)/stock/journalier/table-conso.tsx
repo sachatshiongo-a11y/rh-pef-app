@@ -2,10 +2,11 @@ import Link from "next/link";
 import { Fragment } from "react";
 import { qte } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
-import { texteConso, totalConso, SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF, type LigneConso, type LigneJours } from "@/lib/journalier-restaurant";
-import { ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, type ConsommationReelle } from "@/lib/stock-restaurant";
+import { texteConso, totalConso, totauxParUnite, SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF, type LigneConso, type LigneJours } from "@/lib/journalier-restaurant";
+import { consoApproximative, ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, mentionDepuis, type ConsommationReelle } from "@/lib/stock-restaurant";
 import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
 import { ConsoJour } from "./conso-jour";
+import { TotauxUnites, UniteArticle } from "./totaux-unites";
 
 // Onglet « Consommation » de la Conso. journalière : ce qui sort du dépôt, SÉPARÉ par motif (livré au
 // restaurant, pertes, sans motif), les légumes frais, puis la consommation RÉELLE du restaurant
@@ -31,6 +32,7 @@ function LignesSorties({ rows, lien }: { rows: LigneJours[]; lien: boolean }) {
     <tr key={r.id} className="hover:bg-accent/40 even:bg-muted/25">
       <td className="sticky left-0 z-10 bg-background font-medium">
         {lien ? <Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link> : r.designation}
+        <UniteArticle unite={r.unite} />
       </td>
       {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
       <td className="text-right font-semibold">{qte(r.total)}</td>
@@ -38,15 +40,20 @@ function LignesSorties({ rows, lien }: { rows: LigneJours[]; lien: boolean }) {
   ));
 }
 
-/** « Total jour » d'une section (sorties sans motif) : somme par jour, comme l'ancien pied de tableau. */
+/** Totaux d'une section par jour, PAR UNITÉ (jamais des kg et des bouteilles additionnés) ; le dernier rang est la semaine. */
+function totauxJoursParUnite(rows: LigneJours[], n: number) {
+  const parJour = Array.from({ length: n }, (_, i) => totauxParUnite(rows.map((r) => ({ unite: r.unite, valeur: r.jours[i]! }))));
+  return { parJour, semaine: totauxParUnite(rows.map((r) => ({ unite: r.unite, valeur: r.total }))) };
+}
+
+/** « Total jour » d'une section (sorties sans motif) : un total par unité et par jour. */
 function TotalJour({ libelle, rows }: { libelle: string; rows: LigneJours[] }) {
-  const n = rows[0]?.jours.length ?? 0;
-  const totaux = Array.from({ length: n }, (_, i) => rows.reduce((t, r) => t + r.jours[i]!, 0));
+  const { parJour, semaine } = totauxJoursParUnite(rows, rows[0]?.jours.length ?? 0);
   return (
     <tr className="bg-muted/40 font-semibold">
       <td className="sticky left-0 z-10 bg-muted/40">{libelle}</td>
-      {totaux.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
-      <td className="text-right">{qte(totaux.reduce((a, b) => a + b, 0))}</td>
+      {parJour.map((t, i) => <td key={i} className="text-right"><TotauxUnites totaux={t} /></td>)}
+      <td className="text-right"><TotauxUnites totaux={semaine} /></td>
     </tr>
   );
 }
@@ -54,25 +61,32 @@ function TotalJour({ libelle, rows }: { libelle: string; rows: LigneJours[] }) {
 function CelluleConso({ c }: { c: ConsommationReelle }) {
   if (c.etat === "INCONNUE") return <td className="text-right text-muted-foreground" title={LIBELLE_CONSO_INCONNUE[c.raison]}>—</td>;
   const n = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
-  const detail = `veille ${n(c.stockVeille)}${c.veilleEstimee ? " (estimée, aucun comptage)" : ""} + reçu ${n(c.recu)} − compté ${n(c.compte)}`;
+  const depuis = mentionDepuis(c);
+  const detail = `veille ${n(c.stockVeille)}${c.veilleEstimee ? " (estimée, aucun comptage)" : ""} + reçu ${n(c.recu)} − compté ${n(c.compte)}${depuis ? ` — veille non comptée : consommation ${depuis}` : ""}`;
   if (c.negative) {
     return (
       <td className="text-right font-medium text-red-700" title={`${ECART_NEGATIF} — ${detail}`} aria-label={`${texteConso(c)} — ${ECART_NEGATIF}`}>
-        {texteConso(c)} <span className="text-[10px]">écart</span>
+        {consoApproximative(c) ? "≈ " : ""}{texteConso(c)} <span className="text-[10px]">écart</span>
+        {depuis && <span className="block text-[10px] font-normal text-muted-foreground">{depuis}</span>}
       </td>
     );
   }
-  return <td className="text-right tabular-nums" title={detail}>{c.veilleEstimee ? "≈ " : ""}{texteConso(c)}</td>;
+  return (
+    <td className="text-right tabular-nums" title={detail}>
+      {consoApproximative(c) ? "≈ " : ""}{texteConso(c)}
+      {depuis && <span className="block text-[10px] text-muted-foreground">{depuis}</span>}
+    </td>
+  );
 }
 
 export function TableConso({ jours, sorties, legumes, consoResto }: {
   jours: Jour[];
   sorties: { livraisons: LigneJours[]; pertes: LigneJours[]; sansMotif: LigneJours[] };
-  legumes: { nom: string; jours: number[]; total: number }[];
+  legumes: { nom: string; unite?: string | null; jours: number[]; total: number }[];
   consoResto: LigneConso[];
 }) {
   const colSpan = jours.length + 2;
-  const totauxLivres = jours.map((_, i) => sorties.livraisons.reduce((t, r) => t + r.jours[i]!, 0));
+  const totauxLivres = totauxJoursParUnite(sorties.livraisons, jours.length);
   const vide = sorties.livraisons.length + sorties.pertes.length + sorties.sansMotif.length + legumes.length + consoResto.length === 0;
   return (
     <VueJourOuSemaine
@@ -94,7 +108,7 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
           {legumes.length > 0 && (
             <>
               <Section titre="Légumes frais (achats du jour)" ton="legumes" colSpan={colSpan} />
-              <LignesSorties rows={legumes.map((l) => ({ id: l.nom, designation: l.nom, jours: l.jours, total: l.total }))} lien={false} />
+              <LignesSorties rows={legumes.map((l) => ({ id: l.nom, designation: l.nom, unite: l.unite, jours: l.jours, total: l.total }))} lien={false} />
             </>
           )}
           {consoResto.length > 0 && (
@@ -114,8 +128,8 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
         {sorties.livraisons.length > 0 && (
           <tfoot className="sticky bottom-0 z-20 bg-background"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
             <td className="sticky left-0 bg-muted/60">Total livré au restaurant</td>
-            {totauxLivres.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
-            <td className="text-right">{qte(totauxLivres.reduce((a, b) => a + b, 0))}</td>
+            {totauxLivres.parJour.map((t, i) => <td key={i} className="text-right"><TotauxUnites totaux={t} /></td>)}
+            <td className="text-right"><TotauxUnites totaux={totauxLivres.semaine} /></td>
           </tr></tfoot>
         )}
       </table>

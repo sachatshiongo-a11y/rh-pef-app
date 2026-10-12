@@ -4,7 +4,9 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { MOIS_FR } from "@/lib/dates-fr";
-import { inventaireDuMois, parDomaine, alerteLabel } from "@/lib/cloture-inventaire";
+import { inventaireDuMois, parDomaine, alerteLabel, ligneSansPrix } from "@/lib/cloture-inventaire";
+import { mentionSansPrix } from "@/lib/valeur-stock";
+import { dateHeureGenerationKinshasa } from "@/lib/heure-kinshasa";
 import { niveauAlerte, uniteAffichee } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
@@ -31,7 +33,13 @@ export async function GET(req: Request) {
   const inv = await inventaireDuMois(annee, mois);
   const groupes = parDomaine(inv);
   const periodeLabel = `${MOIS_FR[mois - 1]} ${annee}`;
-  const etat = inv.fige ? "à la clôture" : "état actuel (mois non clôturé)";
+  // Honnête sur la date : l'instantané est le stock du MOMENT de la clôture, pas un stock de fin de mois reconstitué.
+  const etat = inv.fige
+    ? `stock figé à la clôture : stock au ${inv.figeLe ? dateHeureGenerationKinshasa(inv.figeLe) : "moment de la clôture (heure non conservée)"}`
+    : `état actuel au ${dateHeureGenerationKinshasa(new Date())} (mois non clôturé)`;
+  // Total partiel : les articles en stock sans prix n'y sont pas comptés (jamais 0 en silence).
+  const partiel = mentionSansPrix(inv.nbSansPrix);
+  const totalTexte = `${usd(inv.valeurTotaleUSD)}${partiel ? ` (${partiel})` : ""}`;
   const suffixe = `${annee}-${String(mois).padStart(2, "0")}`;
 
   // Mouvements du mois, groupés par domaine (dans la feuille du domaine, jamais à part).
@@ -46,8 +54,8 @@ export async function GET(req: Request) {
 
   if (format === "excel") {
     const feuilles: FeuilleInventaire[] = groupes.map((g) => {
-      const urgents = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum) === "URGENT").length;
-      const appros = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum) === "APPRO").length;
+      const urgents = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent) === "URGENT").length;
+      const appros = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent) === "APPRO").length;
       const mvts = mvtParDomaine(g.domaine);
       const valEnt = r2(mvts.filter((x) => x.type !== "SORTIE").reduce((t, x) => t + (x.montantUSD !== null ? Number(x.montantUSD) : 0), 0));
       const valSor = r2(mvts.filter((x) => x.type === "SORTIE").reduce((t, x) => t + (x.montantUSD !== null ? Number(x.montantUSD) : 0), 0));
@@ -55,8 +63,8 @@ export async function GET(req: Request) {
         nom: g.label,
         titre: `Inventaire ${g.label} — ${periodeLabel} (${etat})`,
         kpis: [
-          { label: `Valeur du stock — ${g.label}`, valeur: usd(g.valeur) },
-          { label: "Valeur du stock — TOTAL", valeur: usd(inv.valeurTotaleUSD) },
+          { label: `Valeur du stock — ${g.label}`, valeur: `${usd(g.valeur)}${g.nbSansPrix > 0 ? ` (${mentionSansPrix(g.nbSansPrix)})` : ""}` },
+          { label: "Valeur du stock — TOTAL", valeur: totalTexte },
           { label: "Articles", valeur: String(g.lignes.length) },
           { label: "Dont à réapprovisionner", valeur: String(urgents + appros) },
           { label: "En rupture (urgent)", valeur: String(urgents) },
@@ -67,10 +75,11 @@ export async function GET(req: Request) {
         invEntete: ["Code", "Désignation", "Unité", "Catégorie", "Fournisseur", "Stock min", "Stock final", "Alerte stock", "Prix U. USD", "Valeur USD", "Prix saisi en FC"],
         invLignes: g.lignes.map((l) => [
           l.code, libelleArticle(l), l.unite, l.categorie, l.fournisseur,
-          r2(l.stockMinimum), r2(l.quantite), alerteLabel(l.quantite, l.stockMinimum),
-          r2(l.prixUnitaireUSD), r2(l.quantite * l.prixUnitaireUSD),
+          r2(l.stockMinimum), r2(l.quantite), alerteLabel(l.quantite, l.stockMinimum, l.seuilUrgent),
+          // Sans prix : cellules vides (jamais 0) — le total est partiel de ces articles.
+          ligneSansPrix(l) ? "" : r2(l.prixUnitaireUSD), ligneSansPrix(l) ? "" : r2(l.quantite * l.prixUnitaireUSD),
           // Article en francs : son prix tel que saisi et le taux qui l'a converti (« taux non défini » : non valorisé).
-          l.prixUnitaireCDF !== undefined ? `${l.prixUnitaireCDF} FC ${l.tauxChange ? `≈ au taux ${l.tauxChange}` : "(taux non défini : non valorisé)"}` : "",
+          l.prixUnitaireCDF !== undefined ? `${l.prixUnitaireCDF} FC ${l.tauxChange ? `≈ au taux ${l.tauxChange}` : "(taux non défini : non valorisé)"}` : ligneSansPrix(l) ? "sans prix" : "",
         ]),
         invTotauxCols: [9],
         alerteCol: 7,
@@ -89,7 +98,7 @@ export async function GET(req: Request) {
       };
     });
 
-    const buf = await classeurInventaire({ periode: `${periodeLabel} · ${etat} · stock total ${usd(inv.valeurTotaleUSD)}`, feuilles });
+    const buf = await classeurInventaire({ periode: `${periodeLabel} · ${etat} · stock total ${totalTexte}`, feuilles });
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -106,18 +115,18 @@ export async function GET(req: Request) {
   const sectionRows: number[] = [];
   for (const g of groupes) {
     sectionRows.push(lignes.length);
-    lignes.push([`${g.label} — ${usd(g.valeur)}`, "", "", "", "", ""]); couleurs.push(undefined);
+    lignes.push([`${g.label} — ${usd(g.valeur)}${g.nbSansPrix > 0 ? ` (${mentionSansPrix(g.nbSansPrix)})` : ""}`, "", "", "", "", ""]); couleurs.push(undefined);
     for (const l of g.lignes) {
-      lignes.push([libelleArticle(l), l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), l.prixUnitaireCDF !== undefined ? (l.tauxChange ? `≈ ${usd(l.quantite * l.prixUnitaireUSD)}` : "—") : usd(l.quantite * l.prixUnitaireUSD)]);
-      couleurs.push(COULEUR[niveauAlerte(l.quantite, l.stockMinimum)]);
+      lignes.push([libelleArticle(l), l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum, l.seuilUrgent), num(l.quantite), ligneSansPrix(l) ? "—" : l.prixUnitaireCDF !== undefined ? (l.tauxChange ? `≈ ${usd(l.quantite * l.prixUnitaireUSD)}` : "—") : usd(l.quantite * l.prixUnitaireUSD)]);
+      couleurs.push(COULEUR[niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent)]);
     }
   }
-  lignes.push(["STOCK TOTAL", "", "", "", "", usd(inv.valeurTotaleUSD)]); couleurs.push(undefined);
+  lignes.push([`STOCK TOTAL${partiel ? ` (${partiel})` : ""}`, "", "", "", "", usd(inv.valeurTotaleUSD)]); couleurs.push(undefined);
 
   const buf = await renderPdfBuffer(
     TableauDocument({
       titre: `Inventaire — ${periodeLabel}`,
-      sousTitre: `${etat} · stock total ${usd(inv.valeurTotaleUSD)}`,
+      sousTitre: `${etat} · stock total ${totalTexte}`,
       colonnes: [
         { header: "Désignation", width: "30%", align: "left" },
         { header: "Catégorie", width: "20%", align: "left" },

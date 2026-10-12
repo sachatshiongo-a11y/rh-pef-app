@@ -87,6 +87,31 @@ describe("Excel de l'Inventaire — l'ensemble filtré affiché", () => {
   });
 });
 
+describe("colonnes des exports de l'Inventaire — l'unité suit la quantité, pas de « Nom court »", () => {
+  it("Excel : Stock puis Unité côte à côte, aucune colonne « Nom court »", async () => {
+    const { GET } = await import("./export/route");
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await (await GET(new Request("http://x/e?q=farine"))).arrayBuffer()) as unknown as ArrayBuffer);
+    const lignes: string[][] = [];
+    wb.worksheets[0].eachRow((row) => lignes.push((row.values as unknown[]).slice(1).map((v) => String(v ?? ""))));
+    const entete = lignes.find((l) => l.includes("Désignation"))!;
+    expect(entete.indexOf("Unité")).toBe(entete.indexOf("Stock") + 1);
+    expect(entete.join("|")).not.toMatch(/nom court/i);
+    const farine = lignes.find((l) => l[1] === "Art Farine")!;
+    expect(farine[entete.indexOf("Stock")]).toBe("0");
+    expect(farine[entete.indexOf("Unité")]).toBe("Kg");
+  });
+  it("page imprimable : l'en-tête met Unité juste après Stock et la cellule suit la quantité", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: Page } = await import("./imprimer/page");
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ q: "farine" }) }));
+    const th = [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
+    expect(th.indexOf("Unité")).toBe(th.indexOf("Stock") + 1);
+    expect(html).not.toMatch(/nom court/i);
+  });
+});
+
 describe("PDF et page imprimable de l'Inventaire — le même filtre", () => {
   it("le PDF accepte le filtre complet (réponse PDF)", async () => {
     const { GET } = await import("./pdf/route");
