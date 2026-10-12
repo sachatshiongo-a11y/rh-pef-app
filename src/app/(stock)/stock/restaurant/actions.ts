@@ -11,6 +11,7 @@ import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
 import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
+import { normaliserUnite } from "@/lib/fiches/conversion";
 
 /** Borne d'un lot du bouton « Rattacher automatiquement » (une semaine d'arriéré en compte ~25). */
 const MAX_RATTACHEMENT_AUTO = 200;
@@ -101,7 +102,9 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
     const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, articleStockId: true } });
     if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
     if (apres !== article.unite) {
-      if (article.unite !== null) {
+      // Seule une AUTRE unité réinterprète l'historique : « Kg » → « kg », « Litres » → « l » (même unité,
+      // orthographe corrigée, normalisation unique de la conversion) reste permis, et journalisé.
+      if (article.unite !== null && normaliserUnite(apres ?? "") !== normaliserUnite(article.unite)) {
         const [comptages, livraisons] = await Promise.all([
           prisma.comptageResto.count({ where: { articleRestoId: id } }),
           article.articleStockId === null ? 0 : prisma.mouvementStock.count({ where: { articleId: article.articleStockId, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),

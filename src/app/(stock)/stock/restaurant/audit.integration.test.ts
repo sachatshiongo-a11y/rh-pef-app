@@ -179,6 +179,17 @@ describe("1. l'unité d'un article du restaurant est celle de tout son historiqu
   });
 });
 
+describe("1 bis. corriger l'orthographe d'une unité reste permis malgré l'historique", () => {
+  it("« casier » → « Casier » (même unité) est accepté et journalisé ; « casier » → « bac » reste refusé", async () => {
+    // ids.sansUnite porte un comptage et l'unité « casier » (posée au test précédent).
+    ok(await modifierArticleResto(ids.sansUnite!, fd({ unite: "Casier" })));
+    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: ids.sansUnite } })).unite).toBe("Casier");
+    expect((await journal("ArticleResto")).at(-1)).toMatchObject({ entiteId: ids.sansUnite, ancienneValeur: "casier", nouvelleValeur: "Casier" });
+    expect(erreurDe(await modifierArticleResto(ids.sansUnite!, fd({ unite: "bac" })))).toContain("ne peut plus changer");
+    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: ids.sansUnite } })).unite).toBe("Casier");
+  });
+});
+
 describe("6. une fiche qui porte des ventes ne bascule pas", () => {
   const base = (extra: Record<string, string> = {}) => fd({ nom: "Pâtes", nbPortions: "1", tauxTVA: "0,16", actif: "on", ...extra });
 
