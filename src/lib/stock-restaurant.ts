@@ -112,7 +112,8 @@ export type SignalementLivraison = {
   articleRestoId: string;
 };
 
-export type LivraisonRecue = { livraisonId: string; date: string; quantiteCatalogue: string; quantiteResto: string };
+/** Livraison additionnée : `articleStockId` = la marque livrée ; `quantiteCatalogue` dans SON unité, `quantiteResto` dans celle du restaurant. */
+export type LivraisonRecue = { livraisonId: string; articleStockId: string; date: string; quantiteCatalogue: string; quantiteResto: string };
 
 export type StockTheorique = {
   articleRestoId: string;
@@ -227,7 +228,7 @@ function indexer(e: EntreesStockResto): Index {
       for (const id of r.articleRestoIds) pousser(idx.signalees, id, signal("A_REPARTIR", id, candidats));
     } else {
       const quantiteResto = convertirDepuisUniteArticle(l.quantite, articleCatalogue(l), unites.get(r.articleRestoId) ?? "")!;
-      pousser(idx.recues, r.articleRestoId, { livraisonId: l.id, date: l.date, quantiteCatalogue: l.quantite, quantiteResto });
+      pousser(idx.recues, r.articleRestoId, { livraisonId: l.id, articleStockId: l.articleStockId, date: l.date, quantiteCatalogue: l.quantite, quantiteResto });
     }
   }
   for (const m of [idx.comptages, idx.recues, idx.signalees] as Map<string, { date: string }[]>[]) for (const l of m.values()) l.sort(parDate);
