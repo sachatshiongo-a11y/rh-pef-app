@@ -163,6 +163,9 @@ describe("fiche article — bouton Modifier", () => {
     await cliquer(bouton("Enregistrer"));
     expect(conteneur.textContent).toContain("Code déjà utilisé par un autre article.");
     expect(conteneur.querySelector("form")).not.toBeNull();
+    // Le refus est visible en haut ET en bas du formulaire (près du bouton d'envoi), lu une seule fois.
+    expect([...conteneur.querySelectorAll("[data-refus]")].map((x) => x.textContent)).toEqual(["Code déjà utilisé par un autre article.", "Code déjà utilisé par un autre article."]);
+    expect(conteneur.querySelectorAll('[role="alert"]')).toHaveLength(1);
   });
 
   it("contenance : vide par défaut (le nom l'indique en aide) ; saisie envoyée avec son unité", async () => {

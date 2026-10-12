@@ -19,13 +19,13 @@ const rendre = (el: Parameters<typeof h>[0] extends never ? never : ReturnType<t
 };
 
 describe("pastilles de mouvement", () => {
-  it("type : Entrée vert, Sortie rouge, Ajustement ambre — le libellé accompagne toujours la couleur", () => {
+  it("type : Entrée vert, Sortie rouge, Ajustement neutre (gris) — le libellé accompagne toujours la couleur", () => {
     const { c, fin } = rendre(h("div", null, h(PastilleType, { type: "ENTREE" }), h(PastilleType, { type: "SORTIE" }), h(PastilleType, { type: "AJUSTEMENT" })));
     const p = [...c.querySelectorAll<HTMLElement>("[data-pastille-type]")];
     expect(p.map((x) => x.textContent)).toEqual(["Entrée", "Sortie", "Ajustement"]);
     expect(p[0].className).toContain("bg-emerald-50");
     expect(p[1].className).toContain("bg-red-50");
-    expect(p[2].className).toContain("bg-amber-50");
+    expect(p[2].className).toContain("bg-slate-100"); // neutre : ni vert ni rouge
     fin();
   });
 

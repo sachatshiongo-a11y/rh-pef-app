@@ -3,6 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { modifierArticle } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { ErreurAction } from "@/components/erreur-action";
+import { useRefusVisible } from "@/components/refus-visible";
 import { ChoixArticleProche, type CandidatProche } from "@/components/stock/choix-article-proche";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
@@ -63,6 +65,7 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
   const [erreur, setErreur] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null); // proposition envoyée (hors Direction)
   const [isPending, start] = useTransition();
+  const noterEnvoi = useRefusVisible(erreur); // refus affiché en haut ET en bas : ramené à l'écran s'il n'y est pas
   // Cases numériques : valeur tenue en state (texte), portée par un champ caché du même nom que
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
   // Prix de référence : SA devise ($ ou FC) et le prix dans cette devise (la devise de saisie fait foi).
@@ -140,8 +143,8 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
 
   // onSubmit et non `action` : une action de formulaire React vide les champs libres après l'envoi, et un refus (doublon) doit garder la saisie.
   return (
-    <form onSubmit={(e) => { e.preventDefault(); enregistrer(new FormData(e.currentTarget)); }} onKeyDown={empecherEnvoiParEntree} className="w-full rounded-xl border bg-muted/20 p-4">
-      {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+    <form onSubmit={(e) => { e.preventDefault(); noterEnvoi(e); enregistrer(new FormData(e.currentTarget)); }} onKeyDown={empecherEnvoiParEntree} className="w-full rounded-xl border bg-muted/20 p-4">
+      <ErreurAction message={erreur} emplacement="haut" className="mb-3" />
       {doublon && (
         <div className="mb-3">
           <ChoixArticleProche nom={doublon.nom} candidats={doublon.candidats} creationPossible={doublon.creationPossible} desactive={isPending}
@@ -228,6 +231,7 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
       </ZoneTableur>
       <p className="mt-2 text-xs text-muted-foreground">Le stock ne se modifie pas ici : il évolue par les mouvements, l&apos;inventaire (comptage) ou la correction d&apos;un stock négatif.</p>
       {!estDirection && <p className="mt-1 text-xs text-amber-800">Seuls les champs changés sont proposés ; l&apos;article ne change qu&apos;après validation de la Direction.</p>}
+      <ErreurAction message={erreur} emplacement="bas" className="mt-3" />
       <div className="mt-3 flex items-center gap-2">
         <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : estDirection ? "Enregistrer" : "Envoyer à la Direction"}</button>
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Annuler</button>

@@ -41,6 +41,19 @@ describe("EmployeeForm — la saisie survit à un refus", () => {
     expect(nom().value).toBe("Aimée Mutita");
   });
 
+  it("le refus est affiché en haut ET en bas de la fiche (même texte, un seul role=alert)", async () => {
+    monter(vi.fn(async (_fd: FormData) => ({ erreur: "Ce matricule existe déjà." })));
+    await envoyer();
+    const b = [...conteneur.querySelectorAll<HTMLElement>("[data-refus]")];
+    expect(b.map((x) => x.dataset.refus)).toEqual(["haut", "bas"]);
+    expect(b.map((x) => x.textContent)).toEqual(["Ce matricule existe déjà.", "Ce matricule existe déjà."]);
+    expect(conteneur.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    const form = conteneur.querySelector("form")!;
+    const tous = [...form.querySelectorAll("*")];
+    expect(tous.indexOf(b[0])).toBeLessThan(tous.indexOf(nom())); // le haut précède les champs
+    expect(tous.indexOf(b[1])).toBeGreaterThan(tous.indexOf(nom())); // le bas suit : près du bouton d'envoi
+  });
+
   it("les boutons « Enregistrer » (barre et bas de page) sont désactivés pendant l'envoi : un seul envoi", async () => {
     let finir!: () => void;
     const action = vi.fn(() => new Promise<void>((ok) => { finir = ok; }));

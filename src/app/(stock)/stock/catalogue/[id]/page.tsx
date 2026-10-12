@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { formaterFC } from "@/lib/montant";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
@@ -24,6 +25,13 @@ import { jjmmaaaa } from "@/lib/achats-liste";
 import { classePastilleDlc, joursAvantDlc, libelleJoursDlc } from "@/lib/achats-doublons";
 import { complementLibelle, incoherenceContenance, libelleArticle } from "@/lib/libelle-article";
 import { formaterDecimales } from "@/lib/montant";
+import { OngletsDefilants } from "@/components/onglets-defilants";
+import { PastillesFiltre } from "@/components/pastilles-filtre";
+import { EtatVide } from "@/components/etat-vide";
+import {
+  lireOngletArticle, lireFiltreMouvements, typeDuFiltre, lienFicheArticle,
+  type FiltreMouvements, type OngletArticle,
+} from "@/lib/fiche-article";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -40,14 +48,19 @@ export default async function ArticleFichePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string }>;
+  searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string; onglet?: string | string[]; filtre?: string | string[] }>;
 }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
+  const filtre = lireFiltreMouvements(sp.filtre);
 
-  const [a, toutesCategories, fournisseurs, proposition, taux] = await Promise.all([
+  // Toujours lus, et peu coûteux : la fiche, les comptes des libellés d'onglets et des filtres (agrégats SQL,
+  // aucune ligne rapatriée), les chiffres des cartes. Le CONTENU de l'onglet Mouvements et la comparaison de prix des
+  // fournisseurs, eux, ne sont lus que pour l'onglet affiché (même principe que la fiche fournisseur).
+  const debutMois = new Date(`${jourCourantKinshasaISO().slice(0, 7)}-01T00:00:00Z`);
+  const [a, toutesCategories, fournisseurs, proposition, taux, effectifsTypes, entreesSansFacture, sortiesDuMois, ingredients] = await Promise.all([
     prisma.articleStock.findUnique({
       where: { id },
       include: {
@@ -55,18 +68,9 @@ export default async function ArticleFichePage({
         categorie: { select: { nom: true } },
         fournisseur: { select: { id: true, nom: true } },
         fournisseurs: { include: { fournisseur: { select: { id: true, nom: true } } } },
-        mouvements: {
-          orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-          take: MOUVEMENTS_CHARGES,
-          include: {
-            facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
-            reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
-          },
-        },
         lignesFacture: {
           include: { facture: { select: { id: true, numero: true, date: true, tauxChangeUtilise: true } } },
         },
-        _count: { select: { mouvements: true } },
       },
     }),
     // Pour le formulaire « Modifier » de la fiche — mêmes listes que l'Inventaire.
@@ -74,27 +78,77 @@ export default async function ArticleFichePage({
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     demandeSurCible(cleArticle(id)), // proposition de modification en attente de la Direction ?
     tauxDuJour(),
+    prisma.mouvementStock.groupBy({ by: ["type"], where: { articleId: id }, _count: { _all: true } }),
+    // Entrées payées hors facture (liste d'achat…) : des achats quand même, pour l'évolution du prix (les 500 plus récentes).
+    prisma.mouvementStock.findMany({
+      where: { articleId: id, type: "ENTREE", factureId: null, montantUSD: { not: null } },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 500,
+      select: { articleId: true, montantUSD: true, quantite: true, date: true, origine: true },
+    }),
+    // Consommation du mois : les sorties du mois en cours (jour de Kinshasa), par motif — les pertes sont dites à part.
+    prisma.mouvementStock.groupBy({ by: ["categorieSortie"], where: { articleId: id, type: "SORTIE", date: { gte: debutMois } }, _sum: { quantite: true } }),
+    // Fiches techniques où l'article est un ingrédient (une fiche peut le citer plusieurs fois).
+    prisma.ingredientFiche.findMany({
+      where: { articleId: id }, orderBy: { fiche: { nom: "asc" } },
+      select: { id: true, unite: true, quantite: true, fiche: { select: { id: true, nom: true, type: true, actif: true } } },
+    }),
   ]);
   if (!a) notFound();
   // Catégories ARCHIVÉES : plus proposées dans le choix, sauf celle que l'article porte déjà (il reste rattaché).
   const categories = toutesCategories.filter((c) => c.actif || c.id === a.categorieId);
 
-  // Fournisseurs de l'article et dernier prix de chacun (calculé depuis l'historique : Liste d'achat, factures, bons).
-  const comparaison = await chargerPrixParFournisseur(a.id, { unite: a.unite, uniteParCarton: a.uniteParCarton, contenance: a.contenance, contenanceUnite: a.contenanceUnite }, taux);
-  const prixDe = new Map(comparaison.lignes.map((l) => [l.fournisseurId, l]));
-  const lignesFournisseurs: LigneFournisseurArticle[] = a.fournisseurs
-    .map((l): LigneFournisseurArticle => {
-      const p = prixDe.get(l.fournisseurId);
-      return {
-        fournisseurId: l.fournisseurId, nom: l.fournisseur.nom, habituel: l.habituel,
-        prix: p ? {
-          devise: p.devise, prix: p.prix, prixSaisi: p.prixSaisi, uniteLigne: p.uniteLigne, motif: p.motif, date: new Date(p.date).toISOString().slice(0, 10),
-          origine: p.origine, refId: p.refId, refLibelle: p.refLibelle, autre: p.autre, moinsCher: p.moinsCher, ecartPct: p.ecartPct, nbAchats: p.nbAchats,
-        } : null,
-      };
-    })
-    // L'habituel d'abord, puis le moins cher, puis ceux qui ont un prix, puis par nom.
-    .sort((x, y) => Number(y.habituel) - Number(x.habituel) || Number(y.prix?.moinsCher ?? false) - Number(x.prix?.moinsCher ?? false) || Number(y.prix !== null) - Number(x.prix !== null) || x.nom.localeCompare(y.nom, "fr"));
+  // Mouvements : effectifs des pastilles (comptes SQL exacts), puis le contenu du seul filtre affiché.
+  const nbDuType = (t: string) => effectifsTypes.find((g) => g.type === t)?._count._all ?? 0;
+  const effectifsMouvements: Record<FiltreMouvements, number> = {
+    entrees: nbDuType("ENTREE"), sorties: nbDuType("SORTIE"), ajustements: nbDuType("AJUSTEMENT"),
+    tous: effectifsTypes.reduce((n, g) => n + g._count._all, 0),
+  };
+  const nbMouvements = effectifsMouvements.tous;
+  const nbFiltre = effectifsMouvements[filtre];
+  const nbFichesUtilisant = new Set(ingredients.map((i) => i.fiche.id)).size;
+  // Onglet « Fiches techniques » : seulement si l'article y est utilisé ; un lien vers lui sans fiche retombe sur Mouvements.
+  const ongletDemande = lireOngletArticle(sp.onglet);
+  const onglet: OngletArticle = ongletDemande === "fiches" && nbFichesUtilisant === 0 ? "mouvements" : ongletDemande;
+
+  // Contenu de l'onglet affiché, et de lui seul.
+  const [mouvementsDb, entreesDlc, comparaison] = await Promise.all([
+    onglet === "mouvements"
+      ? prisma.mouvementStock.findMany({
+          where: { articleId: id, ...(typeDuFiltre(filtre) ? { type: typeDuFiltre(filtre) } : {}) },
+          orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+          take: MOUVEMENTS_CHARGES,
+          include: {
+            facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
+            reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+          },
+        })
+      : null,
+    // DLC des dernières entrées (Liste d'achat, 2026-10-08) : les 5 plus récentes qui en portent une. Indicatif (pas de suivi par lot).
+    onglet === "mouvements" && (filtre === "tous" || filtre === "entrees")
+      ? prisma.mouvementStock.findMany({ where: { articleId: id, type: "ENTREE", dlc: { not: null } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 5, select: { id: true, date: true, quantite: true, dlc: true } })
+      : null,
+    // Fournisseurs de l'article et dernier prix de chacun (calculé depuis l'historique : Liste d'achat, factures, bons).
+    onglet === "fournisseurs"
+      ? chargerPrixParFournisseur(a.id, { unite: a.unite, uniteParCarton: a.uniteParCarton, contenance: a.contenance, contenanceUnite: a.contenanceUnite }, taux)
+      : null,
+  ]);
+
+  const lignesFournisseurs: LigneFournisseurArticle[] = comparaison ? (() => {
+    const prixDe = new Map(comparaison.lignes.map((l) => [l.fournisseurId, l]));
+    return a.fournisseurs
+      .map((l): LigneFournisseurArticle => {
+        const p = prixDe.get(l.fournisseurId);
+        return {
+          fournisseurId: l.fournisseurId, nom: l.fournisseur.nom, habituel: l.habituel,
+          prix: p ? {
+            devise: p.devise, prix: p.prix, prixSaisi: p.prixSaisi, uniteLigne: p.uniteLigne, motif: p.motif, date: new Date(p.date).toISOString().slice(0, 10),
+            origine: p.origine, refId: p.refId, refLibelle: p.refLibelle, autre: p.autre, moinsCher: p.moinsCher, ecartPct: p.ecartPct, nbAchats: p.nbAchats,
+          } : null,
+        };
+      })
+      // L'habituel d'abord, puis le moins cher, puis ceux qui ont un prix, puis par nom.
+      .sort((x, y) => Number(y.habituel) - Number(x.habituel) || Number(y.prix?.moinsCher ?? false) - Number(x.prix?.moinsCher ?? false) || Number(y.prix !== null) - Number(x.prix !== null) || x.nom.localeCompare(y.nom, "fr"));
+  })() : [];
   const dejaLies = new Set(a.fournisseurs.map((l) => l.fournisseurId));
   const fournisseursAAjouter = fournisseurs.filter((f) => !dejaLies.has(f.id));
 
@@ -115,36 +169,32 @@ export default async function ArticleFichePage({
       .map((l) => pointDeLigne(l))
       .filter((x): x is NonNullable<typeof x> => x !== null),
     // Entrées payées hors facture (liste d'achat…) : des achats quand même.
-    ...a.mouvements
-      .filter((m) => m.type === "ENTREE" && !m.factureId && m.montantUSD !== null)
+    ...entreesSansFacture
       .map((m) => pointDeMouvement({ articleId: m.articleId, montantUSD: m.montantUSD, quantite: m.quantite, date: new Date(m.date), origine: m.origine }))
       .filter((x): x is NonNullable<typeof x> => x !== null),
   ]);
   const prixHisto = analyse.points;
   const { min: prixMin, max: prixMax, variation, hausse } = analyse;
 
+  // Consommation du mois : somme des sorties du mois (pertes comprises, dites à part).
+  const sortiesMois = sortiesDuMois.reduce((t, g) => t + Number(g._sum.quantite ?? 0), 0);
+  const pertesMois = Number(sortiesDuMois.find((g) => g.categorieSortie === "PERTE")?._sum.quantite ?? 0);
+  const uniteTxt = a.unite?.trim() ? ` ${a.unite.trim()}` : "";
+
   // Affichage progressif (sans défilement interne) : l'état « tout voir » vit dans l'adresse.
   const tousMouvements = sp.mouvements === "tous";
   const tousPrix = sp.prix === "tous";
-  const lien = (o: { mouvements?: boolean; prix?: boolean }, ancre: string) => {
-    const q = new URLSearchParams();
-    if (o.mouvements ?? tousMouvements) q.set("mouvements", "tous");
-    if (o.prix ?? tousPrix) q.set("prix", "tous");
-    return `/stock/catalogue/${a.id}?${q}#${ancre}`;
-  };
-  const nbMouvements = a._count.mouvements;
-  const mouvementsAffiches = tousMouvements ? a.mouvements : a.mouvements.slice(0, MOUVEMENTS_AFFICHES);
-  const mouvementsChargesEnPlus = a.mouvements.length - mouvementsAffiches.length;
-  const mouvementsHorsPage = nbMouvements - a.mouvements.length; // au-delà des 200 chargés
+  const mouvements = mouvementsDb ?? [];
+  const mouvementsAffiches = tousMouvements ? mouvements : mouvements.slice(0, MOUVEMENTS_AFFICHES);
+  const mouvementsChargesEnPlus = mouvements.length - mouvementsAffiches.length;
+  const mouvementsHorsPage = nbFiltre - mouvements.length; // au-delà des 200 chargés
   const prixRecents = [...prixHisto].reverse();
   const prixAffiches = tousPrix ? prixRecents : prixRecents.slice(0, PRIX_AFFICHES);
 
-  // DLC des dernières entrées (Liste d'achat, 2026-10-08) : les 5 plus récentes qui en portent une. Indicatif (pas de suivi par lot).
   const isoPur = (d: Date) => new Date(d).toISOString().slice(0, 10); // colonne @db.Date : date PURE
-  const entreesDlc = a.mouvements.filter((m) => m.type === "ENTREE" && m.dlc).slice(0, 5);
   const aujourdhuiISO = jourCourantKinshasaISO();
 
-  const source = (m: (typeof a.mouvements)[number]) => {
+  const source = (m: (typeof mouvements)[number]) => {
     const bc = m.reception?.bonDeCommande;
     const fournId = m.facture?.fournisseurId ?? bc?.fournisseurId ?? null;
     const fournNom = m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null;
@@ -155,6 +205,31 @@ export default async function ArticleFichePage({
   const libelle = libelleArticle(a);
   const complement = complementLibelle(a);
   const incoherence = incoherenceContenance(a);
+
+  const lienOnglet = (o: OngletArticle) => lienFicheArticle(a.id, o);
+  const onglets: { o: OngletArticle; label: string }[] = [
+    { o: "mouvements", label: `Mouvements (${nbMouvements})` },
+    { o: "fournisseurs", label: `Fournisseurs (${a.fournisseurs.length})` },
+    ...(nbFichesUtilisant > 0 ? [{ o: "fiches" as const, label: `Fiches techniques (${nbFichesUtilisant})` }] : []),
+    { o: "prix", label: `Prix (${prixHisto.length})` },
+    { o: "informations", label: "Informations" },
+  ];
+  const lienFiltre = (v: FiltreMouvements) => lienFicheArticle(a.id, "mouvements", { filtre: v });
+  const infos: [string, ReactNode][] = [
+    ["Désignation enregistrée", a.designation],
+    ["Nom court", a.nomCourt],
+    ["Marque", a.marque],
+    ["Code article", a.code],
+    ["Domaine", DOMAINE_LABEL[a.domaine] ?? a.domaine],
+    ["Catégorie", a.categorie?.nom ?? "à classer"],
+    ["Unité", a.unite],
+    ["Contenance d'une unité", a.contenance !== null && a.contenanceUnite ? `${formaterDecimales(Number(a.contenance), 3)} ${a.contenanceUnite}` : null],
+    ["Unités / carton", a.uniteParCarton !== null ? formaterDecimales(Number(a.uniteParCarton), 3) : null],
+    ["Prix de référence", libPrix.principal !== "—" ? <>{libPrix.principal}{libPrix.autre && <span className="block text-[11px] font-normal text-muted-foreground">{libPrix.autre} au taux du jour</span>}</> : null],
+    ["Fournisseur habituel", a.fournisseur ? <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link> : null],
+    ["Stock minimum", a.stock ? qte(a.stock.stockMinimum) : null],
+    ["Seuil urgent", a.stock && Number(a.stock.seuilUrgent) > 0 ? qte(a.stock.seuilUrgent) : null],
+  ];
 
   return (
     <div className="w-full space-y-5">
@@ -168,8 +243,8 @@ export default async function ArticleFichePage({
             <span>· {a.categorie?.nom ?? "à classer"}</span>
             {a.code && <span>· Code {a.code}</span>}
             {a.unite && <span>· {a.unite}{a.contenance !== null ? ` de ${a.contenance.toString().replace(".", ",")} ${a.contenanceUnite}` : ""}</span>}
-            {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link>{a.fournisseurs.length > 1 && <> <a href="#fournisseurs" className="rounded bg-muted px-1 py-0.5 text-[11px] font-semibold text-muted-foreground hover:underline" title="Voir tous les fournisseurs de cet article">+{a.fournisseurs.length - 1}</a></>}</span>}
-            {!a.fournisseur && a.fournisseurs.length > 0 && <span>· <a href="#fournisseurs" className="hover:underline">{a.fournisseurs.length} fournisseur{a.fournisseurs.length > 1 ? "s" : ""}, sans habituel</a></span>}
+            {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link>{a.fournisseurs.length > 1 && <> <Link href={lienOnglet("fournisseurs")} className="rounded bg-muted px-1 py-0.5 text-[11px] font-semibold text-muted-foreground hover:underline" title="Voir tous les fournisseurs de cet article">+{a.fournisseurs.length - 1}</Link></>}</span>}
+            {!a.fournisseur && a.fournisseurs.length > 0 && <span>· <Link href={lienOnglet("fournisseurs")} className="hover:underline">{a.fournisseurs.length} fournisseur{a.fournisseurs.length > 1 ? "s" : ""}, sans habituel</Link></span>}
           </p>
           {/* Le nom et la contenance se contredisent : le logiciel le dit, la Direction corrige l'un ou l'autre. */}
           {incoherence && (
@@ -242,25 +317,146 @@ export default async function ArticleFichePage({
         </div>
       )}
 
-      {/* KPIs */}
+      {/* Les quatre chiffres de l'article — au-dessus des onglets, visibles quel que soit l'onglet. L'alerte de stock
+          (OK / À réapprovisionner / Urgent) et les seuils vivent dans la carte « Stock actuel ». */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Stock actuel" valeur={a.stock ? `${qte(a.stock.quantite)}${a.unite ? ` ${a.unite}` : ""}` : "—"} accent={stockQte < 0 ? "red" : undefined} />
+        <Kpi
+          label="Stock actuel" valeur={a.stock ? `${qte(a.stock.quantite)}${uniteTxt}` : "—"}
+          sous={niv && a.stock ? `${ALERTE_LABEL[niv]} · minimum ${qte(a.stock.stockMinimum)}${Number(a.stock.seuilUrgent) > 0 ? ` · urgent ${qte(a.stock.seuilUrgent)}` : ""}` : undefined}
+          accent={stockQte < 0 || niv === "URGENT" ? "red" : niv === "APPRO" ? "amber" : niv === "OK" ? "green" : undefined}
+        />
         <Kpi label="Valeur du stock" valeur={valeurC ? `${valeurC.approx ? "≈ " : ""}${usd(valeurC.valeur)}` : "—"} sous={valeurC?.approx ? "au taux du jour" : undefined} />
-        <Kpi label="Prix de référence" valeur={libPrix.principal} sous={libPrix.autre ? `${libPrix.autre} au taux du jour` : undefined} />
-        <Kpi label="Alerte" valeur={niv ? ALERTE_LABEL[niv] : "—"} accent={niv === "URGENT" ? "red" : niv === "APPRO" ? "amber" : niv === "OK" ? "green" : undefined} />
+        <Kpi
+          label="Dernier prix d'achat"
+          valeur={analyse.dernier ? (analyse.dernier.prixCDF !== undefined ? formaterFC(analyse.dernier.prixCDF) : usd(analyse.dernier.prix)) : "—"}
+          sous={analyse.dernier ? `${analyse.dernier.prixCDF !== undefined ? `≈ ${usd(analyse.dernier.prix)} · ` : ""}le ${dCourt(analyse.dernier.date)}${hausse ? ` · +${formaterDecimales(hausse.pct, 0)} % vs moyenne` : ""}` : "aucun achat chiffré"}
+          accent={hausse ? "red" : undefined}
+        />
+        <Kpi
+          label="Consommation du mois" valeur={`${qte(sortiesMois)}${uniteTxt}`}
+          sous={pertesMois > 0 ? `dont ${qte(pertesMois)}${uniteTxt} de pertes` : "sorties du mois en cours"}
+        />
       </div>
 
-      {a.stock && (
-        <p className="text-xs text-muted-foreground">
-          Seuil minimum : <span className="font-medium">{qte(a.stock.stockMinimum)}</span>
-          {Number(a.stock.seuilUrgent) > 0 && <> · seuil urgent : <span className="font-medium">{qte(a.stock.seuilUrgent)}</span></>}
-        </p>
+      <OngletsDefilants
+        libelle="Sections de la fiche article"
+        onglets={onglets.map(({ o, label }) => ({ href: lienOnglet(o), label, actif: o === onglet }))}
+      />
+
+      {/* Historique des mouvements : filtre Entrées / Sorties / Ajustements / Tous */}
+      {onglet === "mouvements" && (
+        <section id="mouvements" className="space-y-3">
+          <PastillesFiltre
+            libelle="Filtrer les mouvements" actif={filtre} effectifs={effectifsMouvements} lien={lienFiltre}
+            valeurs={[["entrees", "Entrées"], ["sorties", "Sorties"], ["ajustements", "Ajustements"], ["tous", "Tous"]] as const}
+          />
+          {entreesDlc && entreesDlc.length > 0 && (
+            <section id="dlc" data-dlc-fiche className="rounded-xl border p-4">
+              <h2 className="text-base font-semibold">DLC des dernières entrées</h2>
+              <p className="mb-2 text-xs text-muted-foreground">Indicatif : le logiciel ne suit pas les lots, la quantité entrée n&apos;est peut-être plus en stock.</p>
+              <ul className="divide-y text-sm">
+                {entreesDlc.map((m) => {
+                  const dlcISO = isoPur(m.dlc as Date);
+                  const jours = joursAvantDlc(dlcISO, aujourdhuiISO);
+                  return (
+                    <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
+                      <span className="min-w-0 truncate">Entrée du {jjmmaaaa(isoPur(m.date))} · +{qte(m.quantite)}{a.unite ? ` ${a.unite}` : ""}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${classePastilleDlc(jours)}`}>DLC {jjmmaaaa(dlcISO)} · {libelleJoursDlc(jours)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+          {mouvements.length === 0 ? (
+            <EtatVide
+              message={nbMouvements === 0 ? "Aucun mouvement de stock pour cet article." : `Aucun mouvement de ce type (${nbMouvements} au total).`}
+              action={nbMouvements > 0 ? <Link href={lienFiltre("tous")} className="text-primary underline">Voir tous les mouvements ({nbMouvements})</Link> : undefined}
+            />
+          ) : (
+            <>
+            <div className="rounded-lg border">
+              <div className="divide-y">
+                {mouvementsAffiches.map((m) => {
+                  const sortie = m.type === "SORTIE";
+                  const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
+                  const src = source(m);
+                  const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
+                  return (
+                    <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium capitalize">{new Date(m.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" })}</div>
+                        {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                          {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
+                          {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
+                          {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
+                          {/* Mêmes pastilles que l'écran Mouvements : le type (vert Entrée, rouge Sortie, gris Ajustement), puis le motif d'une sortie. */}
+                          <PastilleType type={m.type} />
+                          {sortie && <PastilleMotif motif={m.categorieSortie} />}
+                          {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
+                        </div>
+                      </div>
+                      <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-slate-600" : "text-emerald-700"}`}>
+                        {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {mouvementsChargesEnPlus > 0 && (
+              <Link href={lienFicheArticle(a.id, "mouvements", { filtre, tousMouvements: true })} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
+                Voir les {mouvementsChargesEnPlus} mouvements plus anciens
+              </Link>
+            )}
+            {mouvementsChargesEnPlus === 0 && mouvementsHorsPage > 0 && (
+              <Link href={`/stock/mouvements?articleId=${a.id}&mois=tous`} className="mt-2 inline-block text-sm text-primary hover:underline">
+                Voir les {mouvementsHorsPage} mouvements plus anciens dans Mouvements
+              </Link>
+            )}
+            </>
+          )}
+        </section>
       )}
 
       {/* Fournisseurs de l'article, fournisseur habituel marqué, dernier prix de chacun (2026-10-16) */}
-      <FournisseursArticle articleId={a.id} unite={a.unite} lignes={lignesFournisseurs} autres={fournisseursAAjouter} etat={comparaison.etat} estDirection={estDirection} />
+      {onglet === "fournisseurs" && comparaison && (
+        <FournisseursArticle articleId={a.id} unite={a.unite} lignes={lignesFournisseurs} autres={fournisseursAAjouter} etat={comparaison.etat} estDirection={estDirection} />
+      )}
+
+      {/* Fiches techniques où l'article est un ingrédient */}
+      {onglet === "fiches" && (
+        <section id="fiches" className="space-y-2">
+          <h2 className="text-base font-semibold">Fiches techniques qui utilisent cet article ({nbFichesUtilisant})</h2>
+          <div className="tableau-normal rounded-lg border">
+            <table className="w-full min-w-[28rem] text-sm">
+              <thead className="en-tete-collante bg-muted text-left">
+                <tr>
+                  <th className="px-3 py-2">Fiche</th>
+                  <th className="px-3 py-2">Type</th>
+                  <th className="px-3 py-2 text-right">Quantité par fiche</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ingredients.map((i) => (
+                  <tr key={i.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
+                    <td className="px-3 py-2 font-medium">
+                      <Link href={`/stock/fiches/${i.fiche.id}`} className="text-primary hover:underline">{i.fiche.nom}</Link>
+                      {!i.fiche.actif && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Inactive</span>}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{i.fiche.type === "BAR" ? "Bar" : "Plat"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{qte(i.quantite)} {i.unite}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Évolution du prix d'achat (lignes de facture) */}
+      {onglet === "prix" && (
       <section className="rounded-xl border p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-base font-semibold">Évolution du prix d&apos;achat</h2>
@@ -284,6 +480,7 @@ export default async function ArticleFichePage({
             </span>
           )}
         </div>
+        <p className="mb-2 text-sm">Prix de référence : <span className="font-medium">{libPrix.principal}</span>{libPrix.autre && <span className="text-xs text-muted-foreground"> · {libPrix.autre} au taux du jour</span>}</p>
         {prixHisto.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aucun achat facturé pour cet article. Le prix évoluera au fil des factures.</p>
         ) : (
@@ -312,7 +509,7 @@ export default async function ArticleFichePage({
                 </tbody>
               </table>
               {prixAffiches.length < prixRecents.length && (
-                <Link href={lien({ prix: true }, "prix")} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
+                <Link href={lienFicheArticle(a.id, "prix", { tousPrix: true })} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
                   Voir les {prixRecents.length - prixAffiches.length} achats plus anciens
                 </Link>
               )}
@@ -320,76 +517,23 @@ export default async function ArticleFichePage({
           </>
         )}
       </section>
-
-      {entreesDlc.length > 0 && (
-        <section id="dlc" data-dlc-fiche className="rounded-xl border p-4">
-          <h2 className="text-base font-semibold">DLC des dernières entrées</h2>
-          <p className="mb-2 text-xs text-muted-foreground">Indicatif : le logiciel ne suit pas les lots, la quantité entrée n&apos;est peut-être plus en stock.</p>
-          <ul className="divide-y text-sm">
-            {entreesDlc.map((m) => {
-              const dlcISO = isoPur(m.dlc as Date);
-              const jours = joursAvantDlc(dlcISO, aujourdhuiISO);
-              return (
-                <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
-                  <span className="min-w-0 truncate">Entrée du {jjmmaaaa(isoPur(m.date))} · +{qte(m.quantite)}{a.unite ? ` ${a.unite}` : ""}</span>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${classePastilleDlc(jours)}`}>DLC {jjmmaaaa(dlcISO)} · {libelleJoursDlc(jours)}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
       )}
 
-      {/* Historique des mouvements */}
-      <section id="mouvements">
-        <h2 className="mb-2 text-base font-semibold">Mouvements ({nbMouvements})</h2>
-        {a.mouvements.length === 0 ? (
-          <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun mouvement de stock pour cet article.</p>
-        ) : (
-          <>
-          <div className="rounded-lg border">
-            <div className="divide-y">
-              {mouvementsAffiches.map((m) => {
-                const sortie = m.type === "SORTIE";
-                const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
-                const src = source(m);
-                const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
-                return (
-                  <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium capitalize">{new Date(m.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" })}</div>
-                      {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                        {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
-                        {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
-                        {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
-                        {/* Mêmes pastilles que l'écran Mouvements : le type (couleur + libellé), puis le motif d'une sortie. */}
-                        <PastilleType type={m.type} />
-                        {sortie && <PastilleMotif motif={m.categorieSortie} />}
-                        {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
-                      </div>
-                    </div>
-                    <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-amber-800" : "text-emerald-700"}`}>
-                      {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {mouvementsChargesEnPlus > 0 && (
-            <Link href={lien({ mouvements: true }, "mouvements")} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
-              Voir les {mouvementsChargesEnPlus} mouvements plus anciens
-            </Link>
-          )}
-          {mouvementsChargesEnPlus === 0 && mouvementsHorsPage > 0 && (
-            <Link href={`/stock/mouvements?articleId=${a.id}&mois=tous`} className="mt-2 inline-block text-sm text-primary hover:underline">
-              Voir les {mouvementsHorsPage} mouvements plus anciens dans Mouvements
-            </Link>
-          )}
-          </>
-        )}
-      </section>
+      {/* Informations : tous les champs de l'article ; « Modifier » (en haut) ouvre le formulaire complet. */}
+      {onglet === "informations" && (
+        <section className="rounded-xl border p-4">
+          <h2 className="mb-3 text-base font-semibold">Informations</h2>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {infos.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 border-b border-dashed py-1 last:border-0">
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className="text-right font-medium">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-xs text-muted-foreground">Le stock ne se modifie pas ici : il évolue par les mouvements, l&apos;inventaire (comptage) ou la correction d&apos;un stock négatif.</p>
+        </section>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useTransition, type FormEvent, typ
 import { estErreur } from "@/lib/action-lisible";
 import { CHAMP_RETOUR_ERREUR } from "@/lib/erreur-formulaire";
 import { ErreurAction } from "@/components/erreur-action";
+import { useRefusVisible } from "@/components/refus-visible";
 
 /**
  * Formulaire qui GARDE la saisie quand le serveur refuse.
@@ -13,7 +14,9 @@ import { ErreurAction } from "@/components/erreur-action";
  * perdait tout ce qu'elle venait de taper (audit du 10/10/2026, ergonomie 2). Ici l'envoi passe par
  * `onSubmit` et le refus revient comme valeur : rien ne remonte, rien n'est remis à zéro.
  *
- *  - refus rendu comme valeur (`{ erreur }`) : affiché au-dessus du formulaire, saisie intacte ;
+ *  - refus rendu comme valeur (`{ erreur }`) : affiché en haut ET en bas du formulaire (même texte ; le bas est
+ *    près du bouton d'envoi d'un long formulaire), la page ramène à l'écran celui qui est le plus proche du bouton
+ *    cliqué s'ils sont tous deux hors de vue (components/refus-visible.ts) ; saisie intacte ;
  *  - refus par `formulaireLisible` : l'envoi porte CHAMP_RETOUR_ERREUR, le serveur rend le refus
  *    comme `{ erreur }` au lieu de rediriger vers `?erreur=` — une redirection d'action fait remonter
  *    tout le sous-arbre (RedirectBoundary de Next) et la saisie disparaîtrait malgré onSubmit ;
@@ -31,9 +34,11 @@ type ActionFormulaire = (formData: FormData) => void | Promise<unknown>;
 export function useEnvoiGarde(action: ActionFormulaire, { reinitialiser = true }: { reinitialiser?: boolean } = {}) {
   const [enCours, demarrer] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const noterEnvoi = useRefusVisible(erreur); // un refus arrive : le ramène à l'écran s'il n'y est pas
   const envoyer = (e: FormEvent<HTMLFormElement>) => {
     if (e.defaultPrevented) return; // une validation de l'écran a déjà refusé l'envoi
     e.preventDefault();
+    noterEnvoi(e);
     if (enCours) return; // double clic / Entrée répétée : un seul envoi
     const form = e.currentTarget;
     let donnees: FormData;
@@ -72,8 +77,9 @@ export function FormulaireGarde({
           envoyer(e);
         }}
       >
-        <ErreurAction message={erreur} className="col-span-full mb-2" />
+        <ErreurAction message={erreur} emplacement="haut" className="col-span-full mb-2 basis-full" />
         {children}
+        <ErreurAction message={erreur} emplacement="bas" className="col-span-full mt-2 basis-full" />
       </form>
     </EnvoiEnCours.Provider>
   );
