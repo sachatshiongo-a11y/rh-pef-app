@@ -26,6 +26,9 @@ async function chargerBadges(): Promise<Record<string, number>> {
     prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);
   const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
+  const modifsFicheEnAttente =
+    (await prisma.demandeModifFiche.count({ where: { statut: "EN_ATTENTE" } })) +
+    (await prisma.demandeCreationFiche.count({ where: { statut: "EN_ATTENTE" } }));
   const badges = {
     // NB (2026-07-22) : les bulletins brouillons (PAS_VALIDE) du mois en cours ne comptent PLUS dans
     // le badge « Demandes de validation ». Ils sont (re)créés automatiquement à chaque recalcul (ex.
@@ -33,7 +36,7 @@ async function chargerBadges(): Promise<Record<string, number>> {
     // vraies demandes — la validation/clôture de la paie se fait dans l'onglet Paie. Le badge ne
     // compte donc que les demandes réelles (congés, acomptes, changements de shift) + les bulletins
     // VALIDÉS restant à payer (qui, eux, n'apparaissent qu'après une validation délibérée).
-    "/a-valider": congesEnAttente + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente,
+    "/a-valider": congesEnAttente + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente + modifsFicheEnAttente,
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };
