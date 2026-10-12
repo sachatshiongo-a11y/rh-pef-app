@@ -13,6 +13,7 @@ import { rangJourParDefaut } from "@/lib/jour-mobile";
 import type { ArticleRestoSR, LivraisonSR, SignalementLivraison } from "@/lib/stock-restaurant";
 import type { OptionCatalogue } from "./choix-article";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 /**
  * Écran Stock restaurant (haut de page + grille), sans accès aux données : la page les lit et les
@@ -55,9 +56,6 @@ export function RestaurantEcran({
   );
   const note = <>Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? " Un article désactivé disparaît des saisies et garde son historique." : " Seule la Direction peut désactiver ou supprimer un article."}</>;
   const lienEspace = (e: "CUISINE" | "BAR") => `/stock/restaurant?espace=${e}&semaine=${jours[0].iso}`;
-  const pilule = (e: "CUISINE" | "BAR", label: string) => (
-    <a href={lienEspace(e)} className={`rounded-full border px-3 py-1 max-lg:flex max-lg:min-h-11 max-lg:items-center ${espace === e ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
-  );
   const fichesEtExport = (
     <>
       <MenuFichePdf libelle="Fiche d'inventaire (PDF)">
@@ -74,25 +72,28 @@ export function RestaurantEcran({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 lg:flex-wrap">
         <h1 className="text-lg font-semibold sm:text-2xl">Stock restaurant</h1>
-        <div className="flex items-center gap-2 lg:flex-wrap">
-          <div className="flex gap-1.5 text-sm lg:flex-wrap">
-            {pilule("CUISINE", "Cuisine")}
-            {pilule("BAR", "Bar")}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 max-lg:hidden">{fichesEtExport}</div>
-        </div>
+        <div className="flex flex-wrap items-center gap-2 max-lg:hidden">{fichesEtExport}</div>
       </div>
+
+      {/* Cuisine / Bar : deux vues du même écran — le segment commun (les filtres gardent les pastilles). */}
+      <OngletsDefilants
+        libelle="Espace du restaurant"
+        onglets={[
+          { href: lienEspace("CUISINE"), label: "Cuisine", actif: espace === "CUISINE" },
+          { href: lienEspace("BAR"), label: "Bar", actif: espace === "BAR" },
+        ]}
+      />
 
       {/* Ordinateur : semaine et désactivés. */}
       <div className="flex flex-wrap items-center gap-2 text-sm sm:gap-3 max-lg:hidden">
-        <a href={semLien(-1)} className="rounded-md border px-3 py-1 hover:bg-accent">← Semaine préc.</a>
+        <Link href={semLien(-1)} className="rounded-md border px-3 py-1 hover:bg-accent">← Semaine préc.</Link>
         <span className="font-medium">Semaine du {jours[0].num} au {jours[6].num}</span>
-        <a href={semLien(1)} className="rounded-md border px-3 py-1 hover:bg-accent">Semaine suiv. →</a>
+        <Link href={semLien(1)} className="rounded-md border px-3 py-1 hover:bg-accent">Semaine suiv. →</Link>
         {estDirection && (
-          <a href={lienDesactives(!afficherDesactives)}
+          <Link href={lienDesactives(!afficherDesactives)}
             className={`rounded-full border px-3 py-1 ${afficherDesactives ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>
             {afficherDesactives ? "Masquer les désactivés" : "Afficher les désactivés"}
-          </a>
+          </Link>
         )}
       </div>
 
@@ -105,7 +106,7 @@ export function RestaurantEcran({
           <Link href={`/stock/restaurant?espace=${espace}&semaine=${aujourdhui}${afficherDesactives ? "&desactives=1" : ""}`} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Cette semaine</Link>
           <BasculeVueSemaine />
           {estDirection && !afficherDesactives && (
-            <a href={lienDesactives(true)} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Afficher les désactivés</a>
+            <Link href={lienDesactives(true)} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Afficher les désactivés</Link>
           )}
         </div>
         <div className="flex flex-wrap items-start gap-2">{fichesEtExport}</div>

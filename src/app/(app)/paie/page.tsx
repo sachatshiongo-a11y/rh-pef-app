@@ -28,6 +28,7 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { reactiverEmploye } from "../employes/actions";
 import { EtatVide } from "@/components/etat-vide";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -403,18 +404,11 @@ export default async function PaiePage({
       {/* Sous-onglets — COLLANTS (restent visibles au défilement) et COULISSANTS horizontalement
           sur mobile. Sur mobile ils se calent juste sous l'en-tête de l'app ; sur ordinateur en
           haut de la zone de contenu. */}
-      <div className="sticky colle-sous-entete z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:px-0">
-        {sousOnglets.map((o) => (
-          <Link
-            key={o.cle}
-            href={`/paie?vue=${o.cle}`}
-            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm ${
-              vue === o.cle ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {o.label}
-          </Link>
-        ))}
+      <div className="sticky colle-sous-entete z-10 -mx-4 mb-5 bg-background px-4 py-2 lg:mx-0 lg:px-0">
+        <OngletsDefilants
+          libelle="Vues de la paie"
+          onglets={sousOnglets.map((o) => ({ href: `/paie?vue=${o.cle}`, label: o.label, actif: vue === o.cle }))}
+        />
       </div>
 
       {vue === "bulletins" && (

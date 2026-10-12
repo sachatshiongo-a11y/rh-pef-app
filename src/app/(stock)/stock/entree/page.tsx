@@ -89,7 +89,6 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="w-full space-y-5">
-      <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
@@ -104,6 +103,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
           <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
         </div>
       </div>
+      <OngletsAchats />
 
       <ListeAchatForm
         articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, fournisseurs: fournisseursDe.get(a.id) ?? [], ...contenancePourClient(a) }))}

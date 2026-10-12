@@ -15,6 +15,7 @@ import { LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
 import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { EtatVide } from "@/components/etat-vide";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string; page?: string; par?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -185,19 +186,22 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
+      {/* Vues : le segment commun (les pastilles de plus bas sont réservées aux filtres d'état). */}
+      <OngletsDefilants
+        libelle="Vues des factures"
+        onglets={[
+          { href: lien({ vue: "detail" }), label: "Par mois", actif: vue === "detail" },
+          { href: lien({ vue: "fournisseur" }), label: "Soldes par fournisseur", actif: vue === "fournisseur" },
+          { href: lien({ vue: "echeancier" }), label: "Échéancier", actif: vue === "echeancier" },
+        ]}
+      />
+
       {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Total facturé" valeur={libelleTotal(t(kpi.total, kpi.totalCDF), undefined, usd)} sous={`${kpi.nbTotal} facture(s)${equivalent(t(kpi.total, kpi.totalCDF))}`} href={lien({ statut: "" })} />
         <Kpi label="Réglé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sous={`${kpi.nbReglees} réglée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} accent="green" href={lien({ statut: "REGLEE" })} />
         <Kpi label="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sous={`${kpi.nbDues} à régler${equivalent(t(kpi.du, kpi.duCDF))}`} accent={kpi.du > 0 || kpi.duCDF > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
         <Kpi label="Échu" valeur={libelleTotal(t(kpi.echu, kpi.echuCDF), undefined, usd)} sous={`${kpi.nbEchues} échue(s)${equivalent(t(kpi.echu, kpi.echuCDF))}`} accent={kpi.echu > 0 || kpi.echuCDF > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
-      </div>
-
-      {/* Bascule de vue */}
-      <div className="flex flex-wrap gap-1.5 text-sm">
-        <LienGardantTaille doux={false} href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</LienGardantTaille>
-        <LienGardantTaille doux={false} href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</LienGardantTaille>
-        <LienGardantTaille doux={false} href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</LienGardantTaille>
       </div>
 
       {vue === "fournisseur" ? (

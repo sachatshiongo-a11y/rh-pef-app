@@ -76,6 +76,13 @@ describe("Fiches techniques — onglets Plats / Boissons", () => {
     expect(liens[1].getAttribute("aria-current")).toBeNull();
   });
 
+  it("l'onglet actif suit la vue de l'adresse, dans le segment commun des vues (qui défile de côté)", () => {
+    rendre({ rows: ROWS, vue: "boissons" });
+    const nav = conteneur.querySelector('nav[aria-label="Onglets des fiches"]')!;
+    expect(nav.parentElement!.className).toContain("overflow-x-auto");
+    expect([...nav.querySelectorAll("a")].map((a) => a.getAttribute("aria-current"))).toEqual([null, "page"]);
+  });
+
   it("Plats : les plats ET les sous-recettes (avec leur repère), jamais une boisson", () => {
     rendre({ rows: ROWS, vue: "plats" });
     expect(nomsAffiches()).toEqual(["Bolognaise", "Sauce tomate", "Lasagne"]);

@@ -1,9 +1,9 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { ongletFiche, ONGLETS_FICHES, type OngletFiches } from "@/lib/fiches/famille-boisson";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { FichesClient, type FicheRow } from "./fiches-client";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 /** Lien d'un onglet : l'onglet vit dans l'URL (`?vue=plats|boissons`), il survit au rechargement. */
 export const lienOngletFiches = (vue: OngletFiches) => `/stock/fiches?vue=${vue}`;
@@ -45,20 +45,15 @@ export function EcranFiches({ rows, vue, etatInitial, importBar, peutSupprimer =
         </div>
       </div>
 
-      {/* Sélecteur d'onglet — même facture que la Consommation journalière : pleine largeur et gros
-          onglets sur mobile, compact sur ordinateur. */}
-      <nav aria-label="Onglets des fiches" className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
-        {ONGLETS_FICHES.map(({ valeur, libelle }) => (
-          <Link
-            key={valeur}
-            href={lienOngletFiches(valeur)}
-            aria-current={vue === valeur ? "page" : undefined}
-            className={`flex-1 border-l px-3 py-2.5 text-center first:border-l-0 sm:flex-none sm:py-1.5 ${vue === valeur ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-          >
-            {libelle} <span className="tabular-nums opacity-75">· {nbParOnglet(valeur)}</span>
-          </Link>
-        ))}
-      </nav>
+      {/* Plats / Boissons : le segment commun. */}
+      <OngletsDefilants
+        libelle="Onglets des fiches"
+        onglets={ONGLETS_FICHES.map(({ valeur, libelle }) => ({
+          href: lienOngletFiches(valeur),
+          label: <>{libelle} <span className="tabular-nums opacity-75">· {nbParOnglet(valeur)}</span></>,
+          actif: vue === valeur,
+        }))}
+      />
 
       {/* « Importer les fiches du bar » (Direction seulement : l'appelant ne le passe qu'à elle) :
           onglet Boissons uniquement, là où vivent les fiches qu'il remplit. */}

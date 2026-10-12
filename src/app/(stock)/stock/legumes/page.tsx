@@ -75,7 +75,6 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="w-full space-y-5">
-      <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
@@ -96,6 +95,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
         </div>
       </div>
+      <OngletsAchats />
 
       <AchatLegumesForm taux={taux} estDirection={estDirection} />
 

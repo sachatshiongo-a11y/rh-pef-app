@@ -4,6 +4,7 @@ import { calculerJoursOuvrables } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
 import { chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -179,14 +180,10 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences — Calendrier</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
           <p className="text-sm capitalize text-muted-foreground">{titre}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="flex overflow-hidden rounded-md border">
-            <Link href="/conges" className="px-3 py-1.5 hover:bg-accent">Liste</Link>
-            <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Calendrier</span>
-          </div>
           <div className="flex overflow-hidden rounded-md border">
             <Link href={`${base}&cal=semaine${filtresQS}`} className={`px-3 py-1.5 ${cal === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>Semaine</Link>
             <Link href={`${base}&cal=mois${filtresQS}`} className={`px-3 py-1.5 ${cal === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>Mois</Link>
@@ -195,6 +192,16 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
           <Link href={`${base}&${navAuj}${filtresQS}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Aujourd&apos;hui</Link>
           <Link href={`${base}&${navSuiv}${filtresQS}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
         </div>
+      </div>
+
+      <div className="mb-4">
+        <OngletsDefilants
+          libelle="Vues des congés"
+          onglets={[
+            { href: "/conges", label: "Liste", actif: false },
+            { href: "/conges?vue=calendrier", label: "Calendrier", actif: true },
+          ]}
+        />
       </div>
 
       {/* Filtres (type d'absence + employé) */}

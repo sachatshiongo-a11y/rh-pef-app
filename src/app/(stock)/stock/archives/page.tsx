@@ -10,6 +10,7 @@ import type { Prisma } from "@prisma/client";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { Pagination } from "@/components/pagination";
 import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT, type ParPage } from "@/lib/pagination";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
@@ -48,11 +49,10 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
         <p className="mt-1 text-sm text-muted-foreground">Historique de l’application : comptages d’inventaire, rapports générés et journal d’activité.</p>
       </div>
 
-      <div className="flex flex-wrap gap-1.5 text-sm">
-        {onglets.map(([k, label]) => (
-          <Link key={k} href={`/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
-        ))}
-      </div>
+      <OngletsDefilants
+        libelle="Rubriques des archives"
+        onglets={onglets.map(([k, label]) => ({ href: `/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`, label, actif: vue === k }))}
+      />
 
       {vue === "comptages" && <Comptages pg={pg} />}
       {vue === "bons" && <BonsValides pg={pg} />}

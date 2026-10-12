@@ -16,7 +16,7 @@ import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { joursEnConge } from "@/lib/conges-couverture";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { PublierSemaineBtn } from "./publier-btn";
-import { VueSelect } from "./vue-select";
+import { OngletsVues } from "./onglets-vues";
 import { chargerEcartMois } from "./ecart-data";
 import { EcartView } from "./ecart-view";
 
@@ -95,7 +95,7 @@ export default async function PlanningPage({
   // contexte temporel en changeant de vue. `renderOnglets` est appelé dans chaque branche avec les
   // liens adaptés à la période affichée.
   const renderOnglets = (semaineHref: string, moisHref: string, ecartHref?: string) => (
-    <VueSelect vue={vue} semaineHref={semaineHref} moisHref={moisHref} ecartHref={ecartHref} />
+    <OngletsVues vue={vue} semaineHref={semaineHref} moisHref={moisHref} ecartHref={ecartHref} />
   );
   const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
   // Export PDF/Excel — téléchargement direct, conserve la période affichée.
@@ -185,8 +185,8 @@ export default async function PlanningPage({
             <h1 className="text-xl font-semibold sm:text-2xl">Planning</h1>
             <p className="text-sm text-muted-foreground">Le shift/rôle habituel de chaque employé, par jour de la semaine</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">{ongletsDefaut}</div>
         </div>
+        <div className="mb-4">{ongletsDefaut}</div>
 
         {legende}
 
@@ -264,13 +264,15 @@ export default async function PlanningPage({
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`, `/planning?vue=ecart&mois=${mois}&annee=${annee}`)}
             {boutonsExport(`?mois=${mois}&annee=${annee}`)}
             {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=mois" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
             <Link href={`/planning?vue=mois&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
           </div>
+        </div>
+        <div className="mb-4">
+          {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`, `/planning?vue=ecart&mois=${mois}&annee=${annee}`)}
         </div>
 
         {configPanels ?? legende}
@@ -331,16 +333,18 @@ export default async function PlanningPage({
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {renderOnglets(
-              `/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`,
-              `/planning?vue=mois&mois=${mois}&annee=${annee}`,
-              `/planning?vue=ecart&mois=${mois}&annee=${annee}`,
-            )}
             {boutonExportEcart(`?mois=${mois}&annee=${annee}`)}
             <Link href={`/planning?vue=ecart&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=ecart" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
             <Link href={`/planning?vue=ecart&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
           </div>
+        </div>
+        <div className="mb-4">
+          {renderOnglets(
+            `/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`,
+            `/planning?vue=mois&mois=${mois}&annee=${annee}`,
+            `/planning?vue=ecart&mois=${mois}&annee=${annee}`,
+          )}
         </div>
 
         <EcartView resultat={resultat} employesInfo={employesInfo} shiftsInfo={shiftsInfo} />
@@ -425,7 +429,6 @@ export default async function PlanningPage({
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`, `/planning?vue=ecart&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
           {boutonsExport(`?debut=${isoDates[0]}`)}
           {peutModifier && espaceActif && <PublierSemaineBtn lundiIso={isoDates[0]} publiee={!!semainePubliee} />}
           {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
@@ -433,6 +436,9 @@ export default async function PlanningPage({
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>
           <Link href={`/planning?debut=${semaineSuiv}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
         </div>
+      </div>
+      <div className="mb-4">
+        {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`, `/planning?vue=ecart&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
       </div>
 
       {configPanels ?? legende}

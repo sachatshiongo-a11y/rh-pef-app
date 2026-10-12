@@ -14,6 +14,7 @@ import { CreationsEnAttente } from "./creations-en-attente";
 import { creationsEnAttente } from "@/lib/creation-fiche";
 import { Pagination } from "@/components/pagination";
 import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 /** Ce que la liste (composant client) reçoit d'un employé : des nombres et des textes, ni Decimal ni Date. */
 const versLigne = (e: Employee): LigneEmploye => ({
@@ -111,6 +112,17 @@ export default async function EmployesPage({
         </div>
       </div>
 
+      {/* Vues : Fiche RH / Transport (mêmes filtres et recherche partagés) — le segment commun, sous le titre. */}
+      <div className="mb-4">
+        <OngletsDefilants
+          libelle="Vues des employés"
+          onglets={[
+            { href: lienVue("rh"), label: "Fiche RH", actif: vue === "rh" },
+            { href: lienVue("transport"), label: "Transport", actif: vue === "transport" },
+          ]}
+        />
+      </div>
+
       {sp.creation === "envoyee" && (
         <p role="status" className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           La nouvelle fiche a été envoyée à la Direction pour validation : elle sera créée dès qu&apos;elle l&apos;aura approuvée.
@@ -164,12 +176,6 @@ export default async function EmployesPage({
         {([["actifs", "Actifs"], ["inactifs", "Inactifs"], ["tous", "Tous"]] as const).map(([st, label]) => (
           <Link key={st} href={lienStatut(st)} className={`rounded-full border px-3 py-1 ${statut === st ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
         ))}
-      </div>
-
-      {/* Bascule de vue : Fiche RH / Transport (mêmes filtres et recherche partagés). */}
-      <div className="mb-5 flex flex-wrap gap-1.5 text-sm">
-        <Link href={lienVue("rh")} className={`rounded-full border px-3 py-1 ${vue === "rh" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fiche RH</Link>
-        <Link href={lienVue("transport")} className={`rounded-full border px-3 py-1 ${vue === "transport" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Transport</Link>
       </div>
 
       {vue === "transport" ? (

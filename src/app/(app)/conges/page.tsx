@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
@@ -15,6 +14,7 @@ import type { Prisma } from "@prisma/client";
 import { ListeConges, type GroupeMois, type SectionListe } from "./liste-conges";
 import { FiltresConges } from "./filtres-conges";
 import { NouvelleDemandeConge } from "./nouvelle-demande";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 type SP = { statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; vue?: string; erreur?: string; erreurDecision?: string; noteDecision?: string; page?: string; par?: string } & SPCalendrier;
 
@@ -132,12 +132,18 @@ export default async function CongesPage({ searchParams }: { searchParams: Promi
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
-          <div className="flex overflow-hidden rounded-md border text-sm">
-            <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Liste</span>
-            <Link href="/conges?vue=calendrier" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
-          </div>
         </div>
         {peutGerer && <NouvelleDemandeConge employees={employees} types={typesConge.map((t) => t.nom)} feries={feries} erreur={sp.erreur} />}
+      </div>
+
+      <div className="mb-4">
+        <OngletsDefilants
+          libelle="Vues des congés"
+          onglets={[
+            { href: "/conges", label: "Liste", actif: true },
+            { href: "/conges?vue=calendrier", label: "Calendrier", actif: false },
+          ]}
+        />
       </div>
 
       <div className="mb-4">

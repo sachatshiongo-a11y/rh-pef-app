@@ -106,11 +106,11 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-4">
-      <OngletsAchats />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Achats &amp; mouvements</h1>
         <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
       </div>
+      <OngletsAchats />
 
       {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
       <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />

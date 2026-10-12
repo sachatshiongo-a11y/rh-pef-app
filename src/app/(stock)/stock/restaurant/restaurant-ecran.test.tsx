@@ -35,15 +35,18 @@ function monter(p: { estDirection?: boolean; afficherDesactives?: boolean; livra
 const ouvrirPlus = () => act(() => { conteneur.querySelector<HTMLButtonElement>('button[aria-label^="Plus d\'options"]')!.click(); });
 
 describe("écran Stock restaurant", () => {
-  it("titre réduit sur téléphone, Cuisine / Bar en pilules de 44 px, sur la même ligne", () => {
+  it("titre réduit sur téléphone ; Cuisine / Bar = onglets de VUE (segment commun, 44 px), l'actif marqué", () => {
     monter();
     const titre = conteneur.querySelector("h1")!;
     expect(titre.className).toContain("text-lg");
     expect(titre.className).toContain("sm:text-2xl");
-    const pilules = [...titre.parentElement!.querySelectorAll("a")].slice(0, 2);
-    expect(pilules.map((a) => a.textContent)).toEqual(["Cuisine", "Bar"]);
-    expect(pilules[0]!.className).toContain("max-lg:min-h-11");
-    expect(titre.parentElement!.className).not.toContain("flex-wrap ");
+    const nav = conteneur.querySelector('nav[aria-label="Espace du restaurant"]')!;
+    const onglets = [...nav.querySelectorAll("a")];
+    expect(onglets.map((a) => a.textContent)).toEqual(["Cuisine", "Bar"]);
+    expect(onglets.map((a) => a.getAttribute("aria-current"))).toEqual(["page", null]); // espace=CUISINE
+    expect(onglets[1]!.getAttribute("href")).toBe("/stock/restaurant?espace=BAR&semaine=2026-09-28");
+    expect(onglets[0]!.className).toContain("min-h-11");
+    expect(nav.parentElement!.className).toContain("overflow-x-auto"); // le segment commun, plus une pastille de filtre
   });
 
   it("ordinateur : la rangée de la semaine, les fiches et l'export d'origine, masqués sous lg", () => {

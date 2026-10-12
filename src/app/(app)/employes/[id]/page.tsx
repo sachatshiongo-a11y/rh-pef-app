@@ -51,6 +51,7 @@ import { faireSignerDocument } from "../../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
 import { demandesFicheEnAttente } from "@/lib/demandes-fiche";
 import { ModifsEnAttente } from "../modifs-en-attente";
+import { OngletsDefilants } from "@/components/onglets-defilants";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -532,29 +533,20 @@ export default async function FicheEmployePage({
         </div>
       </div>
 
-      {/* Onglets internes de la fiche (façon PayFit) — défilement horizontal sur mobile */}
-      <div className="mb-5 flex gap-2 overflow-x-auto border-b">
-        {[
-          { cle: "apercu", label: "Aperçu" },
-          { cle: "temps", label: "Temps de travail" },
-          { cle: "conges", label: "Congés & absences" },
-          { cle: "paie", label: "Paie" },
-          { cle: "contrats", label: "Contrats" },
-          { cle: "fin", label: "Fin de contrat" },
-          { cle: "dossier", label: "Dossier" },
-        ].map((o) => (
-          <Link
-            key={o.cle}
-            href={`/employes/${employee.id}?tab=${o.cle}`}
-            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm ${
-              tab === o.cle
-                ? "border-primary font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {o.label}
-          </Link>
-        ))}
+      {/* Onglets de la fiche — le segment commun (défile de côté sur téléphone) ; `?tab=` inchangé */}
+      <div className="mb-5">
+        <OngletsDefilants
+          libelle="Sections de la fiche"
+          onglets={[
+            { cle: "apercu", label: "Aperçu" },
+            { cle: "temps", label: "Temps de travail" },
+            { cle: "conges", label: "Congés & absences" },
+            { cle: "paie", label: "Paie" },
+            { cle: "contrats", label: "Contrats" },
+            { cle: "fin", label: "Fin de contrat" },
+            { cle: "dossier", label: "Dossier" },
+          ].map((o) => ({ href: `/employes/${employee.id}?tab=${o.cle}`, label: o.label, actif: tab === o.cle }))}
+        />
       </div>
 
       {tab === "apercu" && (
