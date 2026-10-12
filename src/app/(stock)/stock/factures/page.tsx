@@ -12,7 +12,7 @@ import { versFactureRow } from "./facture-row";
 import { aujourdhuiEcheance, whereSelonFiltreStatut } from "@/lib/facture-echue";
 import { sqlEchue } from "@/lib/facture-echue-sql";
 import { LienGardantTaille } from "@/components/pagination";
-import { lirePagination } from "@/lib/pagination";
+import { lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { EtatVide } from "@/components/etat-vide";
 import { OngletsDefilants } from "@/components/onglets-defilants";
@@ -175,6 +175,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     return `/stock/factures${p.toString() ? `?${p}` : ""}`;
   };
 
+  const avecTaille = (href: string) => (par === PAR_DEFAUT ? href : `${href}${href.includes("?") ? "&" : "?"}par=${par}`);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -190,9 +192,10 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       <OngletsDefilants
         libelle="Vues des factures"
         onglets={[
-          { href: lien({ vue: "detail" }), label: "Par mois", actif: vue === "detail" },
-          { href: lien({ vue: "fournisseur" }), label: "Soldes par fournisseur", actif: vue === "fournisseur" },
-          { href: lien({ vue: "echeancier" }), label: "Échéancier", actif: vue === "echeancier" },
+          // La taille de page choisie (`par`) suit le changement de vue, comme avec LienGardantTaille avant.
+          { href: avecTaille(lien({ vue: "detail" })), label: "Par mois", actif: vue === "detail" },
+          { href: avecTaille(lien({ vue: "fournisseur" })), label: "Soldes par fournisseur", actif: vue === "fournisseur" },
+          { href: avecTaille(lien({ vue: "echeancier" })), label: "Échéancier", actif: vue === "echeancier" },
         ]}
       />
 
