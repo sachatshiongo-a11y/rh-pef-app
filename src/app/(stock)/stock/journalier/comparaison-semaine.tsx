@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 import Decimal from "decimal.js";
 import { qte } from "@/lib/stock";
-import { LIBELLE_ECART, aUnEcart, ecartConsoLivre, ecartLivreCommande, livreDiffereDuCommande, type LigneComparaison } from "@/lib/journalier-restaurant";
+import { LIBELLE_ECART, aUnEcart, ecartConsoLivre, ecartLivreCommande, livreDiffereDuCommande, sommeExacte, type LigneComparaison } from "@/lib/journalier-restaurant";
+import { UniteArticle } from "./totaux-unites";
 import { FOND_ECART, PASTILLE_ECART, qteConso } from "./comparaison-format";
 
 // Onglet « Comparaison », tableau de la semaine (ordinateur ; téléphone en « Vue semaine ») :
@@ -116,7 +117,7 @@ export function ComparaisonSemaine({ jours, lignes, sansMotif }: { jours: Jour[]
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-1 [&>tr>td]:py-1.5 [&>tr>td]:whitespace-nowrap">
             {affichees.map((r, ri) => {
               const nouvelleCat = ri === 0 || affichees[ri - 1]!.categorie !== r.categorie;
-              const totC = r.cmd.reduce((a, b) => a + b, 0), totL = r.liv.reduce((a, b) => a + b, 0);
+              const totC = sommeExacte(r.cmd), totL = sommeExacte(r.liv);
               return (
                 <Fragment key={r.id}>
                   {nouvelleCat && (
@@ -128,13 +129,16 @@ export function ComparaisonSemaine({ jours, lignes, sansMotif }: { jours: Jour[]
                   <tr className="group" data-article={r.designation}>
                     <td className="sticky left-0 z-10 min-w-[13rem] !whitespace-normal border-r bg-background px-3 font-medium group-hover:brightness-95">
                       {r.lien ? <Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link> : r.designation}
+                      <UniteArticle unite={r.unite} />
                     </td>
                     {jours.map((j, i) => {
                       const c = r.cmd[i]!, l = r.liv[i]!, ecartCL = livreDiffereDuCommande(c, l);
                       const ecart = r.ecarts[i] ?? null;
                       const signeCL = ecartCL ? ecartLivreCommande(c, l) : null;
                       const signeCs = ecart ? ecartConsoLivre(l, r.conso[i] ?? null) : null;
-                      const conso = qteConso(r.conso[i] ?? null);
+                      // Consommé sur plusieurs jours (veille non comptée) ou estimé : « ≈ », et d'où il vient.
+                      const approx = r.conso[i] != null ? r.consoApprox?.[i] ?? null : null;
+                      const conso = `${approx !== null ? "≈ " : ""}${qteConso(r.conso[i] ?? null)}`;
                       const fond = bande(i);
                       return (
                         <Fragment key={j.iso}>
@@ -146,17 +150,18 @@ export function ComparaisonSemaine({ jours, lignes, sansMotif }: { jours: Jour[]
                           <td
                             className={`text-right tabular-nums text-indigo-700 group-hover:brightness-95 dark:text-indigo-300 ${ecart ? FOND_ECART[ecart] : fond}`}
                             data-ecart={ecart ?? undefined}
-                            title={ecart ? LIBELLE_ECART[ecart] : undefined}
+                            title={[ecart ? LIBELLE_ECART[ecart] : null, approx ? `consommation ${approx}` : approx === "" ? "consommation estimée, aucun comptage" : null].filter(Boolean).join(" — ") || undefined}
                           >
                             {ecart && signeCs && <Pastille nature={ecart} signe={signeCs} titre={LIBELLE_ECART[ecart]} />}
                             <span data-valeur className={conso === "0" && !ecart ? "text-muted-foreground" : ""}>{conso}</span>
+                            {approx && <span className="block text-[10px] font-normal text-muted-foreground">{approx}</span>}
                           </td>
                         </Fragment>
                       );
                     })}
                     <td className={`sticky z-10 bg-muted text-right font-semibold tabular-nums text-emerald-700 ${FILET_JOUR} ${LARGEUR_TOTAL} ${DROITE_TOTAL[0]}`}>{totC > 0 ? qte(totC) : ""}</td>
                     <td className={`sticky z-10 bg-muted text-right font-semibold tabular-nums text-red-700 ${LARGEUR_TOTAL} ${DROITE_TOTAL[1]}`}>{totL > 0 ? qte(totL) : ""}</td>
-                    <td className={`sticky z-10 bg-muted text-right font-semibold tabular-nums text-indigo-700 dark:text-indigo-300 ${LARGEUR_TOTAL} ${DROITE_TOTAL[2]}`}>{qteConso(totalConso(r.conso))}</td>
+                    <td className={`sticky z-10 bg-muted text-right font-semibold tabular-nums text-indigo-700 dark:text-indigo-300 ${LARGEUR_TOTAL} ${DROITE_TOTAL[2]}`}>{(r.consoApprox ?? []).some((v) => v !== null) && totalConso(r.conso) !== null ? "≈ " : ""}{qteConso(totalConso(r.conso))}</td>
                   </tr>
                 </Fragment>
               );

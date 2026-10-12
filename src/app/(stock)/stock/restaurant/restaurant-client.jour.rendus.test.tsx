@@ -71,6 +71,26 @@ describe("Stock restaurant sur téléphone — le comptage du jour", () => {
     expect(caseJour("Ancien article — Mer 30 sept.").disabled).toBe(true); // désactivé : pas de saisie
   });
 
+  it("audit 10/10 : l'unité accompagne la case de comptage (on compte des kg, des casiers…) ; sans unité, « unité ? »", () => {
+    monter(false);
+    const unites = [...liste().querySelectorAll("[data-unite-comptage]")].map((u) => u.textContent);
+    expect(unites).toEqual(["kg", "kg", "casier", "kg"]);
+    expect(liste().textContent).toContain("reçu du dépôt 2 000 kg");
+  });
+
+  it("audit 10/10 : un article sans unité renseignée le dit à côté de la case, il n'invente pas d'unité", () => {
+    conteneur = document.createElement("div");
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    act(() => racine.render(
+      <JourMobileProvider defaultIdx={2}>
+        <SelecteurJour jours={JOURS} aujourdhui="2026-09-30" />
+        <RestaurantGrille espace="CUISINE" jours={JOURS} lignes={[ligne({ id: "x", designation: "Mystère", unite: null })]} categories={[]} estDirection={false} catalogue={[]} />
+      </JourMobileProvider>,
+    ));
+    expect(liste().querySelector("[data-unite-comptage]")!.textContent).toBe("unité ?");
+  });
+
   it("stock théorique et reçu du dépôt en petit sous le nom ; « — » si inconnu ; signalements en clair", () => {
     monter(false);
     const t = liste().textContent!;

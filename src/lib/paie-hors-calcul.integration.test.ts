@@ -123,7 +123,7 @@ describe("ligne rouverte d'un salarié sorti du calcul : en base, à part, compt
     const excel = await texteExcel(await exportExcel.GET(requete("/paie/export")));
     expect(excel).toContain("Bob Banza");
     expect(excel).not.toContain("Ada Kalala");
-    const livre = await textePdf(await exportPdf.GET());
+    const livre = await textePdf(await exportPdf.GET(requete("/paie/export-pdf")));
     expect(livre).toContain("Bob Banza");
     expect(livre).not.toContain("Ada Kalala");
     const liasse = await textePdf(await bulletinsPdf.GET(requete("/paie/bulletins-pdf")));

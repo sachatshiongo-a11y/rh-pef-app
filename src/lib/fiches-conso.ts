@@ -1,6 +1,6 @@
 import { formaterNombre } from "@/lib/montant";
 import type { Colonne, PartieTableau } from "@/lib/pdf/tableau";
-import type { ConsommationReelle } from "@/lib/stock-restaurant";
+import { consoApproximative, mentionDepuis, type ConsommationReelle } from "@/lib/stock-restaurant";
 import { cleCase, SEPARATEUR_SOUS_RUBRIQUE, type EspaceVente, type LigneVente } from "@/lib/ventes-journalieres";
 
 // Fiches de l'onglet Consommation (Stock → Conso. journalière), reproduites d'après les deux
@@ -24,8 +24,12 @@ export type EspaceFiche = "CUISINE" | "BAR";
 
 /** Valeur d'une case : nombre connu, texte (unité), `null` = inconnu (« — »), "" = rien (case vide). */
 export type ValeurFiche = number | string | null;
-/** Une case de la fiche ; `ecart` : consommation négative (plus compté que reçu), signalée. */
-export type CaseFiche = { valeur: ValeurFiche; ecart?: boolean };
+/**
+ * Une case de la fiche ; `ecart` : consommation négative (plus compté que reçu), signalée ;
+ * `approx` : consommation APPROXIMATIVE (« ≈ ») — veille non comptée (« depuis le 12/10 (3 jours) »)
+ * ou estimée sans comptage ("" : « ≈ » seul).
+ */
+export type CaseFiche = { valeur: ValeurFiche; ecart?: boolean; approx?: string };
 export type RoleColonne = "cmd" | "liv" | "conso" | "vente" | null;
 
 /**
@@ -140,7 +144,8 @@ export type ArticleRapport = { id: string; designation: string; unite: string | 
 
 /** Case de consommation : la quantité si elle est connue (signalée si négative), sinon « — ». */
 export function caseConso(c: ConsommationReelle): CaseFiche {
-  return c.etat === "CONNUE" ? { valeur: Number(c.quantite), ecart: c.negative } : { valeur: null };
+  if (c.etat !== "CONNUE") return { valeur: null };
+  return { valeur: Number(c.quantite), ecart: c.negative, ...(consoApproximative(c) ? { approx: mentionDepuis(c) ?? "" } : {}) };
 }
 
 /**
@@ -364,12 +369,18 @@ export function texteCase(c: CaseFiche): string {
   if (c.valeur === null) return "—";
   if (typeof c.valeur === "string") return c.valeur;
   const t = formaterNombre(c.valeur, { maximumFractionDigits: 3 });
-  return c.ecart ? `${t} (écart)` : t;
+  const base = c.ecart ? `${t} (écart)` : t;
+  return c.approx === undefined ? base : `≈ ${base}${c.approx ? ` ${c.approx}` : ""}`;
 }
 
-/** Valeur d'une case dans l'Excel : un NOMBRE quand il est connu (calculable), sinon le texte. */
+/**
+ * Valeur d'une case dans l'Excel : un NOMBRE quand il est connu (calculable), sinon le texte. Une
+ * consommation approximative est écrite en TEXTE (« ≈ 120 depuis le 12/10 (3 jours) ») : un chiffre
+ * calculable sans son « ≈ » passerait pour exact.
+ */
 export function valeurExcel(c: CaseFiche): string | number {
-  return c.valeur === null ? "—" : c.valeur;
+  if (c.valeur === null) return "—";
+  return c.approx === undefined ? c.valeur : texteCase(c);
 }
 
 /** Lignes à plat (rubriques comprises) et indices des lignes de rubrique. */

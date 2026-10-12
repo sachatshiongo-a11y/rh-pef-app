@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
+import { journaliser } from "@/lib/audit";
+import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
 
 // Saisie case par case de la grille « Commande » (≈ 178 articles × 7 jours).
 //
@@ -14,14 +16,18 @@ import { actionLisible } from "@/lib/action-lisible";
 // saisie au repos (et en quittant l'onglet), pour que les autres vues et l'historique du
 // navigateur ne montrent pas une commande périmée.
 
-const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
-
 function lireCase(dateIso: string, quantite: number) {
-  if (!DATE_ISO.test(dateIso)) throw new Error("Date de commande invalide.");
+  let date: Date;
+  try { date = lireJourSaisie(dateIso, "de commande"); } catch { throw new Error("Date de commande invalide."); }
   const q = Number(quantite);
   if (!Number.isFinite(q) || q < 0) throw new Error("Quantité invalide.");
-  return { date: new Date(dateIso + "T00:00:00Z"), q };
+  return { date, q };
 }
+
+// Audit du 10/10/2026 : une commande était réécrivable sans trace, mois clos compris. Désormais, comme
+// pour les ventes (`saisirVente`) : période de stock clôturée en lecture seule, journal avant → après
+// (0/vide = la ligne disparaît : « — »), auteur de la dernière saisie sur la ligne. Même quantité :
+// ni écriture, ni journal.
 
 /** Enregistre la quantité commandée d'un article pour un jour (0/vide = supprime la ligne). */
 export const saisirCommandeResto = actionLisible(async (articleId: string, dateIso: string, quantite: number) => {
@@ -29,15 +35,25 @@ export const saisirCommandeResto = actionLisible(async (articleId: string, dateI
   requireModule(user, "stock");
   if (!articleId) throw new Error("Article manquant.");
   const { date, q } = lireCase(dateIso, quantite);
-  if (q === 0) {
-    await prisma.commandeResto.deleteMany({ where: { articleId, date } });
-  } else {
-    await prisma.commandeResto.upsert({
-      where: { articleId_date: { articleId, date } },
-      update: { quantite: q },
-      create: { articleId, date, quantite: q },
+  await exigerJourSaisissable(date, "les commandes");
+  await prisma.$transaction(async (tx) => {
+    const avant = await tx.commandeResto.findUnique({ where: { articleId_date: { articleId, date } }, select: { quantite: true } });
+    if (q === 0) {
+      if (!avant) return;
+      await tx.commandeResto.deleteMany({ where: { articleId, date } });
+    } else {
+      if (avant && avant.quantite.equals(q)) return;
+      await tx.commandeResto.upsert({
+        where: { articleId_date: { articleId, date } },
+        update: { quantite: q, saisiParId: user.id },
+        create: { articleId, date, quantite: q, saisiParId: user.id },
+      });
+    }
+    await journaliser(tx, {
+      entite: "CommandeResto", entiteId: `${articleId}_${dateIso}`, champ: "quantite",
+      ancienneValeur: avant ? avant.quantite.toString() : null, nouvelleValeur: q === 0 ? null : q, userId: user.id,
     });
-  }
+  });
   return { ok: true as const };
 });
 
@@ -47,15 +63,25 @@ export const saisirCommandeLegume = actionLisible(async (legume: string, dateIso
   requireModule(user, "stock");
   if (!legume) throw new Error("Légume manquant.");
   const { date, q } = lireCase(dateIso, quantite);
-  if (q === 0) {
-    await prisma.commandeLegumeResto.deleteMany({ where: { legume, date } });
-  } else {
-    await prisma.commandeLegumeResto.upsert({
-      where: { legume_date: { legume, date } },
-      update: { quantite: q },
-      create: { legume, date, quantite: q },
+  await exigerJourSaisissable(date, "les commandes");
+  await prisma.$transaction(async (tx) => {
+    const avant = await tx.commandeLegumeResto.findUnique({ where: { legume_date: { legume, date } }, select: { quantite: true } });
+    if (q === 0) {
+      if (!avant) return;
+      await tx.commandeLegumeResto.deleteMany({ where: { legume, date } });
+    } else {
+      if (avant && avant.quantite.equals(q)) return;
+      await tx.commandeLegumeResto.upsert({
+        where: { legume_date: { legume, date } },
+        update: { quantite: q, saisiParId: user.id },
+        create: { legume, date, quantite: q, saisiParId: user.id },
+      });
+    }
+    await journaliser(tx, {
+      entite: "CommandeLegumeResto", entiteId: `${legume}_${dateIso}`, champ: "quantite",
+      ancienneValeur: avant ? avant.quantite.toString() : null, nouvelleValeur: q === 0 ? null : q, userId: user.id,
     });
-  }
+  });
   return { ok: true as const };
 });
 

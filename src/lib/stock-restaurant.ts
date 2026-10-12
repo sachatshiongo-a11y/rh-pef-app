@@ -281,6 +281,14 @@ export type ConsommationReelle =
       compte: string;
       /** La veille n'a aucun comptage derrière elle : stock estimé à partir des seules livraisons. */
       veilleEstimee: boolean;
+      /**
+       * Date (AAAA-MM-JJ) du dernier comptage AVANT ce jour quand ce n'est pas la veille : la
+       * consommation couvre alors `nbJours` jours (veille non comptée), pas un seul. null = la veille
+       * est comptée (ou aucun comptage : voir `veilleEstimee`).
+       */
+      depuis: string | null;
+      /** Nombre de jours que couvre la consommation (1 = la veille était comptée). */
+      nbJours: number;
     }
   | { etat: "INCONNUE"; raison: "PAS_DE_COMPTAGE" | "STOCK_VEILLE_INCONNU" | "LIVRAISON_NON_COMPTEE" };
 
@@ -312,6 +320,10 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
   const recu = recuDuDepot(e, articleRestoId, jour);
   if (veille.signalements.length > 0 || recu.signalements.length > 0) return { etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE" };
   const quantite = new D(veille.stock).plus(recu.quantite ?? 0).minus(compte.quantite);
+  // Veille non comptée : le dernier comptage est plus ancien, la consommation couvre tous les jours depuis.
+  const dernier = veille.dernierComptage?.date ?? null;
+  const nbJours = dernier === null ? 1 : Math.round((Date.parse(`${jour}T00:00:00Z`) - Date.parse(`${dernier}T00:00:00Z`)) / 86_400_000);
+  const plusieursJours = dernier !== null && nbJours > 1;
   return {
     etat: "CONNUE",
     quantite: quantite.toString(),
@@ -320,7 +332,20 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
     recu: recu.quantite ?? "0",
     compte: compte.quantite,
     veilleEstimee: veille.aucunComptage,
+    depuis: plusieursJours ? dernier : null,
+    nbJours: plusieursJours ? nbJours : 1,
   };
+}
+
+type Connue = Extract<ConsommationReelle, { etat: "CONNUE" }>;
+
+/** Consommation APPROXIMATIVE (« ≈ ») : veille estimée sans comptage, ou calculée sur plusieurs jours. */
+export const consoApproximative = (c: Connue) => c.veilleEstimee || c.depuis !== null;
+
+/** « depuis le 12/10 (3 jours) » : ce que couvre une consommation dont la veille n'a pas été comptée ; null sinon. */
+export function mentionDepuis(c: Connue): string | null {
+  if (c.depuis === null) return null;
+  return `depuis le ${c.depuis.slice(8, 10)}/${c.depuis.slice(5, 7)} (${c.nbJours} jours)`;
 }
 
 // ─── Part du restaurant dans la disponibilité des plats ──────────────────────
