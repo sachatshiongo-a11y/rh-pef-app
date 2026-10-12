@@ -75,7 +75,7 @@ export default async function AValiderPage() {
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">À valider</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {estDirection ? "Demandes en attente de votre décision" : "Vos demandes en attente de la Direction"}
+            {estDirection ? "Demandes en attente de votre décision" : "Vos demandes en attente de la Direction : rien n'est payé ni modifié tant qu'elle ne les a pas validées"}
           </p>
         </div>
         <div className="rounded-xl border bg-card px-6 py-4 shadow-sm">

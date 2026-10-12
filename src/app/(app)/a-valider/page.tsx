@@ -284,6 +284,14 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
 
       {ailleurs && <div className="mb-4"><AussiEnAttente courant="rh" attente={ailleurs} /></div>}
 
+      {!peutValider && (
+        <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {peutPayer
+            ? "Rien n'est modifié tant que la Direction n'a pas validé vos demandes. Vous marquez payés les bulletins qu'elle a validés."
+            : "Rien n'est modifié tant que la Direction n'a pas validé vos demandes."}
+        </p>
+      )}
+
       <RubriquesAValider rubriques={rubriques} />
 
       {mesDecisions.length > 0 && <div className="mt-8"><DernieresDecisions titre="Mes dernières demandes traitées" decisions={mesDecisions} /></div>}

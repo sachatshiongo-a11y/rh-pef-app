@@ -471,7 +471,7 @@ export function EditerFiche({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Indicateur libelle={etiquette("Prix de vente HT", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteHT)} teinte={resultat.incomplet ? "attention" : undefined} />
             <Indicateur libelle={etiquette("Prix de vente TTC", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteTTC)} teinte={resultat.incomplet ? "attention" : undefined} />
-            <Indicateur libelle={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} teinte={resultat.incomplet ? "attention" : "entree"} />
+            <Indicateur libelle={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} teinte={resultat.incomplet ? "attention" : resultat.margeBrute === null ? undefined : resultat.margeBrute < 0 ? "alerte" : "entree"} />
             <Indicateur libelle={etiquette("Coefficient", resultat.prixEstConseille, noteCout)} valeur={coef(resultat.coefficient)} teinte={resultat.incomplet ? "attention" : undefined} />
             <Indicateur libelle={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} teinte={resultat.incomplet ? "attention" : undefined} sousTexte="part de mon prix de vente" />
             <Indicateur libelle={etiquette("Taux de marge", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarge)} teinte={resultat.incomplet ? "attention" : undefined} sousTexte="ajouté à mon coût" />
