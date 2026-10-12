@@ -18,7 +18,7 @@ import { lignesFichesPoste, type FicheDePoste } from "@/lib/fiches-poste-liste";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const fiche = (poste: string, extra: Partial<FicheDePoste> = {}): FicheDePoste => ({
-  id: `id-${poste.length}`, poste, descriptionPoste: null, description: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
+  id: `id-${poste.length}`, poste, descriptionPoste: null, description: null, risquesContraintes: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
   superieurHierarchique: null, tempsTravail: null, competencesTechniques: null, savoirEtre: null, formationsRequises: null, diplomesRequis: null,
   experiencesExigees: null, fichierUrl: null, fichierNom: null, ...extra,
 });
