@@ -1,5 +1,7 @@
 "use server";
 
+import { actionLisible } from "@/lib/action-lisible";
+import { messageLisible } from "@/lib/erreur-metier";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -240,20 +242,51 @@ export async function ajouterJourFerie(formData: FormData) {
   });
 }
 
+/** Retire UN férié et recale les congés qui le couvrent ; renvoie la phrase du résultat (null si le férié n'existe plus). */
+async function retirerUnFerie(id: number, userId: string): Promise<string | null> {
+  return prisma.$transaction(async (tx) => {
+    const f = await tx.jourFerie.findUnique({ where: { id } });
+    if (!f) return null;
+    await tx.jourFerie.delete({ where: { id } });
+    const date = new Date(f.date);
+    const r = resumeRecalage(await recalerCongesSurFerie(tx, date, "retrait", userId), "retrait");
+    const iso = date.toISOString().slice(0, 10);
+    return `Férié du ${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} retiré.${r ? ` ${r}.` : ""}`;
+  });
+}
+
 /** Retire un férié (Direction). Les congés qui couvrent ce jour sont recalés (jour recompté, code reposé). */
 export async function supprimerJourFerie(id: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
-  const resume = await prisma.$transaction(async (tx) => {
-    const f = await tx.jourFerie.findUnique({ where: { id } });
-    if (!f) return null;
-    await tx.jourFerie.delete({ where: { id } });
-    const date = new Date(f.date);
-    const r = resumeRecalage(await recalerCongesSurFerie(tx, date, "retrait", user.id), "retrait");
-    const iso = date.toISOString().slice(0, 10);
-    return `Férié du ${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} retiré.${r ? ` ${r}.` : ""}`;
-  });
+  const resume = await retirerUnFerie(id, user.id);
   revaliderFeries();
   if (resume) redirect(`/parametres?msg=${encodeURIComponent(resume)}`);
 }
+
+const MAX_FERIES_PAR_LOT = 50;
+
+/**
+ * Retire PLUSIEURS fériés d'un coup (Direction), chacun avec son recalage des congés. L'écran lit le rapport
+ * (phrases de recalage par férié) au lieu d'être redirigé.
+ */
+export const supprimerJoursFeriesEnLot = actionLisible(async (ids: number[]): Promise<{ traitees: number; messages: string[]; echecs: string[] }> => {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const uniques = [...new Set(ids.filter((i) => Number.isInteger(i)))];
+  if (uniques.length > MAX_FERIES_PAR_LOT) throw new Error(`Retirez ${MAX_FERIES_PAR_LOT} fériés au plus à la fois (${uniques.length} cochés). Rien n'a été retiré.`);
+  let traitees = 0;
+  const messages: string[] = [];
+  const echecs: string[] = [];
+  for (const id of uniques) {
+    try {
+      const resume = await retirerUnFerie(id, user.id);
+      if (resume) { traitees++; messages.push(resume); }
+    } catch (e) {
+      echecs.push(`Férié n° ${id} : ${messageLisible(e, "parametres supprimerJoursFeriesEnLot")}`);
+    }
+  }
+  revaliderFeries();
+  return { traitees, messages, echecs };
+});
