@@ -543,7 +543,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
       if (deja === undefined) {
         res.set(cat, s.dernierComptage === null
           ? { etat: "ESTIME", quantite: quantite.toString(), recu: recu === null ? null : recu.toString() }
-          : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString(), vendu: vendu === null ? null : vendu.toString() });
+          : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString(), ...(vendu === null ? {} : { vendu: vendu.toString() }) });
         continue;
       }
       if (deja.etat !== "OK" && deja.etat !== "ESTIME") continue;
@@ -552,7 +552,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
         res.set(cat, { etat: "ESTIME", quantite: somme, recu: cumul(deja.recu, recu) });
       } else {
         const date = deja.dateComptage < s.dernierComptage.date ? deja.dateComptage : s.dernierComptage.date;
-        res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu), vendu: typeVendu(deja.vendu, vendu) });
+        res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu), ...(typeVendu(deja.vendu, vendu) === null ? {} : { vendu: typeVendu(deja.vendu, vendu) }) });
       }
     }
   }

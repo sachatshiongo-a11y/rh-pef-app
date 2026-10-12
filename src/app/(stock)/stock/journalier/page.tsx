@@ -20,6 +20,8 @@ import { chargerVentesSemaine } from "./ventes-data";
 import { ficheCommandeCalee } from "./fiches-data";
 import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { chargerEcartsVentes } from "./ecarts-data";
+import { TableEcarts } from "./table-ecarts";
 
 type SP = { semaine?: string; domaine?: string; vue?: string; dimanche?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -31,7 +33,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   const user = await exigerPageStock();
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
-  const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" ? sp.vue : "conso";
+  const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" || sp.vue === "ecarts" ? sp.vue : "conso";
   const lundi = sp.semaine ? lundiDe(new Date(sp.semaine)) : lundiCourantKinshasa();
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
@@ -85,6 +87,19 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <>
         {noteDeLOnglet(aide)}
         <TableConso jours={joursLabel} sorties={donnees.sorties} legumes={legumes} consoResto={donnees.consoResto} />
+      </>,
+    );
+  }
+
+  // ---------- VUE ÉCARTS VENTES / CONSOMMATION (contrôle : signal seulement, rien n'est écrit) ----------
+  if (vue === "ecarts") {
+    const { debut, fin, espaces, ecarts } = await chargerEcartsVentes(lundi, domaine);
+    const aide = <>Pour chaque article du restaurant : consommation <strong>réelle</strong> (compté au début + reçu du dépôt − compté à la fin) face à la <strong>théorique</strong> (ventes saisies × fiches techniques) sur la même fenêtre entre deux comptages. Écart positif = consommé en plus de ce que les ventes expliquent (perte, gaspillage, vol ou fiche trop économe) ; il vaut signal, aucun stock n&apos;est corrigé. « — » : pas de comptage de début et de fin, ou ventes à vérifier (fiche incomplète).</>;
+    return cadre(
+      enTete(aide),
+      <>
+        {noteDeLOnglet(aide)}
+        <TableEcarts ecarts={ecarts} espaces={espaces} periode={`du ${debut.slice(8, 10)}/${debut.slice(5, 7)} au ${fin.slice(8, 10)}/${fin.slice(5, 7)}`} />
       </>,
     );
   }

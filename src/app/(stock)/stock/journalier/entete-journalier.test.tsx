@@ -30,13 +30,13 @@ const panneau = () => conteneur.querySelector<HTMLElement>("[data-plus-mobile]")
 const ordinateur = () => [...conteneur.querySelectorAll<HTMLElement>("div")].find((d) => d.className.includes("max-lg:hidden") && d.textContent!.includes("Cette semaine"))!;
 
 describe("haut de la Conso. journalière", () => {
-  it("quatre onglets dans une rangée qui défile de côté ; l'actif est marqué", () => {
+  it("cinq onglets dans une rangée qui défile de côté ; l'actif est marqué", () => {
     monter("ventes");
     const nav = conteneur.querySelector("nav")!;
     expect(nav.parentElement!.className).toContain("overflow-x-auto");
     const onglets = [...nav.querySelectorAll("a")];
-    expect(onglets.map((a) => a.textContent)).toEqual(["Commande", "Consommation", "Comparaison", "Rapport journalier"]);
-    expect(onglets.map((a) => a.getAttribute("aria-current"))).toEqual([null, null, null, "page"]);
+    expect(onglets.map((a) => a.textContent)).toEqual(["Commande", "Consommation", "Comparaison", "Rapport journalier", "Écarts ventes / consommation"]);
+    expect(onglets.map((a) => a.getAttribute("aria-current"))).toEqual([null, null, null, "page", null]);
     for (const a of onglets) { expect(a.className).toContain("whitespace-nowrap"); expect(a.className).toContain("min-h-11"); }
     expect(onglets[1]!.getAttribute("href")).toBe("/stock/journalier?vue=conso&semaine=2026-09-28");
   });

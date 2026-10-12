@@ -9,6 +9,8 @@ import {
 } from "@/lib/journalier-restaurant";
 import { achatsLegumesParLigne, lignesLegumesComparaison } from "@/lib/legumes-semaine";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
+import { chargerEcartsVentes } from "./ecarts-data";
+import { ENTETE_EXPORT_ECARTS, lignesExportEcarts } from "@/lib/ecarts-ventes-presentation";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -31,6 +33,8 @@ export type ExportJournalier = {
   ecartsCL?: Set<string>;
   /** Écart signé (« +2 », « -1 ») des cellules en écart, à écrire à côté de la valeur (comparaison). */
   signes?: Map<string, EcartExport>;
+  /** Pied du PDF quand il diffère de celui des autres vues (écarts ventes / consommation). */
+  pied?: string;
   /** Comparaison : en-têtes courts sous des groupes (un par jour) — le classeur écrit deux niveaux d'en-tête. */
   enteteCourt?: string[];
   groupesEntete?: { libelle: string; debut: number; nb: number }[];
@@ -47,13 +51,26 @@ export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol 
 /** Prépare les données d'export (PDF/Excel) de la Conso. journalière selon la vue courante. */
 export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJournalier> {
   const domaine = sp.get("domaine") === "NOURRITURE" ? ("NOURRITURE" as const) : sp.get("domaine") === "BOISSON" ? ("BOISSON" as const) : undefined;
-  const vue = sp.get("vue") === "commande" || sp.get("vue") === "comparaison" ? sp.get("vue")! : "conso";
+  const vue = sp.get("vue") === "commande" || sp.get("vue") === "comparaison" || sp.get("vue") === "ecarts" ? sp.get("vue")! : "conso";
   const lundi = sp.get("semaine") ? lundiDe(new Date(sp.get("semaine")!)) : lundiCourantKinshasa();
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const fin = addDays(lundi, 7);
   const labels = jours.map((d, i) => `${JOURS[i]} ${d.getUTCDate()}`);
   const sousTitre = `Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`;
   const suffixe = domaine ? (domaine === "NOURRITURE" ? "_Cuisine" : "_Bar") : "";
+
+  // ---------- ÉCARTS VENTES / CONSOMMATION (contrôle : réel vs théorique, signal seulement) ----------
+  if (vue === "ecarts") {
+    const { ecarts, espaces } = await chargerEcartsVentes(lundi, domaine);
+    const { lignes, sectionRows } = lignesExportEcarts(ecarts, espaces);
+    return {
+      titre: "Écarts ventes / consommation", sousTitre, fichierBase: `Ecarts_ventes_consommation${suffixe}_${iso(lundi)}`,
+      entete: ENTETE_EXPORT_ECARTS,
+      colonnes: [{ header: "Article", width: "26%" }, { header: "Unité", width: "8%" }, { header: "Comparé", width: "16%" }, ...["Réel", "Théorique", "Écart", "Valeur de l'écart"].map((h) => ({ header: h, width: "12%", align: "right" as const })), { header: "Devise", width: "6%" }],
+      lignes, sectionRows, colRole: ENTETE_EXPORT_ECARTS.map(() => null),
+      pied: "Écart = réel (compté au début + reçu du dépôt − compté à la fin) − théorique (ventes saisies × fiches techniques) ; positif : consommé en plus de ce que les ventes expliquent. Signal seulement, aucun stock n'est corrigé. « — » : écart inconnu, jamais 0.",
+    };
+  }
 
   // ---------- CONSOMMATION (sorties par motif + légumes frais + consommation réelle) ----------
   if (vue === "conso") {

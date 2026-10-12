@@ -11,10 +11,10 @@ import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 // Ordinateur : les rangées d'origine. Téléphone : titre, onglets qui défilent de côté, semaine sur
 // UNE ligne avec « Plus » (filtre, exports, aide), puis le sélecteur de jour.
 
-export type VueJournalier = "commande" | "conso" | "comparaison" | "ventes";
+export type VueJournalier = "commande" | "conso" | "comparaison" | "ventes" | "ecarts";
 export type DomaineJournalier = "NOURRITURE" | "BOISSON" | undefined;
 
-const VUES: [VueJournalier, string][] = [["commande", "Commande"], ["conso", "Consommation"], ["comparaison", "Comparaison"], ["ventes", "Rapport journalier"]];
+const VUES: [VueJournalier, string][] = [["commande", "Commande"], ["conso", "Consommation"], ["comparaison", "Comparaison"], ["ventes", "Rapport journalier"], ["ecarts", "Écarts ventes / consommation"]];
 const DOMAINES: [string, string][] = [["", "Tous"], ["NOURRITURE", "Cuisine (nourriture)"], ["BOISSON", "Bar (boissons)"]];
 const LIBELLE_DOMAINE = { NOURRITURE: "Cuisine", BOISSON: "Bar" } as const;
 
@@ -51,7 +51,7 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
   const dom = domaine ? `&domaine=${domaine}` : "";
   const exportVue = (format: "pdf" | "excel") => `/stock/journalier/${format}?vue=${vue}&semaine=${semaine}${dom}`;
   const joursDeLaSemaine = Array.from({ length: 7 }, (_, i) => iso(addDays(lundi, i)));
-  const avecExportVue = vue === "conso" || vue === "comparaison";
+  const avecExportVue = vue === "conso" || vue === "comparaison" || vue === "ecarts";
 
   return (
     <div className="space-y-3">
