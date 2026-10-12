@@ -266,8 +266,8 @@ export async function ecrireCreneaux(
     });
   }
   await journaliserPlusieurs(tx, journal);
-  // Présences déjà posées sur ces jours : leurs heures PRÉ-REMPLIES suivent le nouveau planning ;
-  // des heures saisies ne sont jamais écrasées (journalisées « gardées », et la paie le signale).
+  // Présences déjà posées sur des jours À VENIR : leurs heures PRÉ-REMPLIES suivent le nouveau planning ;
+  // des heures saisies, pointées, ou d'un jour passé/en cours ne sont jamais écrasées (journalisées « gardées »).
   const changes = [...aEffacer, ...aCreer, ...aModifier];
   if (changes.length > 0) {
     await resynchroniserHeuresPlanifiees(tx, changes.map((o) => ({ employeeId: o.employeeId, date: o.date, ancienShiftId: avant.get(cle(o.employeeId, o.date)) ?? null })), userId);

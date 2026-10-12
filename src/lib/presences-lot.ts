@@ -5,6 +5,7 @@ import { journaliser } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { horaireParDefaut, shiftIdDuModele, type ShiftHoraire } from "@/lib/horaire-par-defaut";
 import { POINTAGE_VALABLE } from "@/lib/pointage-annulation";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 // CONTEXTE D'UNE SAISIE DE PRÉSENCES (unitaire ou en lot) — chargé UNE fois pour tout le lot
 // (audit RH 2026-10-10 : un mois saisi d'un bloc faisait 5 à 7 requêtes PAR case, soit des milliers).
@@ -153,6 +154,7 @@ export async function resynchroniserHeuresPlanifiees(
   const modele = new Map(modeles.map((m) => [`${m.employeeId}|${m.jour}|${m.semaine}`, m.shiftId]));
   const shiftParId = new Map(shifts.map((s) => [s.id, s as ShiftHoraire]));
   const contrat = new Map(employes.map((e) => [e.id, Number(e.heuresParJour)]));
+  const aujourdhui = jourCourantKinshasaISO();
   let recalees = 0;
   for (const e of entrees) {
     const cle = k(e.employeeId, e.date);
@@ -164,8 +166,13 @@ export async function resynchroniserHeuresPlanifiees(
     const actuelId = creneauActuel.get(cle);
     const nouveau = horaireParDefaut({ ...base, creneau: actuelId ? shiftParId.get(actuelId) : undefined }).heures;
     if (Math.abs(h - nouveau) < 0.005) continue;
-    if (Math.abs(h - ancien) < 0.005) {
-      await tx.overtimeEntry.update({ where: { employeeId_date: { employeeId: e.employeeId, date: e.date } }, data: { heuresTravaillees: nouveau } });
+    // Seul un jour À VENIR peut être un pré-remplissage : un jour passé ou en cours a été travaillé, ses
+    // heures sont un FAIT (saisies, importées, pointées) même quand elles valent par hasard l'ancien défaut
+    // — rien ne distingue en base une heure « 8 » tapée d'une heure « 8 » préremplie. Jamais recalées.
+    if (iso(e.date) > aujourdhui && Math.abs(h - ancien) < 0.005) {
+      // Recalage CONDITIONNEL à la valeur lue : une saisie concurrente entre la lecture et ici n'est pas écrasée.
+      const r = await tx.overtimeEntry.updateMany({ where: { employeeId: e.employeeId, date: e.date, heuresTravaillees: h }, data: { heuresTravaillees: nouveau } });
+      if (r.count === 0) continue;
       await journaliser(tx, { entite: "OvertimeEntry", entiteId: `${e.employeeId}_${iso(e.date)}`, champ: "heuresTravaillees", ancienneValeur: String(h), nouvelleValeur: `${nouveau} (pré-remplissage recalé sur le planning modifié)`, userId });
       recalees++;
     } else {

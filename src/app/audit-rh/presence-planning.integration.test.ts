@@ -42,6 +42,7 @@ async function jeannette() {
 
 beforeAll(async () => {
   ({ prisma, fermer } = await creerBaseTest()); H.client = prisma;
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-12T10:00:00Z") }); // 14/10 = jour à venir (seuls ceux-là sont recalés)
   await seedParametresLegaux(prisma, 2026);
   await prisma.config.create({ data: { id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 10 } });
   const u = await prisma.user.create({ data: { email: "dir@pef.test", nom: "Direction", role: "ADMIN" } });
@@ -49,7 +50,7 @@ beforeAll(async () => {
   matin = (await prisma.shift.create({ data: { nom: "Matin", heureDebut: "08:30", heureFin: "16:30" } })).id;
   soir = (await prisma.shift.create({ data: { nom: "Soir", heureDebut: "16:30", heureFin: "22:30" } })).id;
 }, 120_000);
-afterAll(async () => { await fermer?.(); });
+afterAll(async () => { vi.useRealTimers(); await fermer?.(); });
 
 const heuresDe = async (id: string, iso: string) => {
   const h = await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId: id, date: jour(iso) } } });
