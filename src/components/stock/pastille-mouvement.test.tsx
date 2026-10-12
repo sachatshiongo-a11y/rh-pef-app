@@ -66,3 +66,24 @@ describe("garde de source : mêmes composants sur les deux écrans", () => {
     expect(fiche).not.toMatch(/"Livraison restaurant"/);
   });
 });
+
+describe("pastilles de FILTRE des mouvements (fiche article) : mêmes couleurs que les pastilles de type", () => {
+  it("Entrées en vert, Sorties en rouge, Ajustements en neutre ; « Tous » garde la forme commune", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { PastillesFiltre } = await import("@/components/pastilles-filtre");
+    const { TEINTE_FILTRE_MOUVEMENT } = await import("./pastille-mouvement");
+    const html = renderToStaticMarkup(
+      <PastillesFiltre
+        libelle="Filtrer" actif="tous" effectifs={{ entrees: 1, sorties: 1, ajustements: 0, tous: 2 }} lien={(v) => `?f=${v}`}
+        valeurs={[["entrees", "Entrées"], ["sorties", "Sorties"], ["ajustements", "Ajustements"], ["tous", "Tous"]] as const}
+        teintes={TEINTE_FILTRE_MOUVEMENT}
+      />,
+    );
+    const lien = (texte: string) => html.split("<a").find((a) => a.includes(texte)) ?? "";
+    expect(lien("Entrées")).toContain("emerald");
+    expect(lien("Sorties")).toContain("red");
+    expect(lien("Ajustements")).toContain("slate");
+    expect(lien("Tous")).not.toMatch(/emerald|red-|slate/);
+    expect(lien("Tous")).toContain("border-primary");
+  });
+});

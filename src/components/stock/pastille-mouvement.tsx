@@ -31,3 +31,10 @@ export function PastilleMotif({ motif, className = "" }: { motif: string | null 
   const p = MOTIF_CHIP[motif ?? ""];
   return <span data-pastille-motif={motif ?? ""} className={`${BASE} ${p?.classe ?? MOTIF_CHIP[""]!.classe} ${className}`}>{p?.texte ?? motif}</span>;
 }
+
+/** Les mêmes couleurs sur les pastilles de FILTRE (fiche article : Entrées / Sorties / Ajustements / Tous). */
+export const TEINTE_FILTRE_MOUVEMENT = {
+  entrees: { repos: "border-emerald-300 text-emerald-800", actif: "border-emerald-600 bg-emerald-50 text-emerald-900" },
+  sorties: { repos: "border-red-300 text-red-800", actif: "border-red-600 bg-red-50 text-red-900" },
+  ajustements: { repos: "border-slate-300 text-slate-700", actif: "border-slate-500 bg-slate-100 text-slate-900" },
+} as const;

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { EditerArticle } from "./editer-article";
-import { PastilleMotif, PastilleType } from "@/components/stock/pastille-mouvement";
+import { PastilleMotif, PastilleType, TEINTE_FILTRE_MOUVEMENT } from "@/components/stock/pastille-mouvement";
 import { FournisseursArticle, type LigneFournisseurArticle } from "./fournisseurs-article";
 import { chargerPrixParFournisseur } from "@/lib/article-fournisseurs";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, uniteAffichee, type NiveauAlerte } from "@/lib/stock";
@@ -350,6 +350,7 @@ export default async function ArticleFichePage({
           <PastillesFiltre
             libelle="Filtrer les mouvements" actif={filtre} effectifs={effectifsMouvements} lien={lienFiltre}
             valeurs={[["entrees", "Entrées"], ["sorties", "Sorties"], ["ajustements", "Ajustements"], ["tous", "Tous"]] as const}
+            teintes={TEINTE_FILTRE_MOUVEMENT}
           />
           {entreesDlc && entreesDlc.length > 0 && (
             <section id="dlc" data-dlc-fiche className="rounded-xl border p-4">
