@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BulletinsValidation } from "./bulletins-validation";
-import type { PaieRow } from "./paie-bulk";
+import type { PaieRow } from "./tableau-paie";
 import { LBL_BULLETIN } from "@/lib/bulletin-format";
 import { formaterNombre } from "@/lib/montant";
 
@@ -24,7 +24,6 @@ const ligne = (p: Partial<PaieRow>): PaieRow => ({
   salaireNetCDF: 250 * 2800,
   totalVerseUSD: 270,
   statutPaiement: "VALIDE",
-  modePaiementDefaut: "ESPECES",
   baseUSD: 300,
   hsUSD: 0,
   transportUSD: 20,
@@ -41,7 +40,7 @@ const ligne = (p: Partial<PaieRow>): PaieRow => ({
   ...p,
 });
 
-const rendu = (r: PaieRow) => renderToStaticMarkup(<BulletinsValidation rows={[r]} role="VIEWER" />);
+const rendu = (r: PaieRow) => renderToStaticMarkup(<BulletinsValidation rows={[r]} />);
 const texte = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 const montant = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 

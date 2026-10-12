@@ -30,6 +30,7 @@ import { jourDuVersement, lireDateVersementPaie } from "@/lib/date-paiement";
 import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH, notifierPaiementAnnule, retirerRappelSiRienAPayer } from "@/lib/paie-notifications";
 import { libellePeriode, memePeriode, messageClotureReussie, passerAuMoisSuivantApresCloture, revaliderApresChangementDeMois, verrouillerMoisCourant, type Periode } from "@/lib/changement-mois";
 import { figerCongesDuMois } from "@/lib/conges-bulletin-donnees";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -48,6 +49,7 @@ export async function calculerPaieDuMois() {
     redirect(`/paie?erreur=${encodeURIComponent(MESSAGE_CALCUL_OCCUPE)}`);
   }
 
+  reinitialiserCacheAValider();
   revalidatePath("/paie");
   revalidatePath("/accueil");
   revalidatePath("/employes");
@@ -306,6 +308,9 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
   // Montants que l'écran a montrés (paie-jeton.ts) : une ligne recalculée depuis est refusée.
   const jeton = String(formData.get("jeton") ?? "").trim() || undefined;
+  // L'écran d'où part le geste, pour y ramener un refus : Paie par défaut, « À valider » depuis qu'on y décide
+  // (lot 8, V5). Liste fermée : jamais une adresse venue du formulaire.
+  const retour = formData.get("retour") === "/a-valider" ? "/a-valider" : "/paie";
 
   // Payer : Direction ET RH ; valider, rouvrir, annuler un paiement : Direction seule (paie-etats.ts).
   requireRole(user, roleRequisPour(versStatut));
@@ -327,7 +332,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
       refus = (e as Error).message;
     }
   }
-  if (refus) redirect(`/paie?erreur=${encodeURIComponent(refus)}`);
+  if (refus) redirect(`${retour}?erreur=${encodeURIComponent(refus)}`);
   try {
     de = await prisma.$transaction(async (tx) => {
       if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, [payrollLineId]); // attente bornée
@@ -342,11 +347,11 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
     if (!refus) throw e;
   }
   // Message lisible via ?erreur= (un throw serait masqué par Next en production).
-  if (refus) redirect(`/paie?erreur=${encodeURIComponent(refus)}`);
+  if (refus) redirect(`${retour}?erreur=${encodeURIComponent(refus)}`);
   if (!de) {
     // Double clic, ou bulletin payé par l'autre acteur entre-temps : le dire, pas « non validé ».
     const actuel = versStatut === "PAYE" ? (await prisma.payrollLine.findUnique({ where: { id: payrollLineId }, select: { statutPaiement: true } }))?.statutPaiement : null;
-    redirect(`/paie?erreur=${encodeURIComponent(
+    redirect(`${retour}?erreur=${encodeURIComponent(
       versStatut !== "PAYE"
         ? `Transition non autorisée vers ${versStatut}.`
         : actuel === "PAYE"
@@ -362,6 +367,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user, jourDuVersement(dateVersement!));
   if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer([payrollLineId]);
 
+  reinitialiserCacheAValider(); // les compteurs « à valider / à payer » de Paie et du menu se relisent à neuf
   revalidatePath("/paie");
   revalidatePath("/accueil");
   revalidatePath("/a-valider");
@@ -425,6 +431,7 @@ export const changerStatutEnLot = actionLisible(async (
   if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user, jourDuVersement(jourVersement!));
   if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer(modifiees);
 
+  reinitialiserCacheAValider();
   revalidatePath("/paie");
   revalidatePath("/accueil");
   revalidatePath("/a-valider");
@@ -538,6 +545,7 @@ export async function cloturerPaie(formData: FormData): Promise<void> {
     await notifierClotureParRH({ payrollRunId: run.id, nom: user.nom, horsCalcul: horsCalculLaissees, versMois: passe?.vers ?? null });
   }
 
+  reinitialiserCacheAValider();
   revalidatePath("/paie");
   revalidatePath("/a-valider");
   revalidatePath("/accueil");
@@ -596,7 +604,7 @@ export async function reinitialiserPaieDuMois() {
     // Bulletins validés/payés protégés : message clair au lieu de faire planter la page.
     redirect(
       `/paie?erreur=${encodeURIComponent(
-        `${figees} bulletin(s) validé(s)/payé(s) ce mois : rouvrez-les d'abord (sous-onglet « Valider les bulletins ») avant de réinitialiser.`
+        `${figees} bulletin(s) validé(s)/payé(s) ce mois : rouvrez-les d'abord dans « À valider » (« ↩ Rouvrir » ; pour un bulletin payé, « Annuler le paiement » d'abord) avant de réinitialiser.`
       )}`
     );
   }
@@ -650,6 +658,7 @@ export async function reinitialiserPaieDuMois() {
   // brouillons recréés — exactement le recalcul du bouton « Calculer ».
   if (gardees > 0) await rafraichirPaieDuMois({ creerRun: false, userId: user.id });
 
+  reinitialiserCacheAValider();
   revalidatePath("/paie");
   revalidatePath("/accueil");
   redirect(`/paie?msg=${encodeURIComponent(

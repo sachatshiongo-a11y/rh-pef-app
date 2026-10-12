@@ -140,11 +140,11 @@ describe("valider : la Direction seule", () => {
     const lot = await Promise.all([ids.beatrice, ids.clarisse, ids.dieudonne, ids.gaston].map(ligne));
     expect(await changerStatutEnLot(lot.map((l) => l.id), "VALIDE", null, Object.fromEntries(lot.map((l) => [l.id, jetonLigne(l)])))).toBe(4);
     const rh = await notifsDe("MANAGER");
-    expect(rh.map((n) => [n.message, n.lien, n.refId, n.lu])).toEqual([[messageBulletinsAPayer(4, 9, 2026, 5), "/paie", refAPayer(runId), false]]);
+    expect(rh.map((n) => [n.message, n.lien, n.refId, n.lu])).toEqual([[messageBulletinsAPayer(4, 9, 2026, 5), "/a-valider", refAPayer(runId), false]]);
     expect(rh[0].message).toBe("4 bulletins de septembre 2026 validés — à payer (5 en attente de paiement)");
     // L'auteur n'est pas notifié de son propre geste ; aucun autre compte non plus.
     for (const role of ROLES.filter((r) => r !== "MANAGER")) expect(await notifsDe(role)).toEqual([]);
-    expect(P.push).toHaveBeenCalledWith([comptes.MANAGER.id], expect.objectContaining({ url: "/paie" }));
+    expect(P.push).toHaveBeenCalledWith([comptes.MANAGER.id], expect.objectContaining({ url: "/a-valider" }));
     // Transitions : la Direction en est l'auteur.
     expect(await prisma.transitionPaie.findMany({ where: { versStatut: "VALIDE" }, select: { userId: true } })).toEqual(Array(5).fill({ userId: comptes.ADMIN.id }));
   });

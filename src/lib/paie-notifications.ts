@@ -52,9 +52,10 @@ export function messageClotureParRH(mois: number, annee: number, nom: string, ho
 /** Sujet « à payer » d'une paie : une seule notification non lue par compte RH (remplacée, pas empilée). */
 export const refAPayer = (payrollRunId: string) => `paie-a-payer:${payrollRunId}`;
 
-// « Paie » est dans le menu de la RH (onglet « Payer les bulletins ») ; « À valider » ne l'est pas.
-const LIEN_A_PAYER = "/paie";
-const LIEN_PAYES = "/paie";
+// Depuis le lot 8 du plan d'ergonomie (V5), les bulletins se décident (valider, payer) dans « À valider » seulement :
+// la notification « à payer » y mène. « Payés » et « clôturée » sont des informations : elles ouvrent Paie.
+export const LIEN_A_PAYER = "/a-valider";
+export const LIEN_PAYES = "/paie";
 
 async function comptesActifs(role: "ADMIN" | "MANAGER", sauf?: string): Promise<string[]> {
   return (await prisma.user.findMany({ where: { role, actif: true, ...(sauf ? { id: { not: sauf } } : {}) }, select: { id: true } })).map((u) => u.id);

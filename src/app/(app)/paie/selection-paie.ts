@@ -1,5 +1,5 @@
-// Sélection d'un lot de paie — module PUR, partagé par /paie (paie-bulk.tsx) et « À valider »
-// (bulletins-inbox.tsx). Correction 1 (2026-09-24), point 2.
+// Sélection d'un lot de paie — module PUR, utilisé par « À valider »
+// (bulletins-inbox.tsx) ; l'écran Paie, lui, n'a plus de lot depuis le lot 8 (V5). Correction 1 (2026-09-24), point 2.
 //
 // Chaque ouverture de /paie remplace les lignes non figées SANS historique (paie-refresh.ts ; une
 // ligne rouverte, elle, est mise à jour en place) : leurs IDENTIFIANTS changent, alors que l'état de l'écran (la sélection) survit au nouveau rendu. Une
@@ -39,30 +39,4 @@ export function messageEcartes(ecartes: number): string | null {
   return ecartes === 1
     ? "1 salarié sélectionné n'a plus de ligne à l'écran : il est écarté du lot."
     : `${ecartes} salariés sélectionnés n'ont plus de ligne à l'écran : ils sont écartés du lot.`;
-}
-
-// ── « Marquer payé » par la RH (2026-10-01) ─────────────────────────────────────────────────────
-// La RH ne paie que ce que la Direction a validé. Dans un lot mixte, les lignes non validées (ou déjà
-// payées) sont ÉCARTÉES et NOMMÉES avant l'envoi ; le serveur, lui, les refuse de toute façon.
-
-const ETAT_ECARTE: Record<string, string> = { PAS_VALIDE: "pas encore validé par la Direction", PAYE: "déjà payé" };
-
-/** Lignes à payer (VALIDÉES) parmi `ids`, et lignes écartées avec leur raison. */
-export function partagerPourPaiement<T extends { id: string; nom: string; statutPaiement: string }>(
-  lignes: readonly T[],
-  ids: readonly string[],
-): { aPayer: string[]; ecartees: { nom: string; raison: string }[] } {
-  const choisies = lignes.filter((l) => ids.includes(l.id));
-  return {
-    aPayer: choisies.filter((l) => l.statutPaiement === "VALIDE").map((l) => l.id),
-    ecartees: choisies.filter((l) => l.statutPaiement !== "VALIDE").map((l) => ({ nom: l.nom, raison: ETAT_ECARTE[l.statutPaiement] ?? l.statutPaiement })),
-  };
-}
-
-/** Confirmation d'un lot mixte (null si rien n'est écarté). */
-export function messageEcarteesPaiement(ecartees: readonly { nom: string; raison: string }[], aPayer: number): string | null {
-  if (ecartees.length === 0) return null;
-  const liste = ecartees.map((e) => `• ${e.nom} (${e.raison})`).join("\n");
-  const question = aPayer > 1 ? `Marquer payés les ${aPayer} bulletins validés ?` : "Marquer payé le bulletin validé ?";
-  return `Seuls les bulletins validés par la Direction sont payés. Écarté${ecartees.length > 1 ? "s" : ""} du lot :\n${liste}\n\n${question}`;
 }

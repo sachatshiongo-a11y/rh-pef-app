@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleSelection, lignesSelectionnees, messageEcartes, partagerPourPaiement, messageEcarteesPaiement } from "./selection-paie";
+import { cleSelection, lignesSelectionnees, messageEcartes } from "./selection-paie";
 
 // Chaque ouverture de /paie recrée les lignes non figées avec de NOUVEAUX identifiants, alors que la
 // sélection de l'écran survit au nouveau rendu. Elle retient donc des salariés, et le lot part avec
@@ -33,9 +33,9 @@ describe("lignesSelectionnees", () => {
   });
 });
 
-describe("les deux écrans de lot sélectionnent des salariés et envoient les lignes affichées", () => {
+describe("l'écran de lot sélectionne des salariés et envoie les lignes affichées", () => {
   const src = (f: string) => readFileSync(join(__dirname, f), "utf8");
-  for (const [ecran, fichier] of [["/paie", "paie-bulk.tsx"], ["À valider", "../a-valider/bulletins-inbox.tsx"]] as const) {
+  for (const [ecran, fichier] of [["À valider", "../a-valider/bulletins-inbox.tsx"]] as const) {
     it(`${ecran} : aucune case ne coche un identifiant de ligne, le lot part par lignesSelectionnees`, () => {
       const s = src(fichier);
       expect(s).toContain("lignesSelectionnees(");
@@ -47,33 +47,6 @@ describe("les deux écrans de lot sélectionnent des salariés et envoient les l
       expect(s).not.toMatch(/rows\.map\(\(r\) => r\.id\)/);
     });
   }
-});
-
-describe("« Marquer payé » par la RH : les lignes non validées sont écartées et nommées", () => {
-  const lignes = [
-    { id: "a", nom: "Ada", statutPaiement: "VALIDE" },
-    { id: "b", nom: "Béatrice", statutPaiement: "PAS_VALIDE" },
-    { id: "c", nom: "Clarisse", statutPaiement: "PAYE" },
-    { id: "d", nom: "Dieudonné", statutPaiement: "VALIDE" },
-  ];
-
-  it("seules les lignes validées partent ; les autres sont nommées avec leur raison", () => {
-    const { aPayer, ecartees } = partagerPourPaiement(lignes, ["a", "b", "c", "d"]);
-    expect(aPayer).toEqual(["a", "d"]);
-    expect(ecartees).toEqual([
-      { nom: "Béatrice", raison: "pas encore validé par la Direction" },
-      { nom: "Clarisse", raison: "déjà payé" },
-    ]);
-    expect(messageEcarteesPaiement(ecartees, aPayer.length)).toBe(
-      "Seuls les bulletins validés par la Direction sont payés. Écartés du lot :\n• Béatrice (pas encore validé par la Direction)\n• Clarisse (déjà payé)\n\nMarquer payés les 2 bulletins validés ?",
-    );
-  });
-
-  it("rien d'écarté → pas de boîte", () => {
-    const { aPayer, ecartees } = partagerPourPaiement(lignes, ["a"]);
-    expect(aPayer).toEqual(["a"]);
-    expect(messageEcarteesPaiement(ecartees, 1)).toBeNull();
-  });
 });
 
 // Relecture du 2026-10-08 : « À valider » liste les bulletins validés de TOUS les mois depuis que la

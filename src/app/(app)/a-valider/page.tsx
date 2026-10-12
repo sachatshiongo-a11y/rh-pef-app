@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
+import { BulletinsPayes, type BulletinPayeRow } from "./bulletins-payes";
 import { libellePeriode } from "@/lib/changement-mois";
 import { jetonLigne } from "@/lib/paie-jeton";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
@@ -47,6 +48,7 @@ function echeanceInfo(date: Date): { texte: string; classe: string } {
   if (j <= 3) return { texte: `dans ${j} j`, classe: "text-amber-600 font-medium" };
   return { texte: `dans ${j} j`, classe: "text-muted-foreground" };
 }
+const LIBELLE_MODE_PAIEMENT = { ESPECES: "espèces", VIREMENT: "virement", MOBILE_MONEY: "Mobile Money", CHEQUE: "chèque", AUTRE: "autre" } as const;
 function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
@@ -76,7 +78,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     : {};
 
   const miennes = estDirection ? {} : { auteurId: user.id };
-  const [conges, prepare, valide, acomptes, changements, echanges, attestations, modifsFiche, creationsFiche] = await Promise.all([
+  const [conges, prepare, valide, payes, acomptes, changements, echanges, attestations, modifsFiche, creationsFiche] = await Promise.all([
     pourDirection(() => prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -95,6 +97,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       where: { statutPaiement: "VALIDE" },
       include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true, mois: true, annee: true } } },
       orderBy: [{ payrollRun: { annee: "asc" } }, { payrollRun: { mois: "asc" } }, { employee: { nom: "asc" } }],
+    })),
+    // Bulletins PAYÉS du mois : rien n'y est en attente, mais la Direction peut y annuler un paiement (geste de
+    // l'écran Paie jusqu'au lot 8, V5). Même périmètre qu'avant : le mois affiché par Paie.
+    pourDirection(() => prisma.payrollLine.findMany({
+      where: { statutPaiement: "PAYE", ...filtreRun },
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } } },
+      orderBy: { employee: { nom: "asc" } },
     })),
     pourDirection(() => prisma.acompteSalaire.findMany({
       where: { statut: "EN_ATTENTE" },
@@ -196,6 +205,15 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     ...toRow(l),
     periode: config && (l.payrollRun.mois !== config.moisCourant || l.payrollRun.annee !== config.anneeCourante) ? libellePeriode(l.payrollRun) : null,
   }));
+  const payeRows: BulletinPayeRow[] = payes.map((l) => ({
+    id: l.id,
+    employeeId: l.employee.id,
+    matricule: l.employee.matricule,
+    nom: l.employee.nom,
+    photoUrl: l.employee.photoUrl,
+    montant: money(salaireNetUSD(l)),
+    paiement: `payé${l.datePaiement ? ` le ${new Date(l.datePaiement).toLocaleDateString("fr-FR", { timeZone: "UTC" })}` : ""}${l.modePaiement ? ` · ${LIBELLE_MODE_PAIEMENT[l.modePaiement]}` : ""}`,
+  }));
   const acompteRows: AcompteRow[] = acomptes.map((a) => ({
     id: a.id,
     employeeId: a.employee.id,
@@ -254,7 +272,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
           ? <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
           : <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" lectureSeule="En attente de validation par la Direction" />,
       },
-      { id: "bulletins-a-payer", titre: "Bulletins à payer", nombre: valideRows.length, contenu: <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" /> },
+      { id: "bulletins-a-payer", titre: "Bulletins à payer", nombre: valideRows.length, contenu: <BulletinsInbox rows={valideRows} cible="PAYE" actionLabel="Marquer payé" peutRouvrir={peutValider} /> },
     ] : []),
   ];
   // La Direction voit toute la file ; un autre rôle, ses demandes (et les bulletins qu'il paie) — pas celles des autres.
@@ -293,6 +311,14 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       )}
 
       <RubriquesAValider rubriques={rubriques} />
+
+      {/* Annuler un paiement : Direction seule, à part des files (un bulletin payé n'attend rien, il n'est pas compté). */}
+      {estDirection && payeRows.length > 0 && (
+        <details id="bulletins-payes" className="mb-8 rounded-xl border bg-card p-3 open:pb-4">
+          <summary className="cursor-pointer text-sm font-semibold">Bulletins payés du mois ({payeRows.length}) — annuler un paiement</summary>
+          <div className="mt-3"><BulletinsPayes rows={payeRows} /></div>
+        </details>
+      )}
 
       {mesDecisions.length > 0 && <div className="mt-8"><DernieresDecisions titre="Mes dernières demandes traitées" decisions={mesDecisions} /></div>}
 

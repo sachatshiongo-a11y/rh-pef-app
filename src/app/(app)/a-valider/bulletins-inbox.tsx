@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "../paie/actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie } from "@/lib/paie-reference";
@@ -47,6 +47,7 @@ export function BulletinsInbox({
   cible,
   actionLabel,
   lectureSeule,
+  peutRouvrir,
 }: {
   rows: BulletinRow[];
   cible: PaymentStatus;
@@ -54,6 +55,9 @@ export function BulletinsInbox({
   /** Lecture seule (la RH devant les bulletins que la Direction n'a pas validés) : ce libellé
    *  remplace les cases et les boutons. Le serveur refuse de toute façon (paie-etats.ts). */
   lectureSeule?: string;
+  /** « ↩ Rouvrir » (Validé → Pas validé), ligne et lot : la Direction seule (paie-etats.ts), sur la liste des
+   *  bulletins à payer. Le geste vivait sur l'écran Paie jusqu'au lot 8 (V5) ; le serveur revérifie le rôle. */
+  peutRouvrir?: boolean;
 }) {
   // Sélection = SALARIÉS (cleSelection) : les identifiants des lignes changent à chaque recalcul.
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -72,18 +76,26 @@ export function BulletinsInbox({
       return n;
     });
   }
-  function lancer(ids: string[]) {
+  /** `vers` : l'état visé — la cible de la liste, ou « Pas validé » pour rouvrir un bulletin validé. */
+  function lancer(ids: string[], vers: PaymentStatus = cible) {
     if (ids.length === 0) return;
     // Validation (une ligne ou le lot) : mêmes avertissements et même boîte que l'écran Paie, sur les
     // lignes qui vont réellement être validées. Rien à signaler → validation directe, sans boîte.
-    if (cible === "VALIDE") {
+    if (vers === "VALIDE") {
       const message = messageConfirmationValidation(lignesAValiderDuLot(rows, new Set(ids)));
       if (message && !window.confirm(message)) return;
+    }
+    if (vers === "PAS_VALIDE") {
+      const n = ids.length;
+      const question = n > 1
+        ? `Rouvrir ces ${n} bulletins validés ? Ils repassent « pas validé » et devront être validés de nouveau.`
+        : "Rouvrir ce bulletin validé ? Il repasse « pas validé » et devra être validé de nouveau.";
+      if (!window.confirm(question)) return;
     }
     setErreur(null);
     startTransition(async () => {
       const jetons = Object.fromEntries(rows.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons, cible === "PAYE" ? dateVersement : null);
+      const r = await changerStatutEnLot(ids, vers, vers === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons, vers === "PAYE" ? dateVersement : null);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
@@ -108,14 +120,15 @@ export function BulletinsInbox({
           />
           Tout sélectionner
         </label>
-        {cible === "PAYE" && idsSelection.length > 0 && (
-          <select value={mode} onChange={(e) => setMode(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
+        {/* Toujours visible au paiement, comme la date : le bouton de chaque ligne s'en sert aussi (le moyen
+            de paiement se choisissait ligne par ligne sur l'écran Paie). */}
+        {cible === "PAYE" && (
+          <select value={mode} onChange={(e) => setMode(e.target.value)} title="Moyen de paiement" aria-label="Moyen de paiement" className="rounded border border-input bg-background px-2 py-1 text-xs">
             {MODES.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
         )}
-        {/* Toujours visible au paiement : le bouton de chaque ligne s'en sert aussi, sans sélection. */}
         {cible === "PAYE" && (
           <label className="flex items-center gap-1 text-xs text-muted-foreground">Versement le
             <ChampDateVersement value={dateVersement} onChange={setDateVersement} />
@@ -125,6 +138,7 @@ export function BulletinsInbox({
           <>
             <span className="text-xs font-medium">{idsSelection.length} sélectionné(s) :</span>
             <BoutonValider onClick={() => lancer(idsSelection)} disabled={isPending}>{actionLabel}</BoutonValider>
+            {peutRouvrir && <BoutonNeutre onClick={() => lancer(idsSelection, "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
             {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
           </>
         )}
@@ -152,7 +166,10 @@ export function BulletinsInbox({
               {lectureSeule ? (
                 <span className="text-muted-foreground">{lectureSeule}</span>
               ) : (
-                <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
+                <>
+                  <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
+                  {peutRouvrir && <BoutonNeutre onClick={() => lancer([r.id], "PAS_VALIDE")} disabled={isPending}>↩ Rouvrir</BoutonNeutre>}
+                </>
               )}
             </div>
           </div>

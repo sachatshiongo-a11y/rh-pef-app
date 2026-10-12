@@ -26,7 +26,7 @@ const BASE_CLASSES = CLASSES_GEOMETRIE;
 // PAS être un <button> : un <Link> next/link (« Voir l'aperçu », « Modifier le brouillon » —
 // ce sont des navigations : en faire des <button> ferait perdre l'ouverture dans un nouvel
 // onglet et le préchargement), ou un <button> brut composé avec un <select> dans le même
-// <form> (status-actions.tsx). Même géométrie que BASE_CLASSES : c'est la norme, et une barre
+// <form>. Même géométrie que BASE_CLASSES : c'est la norme, et une barre
 // d'actions qui contient un bouton de la famille doit être homogène jusqu'au dernier élément.
 // À réserver aux étapes intermédiaires qui ne sont ni une approbation ni un refus — pour
 // approuver/refuser/valider, toujours un composant ci-dessous.
