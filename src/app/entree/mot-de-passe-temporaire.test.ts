@@ -48,7 +48,7 @@ vi.mock("@/lib/securite-connexion", () => ({
   changerMotDePasseAdmin: async (_id: string, mdp: string) => void S.motsDePasse.push(mdp),
 }));
 vi.mock("@/app/login/actions", () => ({ logout: async () => {} }));
-vi.mock("@/lib/notifications", () => ({ chargerNotifications: async () => ({ items: [], nonLues: 0 }) }));
+vi.mock("@/lib/notifications", () => ({ chargerNotificationsCompte: async () => ({ items: [], nonLues: 0 }) })); // la cloche unique
 vi.mock("@/app/(stock)/stock-shell", () => ({ StockShell: () => null }));
 
 const { default: EntreePage } = await import("./page");

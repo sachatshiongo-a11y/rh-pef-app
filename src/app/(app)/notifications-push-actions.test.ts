@@ -52,7 +52,7 @@ describe("marquerNotificationsLues — « Tout marquer lu » d'une cloche d'espa
       const r = await marquerNotificationsLues("RH");
       if (autorise) {
         expect(r).toEqual({ ok: true });
-        expect(A.ecritures).toEqual([expect.stringContaining('"domaine":"RH"')]);
+        expect(A.ecritures).toEqual([expect.stringContaining('"domaine":{"in":["RH"]}')]);
       } else {
         expect(r).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
         expect(A.ecritures).toEqual([]);
@@ -78,7 +78,7 @@ describe("marquerNotificationsLues — « Tout marquer lu » d'une cloche d'espa
       if (autorise) {
         expect(r).toEqual({ ok: true });
         // Écrit dans SON domaine, et seulement les notifications partagées ou adressées à CE compte.
-        expect(A.ecritures).toEqual([expect.stringContaining('"domaine":"EXPLOITATION"')]);
+        expect(A.ecritures).toEqual([expect.stringContaining('"domaine":{"in":["EXPLOITATION"]}')]);
         expect(A.ecritures[0]).toContain('"destinataireUserId":"u-moi"');
       } else {
         expect(r).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
@@ -86,6 +86,29 @@ describe("marquerNotificationsLues — « Tout marquer lu » d'une cloche d'espa
       }
     },
   );
+
+  // LA CLOCHE UNIQUE : « Tout marquer lu » sans domaine vaut pour TOUT ce que le compte voit — ni plus, ni moins.
+  it.each<[Role, boolean, string[]]>([
+    ["ADMIN", false, ["RH", "STOCK", "EXPLOITATION"]],
+    ["MANAGER", false, ["RH"]],
+    ["VIEWER", false, ["RH"]],
+    ["STOCK", false, ["STOCK"]],
+    ["COMPTA", false, ["EXPLOITATION"]],
+    ["EMPLOYE", true, ["STOCK"]], // salarié avec accès Stock
+  ])("sans domaine, compte %s (accès stock %s) → marque exactement les domaines %j", async (role, accesStock, domaines) => {
+    compte(role, { accesStock });
+    expect(await marquerNotificationsLues()).toEqual({ ok: true });
+    expect(A.ecritures).toHaveLength(1);
+    expect(A.ecritures[0]).toContain(`"domaine":{"in":${JSON.stringify(domaines)}}`);
+    expect(A.ecritures[0]).toContain('"destinataireUserId":"u-moi"'); // jamais la notification adressée à un autre compte
+    expect(A.ecritures[0]).not.toContain("SALARIE");
+  });
+
+  it("sans domaine, un salarié sans accès Stock est refusé et rien n'est écrit", async () => {
+    compte("EMPLOYE");
+    expect(await marquerNotificationsLues()).toEqual({ erreur: MESSAGE_NOTIFICATION_REFUSEE });
+    expect(A.ecritures).toEqual([]);
+  });
 
   it("un domaine inventé retombe sur RH : un salarié reste refusé", async () => {
     compte("EMPLOYE");

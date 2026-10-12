@@ -43,4 +43,14 @@ describe("RubriquesAValider", () => {
     expect(html).not.toContain("<section");
     expect(html).not.toMatch(/[\u{1F300}-\u{1FAFF}✅✔]/u);
   });
+
+  it("monté dans un espace de la page unique : sans compteurs ni état vide, titres de niveau 3, rubriques repliables ouvertes", () => {
+    const html = renderToStaticMarkup(h(RubriquesAValider, { rubriques: [R("conges", "Demandes de congé", 3), R("acomptes", "Demandes d'acompte", 0)], avecNavigation: false, avecEtatVide: false, niveauTitre: 3, repliables: true }));
+    expect(html).not.toContain("<nav");
+    expect(html).toMatch(/<details id="conges" open/);
+    expect(html).toMatch(/<h3[^>]*>Demandes de congé \(3\)<\/h3>/);
+    expect(html).toContain("Rien d&#x27;autre en attente");
+    const vide = renderToStaticMarkup(h(RubriquesAValider, { rubriques: [R("a", "Alpha", 0)], avecEtatVide: false }));
+    expect(vide).toBe("");
+  });
 });

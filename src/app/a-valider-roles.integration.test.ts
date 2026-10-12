@@ -10,8 +10,10 @@ import { seederPlanComptable } from "../../prisma/seed-exploitation";
 // éphémère, avec les VRAIES pages, les VRAIS chargeurs de compteurs et les VRAIES actions serveur ; seule
 // la session est simulée (les gardes de rôle et d'espace sont les vrais prédicats).
 //
-//  1. BADGES PAR RÔLE : la Direction compte toute la file ; chaque autre rôle compte SES éléments — jamais
-//     les demandes des autres (annexe D). Le compteur « En attente » de la page est le même chiffre.
+//  0. UNE SEULE PAGE (2026-10-12) : « À valider » est la même page à trois adresses (une par coquille d'espace) ; elle
+//     montre les rubriques des espaces DU COMPTE — la Direction en voit les trois, chaque autre rôle son seul espace.
+//  1. PASTILLE PAR RÔLE : la Direction compte toute la file de tous les espaces ; chaque autre rôle compte SES éléments —
+//     jamais les demandes des autres (annexe D). Le compteur « En attente » de la page est le même chiffre.
 //  2. PAGES : un autre rôle y lit SES demandes (statut, motif du refus), jamais celles des autres, et n'a
 //     AUCUN bouton de décision (ni case à cocher) ; la Direction a les siens (contre-épreuve).
 //  3. REFUS SERVEUR : chaque action de décision, appelée directement par un compte qui contourne l'écran,
@@ -69,7 +71,7 @@ const PAGE_CHOIX = (await import("./choix-espace/page")).default;
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
 
-type Compte = "DIR" | "MGR" | "MGR2" | "VIEW" | "STK" | "STK2" | "CPT" | "CPT2";
+type Compte = "DIR" | "MGR" | "MGR2" | "VIEW" | "STK" | "STK2" | "CPT" | "CPT2" | "EMP" | "EMPS";
 const COMPTES: Record<Compte, { role: Role; nom: string }> = {
   DIR: { role: "ADMIN", nom: "Direction" },
   MGR: { role: "MANAGER", nom: "Responsable Un" },
@@ -79,11 +81,21 @@ const COMPTES: Record<Compte, { role: Role; nom: string }> = {
   STK2: { role: "STOCK", nom: "Magasinier Deux" },
   CPT: { role: "COMPTA", nom: "Compta Un" },
   CPT2: { role: "COMPTA", nom: "Compta Deux" },
+  EMP: { role: "EMPLOYE", nom: "Salarie Simple" },
+  EMPS: { role: "EMPLOYE", nom: "Salarie Accès Stock" }, // salarié à qui l'accès Stock a été accordé (session : accesStock)
 };
 const ids = {} as Record<Compte, string>;
 
 function en(c: Compte, employeeId: string | null = null) {
-  A.user = { id: ids[c], email: `${c}@pef.test`, nom: COMPTES[c].nom, role: COMPTES[c].role, accesStock: false, employeeId };
+  A.user = { id: ids[c], email: `${c}@pef.test`, nom: COMPTES[c].nom, role: COMPTES[c].role, accesStock: c === "EMPS", employeeId };
+}
+/** Le compte tel que les chargeurs le reçoivent (rôle + accès Stock accordé). */
+const cpt = (c: Compte) => ({ id: ids[c], role: COMPTES[c].role, accesStock: c === "EMPS" });
+/** La pastille unique d'un compte : le total de tous ses espaces. */
+const pastille = async (c: Compte) => (await CHARGEURS.chargerTotalAValider(cpt(c)));
+/** Une page rendue pour un compte, ou l'adresse où sa garde le renvoie. */
+async function ouRenvoye(Page: (p: { searchParams: Promise<Record<string, string>> }) => Promise<React.ReactElement>): Promise<string | null> {
+  try { await Page({ searchParams: Promise.resolve({}) }); return null; } catch (e) { return (e as { url?: string }).url ?? null; }
 }
 
 /** Le refus d'une action (valeur `{ erreur }`, `?erreur=` de page ou erreur levée), ou null si elle a réussi. */
@@ -186,44 +198,95 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => { await fermer?.(); });
 
-describe("badges par rôle — chacun compte SES éléments, la Direction toute la file", () => {
-  it("RH : Direction 8 (toute la file), Responsable RH = ses demandes de fiche + les bulletins qu'il paie, consultation 0", async () => {
+describe("pastille unique — chacun compte SES éléments, tous espaces confondus ; la Direction toute la file", () => {
+  it("RH (par espace) : Direction 8 (toute la file), Responsable RH = ses demandes de fiche + les bulletins qu'il paie, consultation 0", async () => {
     CHARGEURS.reinitialiserCacheAValider();
-    const badge = async (c: Compte) => (await CHARGEURS.chargerBadgesRH({ id: ids[c], role: COMPTES[c].role }))["/a-valider"];
-    expect(await badge("DIR")).toBe(8); // congé 1 + fiches 3 + acompte 1 + attestation 1 + bulletin à valider 1 + bulletin à payer 1
-    expect(await badge("MGR")).toBe(2); // sa demande de fiche + le bulletin à payer — pas la demande de MGR2, ni le congé, ni l'acompte
-    expect(await badge("MGR2")).toBe(3); // ses deux demandes de fiche + le bulletin à payer
-    expect(await badge("VIEW")).toBe(0);
+    const rh = async (c: Compte) => (await CHARGEURS.chargerAValiderRH(cpt(c))).total;
+    expect(await rh("DIR")).toBe(8); // congé 1 + fiches 3 + acompte 1 + attestation 1 + bulletin à valider 1 + bulletin à payer 1
+    expect(await rh("MGR")).toBe(2); // sa demande de fiche + le bulletin à payer — pas la demande de MGR2, ni le congé, ni l'acompte
+    expect(await rh("MGR2")).toBe(3); // ses deux demandes de fiche + le bulletin à payer
+    expect(await rh("VIEW")).toBe(0);
   });
 
-  it("Stock : la Direction compte tout, le magasinier ses seules demandes (+ les bons en brouillon, communs au Stock)", async () => {
-    const total = async (c: Compte) => (await CHARGEURS.chargerAValiderStock({ id: ids[c], role: COMPTES[c].role })).total;
+  it("Stock (par espace) : la Direction compte tout, le magasinier ses seules demandes (+ les bons en brouillon, communs au Stock)", async () => {
+    const total = async (c: Compte) => (await CHARGEURS.chargerAValiderStock(cpt(c))).total;
     expect(await total("DIR")).toBe(3); // 1 bon + 2 demandes
     expect(await total("STK")).toBe(2); // 1 bon + SA demande
     expect(await total("STK2")).toBe(2);
   });
 
-  it("Exploitation : la Direction compte toutes les demandes de ratios, la Compta les siennes", async () => {
-    const total = async (c: Compte) => CHARGEURS.chargerAValiderExploitation({ id: ids[c], role: COMPTES[c].role });
+  it("Exploitation (par espace) : la Direction compte toutes les demandes de ratios, la Compta les siennes", async () => {
+    const total = async (c: Compte) => CHARGEURS.chargerAValiderExploitation(cpt(c));
     expect(await total("DIR")).toBe(2);
     expect(await total("CPT")).toBe(1);
     expect(await total("CPT2")).toBe(1);
   });
 
-  it("le compteur « En attente » de chaque page est le chiffre du badge du menu", async () => {
+  it("LA PASTILLE d'un compte = la somme des espaces du compte : Direction 8 + 3 + 2, les autres leur seul espace, un salarié simple 0", async () => {
+    CHARGEURS.reinitialiserCacheAValider();
+    expect(await pastille("DIR")).toBe(13);
+    expect(await pastille("MGR")).toBe(2);
+    expect(await pastille("MGR2")).toBe(3);
+    expect(await pastille("VIEW")).toBe(0);
+    expect(await pastille("STK")).toBe(2);
+    expect(await pastille("STK2")).toBe(2);
+    expect(await pastille("CPT")).toBe(1);
+    expect(await pastille("CPT2")).toBe(1);
+    expect(await pastille("EMP")).toBe(0);
+    expect(await pastille("EMPS")).toBe(1); // le salarié avec accès Stock : le bon en brouillon, commun au Stock — pas de demande à lui
+  });
+
+  it("le détail : un espace qui n'est pas au compte n'est PAS lu (null), pas même compté zéro", async () => {
+    const d = await CHARGEURS.chargerAValiderDuCompte(cpt("STK"));
+    expect(d.espaces).toEqual({ rh: false, stock: true, exploitation: false });
+    expect(d.rh).toBeNull();
+    expect(d.exploitation).toBeNull();
+    expect(d.parEspace).toEqual({ rh: 0, stock: 2, exploitation: 0 });
+    const dir = await CHARGEURS.chargerAValiderDuCompte(cpt("DIR"));
+    expect(dir.parEspace).toEqual({ rh: 8, stock: 3, exploitation: 2 });
+  });
+
+  it("le badge « Paie » et le badge « Congés » du menu RH restent ceux d'avant (propres à la RH, selon le rôle)", async () => {
+    const badges = (c: Compte) => CHARGEURS.chargerBadgesRH(cpt(c));
+    expect(await badges("DIR")).toEqual({ "/a-valider": 13, "/conges": 1, "/paie": 2 }); // à valider 1 + à payer 1
+    expect(await badges("MGR")).toEqual({ "/a-valider": 2, "/conges": 1, "/paie": 1 }); // il paie, il ne valide pas ; le badge Congés compte la file entière
+    expect(await badges("VIEW")).toEqual({ "/a-valider": 0, "/conges": 1, "/paie": 0 });
+  });
+
+  it("le compteur « En attente » de la page est LE chiffre de la pastille — sur chacune des trois adresses ouvertes à ce compte", async () => {
     CHARGEURS.reinitialiserCacheAValider();
     for (const c of ["DIR", "MGR", "MGR2", "VIEW"] as Compte[]) {
       en(c);
-      const badge = (await CHARGEURS.chargerBadgesRH({ id: ids[c], role: COMPTES[c].role }))["/a-valider"];
-      expect(enAttente(await page(PAGE_RH)), `RH ${c}`).toBe(badge);
+      expect(enAttente(await page(PAGE_RH)), `RH ${c}`).toBe(await pastille(c));
     }
-    for (const c of ["DIR", "STK", "STK2"] as Compte[]) {
+    for (const c of ["DIR", "STK", "STK2", "EMPS"] as Compte[]) {
       en(c);
-      expect(enAttente(await page(PAGE_STOCK)), `Stock ${c}`).toBe((await CHARGEURS.chargerAValiderStock({ id: ids[c], role: COMPTES[c].role })).total);
+      expect(enAttente(await page(PAGE_STOCK)), `Stock ${c}`).toBe(await pastille(c));
     }
     for (const c of ["DIR", "CPT", "CPT2"] as Compte[]) {
       en(c);
-      expect(enAttente(await page(PAGE_EXPLOITATION)), `Exploitation ${c}`).toBe(await CHARGEURS.chargerAValiderExploitation({ id: ids[c], role: COMPTES[c].role }));
+      expect(enAttente(await page(PAGE_EXPLOITATION)), `Exploitation ${c}`).toBe(await pastille(c));
+    }
+  });
+});
+
+describe("page unique — chaque adresse n'est ouverte qu'aux comptes de SON espace (la garde de la page, pas seulement le layout)", () => {
+  it("un compte hors de l'espace est renvoyé à l'entrée AVANT toute lecture : STK et CPT sur la coquille RH, MGR sur celle du Stock, STK sur celle de l'Exploitation, EMP partout", async () => {
+    const cas: [Compte, typeof PAGE_RH, string][] = [
+      ["STK", PAGE_RH, "RH"], ["CPT", PAGE_RH, "RH"], ["EMP", PAGE_RH, "RH"], ["EMPS", PAGE_RH, "RH"],
+      ["MGR", PAGE_STOCK, "Stock"], ["VIEW", PAGE_STOCK, "Stock"], ["CPT", PAGE_STOCK, "Stock"], ["EMP", PAGE_STOCK, "Stock"],
+      ["STK", PAGE_EXPLOITATION, "Exploitation"], ["MGR", PAGE_EXPLOITATION, "Exploitation"], ["EMP", PAGE_EXPLOITATION, "Exploitation"], ["EMPS", PAGE_EXPLOITATION, "Exploitation"],
+    ];
+    for (const [c, Page, nom] of cas) {
+      en(c);
+      expect(await ouRenvoye(Page), `${c} sur ${nom}`).toBe("/entree");
+    }
+  });
+
+  it("contre-épreuve : les comptes de l'espace, eux, entrent (la Direction par les trois, le salarié avec accès Stock par le Stock)", async () => {
+    for (const [c, Page] of [["DIR", PAGE_RH], ["DIR", PAGE_STOCK], ["DIR", PAGE_EXPLOITATION], ["MGR", PAGE_RH], ["STK", PAGE_STOCK], ["EMPS", PAGE_STOCK], ["CPT", PAGE_EXPLOITATION]] as [Compte, typeof PAGE_RH][]) {
+      en(c);
+      expect(await ouRenvoye(Page), c).toBeNull();
     }
   });
 });
@@ -239,7 +302,9 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     expect(html).toContain("Refusée");
     expect(html).toContain("Motif : Salaire hors grille");
     for (const marque of ["Employe Marque Deux", "Nouvelle Recrue Marquee", "Employe Marque Trois", "Employe Marque Quatre"]) expect(html, marque).not.toContain(marque);
-    expect(html).not.toContain("Aussi en attente"); // rappel croisé : Direction seulement
+    // Une page UNIQUE, mais seulement les espaces du compte : ni le Stock ni l'Exploitation, ni leur titre, ni leur contenu.
+    expect(html).toContain('id="espace-rh"');
+    for (const absent of ['id="espace-stock"', 'id="espace-exploitation"', "Marque Stock", "Compta Un", "Compta Deux", "Farine Marquee"]) expect(html, absent).not.toContain(absent);
     // Les rubriques de la file des salariés ne sont ni listées ni même nommées (« Rien d'autre en attente : demandes de congé… »).
     // Les shifts, eux, sont son geste historique (voir le dernier bloc de ce fichier).
     expect(html).not.toMatch(/congé|acompte|attestation/i);
@@ -265,17 +330,17 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     for (const marque of ["Employe Marque", "Nouvelle Recrue Marquee"]) expect(html, marque).not.toContain(marque);
   });
 
-  it("RH, Direction (contre-épreuve) : toute la file, les boutons de décision, les cases, le rappel croisé", async () => {
+  it("RH, Direction (contre-épreuve) : toute la file des TROIS espaces, les boutons de décision, les cases — sur une seule page", async () => {
     en("DIR");
     const html = await page(PAGE_RH);
     for (const marque of ["Employe Marque Un", "Employe Marque Deux", "Nouvelle Recrue Marquee", "Employe Marque Trois", "Employe Marque Quatre", "Employe Marque Cinq", "Employe Marque Six"]) expect(html, marque).toContain(marque);
     expect(html).toContain("Approuver");
     expect(html).toContain("Refuser");
     expect(html).toContain('type="checkbox"');
-    expect(html).toContain("Aussi en attente");
-    expect(html).toContain('href="/stock/a-valider"');
-    expect(html).toContain('href="/exploitation/a-valider"');
-    expect(html).not.toContain('href="/a-valider"'); // l'espace qu'on regarde n'est pas rappelé
+    // Un seul « À valider » : les rubriques du Stock et de l'Exploitation sont sur la même page, plus de rappel croisé.
+    for (const marque of ["Marque Stock Un", "Marque Stock Deux", "Compta Un", "Compta Deux"]) expect(html, marque).toContain(marque);
+    for (const bloc of ['id="espace-rh"', 'id="espace-stock"', 'id="espace-exploitation"']) expect(html, bloc).toContain(bloc);
+    expect(html).not.toContain("Aussi en attente");
   });
 
   it("Stock, magasinier : sa demande, la réponse refusée avec son motif ; pas celle de l'autre magasinier ; aucun bouton de décision", async () => {
@@ -287,18 +352,18 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     expect(html).not.toContain("Marque Stock Deux");
     expect(aDesBoutonsDeDecision(html)).toBe(false);
     expect(html).toContain("En attente Direction"); // le bon en brouillon : en lecture
-    expect(html).not.toContain("Aussi en attente");
+    // Pas d'autre espace que le sien : ni RH, ni Exploitation (ni titre, ni contenu).
+    expect(html).toContain('id="espace-stock"');
+    for (const absent of ['id="espace-rh"', 'id="espace-exploitation"', "Employe Marque", "Compta Un", "Nouvelle Recrue Marquee"]) expect(html, absent).not.toContain(absent);
   });
 
-  it("Stock, Direction (contre-épreuve) : les deux demandes, les boutons, le rappel croisé", async () => {
+  it("Stock, Direction (contre-épreuve) : les deux demandes, les boutons, et — même page — la RH et l'Exploitation", async () => {
     en("DIR");
     const html = await page(PAGE_STOCK);
     expect(html).toContain("Marque Stock Un");
     expect(html).toContain("Marque Stock Deux");
     expect(aDesBoutonsDeDecision(html)).toBe(true);
-    expect(html).toContain("Aussi en attente");
-    expect(html).toContain('href="/a-valider"');
-    expect(html).toContain('href="/exploitation/a-valider"');
+    for (const marque of ["Employe Marque Un", "Nouvelle Recrue Marquee", "Compta Un", "Compta Deux"]) expect(html, marque).toContain(marque);
   });
 
   it("Exploitation, Compta : sa demande de ratios et la réponse refusée (motif) ; pas celle de l'autre ; aucun bouton de décision ni case", async () => {
@@ -311,10 +376,11 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     expect(html).not.toMatch(/Approuver|Refuser|✕/);
     expect(html).not.toContain('type="checkbox"');
     expect(html).toContain("Retirer ma demande"); // son seul geste : retirer SA demande
-    expect(html).not.toContain("Aussi en attente");
+    expect(html).toContain('id="espace-exploitation"');
+    for (const absent of ['id="espace-rh"', 'id="espace-stock"', "Employe Marque", "Marque Stock", "Farine Marquee"]) expect(html, absent).not.toContain(absent);
   });
 
-  it("Exploitation, Direction (contre-épreuve) : les deux demandes, les boutons, le rappel croisé", async () => {
+  it("Exploitation, Direction (contre-épreuve) : les deux demandes, les boutons, et — même page — la RH et le Stock", async () => {
     en("DIR");
     const html = await page(PAGE_EXPLOITATION);
     expect(html).toContain("Compta Un");
@@ -322,9 +388,30 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     expect(html).toContain("Approuver");
     expect(html).toContain("Refuser");
     expect(html).toContain('type="checkbox"');
-    expect(html).toContain("Aussi en attente");
-    expect(html).toContain('href="/a-valider"');
-    expect(html).toContain('href="/stock/a-valider"');
+    for (const marque of ["Employe Marque Un", "Marque Stock Un", "Marque Stock Deux"]) expect(html, marque).toContain(marque);
+  });
+
+  it("la MÊME page à trois adresses : la Direction y lit les mêmes rubriques et le même chiffre, quelle que soit la coquille", async () => {
+    en("DIR");
+    const pages = [await page(PAGE_RH), await page(PAGE_STOCK), await page(PAGE_EXPLOITATION)];
+    expect(pages.map(enAttente)).toEqual([13, 13, 13]);
+    const rubriques = (html: string) => [...html.matchAll(/<(?:section|details) id="([^"]+)"/g)].map((m) => m[1]);
+    expect(rubriques(pages[1])).toEqual(rubriques(pages[0]));
+    expect(rubriques(pages[2])).toEqual(rubriques(pages[0]));
+    expect(rubriques(pages[0])).toEqual(expect.arrayContaining(["espace-rh", "conges", "modifications-fiches", "bulletins-a-payer", "espace-stock", "bons-de-commande", "demandes", "espace-exploitation", "demandes-ratios"]));
+    // Un titre unique et l'ancre « #demandes-ratios » une seule fois (la rubrique la porte, plus le composant).
+    for (const html of pages) {
+      expect(html.match(/<h1\b/g)).toHaveLength(1);
+      expect(html.match(/id="demandes-ratios"/g)).toHaveLength(1);
+    }
+  });
+
+  it("les rubriques se replient (espace puis nature), ouvertes au départ ; un espace sans rien à valider n'est pas affiché", async () => {
+    en("CPT");
+    const html = await page(PAGE_EXPLOITATION);
+    expect(html).toMatch(/<details id="espace-exploitation" open/);
+    expect(html).toMatch(/<details id="demandes-ratios" open/);
+    expect(html).toContain("<summary");
   });
 
   it("Plan de comptes : la section des demandes a disparu, un lien « → À valider » la remplace (ancre conservée)", async () => {
@@ -342,10 +429,10 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
 
 describe("refus serveur — chaque action de décision, appelée directement, est refusée et n'écrit rien", () => {
   type Decision = { nom: string; appeler: () => Promise<unknown>; refusesA: Compte[] };
-  const TOUS: Compte[] = ["MGR", "VIEW", "STK", "CPT"];
+  const TOUS: Compte[] = ["MGR", "VIEW", "STK", "CPT", "EMP", "EMPS"];
   // Le Responsable RH garde deux gestes qui ne sont pas des validations (règles de la paie et du planning,
   // inchangées par ce lot) : marquer payé un bulletin que la Direction a validé, acter un shift.
-  const SAUF_MGR: Compte[] = ["VIEW", "STK", "CPT"];
+  const SAUF_MGR: Compte[] = ["VIEW", "STK", "CPT", "EMP", "EMPS"];
   const v = async () => Object.fromEntries((await prisma.demandeValidationStock.findMany({ select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
   const DECISIONS: Decision[] = [
     { nom: "fiches : approuver", appeler: () => FICHES.approuverModifsFiche([S.modifMgr2]), refusesA: TOUS },
@@ -399,6 +486,28 @@ describe("refus serveur — chaque action de décision, appelée directement, es
   });
 });
 
+describe("retour d'un refus de paie : liste FERMÉE, la page « À valider » d'où l'on vient", () => {
+  // Une date de versement future est refusée AVANT toute écriture : le refus revient à l'adresse du formulaire — si elle est permise.
+  const refus = async (retour: string | null) => {
+    en("DIR");
+    const f = new FormData();
+    f.set("versStatut", "PAYE");
+    f.set("dateVersement", "2099-01-01");
+    if (retour !== null) f.set("retour", retour);
+    try { await PAIE.changerStatutPaie(S.ligneAPayer, f); return "pas de redirection"; } catch (e) { return (e as { url?: string }).url ?? String(e); }
+  };
+
+  it.each(["/a-valider", "/stock/a-valider", "/exploitation/a-valider"])("le refus revient à %s (la coquille d'où part le geste)", async (adresse) => {
+    expect(await refus(adresse)).toMatch(new RegExp(`^${adresse}\\?erreur=`));
+  });
+
+  it("toute autre adresse (liste fermée) retombe sur Paie : jamais une adresse venue du formulaire", async () => {
+    for (const mauvaise of ["https://exemple.test/a-valider", "//exemple.test", "/employes", "/a-valider/../paie", "/stock/a-valider?x=1", "", null]) {
+      expect(await refus(mauvaise), String(mauvaise)).toMatch(/^\/paie\?erreur=/);
+    }
+  });
+});
+
 describe("sélecteur d'espace — « N à valider » sur les cartes de la Direction, les mêmes chiffres que les badges", () => {
   // Les décisions ci-dessus ont vidé une demande de ratios et le bon de commande : on relit les chiffres de la base.
   it("Direction : une mention par espace de bureau, égale au badge de cet espace", async () => {
@@ -406,10 +515,12 @@ describe("sélecteur d'espace — « N à valider » sur les cartes de la Direct
     en("DIR");
     const dir = { id: ids.DIR, role: "ADMIN" };
     const attendu = {
-      rh: (await CHARGEURS.chargerBadgesRH(dir))["/a-valider"],
+      rh: (await CHARGEURS.chargerAValiderRH(dir)).total,
       stock: (await CHARGEURS.chargerAValiderStock(dir)).total,
       exploitation: await CHARGEURS.chargerAValiderExploitation(dir),
     };
+    // Les cartes montrent le détail PAR ESPACE ; la pastille des menus en est la somme.
+    expect(await CHARGEURS.chargerTotalAValider(dir)).toBe(attendu.rh + attendu.stock + attendu.exploitation);
     expect(attendu).toEqual({ rh: 8, stock: 2, exploitation: 1 });
     const html = renderToStaticMarkup(await PAGE_CHOIX());
     const mentions = [...html.matchAll(/(\d+|Rien) à valider/g)].map((m) => m[0]);
@@ -438,9 +549,8 @@ describe("Responsable RH — le geste « acter un shift » reste sur l'écran (r
     ]);
     await prisma.demandeChangementShift.create({ data: { employeeId: S.emp.e2, date: new Date("2026-11-10"), shiftActuelId: sA.id, shiftDemandeId: sB.id, motif: "Motif de shift marqué" } });
     CHARGEURS.reinitialiserCacheAValider();
-    const badge = async (c: Compte) => (await CHARGEURS.chargerBadgesRH({ id: ids[c], role: COMPTES[c].role }))["/a-valider"];
-    expect(await badge("MGR")).toBe(3); // 2 d'avant + le changement de shift
-    expect(await badge("VIEW")).toBe(0);
+    expect(await pastille("MGR")).toBe(3); // 2 d'avant + le changement de shift
+    expect(await pastille("VIEW")).toBe(0);
 
     en("MGR");
     const htmlMgr = await page(PAGE_RH);

@@ -281,7 +281,7 @@ describe("« À valider » recalcule à l'ouverture, comme /paie (même fonction
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const paie = readFileSync(join(__dirname, "page.tsx"), "utf8");
-    const aValider = readFileSync(join(__dirname, "../a-valider/page.tsx"), "utf8");
+    const aValider = readFileSync(join(__dirname, "../a-valider/rubriques-rh.tsx"), "utf8");
     expect(paie).toContain("await rafraichirPaieAffichee(mois, annee);");
     expect(paie).not.toContain("rafraichirPaieDuMois");
     const appel = aValider.indexOf("await rafraichirPaieAffichee(config.moisCourant, config.anneeCourante)");

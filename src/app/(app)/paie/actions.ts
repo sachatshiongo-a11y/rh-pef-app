@@ -31,6 +31,10 @@ import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH,
 import { libellePeriode, memePeriode, messageClotureReussie, passerAuMoisSuivantApresCloture, revaliderApresChangementDeMois, verrouillerMoisCourant, type Periode } from "@/lib/changement-mois";
 import { figerCongesDuMois } from "@/lib/conges-bulletin-donnees";
 import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
+import { BOITES_A_VALIDER } from "@/lib/a-valider-compteur";
+
+/** Les adresses de la page « À valider » unique (une par coquille d'espace) : les seuls retours permis d'un formulaire, avec /paie. */
+const ADRESSES_RETOUR_A_VALIDER: string[] = BOITES_A_VALIDER.map((b) => b.href);
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -348,8 +352,10 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // Montants que l'écran a montrés (paie-jeton.ts) : une ligne recalculée depuis est refusée.
   const jeton = String(formData.get("jeton") ?? "").trim() || undefined;
   // L'écran d'où part le geste, pour y ramener un refus : Paie par défaut, « À valider » depuis qu'on y décide
-  // (lot 8, V5). Liste fermée : jamais une adresse venue du formulaire.
-  const retour = formData.get("retour") === "/a-valider" ? "/a-valider" : "/paie";
+  // (lot 8, V5) — la page unique, ouverte dans la coquille de l'espace RH, Stock ou Exploitation (on y revient dans
+  // la même). Liste fermée : jamais une adresse venue du formulaire.
+  const retourDemande = String(formData.get("retour") ?? "");
+  const retour = ADRESSES_RETOUR_A_VALIDER.includes(retourDemande) ? retourDemande : "/paie";
 
   // Payer : Direction ET RH ; valider, rouvrir, annuler un paiement : Direction seule (paie-etats.ts).
   requireRole(user, roleRequisPour(versStatut));

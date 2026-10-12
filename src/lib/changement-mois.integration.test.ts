@@ -267,9 +267,11 @@ function rangeesAPayer(noeud: unknown): { id: string; nom: string; periode?: str
   if (!props) return null;
   if (props.cible === "PAYE" && Array.isArray(props.rows)) return props.rows as { id: string; nom: string; periode?: string | null; jeton?: string }[];
   // Depuis le lot 3 les listes sont les `contenu` des rubriques passées à <RubriquesAValider rubriques={…}> (pas des enfants).
-  if (Array.isArray(props.rubriques)) {
-    for (const r of props.rubriques as { contenu?: unknown }[]) { const x = rangeesAPayer(r.contenu); if (x) return x; }
-  }
+  // Depuis la page unique (2026-10-12) elles sont aussi réparties par ESPACE : <EspacesAValider espaces={[{ rubriques }]}>.
+  const listes: { contenu?: unknown }[][] = [];
+  if (Array.isArray(props.rubriques)) listes.push(props.rubriques as { contenu?: unknown }[]);
+  if (Array.isArray(props.espaces)) for (const e of props.espaces as { rubriques?: { contenu?: unknown }[] }[]) if (e.rubriques) listes.push(e.rubriques);
+  for (const rubriques of listes) for (const r of rubriques) { const x = rangeesAPayer(r.contenu); if (x) return x; }
   return rangeesAPayer(props.children);
 }
 

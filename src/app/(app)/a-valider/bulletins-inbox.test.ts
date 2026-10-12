@@ -30,7 +30,7 @@ describe("/a-valider : la validation rappelle les avertissements", () => {
   });
 
   it("la page fournit statut et avertissements enregistrés de chaque ligne", () => {
-    const p = src("page.tsx");
+    const p = src("rubriques-rh.tsx"); // la page unique assemble ; les rubriques RH vivent ici
     expect(p).toContain("statutPaiement: l.statutPaiement,");
     expect(p).toContain("avertissements: lireAvertissements(l.avertissementsPaie),");
   });
@@ -45,7 +45,7 @@ describe("/a-valider : le paiement (Direction et RH, 2026-10-01)", () => {
     expect(s).not.toContain('useState("VIREMENT")');
   });
   it("la RH voit les bulletins non validés en lecture seule (libellé à la place des cases et boutons)", () => {
-    const p = src("page.tsx");
+    const p = src("rubriques-rh.tsx"); // la page unique assemble ; les rubriques RH vivent ici
     expect(p).toContain('lectureSeule="En attente de validation par la Direction"');
     expect(s).toMatch(/\{!lectureSeule && <input type="checkbox"/);
   });
@@ -70,7 +70,7 @@ describe("/a-valider : rouvrir un bulletin validé (Direction), repris de l'écr
     expect(s).toContain('vers === "PAYE" ? dateVersement : null');
   });
   it("la page n'offre « Rouvrir » qu'à la Direction, et seulement sur la liste des bulletins à payer", () => {
-    const p = src("page.tsx");
+    const p = src("rubriques-rh.tsx"); // la page unique assemble ; les rubriques RH vivent ici
     expect(p.match(/peutRouvrir=\{peutValider\}/g)).toHaveLength(1);
     expect(p).toMatch(/id: "bulletins-a-payer"[^\n]*peutRouvrir=\{peutValider\}/);
     expect(p).toMatch(/\{estDirection && payeRows\.length > 0 && \(/); // annuler un paiement : Direction seule

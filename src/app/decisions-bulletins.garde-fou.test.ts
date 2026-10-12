@@ -65,7 +65,8 @@ describe("décider d'un bulletin : À valider seulement", () => {
 
   it("Paie renvoie vers les ancres d'À valider, qui existent, et lit les chiffres du chargeur du badge", () => {
     const paie = sansCommentaires(depot.find((f) => f.chemin === "app/(app)/paie/page.tsx")!.src);
-    const aValider = sansCommentaires(depot.find((f) => f.chemin === "app/(app)/a-valider/page.tsx")!.src);
+    // Les rubriques RH vivent dans rubriques-rh.tsx (la page unique « À valider » les assemble avec celles du Stock et de l'Exploitation).
+    const aValider = sansCommentaires(depot.find((f) => f.chemin === "app/(app)/a-valider/rubriques-rh.tsx")!.src);
     for (const ancre of ["bulletins-a-valider", "bulletins-a-payer"]) {
       expect(paie, ancre).toContain(`href="/a-valider#${ancre}"`);
       expect(aValider, ancre).toContain(`id: "${ancre}"`);

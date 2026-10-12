@@ -5,9 +5,12 @@ import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { domainesGerables, type CompteNotification, type DomaineCloche } from "@/lib/acces-notification";
 
 export type NotificationItem = {
   id: string;
+  /** L'espace de la notification (RH, STOCK, EXPLOITATION) : l'étiquette de la cloche unique. Absent de la cloche d'un salarié. */
+  domaine?: string;
   type: string;
   message: string;
   lien: string | null;
@@ -15,8 +18,7 @@ export type NotificationItem = {
   createdAt: Date;
 };
 
-/** Les espaces qui ont une cloche d'espace (la cloche personnelle du salarié est le domaine SALARIE, à part). */
-export type DomaineCloche = "RH" | "STOCK" | "EXPLOITATION";
+export type { DomaineCloche };
 
 /** Crée une notification (cloche). `domaine` cloisonne l'affichage (RH, STOCK ou EXPLOITATION). */
 export async function creerNotification(params: {
@@ -89,24 +91,28 @@ export async function chargerNotificationsSalarie(userId: string): Promise<{ ite
   return { items, nonLues };
 }
 
-/** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */
-export async function chargerNotifications(domaine: DomaineCloche = "RH", userId?: string): Promise<{
-  items: NotificationItem[];
-  nonLues: number;
-  cloture: { message: string; jours: number } | null;
-}> {
-  // Cloche d'espace = notifications PARTAGÉES de l'espace + celles adressées à CE compte (réponse de
-  // la Direction à une demande de l'espace Stock ; demande de ratios reçue ou tranchée en Exploitation) ; celles d'un autre compte ne s'affichent jamais.
-  const visibles = { domaine, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
+/** Combien de notifications la cloche liste (les plus récentes, tous espaces du compte confondus). */
+export const NOTIFICATIONS_PAR_CLOCHE = 30;
+
+type DonneesCloche = { items: NotificationItem[]; nonLues: number; cloture: { message: string; jours: number } | null };
+
+/**
+ * Données de la cloche pour un ensemble de domaines : notifications récentes, non lues, + alerte clôture (RH).
+ * Cloche = notifications PARTAGÉES de ces domaines + celles adressées à CE compte (réponse de la Direction à une
+ * demande de l'espace Stock ; demande de ratios reçue ou tranchée en Exploitation) ; celles d'un autre compte ne
+ * s'affichent jamais. Trois requêtes au plus, quel que soit le nombre de domaines (index domaine · lu · date).
+ */
+async function chargerCloche(domaines: DomaineCloche[], userId?: string): Promise<DonneesCloche> {
+  const visibles = { domaine: { in: domaines }, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
   const [items, nonLues, config] = await Promise.all([
-    prisma.notification.findMany({ where: visibles, orderBy: { createdAt: "desc" }, take: 20 }),
+    prisma.notification.findMany({ where: visibles, orderBy: { createdAt: "desc" }, take: NOTIFICATIONS_PAR_CLOCHE }),
     prisma.notification.count({ where: { ...visibles, lu: false } }),
-    prisma.config.findUnique({ where: { id: "singleton" } }),
+    domaines.includes("RH") ? prisma.config.findUnique({ where: { id: "singleton" } }) : Promise.resolve(null),
   ]);
 
   // Clôture proche : jours restants avant le 30 du mois courant, s'il reste des bulletins non validés (RH uniquement).
   let cloture: { message: string; jours: number } | null = null;
-  if (config && domaine === "RH") {
+  if (config) {
     const auj = jourCivilKinshasa(new Date()); // le jour et le mois en cours : à Kinshasa
     const estMoisCourant = auj.getUTCMonth() + 1 === config.moisCourant && auj.getUTCFullYear() === config.anneeCourante;
     if (estMoisCourant) {
@@ -133,4 +139,19 @@ export async function chargerNotifications(domaine: DomaineCloche = "RH", userId
   }
 
   return { items, nonLues, cloture };
+}
+
+/** Données de la cloche pour UN espace (`domaine`). La cloche des écrans est `chargerNotificationsCompte`. */
+export async function chargerNotifications(domaine: DomaineCloche = "RH", userId?: string): Promise<DonneesCloche> {
+  return chargerCloche([domaine], userId);
+}
+
+/**
+ * LA CLOCHE UNIQUE (2026-10-12) : la même dans les espaces RH, Stock et Exploitation. Elle charge les notifications
+ * de TOUS les domaines que ce compte peut gérer (`domainesGerables` = `peutGererDomaine`), plus celles qui lui sont
+ * adressées dans ces domaines. Chaque notification porte son domaine (étiquette « RH / Stock / Exploitation »),
+ * son lien est celui qu'elle a toujours eu. Un compte ne voit jamais un domaine qui n'est pas à lui.
+ */
+export async function chargerNotificationsCompte(user: CompteNotification): Promise<DonneesCloche> {
+  return chargerCloche(domainesGerables(user), user.id);
 }

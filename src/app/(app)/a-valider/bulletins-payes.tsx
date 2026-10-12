@@ -23,8 +23,9 @@ export type BulletinPayeRow = {
  * Mois en cours seulement, paie non clôturée (le serveur refuse sinon, `appliquerTransitionPaie`) ; la date et le moyen d'un
  * paiement, de n'importe quel mois, se corrigent par « Corriger le paiement » (fiche du salarié → Paie).
  * Ligne par ligne, jamais en lot : « valider » en lot ne vaut pas « annuler un paiement » (transitionAutoriseeEnLot).
+ * `retour` : l'adresse de la page « À valider » d'où part le geste (une des trois coquilles d'espace) — un refus y revient.
  */
-export function BulletinsPayes({ rows }: { rows: BulletinPayeRow[] }) {
+export function BulletinsPayes({ rows, retour = "/a-valider" }: { rows: BulletinPayeRow[]; retour?: string }) {
   return (
     <div className="space-y-2">
       {rows.map((r) => (
@@ -42,7 +43,7 @@ export function BulletinsPayes({ rows }: { rows: BulletinPayeRow[] }) {
             <TelechargerLien href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
             <form action={changerStatutPaie.bind(null, r.id)}>
               <input type="hidden" name="versStatut" value="VALIDE" />
-              <input type="hidden" name="retour" value="/a-valider" />
+              <input type="hidden" name="retour" value={retour} />
               <ConfirmSubmitButton
                 variante="neutre"
                 message={`Annuler le paiement du bulletin de ${r.nom} ? Il repasse « validé » et la RH est prévenue qu'il est de nouveau à payer.`}

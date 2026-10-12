@@ -13,7 +13,7 @@ describe("noms cliquables", () => {
     ["app/(app)/paie/bulletins-validation.tsx", /href=\{`\/employes\/\$\{r\.employeeId\}`\}/],
     ["app/(app)/paie/remuneration-elements.tsx", /href=\{`\/employes\/\$\{x\.employeeId\}`\}/],
     ["app/(app)/planning/planning-semaine.tsx", /<Link href=\{`\/employes\/\$\{e\.id\}`\}[^>]*>\{e\.nom\}<\/Link><\/div>/],
-    ["app/(stock)/stock/a-valider/page.tsx", /href=\{`\/stock\/fournisseurs\/\$\{bc\.fournisseur\.id\}`\}/],
+    ["app/(stock)/stock/a-valider/rubriques-stock.tsx", /href=\{`\/stock\/fournisseurs\/\$\{bc\.fournisseur\.id\}`\}/],
     ["app/(stock)/stock/commandes/commandes-liste.tsx", /href=\{`\/stock\/fournisseurs\/\$\{c\.fournisseurId\}`\}/], // les bons validés (ex-Archives) vivent ici
   ];
   for (const [fichier, motif] of CAS) {
