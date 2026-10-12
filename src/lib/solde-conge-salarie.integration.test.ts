@@ -66,6 +66,17 @@ describe("chargerSoldesCongeSalaries", () => {
     expect(entameLeSolde("Texte libre")).toBe(false);
   });
 
+  // Décisions Direction 2026-10-12 : année civile, congé à cheval réparti, reliquat reporté, plafond.
+  it("congé à cheval sur deux années : réparti ; le reliquat de 2025 est reporté, plafonné à 18 j", async () => {
+    const d = await salarie("CDI", "2025-06-02");
+    // 8 jours ouvrables (aucun férié saisi dans cette base) : 3 en 2025 (29-31/12), 5 en 2026.
+    await conge(d, "Congé annuel", "2025-12-29", "2026-01-06", 8);
+    const s = await chargerSoldeCongeSalarie(prisma, d, MAINTENANT);
+    // 2025 : 6 mois révolus = 9 j − 3 = 6 reportés ; 2026 : 9 mois = 13,5 → 19,5 plafonnés à 18 ; − 5 = 13.
+    // Ancienne règle : 18 − 0 (congé commencé en décembre, jamais décompté) = 18.
+    expect(s).toMatchObject({ annee: 2026, report: 6, acquisAnnee: 13.5, acquis: 18, plafonne: true, pris: 5, solde: 13 });
+  });
+
   it("un salarié inconnu : le chargement unitaire échoue, le lot l'ignore", async () => {
     await expect(chargerSoldeCongeSalarie(prisma, "00000000-0000-0000-0000-000000000000", MAINTENANT)).rejects.toThrow();
     const { soldes } = await chargerSoldesCongeSalaries(prisma, ["00000000-0000-0000-0000-000000000000"], MAINTENANT);

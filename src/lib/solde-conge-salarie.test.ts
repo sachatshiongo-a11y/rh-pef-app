@@ -1,40 +1,68 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { calculerSoldeConge } from "./solde-conge-salarie";
+import { calculerSoldeAnneeCivile, repartirCongeParAnnee } from "./solde-conge-salarie";
 
 const jour = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
-const debutAnnee = jour("2026-01-01");
+const AUJ = jour("2026-10-12");
+const base = { aujourdhui: AUJ, droitsAnnuels: 18, sansConges: false };
 
-describe("calculerSoldeConge", () => {
-  it("ne décompte que les types cochés, depuis le 1er janvier", () => {
-    const r = calculerSoldeConge({
-      acquis: 18,
-      demandesApprouvees: [
-        { type: "Congé annuel", nbJours: 5, dateDebut: jour("2026-03-02") },
-        { type: "Maladie", nbJours: 3, dateDebut: jour("2026-04-01") },
-        { type: "Congé annuel", nbJours: 4, dateDebut: jour("2025-12-20") },
-        // Type RETIRÉ depuis (absent des actifs) mais qui comptait : il entame toujours le solde.
-        { type: "Ancien congé", nbJours: 1.5, dateDebut: jour("2026-05-04") },
-      ],
-      compteDansSolde: new Map([
-        ["Congé annuel", true],
-        ["Maladie", false],
-        ["Ancien congé", true],
-      ]),
-      debutAnnee,
-    });
-    expect(r).toEqual({ acquis: 18, pris: 6.5, solde: 11.5, cSansDemande: 0 });
+// Décisions de la Direction du 2026-10-12 : ANNÉE CIVILE pour les acquis ET les pris, RELIQUAT
+// reporté, report + acquis de l'année plafonnés à 18 j.
+describe("calculerSoldeAnneeCivile — année civile, report, plafond", () => {
+  it("ancien salarié sans historique : 18 j de droits (report plafonné), 13,5 j acquis cette année, 5 pris → 13", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2020-03-01"), prisParAnnee: new Map([[2026, 5]]) });
+    // Acquis 2026 = 9 mois révolus (1er mars → 1er oct.) entre le 1er janvier et le 12 octobre = 13,5 j.
+    expect(r).toEqual({ annee: 2026, acquis: 18, acquisAnnee: 13.5, report: 18, plafonne: true, pris: 5, cSansDemande: 0, solde: 13 });
   });
 
-  it("un type inconnu n'entame pas le solde", () => {
-    const r = calculerSoldeConge({
-      acquis: 3,
-      demandesApprouvees: [{ type: "Texte libre", nbJours: 2, dateDebut: jour("2026-02-02") }],
-      compteDansSolde: new Map(),
-      debutAnnee,
+  it("reliquat reporté : embauché le 20/03/2025, 10 j pris en 2025 → report 3,5 ; 2026 = 3,5 + 13,5 = 17 ; 4 pris → 13", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-03-20"), prisParAnnee: new Map([[2025, 10], [2026, 4]]) });
+    // 2025 : 9 mois révolus au 1er janvier 2026 (20/03 → 20/12) = 13,5 j ; 13,5 − 10 = 3,5 reportés.
+    // 2026 : 18 mois révolus au 12/10 − 9 = 9 mois = 13,5 j. Ancienne règle : 18 − 4 = 14 (le pris de
+    // 2025 était oublié au 1er janvier).
+    expect(r).toMatchObject({ acquis: 17, acquisAnnee: 13.5, report: 3.5, plafonne: false, pris: 4, solde: 13 });
+  });
+
+  it("plafond : report + acquis de l'année ne dépassent jamais les droits annuels", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2025-01-01"), prisParAnnee: new Map() });
+    // 2025 entier : 18 j acquis, rien pris → 18 reportés ; 2026 : 18 + 13,5 plafonnés à 18.
+    expect(r).toMatchObject({ report: 18, acquisAnnee: 13.5, acquis: 18, plafonne: true, solde: 18 });
+  });
+
+  it("reliquat NÉGATIF (congé pris par anticipation) : reporté et repris sur l'année suivante", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, aujourdhui: jour("2026-03-15"), dateEmbauche: jour("2025-10-01"), prisParAnnee: new Map([[2025, 5]]) });
+    // 2025 : 3 mois révolus = 4,5 j ; 5 pris → −0,5 reporté. 2026 au 15/03 : 2 mois = 3 j → 2,5.
+    expect(r).toMatchObject({ report: -0.5, acquisAnnee: 3, acquis: 2.5, pris: 0, solde: 2.5 });
+  });
+
+  it("embauché dans l'année : ni report ni plafond, mois révolus seulement", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, dateEmbauche: jour("2026-03-20"), prisParAnnee: new Map() });
+    expect(r).toMatchObject({ report: 0, acquisAnnee: 9, acquis: 9, solde: 9 }); // 6 mois révolus au 12/10
+  });
+
+  it("« C » sans demande : comptés dans l'année civile où ils tombent (report compris)", () => {
+    const r = calculerSoldeAnneeCivile({
+      ...base, dateEmbauche: jour("2025-07-01"), prisParAnnee: new Map(),
+      cSansDemandeParAnnee: new Map([[2025, 2], [2026, 1]]),
     });
-    expect(r.solde).toBe(3);
+    // 2025 : 6 mois = 9 j − 2 C = 7 reportés ; 2026 : 9 mois = 13,5 → 18 (plafond) − 1 C = 17.
+    expect(r).toMatchObject({ report: 7, acquis: 18, plafonne: true, pris: 1, cSansDemande: 1, solde: 17 });
+  });
+
+  it("stage ou intérim : rien d'acquis, le pris se décompte", () => {
+    const r = calculerSoldeAnneeCivile({ ...base, sansConges: true, dateEmbauche: jour("2025-01-01"), prisParAnnee: new Map([[2026, 2]]) });
+    expect(r).toMatchObject({ acquis: 0, report: 0, pris: 2, solde: -2 });
+  });
+});
+
+describe("repartirCongeParAnnee — un congé à cheval sur deux années", () => {
+  it("29/12/2025 → 06/01/2026, 1er janvier férié : 3 j sur 2025, 4 j sur 2026", () => {
+    const parts = repartirCongeParAnnee({ dateDebut: jour("2025-12-29"), dateFin: jour("2026-01-06"), nbJours: 7 }, new Set(["2026-01-01"]));
+    expect([...parts]).toEqual([[2025, 3], [2026, 4]]);
+  });
+  it("dans une seule année : le nombre saisi tel quel", () => {
+    expect([...repartirCongeParAnnee({ dateDebut: jour("2026-03-02"), dateFin: jour("2026-03-06"), nbJours: 5 }, new Set())]).toEqual([[2026, 5]]);
   });
 });
 
@@ -102,9 +130,5 @@ describe("compterCSansDemande — « C » de la grille sans demande approuvée (
     const c = ["2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"].map(jour); // 04 = dimanche
     const n = compterCSansDemande(c, [{ dateDebut: jour("2026-10-07"), dateFin: jour("2026-10-09") }], new Set(["2026-10-05"]));
     expect(n).toBe(2); // 03 et 06
-  });
-  it("le solde décompte ces jours, et le dit", () => {
-    const r = calculerSoldeConge({ acquis: 10, demandesApprouvees: [], compteDansSolde: new Map(), debutAnnee, cSansDemande: 2 });
-    expect(r).toEqual({ acquis: 10, pris: 2, solde: 8, cSansDemande: 2 });
   });
 });

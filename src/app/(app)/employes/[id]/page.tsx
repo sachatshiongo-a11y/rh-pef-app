@@ -352,7 +352,7 @@ export default async function FicheEmployePage({
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
-  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande } = soldeConge;
+  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande, report: reportConges, acquisAnnee: congesAcquisAnnee, plafonne: congesPlafonnes, annee: anneeConges } = soldeConge;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -719,15 +719,22 @@ export default async function FicheEmployePage({
         }
       >
         <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-          <Stat label="Congés acquis (année)" value={congesAcquis} />
-          <Stat label="Congés pris (année)" value={congesPrisAnnee} />
+          <Stat label={`Droits ${anneeConges}`} value={congesAcquis} />
+          <Stat label={`Congés pris en ${anneeConges}`} value={congesPrisAnnee} />
           <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
+        {/* Année civile (décision Direction 2026-10-12) : les droits = report de l'an dernier + acquis
+            de l'année, plafonnés aux droits annuels. Le détail se lit ici. */}
+        <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+          Acquis en {anneeConges} : {congesAcquisAnnee} j
+          {reportConges !== 0 ? ` · report ${anneeConges - 1} : ${reportConges} j` : ""}
+          {congesPlafonnes ? " · plafonné aux droits annuels" : ""}
+        </p>
         {cSansDemande > 0 && (
           // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
           <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
-            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences depuis le 1er janvier : décompté(s) des congés pris.
+            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences cette année : décompté(s) des congés pris.
             Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
           </p>
         )}
