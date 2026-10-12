@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import Decimal from "decimal.js";
 import { calculerCout, type FicheCalc } from "@/lib/fiches/cout";
@@ -329,7 +329,9 @@ describe("chiffres du classeur RÉEL de la Direction", () => {
 
 describe.skipIf(!classeurReelPresent)("classeur RÉEL « Fiche technique plats crash test.xlsx »", () => {
   const wb = classeurReelPresent
-    ? XLSX.readFile(CHEMIN_REEL, { cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false })
+    ? // `read` sur un tampon : sous vitest, `import "xlsx"` (SheetJS 0.20) charge la version ESM, sans
+      // accès au disque — `XLSX.readFile` y échoue (« Cannot access file »).
+      XLSX.read(readFileSync(CHEMIN_REEL), { type: "buffer", cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false })
     : ({ SheetNames: [], Sheets: {} } as XLSX.WorkBook);
   const res = analyserClasseur(wb);
 
