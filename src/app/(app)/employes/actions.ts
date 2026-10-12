@@ -10,8 +10,8 @@ import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
-import { CHAMPS_SENSIBLES, changementsProposes, estChampSensible, libelleValeur, versDonnee, type ChampSensible } from "@/lib/fiche-sensible";
-import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche } from "@/lib/demandes-fiche";
+import { CHAMPS_SENSIBLES, CHAMP_ORIGINES, changementsDeLUtilisateur, estChampSensible, libelleValeur, lireOrigines, messagePerime, versDonnee, type ChampSensible } from "@/lib/fiche-sensible";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, verrouillerFiche } from "@/lib/demandes-fiche";
 import {
   clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
   type IdentiteFiche,
@@ -169,11 +169,21 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     // La question des doublons ne se repose que si l'identité (nom, téléphone, date de naissance) change.
     const avant = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const ecartes = identiteModifiee(avant, commun) ? await exigerDoublonsTranches(commun, formData, employeeId) : [];
-    const changements = changementsProposes(avant as unknown as Record<string, unknown>, Object.fromEntries(sensiblesEnvoyes.map((c) => [c, complet[c]])));
+    // Ce que la personne a RÉELLEMENT changé (valeur soumise ≠ valeur d'origine du formulaire) : un champ
+    // laissé tel quel n'écrase jamais une valeur changée entre-temps (formulaire périmé → refus lisible).
+    // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
+    const soumis: Partial<Record<ChampSensible, unknown>> = Object.fromEntries(sensiblesEnvoyes.map((c) => [c, c === "modePaiement" ? String(formData.get("modePaiement") ?? "") : complet[c]]));
+    const origines = lireOrigines(formData.get(CHAMP_ORIGINES));
 
     // Champs non sensibles ET (Direction) écriture directe des sensibles, ou (autres rôles) demande à
-    // valider : dans UNE transaction — une demande refusée (champ déjà en attente) n'enregistre rien.
+    // valider : dans UNE transaction, sous le verrou de la fiche (la comparaison se fait sur la fiche
+    // relue SOUS verrou) — une demande refusée (champ déjà en attente) n'enregistre rien.
     const demande = await prisma.$transaction(async (tx) => {
+      await verrouillerFiche(tx, employeeId);
+      const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      const { changements, perimes, invalides } = changementsDeLUtilisateur(fiche as unknown as Record<string, unknown>, soumis, origines);
+      if (invalides.length > 0) throw new Error(`${invalides.join(" ")} Rien n'a été enregistré.`);
+      if (perimes.length > 0) throw new Error(messagePerime(perimes));
       await tx.employee.update({ where: { id: employeeId }, data: commun });
       if (changements.length === 0) return null;
       if (!direction) {
@@ -185,10 +195,10 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
       if (salaire) {
         await enregistrerChangementSalaire(tx, {
           employeeId,
-          ancienSalaire: avant.salaireMensuel,
-          nouveauSalaire: complet.salaireMensuel,
-          ancienPoste: avant.poste,
-          nouveauPoste: commun.poste || avant.poste,
+          ancienSalaire: fiche.salaireMensuel,
+          nouveauSalaire: Number(versDonnee("salaireMensuel", salaire.apres)),
+          ancienPoste: fiche.poste,
+          nouveauPoste: commun.poste || fiche.poste,
           motif: "Modification de la fiche",
           userId: user.id,
         });

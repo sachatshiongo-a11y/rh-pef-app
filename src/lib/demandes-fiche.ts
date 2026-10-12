@@ -9,7 +9,7 @@ import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { MAX_MOTIF_REFUS } from "@/lib/conges-liste";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
-import { canonique, changementsProposes, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement, type ChampSensible } from "@/lib/fiche-sensible";
+import { canonique, changementsProposes, valeurRefusee, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement, type ChampSensible } from "@/lib/fiche-sensible";
 
 // DEMANDES DE MODIFICATION DE FICHE SALARIÉ (2026-10-12) — création, approbation, refus.
 //
@@ -46,6 +46,8 @@ export async function creerDemandeFicheTx(
   p: { employeeId: string; changements: Changement[]; origine: "MODIFIER" | "CHANGER_SALAIRE" | "CONTRAT"; motif?: string | null; auteur: Acteur },
 ) {
   if (p.changements.length === 0) throw new Error("Aucun changement à soumettre.");
+  const refus = p.changements.map((c) => valeurRefusee(c.champ, c.apres)).filter((m): m is string => m !== null);
+  if (refus.length > 0) throw new Error(`${refus.join(" ")} Rien n'a été enregistré.`);
   await verrouillerFiche(tx, p.employeeId);
   const enAttente = await tx.demandeModifFiche.findMany({ where: { employeeId: p.employeeId, statut: "EN_ATTENTE" }, orderBy: { createdAt: "asc" } });
   const voulus = new Set(p.changements.map((c) => c.champ));
@@ -131,6 +133,14 @@ async function notePaie(tx: Tx, maintenant: Date): Promise<string | null> {
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
+/** Toute erreur d'approbation en message lisible : les erreurs brutes de la base ne s'affichent jamais. */
+function messageLisible(e: unknown): string {
+  if (e instanceof DemandePerimee) return e.message;
+  const brute = e instanceof Error && /^PrismaClient/.test(e.name);
+  if (e instanceof Error && !brute && !/\n/.test(e.message) && e.message.length < 400) return e.message;
+  return "la base a refusé la modification (valeur inattendue ou fiche supprimée). Rien n'a été appliqué : refusez la demande, l'auteur pourra en refaire une.";
+}
+
 export type RapportFiche = { traitees: number; echecs: string[]; avertissements: string[] };
 
 /** Applique UNE demande (Direction). Lève `DemandePerimee` / une erreur lisible ; rien n'est écrit alors. */
@@ -142,6 +152,9 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
     if (d.statut !== "EN_ATTENTE") throw new Error("Demande déjà traitée.");
     const fiche = await tx.employee.findUniqueOrThrow({ where: { id: d.employeeId } });
     const ch = lireChangements(d.changements);
+    // Une valeur hors liste (demande ancienne ou forgée) est dite en clair, jamais envoyée à la base.
+    const refus = ch.map((c) => valeurRefusee(c.champ, c.apres)).filter((m): m is string => m !== null);
+    if (refus.length > 0) throw new Error(`${refus.join(" ")} Rien n'a été appliqué ; refusez la demande.`);
     for (const c of ch) {
       const actuel = canonique(c.champ, (fiche as Record<string, unknown>)[c.champ]);
       if (actuel !== c.avant) {
@@ -189,7 +202,7 @@ export async function approuverDemandesFiche(ids: string[], decideur: Acteur, ma
       await notifierAuteur(d, `Votre modification de la fiche de ${d.employee.nom} est validée : ${ch.map(ligneChangement).join(" ; ")}.`);
     } catch (e) {
       const nom = (await prisma.demandeModifFiche.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } }))?.employee.nom ?? "Demande";
-      r.echecs.push(`${nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+      r.echecs.push(`${nom} : ${messageLisible(e)}`);
     }
   }
   return r;

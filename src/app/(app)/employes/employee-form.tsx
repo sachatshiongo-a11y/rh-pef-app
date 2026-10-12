@@ -11,7 +11,7 @@ import { SimulationSalaire, lireValeursSimulation, type ValeursSimulation } from
 import { SommaireSections, SECTION_ANCREE } from "@/components/sommaire-sections";
 import { fichesProches, identiteModifiee, CHAMP_DOUBLONS_ECARTES, type IdentiteFiche } from "@/lib/employe-doublon";
 import { AlerteDoublons, type FicheDoublonClient } from "./alerte-doublons";
-import { estChampSensible } from "@/lib/fiche-sensible";
+import { CHAMP_ORIGINES, estChampSensible, originesDe } from "@/lib/fiche-sensible";
 
 /** Mode « validation » (hors Direction) : les champs sensibles portent la pastille « à valider ». */
 const ModeValidation = createContext(false);
@@ -191,6 +191,9 @@ export function EmployeeForm({
                 champs s&apos;enregistrent tout de suite.
               </p>
             )}
+            {/* Valeurs des champs sensibles à l'ouverture : le serveur ne retient que ce qui a vraiment changé
+                et refuse si la fiche a bougé entre-temps (formulaire périmé). */}
+            {employee && <input type="hidden" name={CHAMP_ORIGINES} value={originesDe(employee as unknown as Record<string, unknown>)} />}
             <datalist id="postes-existants">
               {postes.map((p) => (
                 <option key={p} value={p} />

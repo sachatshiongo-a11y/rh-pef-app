@@ -30,6 +30,7 @@ const RH = await import("@/app/(app)/employes/actions");
 const DOSSIER = await import("@/app/(app)/employes/[id]/dossier-actions");
 const CONTRATS = await import("@/app/(app)/paie/contrat-actions");
 const FICHE = await import("@/app/(app)/a-valider/fiche-actions");
+const { originesDe } = await import("@/lib/fiche-sensible");
 const { numeroMoisCourantKinshasa, anneeCouranteKinshasa } = await import("@/lib/heure-kinshasa");
 
 let prisma: PrismaClient;
@@ -279,5 +280,96 @@ describe("la RH ne contourne pas la validation par les actions de contrat", () =
     const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
     expect([Number(e.salaireMensuel), e.contrat]).toEqual([410, "CDD"]);
     expect(await enAttente(id)).toHaveLength(0);
+  });
+});
+
+// RELECTURE 2026-10-12 (2) : formulaire périmé et valeurs admises.
+describe("formulaire périmé : seuls les champs réellement changés comptent", () => {
+  /** Le formulaire tel qu'ouvert MAINTENANT : valeurs de la fiche + valeurs d'origine en champ caché. */
+  async function ouvert(id: string, o: Record<string, string> = {}) {
+    const f = await formulaire(id, o);
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    f.set("originesFiche", originesDe(e as unknown as Record<string, unknown>));
+    return f;
+  }
+  /** Même formulaire, rempli par l'utilisateur APRÈS ce qui lui est arrivé entre-temps. */
+  const saisie = (f: FormData, o: Record<string, string>) => { for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
+
+  it("350 → 300 : la RH enregistre un autre champ avec un formulaire ouvert avant la hausse : aucune demande, le salaire reste 350", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    const f = await ouvert(id); // ouvert quand le salaire valait 300
+    await prisma.employee.update({ where: { id }, data: { salaireMensuel: 350 } }); // la Direction l'a relevé entre-temps
+    expect(await url(RH.modifierEmploye(id, saisie(f, { poste: "Chef de partie" })))).toBe("/employes");
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([Number(e.salaireMensuel), e.poste]).toEqual([350, "Chef de partie"]);
+    expect(await enAttente(id)).toHaveLength(0);
+  });
+
+  it("la RH change le salaire sur un formulaire périmé : refus lisible, rien n'est enregistré", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    const f = await ouvert(id);
+    await prisma.employee.update({ where: { id }, data: { salaireMensuel: 350 } });
+    const r = await url(RH.modifierEmploye(id, saisie(f, { salaireMensuel: "320", poste: "Plongeur" })));
+    expect(r).toContain("La fiche a changé depuis l'ouverture du formulaire (Salaire mensuel vaut maintenant 350,00 $)");
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).poste).toBe("Commis");
+    expect(await enAttente(id)).toHaveLength(0);
+  });
+
+  it("la Direction : pas d'écrasement silencieux d'une valeur changée entre-temps, mais ses vrais changements passent", async () => {
+    comme("ADMIN");
+    const id = await emp();
+    const f = await ouvert(id);
+    await prisma.employee.update({ where: { id }, data: { salaireMensuel: 350 } });
+    expect(await url(RH.modifierEmploye(id, saisie(f, { enfants: "2" })))).toBe("/employes"); // salaire non touché
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([Number(e.salaireMensuel), e.enfants]).toEqual([350, 2]);
+    const g = await ouvert(id);
+    await prisma.employee.update({ where: { id }, data: { salaireMensuel: 400 } });
+    expect(await url(RH.modifierEmploye(id, saisie(g, { salaireMensuel: "360" })))).toContain("La fiche a changé depuis l'ouverture");
+    expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).salaireMensuel)).toBe(400);
+    expect(await prisma.historiqueSalaire.count({ where: { employeeId: id } })).toBe(0);
+  });
+
+  it("« Changer le salaire » sur un formulaire périmé : refusé pour la RH comme pour la Direction", async () => {
+    for (const qui of ["MANAGER", "ADMIN"] as const) {
+      comme(qui);
+      const id = await emp();
+      await prisma.employee.update({ where: { id }, data: { salaireMensuel: 350 } });
+      const r = await url(DOSSIER.changerSalaire(id, fd({ origineSalaire: "300", originePoste: "Commis", nouveauSalaire: "320", nouveauPoste: "Commis", motif: "Ajustement" })));
+      expect(r, qui).toContain("La fiche a changé depuis l'ouverture");
+      expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).salaireMensuel)).toBe(350);
+      expect(await enAttente(id)).toHaveLength(0);
+    }
+  });
+});
+
+describe("valeurs admises des champs à liste fermée", () => {
+  it("catégorie, national/expatrié, moyen de paiement, contrat hors liste : refus lisible, rien n'est enregistré (RH comme Direction)", async () => {
+    for (const qui of ["MANAGER", "ADMIN"] as const) {
+      comme(qui);
+      const id = await emp();
+      for (const [champ, valeur] of [["categorie", "CHEF"], ["type", "ETRANGER"], ["modePaiement", "CHEQUE"], ["contrat", "CDX"]]) {
+        const r = await url(RH.modifierEmploye(id, await formulaire(id, { [champ]: valeur, poste: "Ne doit pas passer" })));
+        expect(r, `${qui} ${champ}`).toContain("n'est pas une valeur admise");
+      }
+      expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).poste).toBe("Commis");
+      expect(await enAttente(id)).toHaveLength(0);
+    }
+  });
+
+  it("à l'approbation, une valeur hors liste ou illisible est dite en clair (jamais l'erreur brute de la base), la demande reste en attente", async () => {
+    comme("ADMIN");
+    const id = await emp();
+    const forgee = (changements: object[]) => prisma.demandeModifFiche.create({ data: { employeeId: id, origine: "MODIFIER", changements, auteurId: ids.rh, auteurNom: "Esther RH" } });
+    const d1 = await forgee([{ champ: "categorie", avant: "BRIGADE", apres: "CHEF" }]);
+    const r1 = await FICHE.approuverModifsFiche([d1.id]);
+    expect(r1.echecs.join(" ")).toContain("n'est pas une valeur admise");
+    const d2 = await forgee([{ champ: "enfants", avant: "0", apres: "beaucoup" }]);
+    const r2 = await FICHE.approuverModifsFiche([d2.id]);
+    expect(r2.echecs.join(" ")).toContain("la base a refusé la modification");
+    expect(r2.echecs.join(" ")).not.toContain("Invalid `prisma");
+    expect((await prisma.demandeModifFiche.findUniqueOrThrow({ where: { id: d2.id } })).statut).toBe("EN_ATTENTE");
   });
 });

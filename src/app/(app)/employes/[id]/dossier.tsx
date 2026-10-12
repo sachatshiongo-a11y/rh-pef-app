@@ -842,6 +842,9 @@ export function DossierEmploye({
                 <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">à valider par la Direction</span>
               )}
             </p>
+            {/* Valeurs à l'ouverture : le serveur refuse si la fiche a changé depuis (formulaire périmé). */}
+            <input type="hidden" name="origineSalaire" value={String(Math.round(Number(salaireMensuel) * 100) / 100)} />
+            <input type="hidden" name="originePoste" value={poste} />
             <ChampNombre name="nouveauSalaire" suffixe="$" placeholder="Nouveau salaire $" aria-label="Nouveau salaire en dollars" defaultValue={versSaisie(salaireMensuel)} className={inputCls} required />
             <input name="nouveauPoste" placeholder="Nouveau poste (optionnel)" defaultValue={poste} className={inputCls} />
             <select name="motif" className={inputCls} defaultValue="Ajustement">

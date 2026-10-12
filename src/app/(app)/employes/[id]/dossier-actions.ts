@@ -16,8 +16,8 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
-import { changementsProposes } from "@/lib/fiche-sensible";
-import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx } from "@/lib/demandes-fiche";
+import { canonique, changementsProposes, messagePerime, type Changement } from "@/lib/fiche-sensible";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx, verrouillerFiche } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -295,13 +295,30 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
     const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
     const motif = String(formData.get("motif") ?? "Ajustement");
 
+    // Formulaire périmé : la valeur d'origine du salaire / du poste est portée par le formulaire ; si la
+    // personne a changé l'un d'eux et que la fiche a bougé depuis l'ouverture, on refuse (rien n'est écrasé).
+    // Relue SOUS le verrou de la fiche, dans la transaction qui écrit.
+    const origineSalaire = formData.get("origineSalaire");
+    const originePoste = formData.get("originePoste");
+    function verifierNonPerime(fiche: { salaireMensuel: { toString(): string }; poste: string }) {
+      const perimes: Changement[] = [];
+      const sal = canonique("salaireMensuel", nouveauSalaire);
+      const salActuel = canonique("salaireMensuel", fiche.salaireMensuel);
+      if (typeof origineSalaire === "string" && origineSalaire !== "" && sal !== origineSalaire && origineSalaire !== salActuel) perimes.push({ champ: "salaireMensuel", avant: origineSalaire, apres: salActuel });
+      if (typeof originePoste === "string" && originePoste !== "" && nouveauPoste !== originePoste && originePoste !== fiche.poste) perimes.push({ champ: "poste", avant: originePoste, apres: fiche.poste });
+      if (perimes.length > 0) throw new Error(messagePerime(perimes));
+    }
+
     // Hors Direction (RH) : rien n'est appliqué, une demande part à la Direction (2026-10-12).
     if (!estDirection(user)) {
-      const changements = changementsProposes(employee as unknown as Record<string, unknown>, { salaireMensuel: nouveauSalaire, poste: nouveauPoste });
-      if (changements.length === 0) throw new Error("Ni le salaire ni le poste ne changent : rien à soumettre.");
-      const demande = await prisma.$transaction((tx) =>
-        creerDemandeFicheTx(tx, { employeeId, changements, origine: "CHANGER_SALAIRE", motif, auteur: { id: user.id, nom: user.nom, role: user.role } }),
-      );
+      const demande = await prisma.$transaction(async (tx) => {
+        await verrouillerFiche(tx, employeeId);
+        const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+        verifierNonPerime(fiche);
+        const changements = changementsProposes(fiche as unknown as Record<string, unknown>, { salaireMensuel: nouveauSalaire, poste: nouveauPoste });
+        if (changements.length === 0) throw new Error("Ni le salaire ni le poste ne changent : rien à soumettre.");
+        return creerDemandeFicheTx(tx, { employeeId, changements, origine: "CHANGER_SALAIRE", motif, auteur: { id: user.id, nom: user.nom, role: user.role } });
+      });
       await notifierNouvelleDemandeFiche(demande, employee.nom);
       revalidatePath(`/employes/${employeeId}`);
       revalidatePath("/a-valider");
@@ -311,11 +328,14 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
 
     // Même chemin que « Modifier » côté Direction (lib/historique-salaire) : historique + fiche + journal.
     await prisma.$transaction(async (tx) => {
+      await verrouillerFiche(tx, employeeId);
+      const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      verifierNonPerime(fiche);
       await enregistrerChangementSalaire(tx, {
         employeeId,
-        ancienSalaire: employee.salaireMensuel,
+        ancienSalaire: fiche.salaireMensuel,
         nouveauSalaire,
-        ancienPoste: employee.poste,
+        ancienPoste: fiche.poste,
         nouveauPoste,
         motif,
         userId: user.id,

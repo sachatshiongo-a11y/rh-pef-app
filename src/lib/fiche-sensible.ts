@@ -128,3 +128,76 @@ export function lireChangements(json: unknown): Changement[] {
 
 /** « Salaire mensuel : 300,00 $ → 350,00 $ ». */
 export const ligneChangement = (c: Changement) => `${libelleChamp(c.champ)} : ${libelleValeur(c.champ, c.avant)} → ${libelleValeur(c.champ, c.apres)}`;
+
+// ── FORMULAIRE PÉRIMÉ ET VALEURS ADMISES (relecture du 2026-10-12) ──────────────────────────────────
+// Le formulaire « Modifier » porte, en champ caché, la valeur de chaque champ sensible AU MOMENT DE SON
+// OUVERTURE. Une demande (ou une écriture de la Direction) ne porte que les champs que la personne a
+// réellement changés (valeur soumise ≠ valeur d'origine). Si un tel champ a bougé en base depuis
+// l'ouverture, on refuse : sinon un formulaire resté ouvert annulerait en silence la hausse décidée entre-temps.
+
+export const CHAMP_ORIGINES = "originesFiche";
+export type Origines = Partial<Record<ChampSensible, string | null>>;
+
+/** Valeurs d'origine (canoniques) des champs sensibles d'une fiche, en JSON pour le champ caché. */
+export function originesDe(fiche: Record<string, unknown>): string {
+  const o: Origines = {};
+  for (const c of CHAMPS_SENSIBLES) o[c] = canonique(c, fiche[c]);
+  return JSON.stringify(o);
+}
+
+/** Relit le champ caché ; absent ou illisible → null (alors rien n'est présumé périmé). */
+export function lireOrigines(brut: unknown): Origines | null {
+  if (typeof brut !== "string" || brut === "") return null;
+  try {
+    const o = JSON.parse(brut) as Record<string, unknown>;
+    const out: Origines = {};
+    for (const c of CHAMPS_SENSIBLES) if (c in o) out[c] = o[c] === null || o[c] === undefined ? null : String(o[c]);
+    return out;
+  } catch { return null; }
+}
+
+/** Valeurs admises des champs à liste fermée. */
+export const VALEURS_ADMISES: Partial<Record<ChampSensible, readonly string[]>> = {
+  categorie: ["BRIGADE", "BACKOFFICE"],
+  type: ["NATIONAL", "EXPATRIE"],
+  modePaiement: ["ESPECES", "VIREMENT", "MOBILE_MONEY"],
+  contrat: ["CDD", "CDI", "STAGE", "JOURNALIER", "INTERIM"],
+};
+
+/** Refus lisible d'une valeur hors liste (null si la valeur convient ou si le champ est libre). */
+export function valeurRefusee(champ: ChampDemande, c: string | null): string | null {
+  const admises = (VALEURS_ADMISES as Record<string, readonly string[] | undefined>)[champ];
+  if (!admises || (c !== null && admises.includes(c))) return null;
+  return `${libelleChamp(champ)} : « ${c ?? "vide"} » n'est pas une valeur admise (${admises.map((v) => libelleValeur(champ, v)).join(", ")}).`;
+}
+
+/**
+ * Ce que l'utilisateur a RÉELLEMENT changé : champs dont la valeur soumise ≠ valeur d'origine du formulaire.
+ * - `changements` : ceux-là, comparés à la fiche actuelle (avant = fiche actuelle) ; un champ déjà égal est omis.
+ * - `perimes` : changés par l'utilisateur alors que la fiche a bougé depuis l'ouverture (avant = origine, apres = actuel).
+ * - `invalides` : valeurs hors liste admise.
+ * Sans origines (appel direct), l'origine est présumée égale à la fiche actuelle.
+ */
+export function changementsDeLUtilisateur(
+  fiche: Record<string, unknown>,
+  soumis: Partial<Record<ChampSensible, unknown>>,
+  origines: Origines | null,
+): { changements: Changement[]; perimes: Changement[]; invalides: string[] } {
+  const changements: Changement[] = [], perimes: Changement[] = [], invalides: string[] = [];
+  for (const champ of CHAMPS_SENSIBLES) {
+    if (!(champ in soumis)) continue;
+    const actuel = canonique(champ, fiche[champ]);
+    const apres = canonique(champ, soumis[champ]);
+    const origine = origines && champ in origines ? origines[champ] ?? null : actuel;
+    if (apres === origine) continue; // non touché par l'utilisateur
+    const refus = valeurRefusee(champ, apres);
+    if (refus) { invalides.push(refus); continue; }
+    if (origine !== actuel) { perimes.push({ champ, avant: origine, apres: actuel }); continue; }
+    if (apres !== actuel) changements.push({ champ, avant: actuel, apres });
+  }
+  return { changements, perimes, invalides };
+}
+
+/** Message de refus d'un formulaire périmé : nomme les champs et leur valeur actuelle. */
+export const messagePerime = (p: Changement[]) =>
+  `La fiche a changé depuis l'ouverture du formulaire (${p.map((c) => `${libelleChamp(c.champ)} vaut maintenant ${libelleValeur(c.champ, c.apres)}`).join(" ; ")}). Rechargez la page et recommencez : rien n'a été enregistré.`;
