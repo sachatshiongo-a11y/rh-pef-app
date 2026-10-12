@@ -45,7 +45,7 @@ const dCourt = (v: Date) => new Date(v).toLocaleDateString("fr-FR", { day: "2-di
 const PASTILLE_PDF: Record<string, { texte: string; fond: string; encre: string }> = {
   ENTREE: { texte: "Entrée", fond: "#ECFDF5", encre: "#065F46" },
   SORTIE: { texte: "Sortie", fond: "#FEF2F2", encre: "#991B1B" },
-  AJUSTEMENT: { texte: "Ajustement", fond: "#FFFBEB", encre: "#78350F" },
+  AJUSTEMENT: { texte: "Ajustement", fond: "#F1F5F9", encre: "#334155" },
 };
 const MOTIF_PDF: Record<string, { texte: string; fond: string; encre: string }> = {
   PERTE: { texte: "Perte", fond: "#FEE2E2", encre: "#7F1D1D" },

@@ -43,7 +43,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/a-valider/detail-demande.tsx": { n: 5, raisons: ["AMONT"] }, // validations-stock/apercu
   "src/app/(stock)/stock/archives/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
+  "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré » + ligne « Désignation enregistrée » de l'onglet Informations
   "src/app/(stock)/stock/catalogue/_view.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/actions.ts": { n: 9, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)

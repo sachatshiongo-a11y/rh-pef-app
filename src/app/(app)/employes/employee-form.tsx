@@ -195,6 +195,7 @@ export function EmployeeForm({
             }}
             className="space-y-5"
           >
+            <ErreurAction message={envoi.erreur} emplacement="haut" />
             {reembauche && (
               <>
                 <input type="hidden" name="ancienneFicheId" value={reembauche.ancienneFicheId} />
@@ -414,7 +415,7 @@ export function EmployeeForm({
                 {erreurSaisie}
               </p>
             )}
-            <ErreurAction message={envoi.erreur} />
+            <ErreurAction message={envoi.erreur} emplacement="bas" />
             <div>
               <BoutonEnvoi className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 {aValider && !employee ? "Envoyer à la Direction" : "Enregistrer"}
