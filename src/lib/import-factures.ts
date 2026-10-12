@@ -1,4 +1,5 @@
 import "server-only";
+import { messageLisible } from "@/lib/erreur-metier";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { donneesMontantsImportee, parserClasseurFactures, type FactureImportee } from "@/lib/import-factures-excel";
@@ -48,7 +49,7 @@ async function parseTous(fichiers: File[], anneeDefaut: number): Promise<{ ligne
   for (const f of fichiers) {
     const annee = Number((f.name.match(/(20\d{2})/) ?? [])[1]) || anneeDefaut;
     try { lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), annee, erreurs))); }
-    catch (e) { erreurs.push(`${f.name} : ${e instanceof Error ? e.message : "illisible"}`); }
+    catch (e) { erreurs.push(`${f.name} : ${messageLisible(e, "import factures (lecture)")}`); }
   }
   return { lignes, erreurs };
 }

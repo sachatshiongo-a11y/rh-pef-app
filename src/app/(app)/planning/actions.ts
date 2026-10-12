@@ -1,5 +1,6 @@
 "use server";
 
+import { messageLisible } from "@/lib/erreur-metier";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -115,7 +116,7 @@ export async function genererPlanningAuto(
     nbParSemaine = decSaisiOptionnel(formData.get("nbParSemaine"), "Jours par semaine") ?? 0;
     if (!Number.isInteger(nbParSemaine) || nbParSemaine < 0 || nbParSemaine > 7) throw new Error("Jours par semaine : un entier de 0 à 7 est attendu.");
   } catch (e) {
-    return { ...vide, erreur: e instanceof Error ? e.message : "Jours par semaine illisible." };
+    return { ...vide, erreur: messageLisible(e, "planning génération auto") };
   }
 
   const ecraser = formData.get("ecraser") === "on";

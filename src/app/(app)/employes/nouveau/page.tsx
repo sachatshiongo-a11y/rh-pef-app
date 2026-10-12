@@ -1,4 +1,5 @@
 import { requireRole } from "@/lib/auth";
+import { messageLisible } from "@/lib/erreur-metier";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { EmployeeForm } from "../employee-form";
@@ -58,7 +59,7 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
         },
       };
     } catch (e) {
-      refusReembauche = e instanceof Error ? e.message.replace(" Rien n'a été enregistré.", "") : "Réembauche impossible.";
+      refusReembauche = messageLisible(e, "employes/nouveau réembauche").replace(" Rien n'a été enregistré.", "");
     }
   }
 

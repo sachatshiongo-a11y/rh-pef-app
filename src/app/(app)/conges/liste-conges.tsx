@@ -102,8 +102,8 @@ export function ListeConges({
         setNote(r.echecs.length > 0 || reserves.length > 0
           ? { ok: false, texte: [`${r.traitees} demande(s) ${verbe}${r.echecs.length > 0 ? `, ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}` : "."}`, ...reserves].join(" · ") }
           : { ok: true, texte: `${r.traitees} demande(s) ${verbe}.` });
-      } catch (e) {
-        setNote({ ok: false, texte: e instanceof Error && e.message ? e.message : "L'action groupée a échoué. Réessayez." });
+      } catch {
+        setNote({ ok: false, texte: "L'action groupée a échoué. Réessayez." });
       }
     });
   }
@@ -121,8 +121,8 @@ export function ListeConges({
         setNote(r.echecs.length > 0
           ? { ok: false, texte: `${r.traitees} demande(s) refusée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}` }
           : { ok: true, texte: `${r.traitees} demande(s) refusée(s).` });
-      } catch (e) {
-        setRefusEnLot({ erreur: e instanceof Error && e.message ? e.message : "Le refus groupé a échoué. Réessayez." });
+      } catch {
+        setRefusEnLot({ erreur: "Le refus groupé a échoué. Réessayez." });
       }
     });
   }
@@ -386,8 +386,8 @@ function RefusUnitaire({ l }: { l: LigneConge }) {
       try {
         const r = await refuserConge(l.id, motif);
         if (r.erreur) setErreur(r.erreur); else setOuvert(false);
-      } catch (e) {
-        setErreur(e instanceof Error && e.message ? e.message : "Le refus a échoué. Réessayez.");
+      } catch {
+        setErreur("Le refus a échoué. Réessayez.");
       }
     });
   }
