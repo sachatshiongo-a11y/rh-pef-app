@@ -1,5 +1,5 @@
 import { exigerEspaceStock } from "@/lib/garde-route";
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { TableauxParPartieDocument } from "@/lib/pdf/tableau";
 import { classeurExcel } from "@/lib/export-excel";
 import { lundiDe } from "@/lib/dates-fr";
@@ -116,7 +116,8 @@ export async function GET(req: Request) {
 
   const pdf = modele
     ? await pdfModele(await modele(), `${titre} — ${periode}`, pied || undefined)
-    : await renderPdfBuffer(TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), ...(pied ? { pied } : {}) }));
+    : await renderPdfOuRefus(() => TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), ...(pied ? { pied } : {}) }));
+  if (pdf instanceof Response) return pdf; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichier}.pdf"` },
   });

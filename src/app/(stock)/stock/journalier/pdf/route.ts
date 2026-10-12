@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { ComparaisonDocument } from "@/lib/pdf/comparaison";
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const large = d.colonnes.length > 9;
 
   const pied = "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage) · orange = consommé ≠ livré.";
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     d.partiesPdf && d.ecartsCL && d.signes
       // Comparaison : deux niveaux d'en-tête, jours séparés, écarts signés (voir `lib/pdf/comparaison`).
       ? ComparaisonDocument({
@@ -31,6 +31,7 @@ export async function GET(req: Request) {
           pied,
         }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${d.fichierBase}.pdf"` },
   });

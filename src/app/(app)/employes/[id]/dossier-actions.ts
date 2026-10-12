@@ -21,6 +21,7 @@ import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopi
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -157,7 +158,7 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
       // Sécurité : couper l'accès du compte lié (espace salarié / stock) — l'ex-salarié ne doit plus
       // pouvoir se connecter. Le compte n'est pas supprimé (réactivable si erreur).
       const compteLie = await tx.user.findUnique({ where: { employeeId }, select: { id: true, actif: true } });
-      if (compteLie?.actif) await tx.user.update({ where: { id: compteLie.id }, data: { actif: false } });
+      if (compteLie?.actif) await tx.user.update({ where: { id: compteLie.id }, data: { actif: false, ...donneesRevocationSessions() } });
 
       const reprisesTexte = [
         reprises.reprisePretUSD > 0 ? `prêt repris ${formaterUSD(reprises.reprisePretUSD)}` : null,

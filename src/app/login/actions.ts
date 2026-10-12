@@ -11,6 +11,9 @@ import {
 } from "@/lib/securite-connexion";
 import { emailInterneMatricule, estMatricule, espaceEmployeActif } from "@/lib/espace-employe";
 import { retourValide } from "@/lib/retour-connexion";
+import { connexionAutorisee } from "@/lib/connexion-autorisee";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
+import { invaliderProfil } from "@/lib/auth";
 
 export type LoginState = { error?: string } | undefined;
 
@@ -45,11 +48,12 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     return { error: "Identifiants incorrects." };
   }
 
-  // Compte salarié alors que l'espace salarié est désactivé sur ce déploiement : on refuse.
+  // Compte désactivé, ou compte salarié sans accès Stock alors que l'espace salarié est fermé : on refuse (src/lib/connexion-autorisee.ts).
   const sub = data.user?.id;
   if (sub) {
-    const profil = await prisma.user.findUnique({ where: { id: sub }, select: { role: true, actif: true } });
-    if (profil && (!profil.actif || (profil.role === "EMPLOYE" && !(await espaceEmployeActif())))) {
+    const profil = await prisma.user.findUnique({ where: { id: sub }, select: { role: true, actif: true, accesStock: true } });
+    const espaceOuvert = profil?.role === "EMPLOYE" ? await espaceEmployeActif() : true;
+    if (!connexionAutorisee(profil, espaceOuvert)) {
       await supabase.auth.signOut();
       return { error: "Identifiants incorrects." };
     }
@@ -111,6 +115,9 @@ export async function reinitialiserMotDePasse(_prev: ResetState, formData: FormD
   if (!user || !user.actif) return { error: "Compte introuvable ou désactivé." };
 
   await changerMotDePasseAdmin(user.id, password);
+  // « Mot de passe oublié » : les sessions ouvertes avec l'ancien mot de passe sont fermées (audit 10/10/2026, sécurité 5).
+  await prisma.user.update({ where: { id: user.id }, data: donneesRevocationSessions() });
+  invaliderProfil(user.id);
   await consommerJeton(token);
   await effacerEchecs(email);
   redirect("/login?reinitialise=1");

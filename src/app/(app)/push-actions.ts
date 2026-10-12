@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { MESSAGE_PUSH_REFUSE, abonnementDuCompte, peutReprendreAbonnement } from "@/lib/acces-notification";
+import { MESSAGE_PUSH_SERVICE_INCONNU, endpointPushAutorise } from "@/lib/push-services";
 
 // Abonnements Web Push (bouton « Notifications » des coquilles RH et salarié). Une Server Action ne
 // passe par aucun layout : chaque action vérifie que l'abonnement appartient au compte (règle dans
@@ -19,6 +20,9 @@ export async function enregistrerPush(sub: { endpoint: string; p256dh: string; a
   const endpoint = texte(sub?.endpoint);
   const cles = { p256dh: texte(sub?.p256dh), auth: texte(sub?.auth) };
   if (!endpoint || !cles.p256dh || !cles.auth) return { erreur: "Abonnement incomplet." };
+  // Seuls les services push des navigateurs (lib/push-services.ts) : jamais une adresse arbitraire
+  // vers laquelle le serveur enverrait ensuite des requêtes.
+  if (!endpointPushAutorise(endpoint)) return { erreur: MESSAGE_PUSH_SERVICE_INCONNU };
 
   const existant = await prisma.pushSubscription.findUnique({
     where: { endpoint },

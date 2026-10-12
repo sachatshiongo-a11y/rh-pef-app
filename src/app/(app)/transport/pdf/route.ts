@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     cdf(l.moisCompletCDF),
   ]);
 
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     TableauDocument({
       titre: "Grille de transport",
       sousTitre: `${items.length} employé(s) · base ${jours} j ouvrables · 1 $ = ${formaterNombre(taux)} CDF`,
@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       pied: `Total transport (mois complet) : ${cdf(totalMoisCDF)} CDF — ${items.length} employé(s)`,
     }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="Transport.pdf"` },
   });

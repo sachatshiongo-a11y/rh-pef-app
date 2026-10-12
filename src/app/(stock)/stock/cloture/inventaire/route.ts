@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
@@ -123,7 +123,7 @@ export async function GET(req: Request) {
   }
   lignes.push([`STOCK TOTAL${partiel ? ` (${partiel})` : ""}`, "", "", "", "", usd(inv.valeurTotaleUSD)]); couleurs.push(undefined);
 
-  const buf = await renderPdfBuffer(
+  const buf = await renderPdfOuRefus(() =>
     TableauDocument({
       titre: `Inventaire — ${periodeLabel}`,
       sousTitre: `${etat} · stock total ${totalTexte}`,
@@ -141,6 +141,7 @@ export async function GET(req: Request) {
       totalDerniereLigne: true,
     }),
   );
+    if (buf instanceof Response) return buf; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",

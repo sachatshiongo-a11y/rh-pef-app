@@ -10,6 +10,7 @@ import { MAX_MOTIF_REFUS } from "@/lib/conges-liste";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 import { canonique, changementsProposes, valeurRefusee, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement, type ChampSensible } from "@/lib/fiche-sensible";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 // DEMANDES DE MODIFICATION DE FICHE SALARIÉ (2026-10-12) — création, approbation, refus.
 //
@@ -30,7 +31,7 @@ export const estDirection = (u: { role: Role }) => u.role === "ADMIN";
 export const LIEN_SECTION = "/a-valider#modifications-fiches";
 
 /** Demande périmée : l'appliquer écraserait une valeur que la demande n'a pas vue. Rien n'est écrit. */
-export class DemandePerimee extends Error {
+export class DemandePerimee extends ErreurMetier {
   constructor(detail: string) { super(`Demande périmée : ${detail} — rien n'a été appliqué ; refusez-la (l'auteur pourra en refaire une à jour).`); }
 }
 

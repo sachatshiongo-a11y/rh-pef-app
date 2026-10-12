@@ -171,6 +171,13 @@ describe("espace Stock : le mot de passe temporaire se change d'abord", () => {
 });
 
 describe("changerMonMotDePasse", () => {
+  it("moins de 8 caractères : refusé, rien n'est changé (audit 10/10/2026, sécurité 14)", async () => {
+    S.user = compte("EMPLOYE", "emp-1");
+    const avant = S.motsDePasse.length;
+    expect(await destination(() => changerMonMotDePasse(formulaire("abc1234")))).toContain("erreur=Le mot de passe doit faire au moins 8 caractères.");
+    expect(S.motsDePasse.length).toBe(avant);
+  });
+
   it("un compte STOCK relié à une fiche peut remplacer son mot de passe temporaire", async () => {
     S.user = compte("STOCK", "emp-aimee");
     expect(await destination(() => changerMonMotDePasse(formulaire("nouveau-secret")))).toBe("/entree");

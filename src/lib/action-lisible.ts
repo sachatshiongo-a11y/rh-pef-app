@@ -1,3 +1,5 @@
+import { messageLisible } from "@/lib/erreur-metier";
+
 // En production, Next.js masque le message des erreurs jetées par une action serveur
 // (l'utilisateur voit « An error occurred… » au lieu de « Le montant dépasse le reste à payer »).
 // `actionLisible` enrobe une action : l'erreur métier revient au client comme { erreur: string },
@@ -14,8 +16,12 @@ function estRedirectionNext(e: unknown): boolean {
   );
 }
 
-export function messageDe(e: unknown): string {
-  return e instanceof Error && e.message ? e.message : "Erreur inattendue. Réessayez.";
+/**
+ * Message lisible d'une erreur : celui d'une erreur MÉTIER, sinon « Erreur inattendue, réessayez »
+ * + référence, l'erreur complète partant au journal (src/lib/erreur-metier.ts).
+ */
+export function messageDe(e: unknown, contexte = "action"): string {
+  return messageLisible(e, contexte);
 }
 
 export function actionLisible<A extends unknown[], R>(

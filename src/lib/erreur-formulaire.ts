@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { messageLisible } from "@/lib/erreur-metier";
 
 // Pendant du lib/action-lisible pour les actions de FORMULAIRE (<form action={…}>) : leur
 // valeur de retour étant ignorée par le navigateur, l'erreur métier doit revenir par la page —
@@ -14,7 +15,7 @@ function estRedirectionNext(e: unknown): boolean {
 }
 
 /**
- * Exécute le corps d'une action de formulaire ; toute erreur métier redirige vers `page`
+ * Exécute le corps d'une action de formulaire ; toute erreur redirige vers `page`
  * avec `?erreur=<message lisible>` (à afficher par la page). Les redirections de succès
  * internes au corps passent inchangées.
  */
@@ -24,7 +25,8 @@ export async function formulaireLisible(page: string, corps: () => Promise<void>
     await corps();
   } catch (e) {
     if (estRedirectionNext(e)) throw e;
-    message = e instanceof Error && e.message ? e.message : "Erreur inattendue. Réessayez.";
+    // Erreur métier : son message ; sinon message générique + journal (src/lib/erreur-metier.ts).
+    message = messageLisible(e, `formulaire ${page}`);
   }
   if (message) redirect(`${page}${page.includes("?") ? "&" : "?"}erreur=${encodeURIComponent(message)}`);
 }

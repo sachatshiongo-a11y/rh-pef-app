@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ReactElement } from "react";
 import { Font, renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
+import { reponsePdfTropLong } from "./plafond";
 
 const FAMILLE = "Optima";
 
@@ -61,4 +62,24 @@ export function renderPdfBuffer(document: ReactElement<DocumentProps>): Promise<
   registerPdfFonts();
   invaliderCachePolicePourRendu();
   return renderToBuffer(document);
+}
+
+/**
+ * Comme `renderPdfBuffer`, pour un document TABULAIRE dont la longueur dépend de la demande
+ * (période, filtres) : la construction du document est différée dans `construire`, si bien qu'un
+ * document au-delà du plafond de lignes (`verifierPlafondPdf`, lib/pdf/plafond.ts) est refusé AVANT
+ * tout rendu, par une réponse 413 lisible — jamais tronqué, jamais rendu jusqu'à l'épuisement de la
+ * mémoire de l'instance. Toute autre erreur remonte telle quelle.
+ *
+ *   const pdf = await renderPdfOuRefus(() => TableauDocument({ … }));
+ *   if (pdf instanceof Response) return pdf;
+ */
+export async function renderPdfOuRefus(construire: () => ReactElement<DocumentProps>): Promise<Buffer | Response> {
+  try {
+    return await renderPdfBuffer(construire());
+  } catch (e) {
+    const refus = reponsePdfTropLong(e);
+    if (refus) return refus;
+    throw e;
+  }
 }

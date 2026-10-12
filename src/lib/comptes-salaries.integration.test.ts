@@ -372,6 +372,7 @@ describe("reinitialiserCompteSalarie — le seul chemin de réinitialisation", (
     expect(AUTH.motsDePasseParId.get(avant.id)).toBe(r.motDePasse); // c'est CE mot de passe que l'Auth connaît
     expect(await prisma.user.findUniqueOrThrow({ where: { id: avant.id } })).toMatchObject({
       email: avant.email, role: "EMPLOYE", employeeId: e.id, motDePasseTemporaire: true, actif: true,
+      sessionsRevoqueesLe: expect.any(Date), // audit 10/10/2026, sécurité 5 : sessions de l'ancien mot de passe fermées
     });
     expect(await prisma.journalAudit.findMany({ where: { entiteId: avant.id }, select: { champ: true, nouvelleValeur: true, userId: true } }))
       .toEqual([{ champ: "reinitialisation", nouvelleValeur: "mot de passe temporaire régénéré", userId: adminId }]);

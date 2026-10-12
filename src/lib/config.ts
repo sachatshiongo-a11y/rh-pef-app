@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { ParametresPaie } from "@/lib/payroll";
 import type { Prisma } from "@prisma/client";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /**
  * Mois d'effet AAAAMM (`paie_reference_planning_depuis`), saisi en texte libre dans Paramètres.
@@ -26,7 +27,7 @@ export function lireMoisEffet(v: number | null | undefined): number | null {
  * dédiée pour que les routes de document puissent le rendre lisible (409) au lieu d'une erreur 500
  * muette — les autres appelants, qui attrapent `Error`, n'y voient aucune différence.
  */
-export class ParametreLegalManquantError extends Error {
+export class ParametreLegalManquantError extends ErreurMetier {
   constructor(message: string) {
     super(message);
     this.name = "ParametreLegalManquantError";
