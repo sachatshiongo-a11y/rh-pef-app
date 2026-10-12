@@ -255,6 +255,8 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
               <div>
                 <label className={ETIQUETTE} htmlFor={`${idTitre}-designation`}>Nom du nouvel article</label>
                 <input id={`${idTitre}-designation`} value={l.designation} onChange={(e) => maj({ designation: e.target.value })} placeholder="Ex. Sucre en poudre" autoComplete="off" className={CHAMP} />
+                <label className={`${ETIQUETTE} mt-2`} htmlFor={`${idTitre}-marque`}>Marque (facultatif)</label>
+                <input id={`${idTitre}-marque`} value={l.marque ?? ""} onChange={(e) => maj({ marque: e.target.value })} placeholder="Ex. Président" autoComplete="off" className={CHAMP} />
                 <p className="mt-1 text-xs text-muted-foreground">Un nom nouveau crée l&apos;article au catalogue ; un nom déjà connu retrouve l&apos;article existant.</p>
               </div>
               <div>

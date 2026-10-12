@@ -12,11 +12,11 @@ import { decisionSortie, type Regles } from "@/components/tableur/navigation";
 import { MOIS_FR_COURT } from "@/lib/dates-fr";
 import { formaterMontant } from "@/lib/montant";
 import { prixProposeEn } from "@/lib/prix-article";
-import { cleArticleExacte, doublonsDansListe, erreurDlc, type AnalyseLigne, type ArticleCandidat } from "@/lib/achats-doublons";
+import { cleArticleExacte, cleArticleMarque, doublonsDansListe, erreurDlc, type AnalyseLigne, type ArticleCandidat } from "@/lib/achats-doublons";
 import { prochesDansListe } from "@/lib/article-proche";
 
 /** `prix` : prix de référence du catalogue dans SA devise (`devisePrix`, absente = USD). */
-export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise; contenance?: string | null; contenanceUnite?: string | null };
+export type Art = { id: string; designation: string; marque?: string | null; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise; contenance?: string | null; contenanceUnite?: string | null };
 export type Fourn = { id: string; nom: string };
 export type Devise = "USD" | "CDF";
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -34,6 +34,8 @@ export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type Ligne = {
   articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string; devise: Devise; puCatalogue: string | null; fournNom: string;
   dlc: string; creerNouveau: boolean;
+  /** Marque du NOUVEL article (facultative, ligne libre seulement) — 2026-10-14 ; absente = sans marque. */
+  marque?: string;
   /** Devise du prix du catalogue d'où vient `puCatalogue` (absente = USD) — prix d'article en francs, 2026-10-08. */
   puCatalogueDevise?: Devise;
 };
@@ -42,7 +44,7 @@ export const vide = (devise: Devise): Ligne => ({ articleId: "", designation: ""
 export const quatreVides = (devise: Devise) => [vide(devise), vide(devise), vide(devise), vide(devise)];
 
 /** Ligne où rien n'est saisi : le défaut de devise du haut peut la relabelliser sans toucher un montant. */
-export const vierge = (l: Ligne) => !l.articleId && !l.designation.trim() && !l.unite.trim() && !l.qte && !l.pu && !l.montant && !l.fournNom.trim() && !l.dlc;
+export const vierge = (l: Ligne) => !l.articleId && !l.designation.trim() && !l.unite.trim() && !l.qte && !l.pu && !l.montant && !l.fournNom.trim() && !l.dlc && !(l.marque ?? "").trim();
 
 /** Ligne que le serveur enregistrera : article ou désignation, et quantité > 0 (même filtre que `entreeListeAchat`). */
 export const aEnregistrer = (l: Ligne) => !!(l.articleId || l.designation.trim()) && nombreDeSaisie(l.qte) > 0;
@@ -75,7 +77,7 @@ export const avecPuCatalogue = (l: Ligne, pu: string, puCatalogue: string | null
 export function avecChangement(l: Ligne, patch: Partial<Ligne>): Ligne {
   const maj = { ...l, ...patch };
   if ("pu" in patch && !("puCatalogue" in patch)) maj.puCatalogue = null;
-  if ("designation" in patch && patch.designation !== l.designation && !("creerNouveau" in patch)) maj.creerNouveau = false;
+  if ((("designation" in patch && patch.designation !== l.designation) || ("marque" in patch && (patch.marque ?? "") !== (l.marque ?? ""))) && !("creerNouveau" in patch)) maj.creerNouveau = false;
   if (("qte" in patch || "pu" in patch) && maj.pu !== "") maj.montant = produit(maj.qte, maj.pu);
   return maj;
 }
@@ -100,8 +102,8 @@ export function puDuCatalogue(prix: string | null, devise: Devise, taux: number,
  */
 export function avecArticle(l: Ligne, a: Art | undefined, taux: number): Ligne {
   const base = a
-    ? { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false }
-    : { ...l, articleId: "", designation: "", unite: "", creerNouveau: false };
+    ? { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false, marque: "" }
+    : { ...l, articleId: "", designation: "", unite: "", creerNouveau: false, marque: "" };
   const pu = a ? puDuCatalogue(a.prix, l.devise, taux, a.devisePrix) : null;
   if (pu !== null) return avecPuCatalogue(base, pu, a!.prix, a!.devisePrix);
   return l.puCatalogue !== null ? avecPuCatalogue(base, "", null) : { ...base, puCatalogue: null };
@@ -142,7 +144,7 @@ export const sansArticleDisparu = (l: Ligne, existe: (id: string) => boolean): L
 
 /**
  * L'ENVOI AU SERVEUR — le même pour les deux vues, construit depuis l'état (jamais relu dans le DOM) :
- * `date`, `origine`, puis, pour CHAQUE ligne et dans l'ordre, `articleId`, `designation`, `unite`,
+ * `date`, `origine`, puis, pour CHAQUE ligne et dans l'ordre, `articleId`, `designation`, `marque` (celle du nouvel article, vide sinon), `unite`,
  * `domaine`, `quantite`, `montant`, `devise`, `dlc`, `fournisseurNom`, `fournisseurId`, `creerNouveau`
  * (« 1 » ou vide). Le PU n'est jamais envoyé. Le serveur lit ces champs par position
  * (`entreeListeAchat`).
@@ -154,6 +156,7 @@ export function construireFormData(e: { date: string; origine: string; lignes: r
   for (const l of e.lignes) {
     fd.append("articleId", l.articleId);
     fd.append("designation", l.designation);
+    fd.append("marque", l.articleId ? "" : (l.marque ?? "").trim());
     fd.append("unite", l.unite);
     fd.append("domaine", l.domaine);
     fd.append("quantite", l.qte);
@@ -191,7 +194,7 @@ export type EtatLigne = {
 export function etatsLignes(lignes: readonly Ligne[], analyses: readonly (AnalyseLigne | null)[] | null, dateAchat: string): EtatLigne[] {
   const a = (i: number) => (analyses ? analyses[i] ?? null : null);
   const memes = doublonsDansListe(
-    lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, ignoree: !aEnregistrer(l) })),
+    lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, marque: l.marque, ignoree: !aEnregistrer(l) })),
     (i) => { const d = a(i)?.article; return d?.type === "auto" ? d.article.id : null; },
   );
   // Lignes qui CRÉERONT un article (même règle que le serveur) : nom nouveau, ou proche avec « Créer quand même ».
@@ -199,7 +202,7 @@ export function etatsLignes(lignes: readonly Ligne[], analyses: readonly (Analys
     const l = lignes[i], d = a(i)?.article;
     return aEnregistrer(l) && !l.articleId && (d?.type === "nouveau" || (d?.type === "choix" && d.creationPossible && l.creerNouveau));
   };
-  const prochesListe = prochesDansListe(lignes.map((l) => l.designation), creera);
+  const prochesListe = prochesDansListe(lignes.map((l) => l.designation), creera, lignes.map((l) => l.marque));
   return lignes.map((l, i) => {
     const an = a(i);
     const d = an?.article;
@@ -220,7 +223,7 @@ export function etatsLignes(lignes: readonly Ligne[], analyses: readonly (Analys
  * déjà repris du catalogue suit le nouvel article (règle de `avecArticle`).
  */
 export function avecArticleChoisi(l: Ligne, a: Art, taux: number): Ligne {
-  if (l.pu !== "" && l.puCatalogue === null) return { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false };
+  if (l.pu !== "" && l.puCatalogue === null) return { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false, marque: "" };
   return avecArticle(l, a, taux);
 }
 
@@ -228,16 +231,17 @@ export function avecArticleChoisi(l: Ligne, a: Art, taux: number): Ligne {
  * « Utiliser la ligne n » (deux noms nouveaux et proches dans la même liste) : la ligne reprend le nom,
  * l'unité, le domaine et le choix « Créer quand même » de la ligne n — un seul article sera créé.
  */
-export const avecNomDeLigne = (l: Ligne, modele: Ligne): Ligne => ({ ...l, designation: modele.designation, unite: modele.unite, domaine: modele.domaine, creerNouveau: modele.creerNouveau });
+export const avecNomDeLigne = (l: Ligne, modele: Ligne): Ligne => ({ ...l, designation: modele.designation, marque: modele.marque ?? "", unite: modele.unite, domaine: modele.domaine, creerNouveau: modele.creerNouveau });
 
 /** Le candidat proposé, en article de l'écran (pour « Utiliser … ») : la ligne devient une ligne du catalogue. */
-export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix, ...(c.devisePrix === "CDF" ? { devisePrix: "CDF" as const } : {}), ...(c.contenance ? { contenance: c.contenance, contenanceUnite: c.contenanceUnite ?? null } : {}) });
+export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, ...(c.marque ? { marque: c.marque } : {}), unite: c.unite, domaine: c.domaine, prix: c.prix, ...(c.devisePrix === "CDF" ? { devisePrix: "CDF" as const } : {}), ...(c.contenance ? { contenance: c.contenance, contenanceUnite: c.contenanceUnite ?? null } : {}) });
 
 /** Lignes de la même désignation libre (même clé exacte) : un choix « Utiliser » ou « Créer quand même » vaut pour toutes. */
 export function memeNomLibre(lignes: readonly Ligne[], i: number): number[] {
   const cle = cleArticleExacte(lignes[i]?.designation ?? "");
   if (!cle || lignes[i].articleId) return [i];
-  return lignes.flatMap((l, j) => (!l.articleId && cleArticleExacte(l.designation) === cle ? [j] : []));
+  const cleM = cleArticleMarque(lignes[i].designation, lignes[i].marque);
+  return lignes.flatMap((l, j) => (!l.articleId && cleArticleMarque(l.designation, l.marque) === cleM ? [j] : []));
 }
 
 /** Nom tapé → fournisseur connu (même clé que le serveur : casse et accents ignorés). */
@@ -287,7 +291,7 @@ export function erreursDe(l: Ligne, dateAchat = ""): ErreursPanneau {
 export const sansErreur = (e: ErreursPanneau) => !e.article && !e.qte && !e.pu && !e.montant && !e.dlc;
 
 /** Ligne du panneau rangée dans la liste : nombres au format canonique, fournisseur rogné. */
-export const rangee = (l: Ligne): Ligne => ({ ...l, qte: canonique(l.qte), pu: canonique(l.pu), montant: canonique(l.montant), designation: l.designation.trim(), unite: l.unite.trim(), fournNom: l.fournNom.trim(), dlc: l.dlc.trim() });
+export const rangee = (l: Ligne): Ligne => ({ ...l, qte: canonique(l.qte), pu: canonique(l.pu), montant: canonique(l.montant), designation: l.designation.trim(), unite: l.unite.trim(), fournNom: l.fournNom.trim(), dlc: l.dlc.trim(), ...(l.marque?.trim() ? { marque: l.marque.trim() } : {}) });
 
 // ── Affichage ───────────────────────────────────────────────────────────────────────────────────
 
@@ -335,6 +339,7 @@ export function lireBrouillon(brut: string | null): Brouillon | null {
       // La DLC est reprise ; « Créer quand même » NON : il se refait en voyant le catalogue du jour.
       dlc: /^\d{4}-\d{2}-\d{2}$/.test(String(r.dlc)) ? String(r.dlc) : "",
       creerNouveau: false,
+      ...(texte(r.marque, 120).trim() ? { marque: texte(r.marque, 120).trim() } : {}),
     };
     if (!vierge(l)) lignes.push(l);
   }

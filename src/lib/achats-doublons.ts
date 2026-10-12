@@ -53,6 +53,12 @@ export function marquesDifferentes(a: string | null | undefined, b: string | nul
   return na !== "" && nb !== "" && na !== nb;
 }
 
+/** Clé d'une désignation + marque pour regrouper des lignes d'une même liste : « Beurre » Président et « Beurre » Lurpak sont deux clés. */
+export function cleArticleMarque(designation: string, marque?: string | null): string {
+  const m = normTexte(marque ?? "").replace(/\s+/g, " ").trim();
+  return `${cleArticleExacte(designation)}${m ? `|${m}` : ""}`;
+}
+
 /**
  * Le MÊME article : même désignation (`memeDesignation`) ET pas deux marques renseignées différentes
  * (2026-10-14 : « Beurre doux » Président et « Beurre doux » Lurpak sont deux articles, pas un doublon).
@@ -94,12 +100,12 @@ export type AnalyseLigne = { article: DecisionArticle };
  * concernée (indice), les indices des AUTRES lignes. Les lignes `ignoree` (rien d'enregistrable)
  * ne comptent pas. Avertissement seulement : deux sacs de farine à deux prix restent possibles.
  */
-export function doublonsDansListe(lignes: readonly { articleId: string; designation: string; ignoree?: boolean }[], resolu: (i: number) => string | null = () => null): Map<number, number[]> {
+export function doublonsDansListe(lignes: readonly { articleId: string; designation: string; marque?: string | null; ignoree?: boolean }[], resolu: (i: number) => string | null = () => null): Map<number, number[]> {
   const parCle = new Map<string, number[]>();
   lignes.forEach((l, i) => {
     if (l.ignoree) return;
     const id = l.articleId || resolu(i);
-    const cle = id ? `id:${id}` : cleArticleExacte(l.designation) ? `libre:${cleArticleExacte(l.designation)}` : "";
+    const cle = id ? `id:${id}` : cleArticleExacte(l.designation) ? `libre:${cleArticleMarque(l.designation, l.marque)}` : "";
     if (!cle) return;
     parCle.set(cle, [...(parCle.get(cle) ?? []), i]);
   });

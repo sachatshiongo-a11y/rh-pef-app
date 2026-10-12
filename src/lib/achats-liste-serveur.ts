@@ -15,7 +15,7 @@ const FENETRE_JOURS = 14;
 type Client = Prisma.TransactionClient;
 
 /** Une ligne telle que l'écran la fait vérifier : article du catalogue OU désignation libre, et quantité. */
-export type LigneAVerifier = { articleId: string; designation: string; quantite: number };
+export type LigneAVerifier = { articleId: string; designation: string; marque?: string; quantite: number };
 
 /** Le catalogue tel que la recherche des articles proches le lit (inactifs compris : voir `decisionArticle`). */
 export async function catalogueCandidats(client: Client = prisma): Promise<ArticleCandidat[]> {
@@ -37,7 +37,7 @@ export async function analyserListeAchat(dateISO: string, lignes: readonly Ligne
   const actives = lignes.map((l) => !!(l.articleId || l.designation.trim()) && l.quantite > 0);
   const libres = lignes.some((l, i) => actives[i] && !l.articleId);
   const catalogue = libres ? await catalogueCandidats() : [];
-  const decisions = lignes.map((l, i) => (!actives[i] ? null : l.articleId ? ({ type: "catalogue" } as const) : decisionArticle(l.designation, catalogue)));
+  const decisions = lignes.map((l, i) => (!actives[i] ? null : l.articleId ? ({ type: "catalogue" } as const) : decisionArticle(l.designation, catalogue, l.marque)));
   const resolues = lignes.flatMap((l, i) => {
     const d = decisions[i];
     const articleId = !d ? "" : d.type === "catalogue" ? l.articleId : d.type === "auto" ? d.article.id : "";

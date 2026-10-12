@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   avecArticle, avecArticleChoisi, avecChangement, avecNomDeLigne, etatsLignes, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
-  serialiserBrouillon, vide, vierge, aEnregistrer, lignesAConfirmer, montantNonConverti, phraseDevise, sansArticleDisparu, type Art, type Ligne,
+  memeNomLibre, serialiserBrouillon, vide, vierge, aEnregistrer, lignesAConfirmer, montantNonConverti, phraseDevise, sansArticleDisparu, type Art, type Ligne,
 } from "./liste-achat-saisie";
 
 const HUILE: Art = { id: "a2", designation: "Huile de palme", unite: "pièce", domaine: "NOURRITURE", prix: "1.70" };
@@ -41,16 +41,16 @@ describe("calcul d'une ligne", () => {
 });
 
 describe("l'envoi", () => {
-  it("date, origine, puis par ligne : articleId, designation, unite, domaine, quantite, montant, devise, dlc, fournisseurNom, fournisseurId, creerNouveau — jamais le PU", () => {
+  it("date, origine, puis par ligne : articleId, designation, marque, unite, domaine, quantite, montant, devise, dlc, fournisseurNom, fournisseurId, creerNouveau — jamais le PU", () => {
     const lignes: Ligne[] = [
       { ...vide("CDF"), articleId: "a2", designation: "Huile", unite: "pièce", qte: "2,5", pu: "4760", montant: "11900", fournNom: "maman epiphanie" },
-      { ...vide("USD"), designation: "Tomate", unite: "kg", qte: "3", dlc: "2026-10-20", creerNouveau: true },
+      { ...vide("USD"), designation: "Tomate", marque: " Mama ", unite: "kg", qte: "3", dlc: "2026-10-20", creerNouveau: true },
     ];
     const fd = construireFormData({ date: "2026-10-07", origine: "Marché", lignes, idFourn: (n) => (n ? "f0" : "") });
     expect([...fd.entries()]).toEqual([
       ["date", "2026-10-07"], ["origine", "Marché"],
-      ["articleId", "a2"], ["designation", "Huile"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", "maman epiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
-      ["articleId", ""], ["designation", "Tomate"], ["unite", "kg"], ["domaine", "NOURRITURE"], ["quantite", "3"], ["montant", ""], ["devise", "USD"], ["dlc", "2026-10-20"], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", "1"],
+      ["articleId", "a2"], ["designation", "Huile"], ["marque", ""], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", "maman epiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
+      ["articleId", ""], ["designation", "Tomate"], ["marque", "Mama"], ["unite", "kg"], ["domaine", "NOURRITURE"], ["quantite", "3"], ["montant", ""], ["devise", "USD"], ["dlc", "2026-10-20"], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", "1"],
     ]);
   });
 
@@ -144,5 +144,38 @@ describe("brouillon repris : article disparu", () => {
     const l = { ...vide("USD"), articleId: "zz", designation: "Vieux", puCatalogue: "1.5" };
     expect(sansArticleDisparu(l, () => false)).toMatchObject({ articleId: "", designation: "Vieux", puCatalogue: null });
     expect(sansArticleDisparu(l, () => true)).toBe(l);
+  });
+});
+
+describe("marque d'un nouvel article (2026-10-14)", () => {
+  it("la marque d'une ligne du catalogue ne part pas ; celle d'une ligne libre part rognée", () => {
+    const fd = construireFormData({ date: "2026-10-07", origine: "", idFourn: () => "", lignes: [
+      { ...vide("USD"), articleId: "a2", designation: "Huile", marque: "Fantôme", qte: "1" },
+      { ...vide("USD"), designation: "Beurre doux", marque: "  Lurpak ", qte: "1" },
+    ] });
+    expect(fd.getAll("marque")).toEqual(["", "Lurpak"]);
+  });
+
+  it("retaper la marque annule « Créer quand même » (il portait sur l'ancienne identité) ; choisir un article l'efface", () => {
+    const l = { ...vide("USD"), designation: "Beurre doux", marque: "Président", creerNouveau: true };
+    expect(avecChangement(l, { marque: "Lurpak" }).creerNouveau).toBe(false);
+    expect(avecChangement(l, { qte: "2" }).creerNouveau).toBe(true);
+    expect(avecArticle(l, { id: "a1", designation: "Sel", unite: null, domaine: "NOURRITURE", prix: null }, 2800).marque).toBe("");
+  });
+
+  it("une ligne où seule la marque est saisie n'est pas « vierge » ; le brouillon la garde", () => {
+    expect(vierge({ ...vide("USD"), marque: "Lurpak" })).toBe(false);
+    const b = lireBrouillon(serialiserBrouillon({ jour: "2026-10-14", date: "2026-10-14", origine: "", deviseDefaut: "USD", lignes: [{ ...vide("USD"), designation: "Beurre", marque: "Lurpak", qte: "1" }] }));
+    expect(b?.lignes[0].marque).toBe("Lurpak");
+  });
+
+  it("deux lignes du même nom et de marques différentes ne sont pas des doublons de la liste", () => {
+    const l = (marque: string) => ({ ...vide("USD"), designation: "Beurre doux", marque, qte: "1" });
+    expect(memeNomLibre([l("Président"), l("Lurpak")], 0)).toEqual([0]);
+    expect(memeNomLibre([l("Président"), l("président ")], 0)).toEqual([0, 1]);
+    const sans = etatsLignes([l("Président"), l("Lurpak")], null, "2026-10-14");
+    expect(sans.map((e) => e.memesLignes)).toEqual([[], []]);
+    const memes = etatsLignes([l("Président"), l("Président")], null, "2026-10-14");
+    expect(memes.map((e) => e.memesLignes)).toEqual([[1], [0]]);
   });
 });

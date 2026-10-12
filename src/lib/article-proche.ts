@@ -23,7 +23,7 @@
 
 import { similariteNom } from "@/lib/fournisseur-match";
 import { sansContenance } from "@/lib/fiches/conversion";
-import { memeArticle, memeDesignation, sansLigatures, type ArticleCandidat, type DecisionArticle } from "@/lib/achats-doublons";
+import { marquesDifferentes, memeArticle, memeDesignation, sansLigatures, type ArticleCandidat, type DecisionArticle } from "@/lib/achats-doublons";
 
 /**
  * Seuil de ressemblance au-delà duquel on MONTRE un article existant avant de créer — celui de
@@ -92,11 +92,11 @@ export function decisionArticle(designation: string, articles: readonly ArticleC
  * exact ne crée qu'un article). La seconde ligne demande alors « Utiliser la ligne n » ou « Créer
  * quand même ». Rend, par indice de ligne, les indices des lignes proches qui la précèdent.
  */
-export function prochesDansListe(designations: readonly string[], creera: (i: number) => boolean): Map<number, number[]> {
+export function prochesDansListe(designations: readonly string[], creera: (i: number) => boolean, marques: readonly (string | null | undefined)[] = []): Map<number, number[]> {
   const res = new Map<number, number[]>();
   designations.forEach((nom, i) => {
     if (!creera(i) || !nom.trim()) return;
-    const avant = designations.slice(0, i).map((d, j) => ({ designation: d, j })).filter(({ designation, j }) => creera(j) && designation.trim() && !memeDesignation(nom, designation));
+    const avant = designations.slice(0, i).map((d, j) => ({ designation: d, j })).filter(({ designation, j }) => creera(j) && designation.trim() && !memeDesignation(nom, designation) && !marquesDifferentes(marques[i], marques[j]));
     const proches = articlesProches(nom, avant, { max: MAX_PROCHES }).map((p) => p.article.j);
     if (proches.length > 0) res.set(i, proches);
   });

@@ -37,7 +37,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await fermer?.(); });
 
-type Ligne = { articleId?: string; designation?: string; unite?: string; domaine?: string; quantite: number; montant?: number; fournisseurId?: string; fournisseurNom?: string; dlc?: string; creerNouveau?: boolean };
+type Ligne = { articleId?: string; designation?: string; unite?: string; domaine?: string; quantite: number; montant?: number; fournisseurId?: string; fournisseurNom?: string; dlc?: string; creerNouveau?: boolean; marque?: string };
 const fd = (lignes: Ligne[], opts: { date?: string; devise?: "USD" | "CDF"; origine?: string } = {}) => {
   const f = new FormData();
   if (opts.origine !== undefined) f.set("origine", opts.origine);
@@ -46,6 +46,7 @@ const fd = (lignes: Ligne[], opts: { date?: string; devise?: "USD" | "CDF"; orig
   for (const l of lignes) {
     f.append("articleId", l.articleId ?? "");
     f.append("designation", l.designation ?? "");
+    if (lignes.some((x) => x.marque !== undefined)) f.append("marque", l.marque ?? "");
     f.append("unite", l.unite ?? "");
     f.append("domaine", l.domaine ?? "NOURRITURE");
     f.append("quantite", String(l.quantite));
