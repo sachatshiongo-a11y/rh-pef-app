@@ -166,6 +166,36 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
     );
   }
 
+  if (a.uniteResto) {
+    return (
+      <ul className="divide-y rounded-md border text-sm">
+        {a.uniteResto.articles.map((x) => (
+          <li key={x.designation} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+            <b>{x.designation}</b>
+            <span>unité <span className="text-muted-foreground line-through">{x.uniteAvant ?? "—"}</span> → <b>{x.uniteApres}</b> ({x.facteur})</span>
+            <span className="text-xs text-muted-foreground">{x.nbComptages} comptage(s) convertis</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (a.lien) {
+    return (
+      <ul className="divide-y rounded-md border text-sm">
+        {a.lien.operations.map((o) => (
+          <li key={`${o.articleRestoDesignation}:${o.articleStockId}:${o.op}`} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+            <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${o.op === "AJOUT" ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}>{o.op === "AJOUT" ? "Rattacher" : "Détacher"}</span>
+            <Link href={`/stock/catalogue/${o.articleStockId}`} className="font-medium text-primary hover:underline">{o.articleStockDesignation}</Link>
+            <span className="text-muted-foreground">{o.op === "AJOUT" ? "à" : "de"}</span>
+            <b>{o.articleRestoDesignation}</b>
+            <span className="text-xs text-muted-foreground">({o.espace === "BAR" ? "Bar" : "Cuisine"})</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   if (a.article) {
     return (
       <div className="space-y-2 text-sm">

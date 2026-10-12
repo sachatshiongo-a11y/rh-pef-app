@@ -56,7 +56,7 @@ beforeAll(async () => {
   ids.sansUnite = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Sans unité", unite: null, ordre: 3 } })).id;
   const farine = await prisma.articleStock.create({ data: { designation: "Farine T45", domaine: "NOURRITURE", unite: "kg" } });
   ids.farine = farine.id;
-  ids.livre = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine livrée", unite: "g", ordre: 4, articleStockId: farine.id } })).id;
+  ids.livre = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine livrée", unite: "g", ordre: 4, liens: { create: { articleStockId: farine.id } } } })).id;
   ids.catCmd = (await prisma.articleStock.create({ data: { designation: "Riz", domaine: "NOURRITURE", unite: "kg" } })).id;
   ids.plat = (await prisma.ficheTechnique.create({ data: { nom: "Pâtes", type: "PLAT" } })).id;
   ids.platSansVente = (await prisma.ficheTechnique.create({ data: { nom: "Salade", type: "PLAT" } })).id;
@@ -159,6 +159,17 @@ describe("1. l'unité d'un article du restaurant est celle de tout son historiqu
     const e = erreurDe(await modifierArticleResto(ids.livre!, fd({ unite: "kg" })));
     expect(e).toContain("1 livraison(s) du dépôt");
     expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: ids.livre } })).unite).toBe("g");
+  });
+
+  it("plusieurs marques rattachées : la livraison de N'IMPORTE LAQUELLE verrouille l'unité", async () => {
+    const m1 = await prisma.articleStock.create({ data: { designation: "Lait Candia", domaine: "NOURRITURE", unite: "L" } });
+    const m2 = await prisma.articleStock.create({ data: { designation: "Lait Nido", domaine: "NOURRITURE", unite: "L" } });
+    const lait = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Lait", unite: "l", ordre: 9, liens: { create: [{ articleStockId: m1.id }, { articleStockId: m2.id }] } } });
+    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: lait.id } })).unite).toBe("l");
+    await prisma.mouvementStock.create({ data: { articleId: m2.id, type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", quantite: 6, date: le("2026-10-05") } }); // la 2e marque seulement
+    const e = erreurDe(await modifierArticleResto(lait.id, fd({ unite: "cl" })));
+    expect(e).toContain("1 livraison(s) du dépôt");
+    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: lait.id } })).unite).toBe("l");
   });
 
   it("sans historique l'unité change, et le changement est journalisé (avant → après)", async () => {

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 vi.mock("./actions", () => ({
   majComptage: vi.fn(), modifierArticleResto: vi.fn(), creerArticleResto: vi.fn(), supprimerArticleResto: vi.fn(),
-  rattacherArticleResto: vi.fn(), changerActivationArticlesResto: vi.fn(), accepterPropositions: vi.fn(),
+  ajouterLiensResto: vi.fn(), retirerLiensResto: vi.fn(), changerActivationArticlesResto: vi.fn(), accepterPropositions: vi.fn(),
 }));
 const { RestaurantEcran } = await import("./restaurant-ecran");
 
@@ -26,7 +26,7 @@ function monter(p: { estDirection?: boolean; afficherDesactives?: boolean; livra
   racine = createRoot(conteneur);
   act(() => racine.render(h(RestaurantEcran, {
     espace: "CUISINE", jours: JOURS, aujourdhui: "2026-09-30", estDirection: p.estDirection ?? true, afficherDesactives: p.afficherDesactives ?? false,
-    lignes: [{ id: "a", categorie: "Épicerie", designation: "Farine", unite: "kg", base: "", comptages: {}, articleStockId: null, articleStockDesignation: null, recus: {}, signauxJour: {}, theorique: { stock: null, aucunComptage: true, signalements: [] } }],
+    lignes: [{ id: "a", categorie: "Épicerie", designation: "Farine", unite: "kg", base: "", comptages: {}, articlesStock: [], recus: {}, signauxJour: {}, theorique: { stock: null, aucunComptage: true, signalements: [] } }],
     categories: ["Épicerie"], catalogue: [],
     livraisonsParJour: p.livraisons === false ? [] : [["2026-09-29", [{ designation: "Riz", quantite: 10 }]]],
     nonRattachees: [], signalements: [], articlesResto: [], propositions: [],

@@ -1454,7 +1454,8 @@ model ArticleStock {
   lignesFacture    LigneFacture[]
   commandesResto   CommandeResto[]
   fichesIngredient IngredientFiche[]
-  articlesResto    ArticleResto[]
+  articlesResto    ArticleResto[] // ANCIEN lien 1-n (colonne ArticleResto.articleStockId) : plus lu ni écrit, à retirer
+  liensResto       ArticleRestoStock[] // articles du restaurant auxquels cet article est rattaché (lien actuel)
 
   @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
   @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
@@ -1780,14 +1781,38 @@ model ArticleResto {
   stockBaseJournalier Decimal?        @db.Decimal(14, 3) // niveau cible par jour
   ordre               Int             @default(0)
   actif               Boolean         @default(true)
-  // Article du catalogue dont cet article du restaurant est le comptage (disponibilité des plats,
-  // 2026-09-24). Posé par un geste (page Restaurant) ou par le rattachement AUTOMATIQUE d'une
-  // livraison (2026-10-08, lib/rattachement-auto.ts : un seul candidat, sinon rien) : jamais deviné.
+  // ANCIEN lien vers UN article du catalogue (2026-09-24) : REMPLACÉ le 2026-10-12 par la table de
+  // liaison `ArticleRestoStock` (plusieurs marques de beurre pour un « Beurre »). La colonne est gardée
+  // le temps du déploiement (l'ancien code encore en ligne la lit) ; le code actuel ne la lit ni ne
+  // l'écrit plus. À RETIRER (colonne, index, relation) dans une version suivante.
   articleStockId      String?
   articleStock        ArticleStock?   @relation(fields: [articleStockId], references: [id], onDelete: SetNull)
+  // Articles du catalogue dont cet article du restaurant est le comptage (disponibilité des plats,
+  // livraisons « Livraison restaurant »). Posés par un geste (page Restaurant) ou par le rattachement
+  // AUTOMATIQUE d'une livraison (lib/rattachement-auto.ts : un seul candidat, sinon rien) : jamais devinés.
+  liens               ArticleRestoStock[]
   comptages           ComptageResto[]
 
   @@index([espace, ordre])
+  @@index([articleStockId])
+  @@schema("stock")
+}
+
+/// Rattachement d'un article du restaurant à un article du catalogue (2026-10-12). Un article du
+/// restaurant peut en avoir PLUSIEURS (plusieurs marques de beurre, de lait, de crème…) : les
+/// livraisons de n'importe lequel alimentent son stock, chacune convertie dans l'unité du restaurant.
+/// Un couple n'existe qu'une fois. Un même article du catalogue peut encore être rattaché à deux
+/// articles du restaurant d'ESPACES différents (Cuisine et Bar : l'espace se lit au domaine) ; le
+/// geste de rattachement refuse deux articles du MÊME espace.
+model ArticleRestoStock {
+  id             String       @id @default(uuid())
+  articleRestoId String
+  articleResto   ArticleResto @relation(fields: [articleRestoId], references: [id], onDelete: Cascade)
+  articleStockId String
+  articleStock   ArticleStock @relation(fields: [articleStockId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([articleRestoId, articleStockId])
   @@index([articleStockId])
   @@schema("stock")
 }
@@ -1876,6 +1901,8 @@ enum NatureDemandeStock {
   RECONCILIATION
   MODIF_ARTICLE
   MOUVEMENT_MANUEL // entrée/sortie manuelle hors flux libre (ni livraison restaurant, ni perte, ni retour restaurant)
+  LIEN_RESTO // rattacher / détacher un article du catalogue à un article du restaurant (2026-10-12)
+  UNITE_RESTO // aligner l'unité d'un article du restaurant sur celle de l'Inventaire (conversion exacte des comptages, 2026-10-12)
 
   @@schema("stock")
 }

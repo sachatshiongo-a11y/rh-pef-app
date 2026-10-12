@@ -88,7 +88,7 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
       id: true, designation: true, nomCourt: true, unite: true, domaine: true, categorie: { select: { nom: true } },
       surFicheCommande: true, ordreCommande: true, rubriqueCommande: true,
       // Nom court de repli : l'article du restaurant rattaché (geste de la Direction, jamais deviné).
-      articlesResto: { where: { actif: true }, select: { designation: true } },
+      liensResto: { where: { articleResto: { actif: true } }, select: { articleResto: { select: { designation: true } } } },
     },
   });
   const rang = (d: DomaineStock) => domaines.indexOf(d);
@@ -115,7 +115,7 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
         .filter((a) => DOMAINES_FICHE[espace].includes(a.domaine))
         .sort((a, b) => rang(a.domaine) - rang(b.domaine))
         .map((a) => ({
-          id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null,
+          id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: [...new Set(a.liensResto.map((l) => l.articleResto.designation))], unite: a.unite, categorie: a.categorie?.nom ?? null,
           surFicheCommande: calee ? a.surFicheCommande : undefined, ordreCommande: a.ordreCommande, rubriqueCommande: a.rubriqueCommande,
         })),
       commandes: cmd,

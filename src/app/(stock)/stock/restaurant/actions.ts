@@ -5,10 +5,16 @@ import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
-import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
+import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { demanderAlignementsUnite, demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
+import { aligner, articlesDeDemande, plansAlignement, texteEffet } from "@/lib/validations-stock/unite-resto";
+import { ecartUnite, obstaclesLiens, poserLiensTx, retirerLiensTx } from "@/lib/validations-stock/lien-resto";
+import type { OperationLien } from "@/lib/validations-stock/charge";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
 import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { normaliserUnite } from "@/lib/fiches/conversion";
@@ -99,7 +105,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
   let changementUnite: { avant: string | null; apres: string | null } | null = null;
   if (formData.has("unite")) {
     const apres = String(formData.get("unite") ?? "").trim() || null;
-    const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, articleStockId: true } });
+    const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, liens: { select: { articleStockId: true } } } });
     if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
     if (apres !== article.unite) {
       // Seule une AUTRE unité réinterprète l'historique : « Kg » → « kg », « Litres » → « l » (même unité,
@@ -107,7 +113,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
       if (article.unite !== null && normaliserUnite(apres ?? "") !== normaliserUnite(article.unite)) {
         const [comptages, livraisons] = await Promise.all([
           prisma.comptageResto.count({ where: { articleRestoId: id } }),
-          article.articleStockId === null ? 0 : prisma.mouvementStock.count({ where: { articleId: article.articleStockId, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),
+          article.liens.length === 0 ? 0 : prisma.mouvementStock.count({ where: { articleId: { in: article.liens.map((l) => l.articleStockId) }, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),
         ]);
         if (comptages > 0 || livraisons > 0) {
           const quoi = [comptages > 0 ? `${comptages} comptage(s)` : null, livraisons > 0 ? `${livraisons} livraison(s) du dépôt` : null].filter(Boolean).join(" et ");
@@ -115,6 +121,15 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
             `L'unité de « ${article.designation} » ne peut plus changer : ${quoi} existent déjà en « ${article.unite} », et les relire dans une autre unité fausserait tout l'historique (par exemple, 4,5 kg deviendrait 4,5 g). ` +
             "Créez un nouvel article avec la bonne unité, puis demandez à la Direction de désactiver celui-ci.",
           );
+        }
+      }
+      // Une seule unité par produit, celle de l'Inventaire : un article RATTACHÉ ne prend qu'une unité identique (normalisée)
+      // à celle de ses articles du dépôt. Pour en changer : l'Inventaire d'abord, ou « Aligner sur l'Inventaire » (conversion exacte).
+      if (article.liens.length > 0) {
+        const inventaire = await prisma.articleStock.findMany({ where: { id: { in: article.liens.map((l) => l.articleStockId) } }, select: { ...CHAMPS_LIBELLE, unite: true } });
+        const autre = inventaire.find((i) => ecartUnite(apres, i.unite) !== null);
+        if (autre) {
+          throw new Error(`L'unité de « ${article.designation} » est celle de l'Inventaire (« ${autre.unite?.trim() || "—"} » pour « ${libelleArticle(autre)} ») : ${apres ?? "vide"} ne convient pas. Changez l'unité dans l'Inventaire d'abord, ou utilisez « Aligner sur l'Inventaire » (qui convertit aussi les comptages).`);
         }
       }
       changementUnite = { avant: article.unite, apres };
@@ -169,68 +184,154 @@ export const changerActivationArticlesResto = actionLisible(async (ids: string[]
 });
 
 // ─── Rattachement au catalogue (disponibilité des plats) ─────────────────────
-// Un rattachement n'est jamais DEVINÉ : soit un geste (choix d'un article, propositions cochées), soit
-// le rattachement AUTOMATIQUE des livraisons (lib/rattachement-auto.ts), dont la règle exige un seul
-// candidat. Chaque écriture de `articleStockId` journalise l'avant → après.
+// Un article du restaurant peut être rattaché à PLUSIEURS articles du catalogue (plusieurs marques de
+// beurre) : table de liaison `ArticleRestoStock`. Un rattachement n'est jamais DEVINÉ : soit un geste
+// (choix d'articles, propositions cochées), soit le rattachement AUTOMATIQUE des livraisons
+// (lib/rattachement-auto.ts), dont la règle exige un seul candidat. Chaque ajout ou retrait de lien est
+// journalisé (le libellé de l'article du catalogue, avant → après). Mêmes droits qu'avant : l'espace Stock.
 
 const revaliderRattachement = () => {
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/fiches");
 };
 
-/** Rattache (ou détache, avec `null`) un article du restaurant à un article actif du catalogue. */
-export const rattacherArticleResto = actionLisible(async (articleRestoId: string, articleStockId: string | null) => {
-  const user = await garde();
-  const resto = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { id: true, articleStockId: true } });
-  if (!resto) return { erreur: "Article du restaurant introuvable : rechargez la page." };
-  if (articleStockId !== null) {
-    const article = await prisma.articleStock.findUnique({ where: { id: articleStockId }, select: { actif: true } });
-    if (!article) return { erreur: "Article du catalogue introuvable : rechargez la page." };
-    if (!article.actif) return { erreur: "Cet article du catalogue est désactivé : choisissez un article actif." };
-  }
-  if (resto.articleStockId === articleStockId) return { n: 0 };
+const MAX_LIENS_PAR_GESTE = 50;
+const idsDistincts = (ids: unknown): string[] => (Array.isArray(ids) ? [...new Set(ids.map(String).filter(Boolean))] : []);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.articleResto.update({ where: { id: resto.id }, data: { articleStockId } });
-    await journaliser(tx, {
-      entite: "ArticleResto", entiteId: resto.id, champ: "articleStockId",
-      ancienneValeur: resto.articleStockId, nouvelleValeur: articleStockId, userId: user.id,
-    });
-  });
+/**
+ * Rattache un article du restaurant à un ou PLUSIEURS articles ACTIFS du catalogue (lot). Un couple déjà
+ * rattaché est ignoré. Refusé, nommément et sans rien écrire : un article du catalogue déjà rattaché à un
+ * AUTRE article du restaurant du MÊME espace (ses livraisons seraient « à répartir » entre les deux) —
+ * Cuisine et Bar peuvent chacun avoir le leur, l'espace se lit au domaine de l'article.
+ * DIRECTION : écrit tout de suite. Autre compte : dépose une DEMANDE À VALIDER (rien n'est rattaché avant).
+ */
+export const ajouterLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
+  const user = await garde();
+  const ids = idsDistincts(articleStockIds);
+  if (ids.length === 0) return { erreur: "Choisissez au moins un article du catalogue." };
+  if (ids.length > MAX_LIENS_PAR_GESTE) return { erreur: `Trop d'articles d'un coup (${ids.length}) : ${MAX_LIENS_PAR_GESTE} au plus.` };
+  const resto = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { id: true, espace: true, designation: true, liens: { select: { articleStockId: true } } } });
+  if (!resto) return { erreur: "Article du restaurant introuvable : rechargez la page." };
+  const articles = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, actif: true } });
+  if (articles.length !== ids.length) return { erreur: "Article du catalogue introuvable : rechargez la page." };
+  const inactif = articles.find((a) => !a.actif);
+  if (inactif) return { erreur: `« ${libelleArticle(inactif)} » est désactivé au catalogue : choisissez un article actif.` };
+  const dejaLies = new Set(resto.liens.map((l) => l.articleStockId));
+  const operations: OperationLien[] = articles.filter((a) => !dejaLies.has(a.id)).map((a) => ({
+    op: "AJOUT", articleRestoId: resto.id, articleRestoDesignation: resto.designation, espace: resto.espace, articleStockId: a.id, articleStockDesignation: libelleArticle(a),
+  }));
+  if (operations.length === 0) return { n: 0 };
+  const obstacles = await obstaclesLiens(prisma, operations);
+  if (obstacles.length > 0) return { erreur: `${obstacles.join(" ; ")}. Rien n'a été rattaché.` };
+  if (!estDirection(user)) {
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length };
+  }
+  await prisma.$transaction((tx) => poserLiensTx(tx, user.id, operations));
   revaliderRattachement();
-  return { n: 1 };
+  return { n: operations.length };
+});
+
+/**
+ * Détache d'un article du restaurant un ou PLUSIEURS articles du catalogue (lot). Un lien absent est ignoré.
+ * DIRECTION : retire tout de suite. Autre compte : DEMANDE À VALIDER (le lien reste, « retrait en attente »).
+ */
+export const retirerLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
+  const user = await garde();
+  const ids = idsDistincts(articleStockIds);
+  if (ids.length === 0) return { erreur: "Choisissez au moins un article à détacher." };
+  const liens = await prisma.articleRestoStock.findMany({
+    where: { articleRestoId, articleStockId: { in: ids } },
+    select: { articleStockId: true, articleStock: { select: { designation: true, contenance: true, contenanceUnite: true } }, articleResto: { select: { designation: true, espace: true } } },
+  });
+  if (liens.length === 0) return { n: 0 };
+  const operations: OperationLien[] = liens.map((l) => ({
+    op: "RETRAIT", articleRestoId, articleRestoDesignation: l.articleResto.designation, espace: l.articleResto.espace, articleStockId: l.articleStockId, articleStockDesignation: libelleArticle(l.articleStock),
+  }));
+  if (!estDirection(user)) {
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length };
+  }
+  exigerDirectionPourSupprimer(user); // défense en profondeur : seule la Direction retire un lien en direct
+  await prisma.$transaction((tx) => retirerLiensTx(tx, user.id, operations));
+  revaliderRattachement();
+  return { n: operations.length };
 });
 
 /**
  * Accepte les propositions COCHÉES. Le serveur recalcule les propositions sur les seules lignes
  * reçues : une ligne déjà rattachée entre-temps, renommée, ou dont le nom n'est plus unique au
- * catalogue n'est pas écrite. N'écrit jamais au-delà des cases cochées.
+ * catalogue n'est pas écrite. N'écrit jamais au-delà des cases cochées. Direction : écrit ; autre
+ * compte : une demande à valider pour les propositions cochées.
  */
 export const accepterPropositions = actionLisible(async (articleRestoIds: string[]) => {
   const user = await garde();
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
-    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, articleStockId: true, unite: true } }),
+    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, unite: true, espace: true, liens: { select: { articleStockId: true } } } }),
     prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
   ]);
-  const propositions = proposerRattachements(restos, catalogue);
+  const propositions = proposerRattachements(restos.map((r) => ({ id: r.id, designation: r.designation, unite: r.unite, articleStockIds: r.liens.map((l) => l.articleStockId) })), catalogue);
   if (propositions.length === 0) {
     return { erreur: "Aucune des lignes cochées n'est encore une proposition valable (déjà rattachée ou renommée). Rechargez la page." };
   }
-
-  const entrees: EntreeJournal[] = [];
+  const espace = new Map(restos.map((r) => [r.id, r.espace]));
+  const operations: OperationLien[] = propositions.map((p) => ({
+    op: "AJOUT", articleRestoId: p.articleRestoId, articleRestoDesignation: p.designationResto, espace: espace.get(p.articleRestoId)!, articleStockId: p.articleStockId, articleStockDesignation: p.designationCatalogue,
+  }));
+  // Mêmes obstacles que le geste d'ajout, pour la Direction comme pour les autres : une proposition d'unité DIFFÉRENTE de
+  // l'Inventaire (cochée à la main, jamais d'office) ne s'écrit pas — « une seule unité par produit ».
+  const obstacles = await obstaclesLiens(prisma, operations);
+  if (obstacles.length > 0) return { erreur: `${obstacles.join(" ; ")}. Rien n'a été rattaché.` };
+  if (!estDirection(user)) {
+    // Une demande par ligne qui a un obstacle ne passerait pas : les obstacles sont dits, rien n'est demandé.
+    await demanderLiensResto(user, operations);
+    revaliderRattachement();
+    return { n: 0, enAttente: operations.length, ignores: articleRestoIds.length - operations.length };
+  }
+  const ecrites: OperationLien[] = [];
   await prisma.$transaction(async (tx) => {
-    for (const p of propositions) {
-      // Garde « encore libre » dans la requête même : un rattachement posé entre-temps n'est pas écrasé.
-      const r = await tx.articleResto.updateMany({ where: { id: p.articleRestoId, articleStockId: null }, data: { articleStockId: p.articleStockId } });
-      if (r.count === 1) {
-        entrees.push({ entite: "ArticleResto", entiteId: p.articleRestoId, champ: "articleStockId", ancienneValeur: null, nouvelleValeur: p.articleStockId, userId: user.id });
-      }
+    for (const o of operations) {
+      // Garde « encore libre » relue dans la transaction : un rattachement posé entre-temps n'est pas doublé.
+      if ((await tx.articleRestoStock.count({ where: { articleRestoId: o.articleRestoId } })) > 0) continue;
+      ecrites.push(o);
     }
-    await journaliserPlusieurs(tx, entrees);
+    await poserLiensTx(tx, user.id, ecrites);
   });
   revaliderRattachement();
-  return { n: entrees.length, ignores: articleRestoIds.length - entrees.length };
+  return { n: ecrites.length, ignores: articleRestoIds.length - ecrites.length };
+});
+
+/**
+ * « Aligner sur l'Inventaire » : change l'unité d'articles du restaurant pour celle de leurs articles de
+ * l'Inventaire ET convertit leurs comptages et stock de base par le facteur exact (une transaction, journal
+ * avant → après). Première passe : l'EFFET est montré (« 4,5 kg → 4 500 g sur 12 comptage(s) ») et rien n'est
+ * écrit ; avec `confirmer` : la Direction aligne, un autre compte dépose une demande à valider. Refusé, sans
+ * rien écrire, pour une conversion impossible ou qui ne tient pas en 3 décimales.
+ */
+export const alignerUnitesResto = actionLisible(async (ids: string[], confirmer = false) => {
+  const user = await garde();
+  const choisis = idsDistincts(ids);
+  if (choisis.length === 0) throw new Error("Aucun article sélectionné.");
+  if (choisis.length > MAX_LIENS_PAR_GESTE) throw new Error(`Trop d'articles d'un coup (${choisis.length}) : ${MAX_LIENS_PAR_GESTE} au plus.`);
+  const plans = await plansAlignement(prisma, { ids: choisis });
+  if (plans.length === 0) return { ok: true as const, modifies: 0 };
+  const non = plans.filter((p) => p.ecart.etat !== "ALIGNABLE");
+  if (non.length > 0) throw new Error(`${non.map(texteEffet).join(" ")} Rien n'a été aligné.`);
+  if (confirmer !== true) {
+    return { ok: false as const, aConfirmer: true as const, message: `${plans.map(texteEffet).join(" ")} ${estDirection(user) ? "Aligner maintenant ?" : "Envoyer la demande à la Direction ?"}` };
+  }
+  const articles = articlesDeDemande(plans);
+  if (!estDirection(user)) {
+    await demanderAlignementsUnite(user, articles);
+    revaliderRattachement();
+    return { ok: true as const, modifies: 0, enAttente: articles.length };
+  }
+  await prisma.$transaction((tx) => aligner(tx, user.id, articles), { timeout: 60_000 });
+  revaliderRattachement();
+  return { ok: true as const, modifies: articles.length };
 });
 
 /**

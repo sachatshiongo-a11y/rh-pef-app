@@ -72,6 +72,24 @@ describe("fusionnerArticles — choix de l'article à conserver", () => {
     expect(lignes[0]!.articleId).toBe(garder.id);
     expect(Number(lignes[0]!.quantite)).toBe(2); // quantité intacte
   }, 60_000);
+  it("liens vers les articles du RESTAURANT : ils suivent l'article conservé, sans doubler un couple déjà posé", async () => {
+    // Un article du restaurant rattaché au doublon (lien reporté) ; un autre rattaché aux DEUX (un seul lien reste) ;
+    // un troisième rattaché à l'article conservé et à une autre marque (non touchée).
+    const garder = await prisma.articleStock.create({ data: { designation: "Beurre Président", domaine: "NOURRITURE", unite: "kg" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "BEURRE PRESIDENT", domaine: "NOURRITURE", unite: "kg" } });
+    const autre = await prisma.articleStock.create({ data: { designation: "Beurre Lurpak", domaine: "NOURRITURE", unite: "kg" } });
+    const r1 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", liens: { create: { articleStockId: doublon.id } } } });
+    const r2 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre de cuisson", unite: "kg", liens: { create: [{ articleStockId: garder.id }, { articleStockId: doublon.id }] } } });
+    const r3 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre doux", unite: "kg", liens: { create: [{ articleStockId: garder.id }, { articleStockId: autre.id }] } } });
+
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+
+    const liens = async (restoId: string) => (await prisma.articleRestoStock.findMany({ where: { articleRestoId: restoId } })).map((l) => l.articleStockId).sort();
+    expect(await liens(r1.id)).toEqual([garder.id]); // reporté : le rattachement n'a pas disparu avec le doublon
+    expect(await liens(r2.id)).toEqual([garder.id]); // un seul couple, jamais deux fois le même
+    expect(await liens(r3.id)).toEqual([autre.id, garder.id].sort());
+    expect(await prisma.articleRestoStock.count({ where: { articleStockId: doublon.id } })).toBe(0);
+  }, 60_000);
 });
 
 // Audit du 10/10/2026, constat 5 : fusionner un doublon EFFAÇAIT ses commandes du restaurant (cascade) et
@@ -87,14 +105,14 @@ describe("fusionnerArticles — restaurant, seuils, clôture", () => {
       { articleId: garder.id, date: d("05"), quantite: 4 }, { articleId: doublon.id, date: d("05"), quantite: 3 },
       { articleId: doublon.id, date: d("06"), quantite: 2.5 }, { articleId: garder.id, date: d("07"), quantite: 1 },
     ] });
-    const ar = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Mozzarella (cuisine)", articleStockId: doublon.id } });
+    const ar = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Mozzarella (cuisine)", liens: { create: { articleStockId: doublon.id } } } });
 
     await fusionnerArticles([garder.id, doublon.id], garder.id);
 
     const cmds = (await prisma.commandeResto.findMany({ where: { articleId: garder.id }, orderBy: { date: "asc" } })).map((c) => [c.date.toISOString().slice(0, 10), Number(c.quantite)]);
     expect(cmds).toEqual([["2026-10-05", 7], ["2026-10-06", 2.5], ["2026-10-07", 1]]);
     expect(await prisma.commandeResto.count()).toBeGreaterThanOrEqual(3);
-    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: ar.id } })).articleStockId).toBe(garder.id);
+    expect((await prisma.articleRestoStock.findMany({ where: { articleRestoId: ar.id } })).map((l) => l.articleStockId)).toEqual([garder.id]);
   }, 60_000);
 
   it("garde le seuil le plus élevé (minimum et urgent) et additionne les articles endommagés", async () => {

@@ -39,7 +39,7 @@ const RAISONS: Record<Raison, string> = {
 const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(app)/parametres/page.tsx": { n: 1, raisons: ["AUTRE_MODELE"] }, // jours fériés
   "src/app/(stock)/stock/_tableau-de-bord/bloc-dlc-proches.tsx": { n: 1, raisons: ["AMONT"] }, // lib/dlc-stock
-  "src/app/(stock)/stock/a-valider/detail-demande.tsx": { n: 3, raisons: ["AMONT"] }, // validations-stock/apercu
+  "src/app/(stock)/stock/a-valider/detail-demande.tsx": { n: 5, raisons: ["AMONT"] }, // validations-stock/apercu
   "src/app/(stock)/stock/archives/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
@@ -77,19 +77,20 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/journalier/ventes-grid.tsx": { n: 9, raisons: ["VENTES"] },
   "src/app/(stock)/stock/mouvements/actions.ts": { n: 4, raisons: ["CLE"] }, // articles proches
   "src/app/(stock)/stock/mouvements/mouvements-client.tsx": { n: 5, raisons: ["AMONT", "CLE"] }, // mouvements/page (versLite) + articles proches
-  "src/app/(stock)/stock/mouvements/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/mouvements/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/page.tsx": { n: 3, raisons: ["AMONT", "FIGE"] }, // indicateurs/stock + palmarès des lignes de bon
   "src/app/(stock)/stock/recherche/page.tsx": { n: 2, raisons: ["CLE"] },
   "src/app/(stock)/stock/reconciliation/fiche/charger-articles.ts": { n: 1, raisons: ["CLE"] },
   "src/app/(stock)/stock/reconciliation/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/reconciliation/reconciliation-client.tsx": { n: 2, raisons: ["CLE"] },
-  "src/app/(stock)/stock/restaurant/actions.ts": { n: 4, raisons: ["RESTO"] }, // + message de refus du changement d'unité
+  "src/app/(stock)/stock/restaurant/actions.ts": { n: 8, raisons: ["RESTO"] }, // + message de refus du changement d'unité
   "src/app/(stock)/stock/restaurant/bandeau-livraisons.tsx": { n: 6, raisons: ["AMONT", "RESTO"] }, // stock-restaurant-charger, rattachement-auto
-  "src/app/(stock)/stock/restaurant/choix-article.tsx": { n: 2, raisons: ["AMONT"] }, // restaurant/page
+  "src/app/(stock)/stock/restaurant/bandeau-unites.tsx": { n: 2, raisons: ["RESTO"] },
+  "src/app/(stock)/stock/restaurant/choix-article.tsx": { n: 5, raisons: ["AMONT"] }, // restaurant/page
   "src/app/(stock)/stock/restaurant/export-data.ts": { n: 1, raisons: ["RESTO"] },
-  "src/app/(stock)/stock/restaurant/page.tsx": { n: 1, raisons: ["RESTO"] },
-  "src/app/(stock)/stock/restaurant/restaurant-client.tsx": { n: 12, raisons: ["RESTO"] },
-  "src/app/(stock)/stock/restaurant/restaurant-ecran.tsx": { n: 2, raisons: ["AMONT"] },
+  "src/app/(stock)/stock/restaurant/page.tsx": { n: 3, raisons: ["RESTO"] },
+  "src/app/(stock)/stock/restaurant/restaurant-client.tsx": { n: 13, raisons: ["RESTO"] },
+  "src/app/(stock)/stock/restaurant/restaurant-ecran.tsx": { n: 1, raisons: ["AMONT"] },
   "src/app/(exploitation)/exploitation/page.tsx": { n: 2, raisons: ["AMONT"] }, // indicateurs/stock
   "src/lib/pdf/fiche-achat-legumes.tsx": { n: 1, raisons: ["LEGUMES"] },
   "src/lib/pdf/fiche-inventaire-resto.tsx": { n: 2, raisons: ["RESTO"] },

@@ -305,7 +305,7 @@ describe("réconciliation : comptage entre l'ancienne et la nouvelle date", () =
 
 describe("comptage du RESTAURANT entre les deux dates : écrit, mais l'écart est nommé (non bloquant)", () => {
   const compteResto = async (articleStockId: string, date: string) => {
-    const a = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Riz (resto)", unite: "kg", articleStockId } });
+    const a = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Riz (resto)", unite: "kg", liens: { create: { articleStockId } } } });
     await prisma.comptageResto.create({ data: { articleRestoId: a.id, date: jour(date), quantite: "5" } });
   };
 

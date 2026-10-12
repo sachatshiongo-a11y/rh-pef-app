@@ -13,7 +13,7 @@ const isos = JOURS.map((j) => j.iso);
 const S = (articleId: string, date: string, quantite: number, categorieSortie: string | null) => ({ articleId, designation: articleId, date, quantite, categorieSortie });
 
 const e: EntreesStockResto = {
-  articles: [{ id: "f", designation: "Farine resto", espace: "CUISINE", unite: "g", articleStockId: "Farine", uniteCatalogue: "kg" }],
+  articles: [{ id: "f", designation: "Farine resto", espace: "CUISINE", unite: "g", rattaches: [{ id: "Farine", unite: "kg" }] }],
   comptages: [{ articleRestoId: "f", date: "2026-09-20", quantite: "1000" }, { articleRestoId: "f", date: "2026-09-21", quantite: "3500" }],
   livraisons: [{ id: "l", articleStockId: "Farine", designation: "Farine", uniteCatalogue: "kg", date: "2026-09-21", quantite: "2", categorieSortie: "LIVRAISON_RESTAURANT" }],
 };

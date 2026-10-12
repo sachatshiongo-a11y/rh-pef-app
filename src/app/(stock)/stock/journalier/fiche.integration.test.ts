@@ -51,13 +51,13 @@ beforeAll(async () => {
   const pates = await cat("Pâtes", "NOURRITURE");
   const agneau = await prisma.articleStock.create({ data: { designation: "Lamb Rack NZ Frozen Frenched 1kg", nomCourt: "Carré d'agneau", domaine: "NOURRITURE", categorieId: viandeClasseur.id, unite: "Kg" } });
   const spaghetti = await art("Spaghetti Lm Chef 12 X 1KG", "NOURRITURE", pates.id, "Kg");
-  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Pâtes", designation: "Spaghetti", ordre: 50, articleStockId: spaghetti.id } });
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Pâtes", designation: "Spaghetti", ordre: 50, liens: { create: { articleStockId: spaghetti.id } } } });
   const heineken = await art("Heineken Bottle 33cl x24 (local)", "BOISSON", bieres.id, "Bouteille");
-  await prisma.articleResto.create({ data: { espace: "BAR", categorie: "Bière locale", designation: "Heineken local", ordre: 20, articleStockId: heineken.id } });
+  await prisma.articleResto.create({ data: { espace: "BAR", categorie: "Bière locale", designation: "Heineken local", ordre: 20, liens: { create: { articleStockId: heineken.id } } } });
   // Deux articles du restaurant rattachés au même article : aucun n'est choisi au hasard.
   const creme = await art("Elle & Vire Crème de cuisson 1L", "NOURRITURE", cremerie.id, "L");
-  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème A", ordre: 60, articleStockId: creme.id } });
-  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème B", ordre: 61, articleStockId: creme.id } });
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème A", ordre: 60, liens: { create: { articleStockId: creme.id } } } });
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème B", ordre: 61, liens: { create: { articleStockId: creme.id } } } });
   await prisma.commandeResto.create({ data: { articleId: agneau.id, date: le("2026-09-22"), quantite: 3 } });
   // 30 articles de plus : la fiche cuisine déborde d'une page (rubrique répétée, rangées lisibles).
   for (let i = 1; i <= 40; i++) await art(`Épice n° ${String(i).padStart(2, "0")}`, "NOURRITURE", null, "g");

@@ -235,9 +235,15 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
           bilan.commandesReportees++;
         }
       }
-      // Articles du restaurant liés au doublon (disponibilité des plats, rattachement des livraisons) : leur lien suit,
-      // au lieu de tomber à « aucun » (SetNull) à la suppression.
-      bilan.articlesRestoRepointes += (await tx.articleResto.updateMany({ where: { articleStockId: l.id }, data: { articleStockId: keep.id } })).count;
+      // Articles du restaurant rattachés au doublon (un article du restaurant peut en avoir plusieurs : table ArticleRestoStock) :
+      // leur lien SUIT l'article conservé, au lieu de disparaître avec le doublon (cascade). Un article du restaurant déjà
+      // rattaché à l'article conservé garde son seul lien : jamais deux fois le même couple.
+      const liens = await tx.articleRestoStock.findMany({ where: { articleStockId: l.id }, select: { id: true, articleRestoId: true } });
+      if (liens.length > 0) {
+        const dejaSurGarde = new Set((await tx.articleRestoStock.findMany({ where: { articleStockId: keep.id, articleRestoId: { in: liens.map((x) => x.articleRestoId) } }, select: { articleRestoId: true } })).map((x) => x.articleRestoId));
+        const aRepointer = liens.filter((x) => !dejaSurGarde.has(x.articleRestoId)).map((x) => x.id);
+        if (aRepointer.length > 0) bilan.articlesRestoRepointes += (await tx.articleRestoStock.updateMany({ where: { id: { in: aRepointer } }, data: { articleStockId: keep.id } })).count;
+      }
       await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneFacture.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });

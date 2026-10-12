@@ -13,10 +13,11 @@
 
 import Decimal from "decimal.js";
 import { convertirVersUniteArticle } from "./disponibilite";
-import { uniteManquante, type UniteArticle } from "./conversion";
+import { normaliserUnite, uniteManquante, type UniteArticle } from "./conversion";
 import { sansAccents } from "@/lib/texte";
 
-export type RestoPourProposition = { id: string; designation: string; articleStockId: string | null; unite: string | null };
+/** `articleStockIds` : articles du catalogue déjà rattachés (une proposition ne vise que les articles LIBRES, sans aucun). */
+export type RestoPourProposition = { id: string; designation: string; articleStockIds: readonly string[]; unite: string | null };
 export type CataloguePourProposition = {
   id: string; designation: string; actif: boolean; unite: string | null;
   /** Nom court (fiche « Commande journalière ») : vaut la désignation pour le rapprochement. */
@@ -31,10 +32,11 @@ export type CataloguePourProposition = {
  * Une proposition signalée reste PROPOSABLE, mais n'est jamais cochée d'office : son stock
  * restaurant serait « unité non convertible » dans la disponibilité des plats.
  */
-export type AlerteUnite = "UNITE_MANQUANTE" | "UNITES_INCOMPATIBLES";
+export type AlerteUnite = "UNITE_MANQUANTE" | "UNITES_INCOMPATIBLES" | "UNITES_DIFFERENTES";
 export const ALERTE_UNITE_LABEL: Record<AlerteUnite, string> = {
   UNITE_MANQUANTE: "unité manquante",
   UNITES_INCOMPATIBLES: "unités incompatibles",
+  UNITES_DIFFERENTES: "unité différente de l'Inventaire",
 };
 
 export type Proposition = {
@@ -47,10 +49,15 @@ export type Proposition = {
   alerteUnite: AlerteUnite | null;
 };
 
-/** « unité manquante » si l'une des deux est vide ; « unités incompatibles » si la conversion est impossible. */
+/**
+ * « unité manquante » si l'une des deux est vide ; « unités incompatibles » si la conversion est impossible ;
+ * « unité différente de l'Inventaire » si elles se convertissent mais ne sont pas LA MÊME (règle de la Direction,
+ * 2026-10-12 : une seule unité par produit, celle de l'Inventaire — rattacher exige la même unité normalisée).
+ */
 export function alerteUnite(uniteResto: string | null, catalogue: UniteArticle): AlerteUnite | null {
   if (uniteManquante(uniteResto) || uniteManquante(catalogue.unite)) return "UNITE_MANQUANTE";
-  return convertirVersUniteArticle(1, uniteResto!, catalogue) === null ? "UNITES_INCOMPATIBLES" : null;
+  if (convertirVersUniteArticle(1, uniteResto!, catalogue) === null) return "UNITES_INCOMPATIBLES";
+  return normaliserUnite(uniteResto!) === normaliserUnite(catalogue.unite!) ? null : "UNITES_DIFFERENTES";
 }
 
 // Contenance écrite dans une désignation : « 33cl », « 0,33 L », « 1 litre », « 500 gr », « 1kg ».
@@ -87,7 +94,7 @@ export function proposerRattachements(restos: RestoPourProposition[], catalogue:
   }
   const propositions: Proposition[] = [];
   for (const r of restos) {
-    if (r.articleStockId !== null) continue;
+    if (r.articleStockIds.length > 0) continue;
     const candidats = parCle.get(cleRattachement(r.designation)) ?? [];
     if (candidats.length !== 1) continue;
     const a = candidats[0]!;
@@ -112,8 +119,9 @@ export type CibleAuto = {
 /** Article du restaurant, ACTIF OU NON (un désactivé homonyme bloque la création d'un doublon). */
 export type RestoAuto = {
   id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; actif: boolean;
-  articleStockId: string | null;
-  /** Désignation de l'article du catalogue auquel il est rattaché (pour dire « rattaché à … »). */
+  /** Articles du catalogue rattachés (plusieurs marques possibles) ; vide : LIBRE. */
+  articleStockIds: string[];
+  /** Désignation(s) de l'article du catalogue auquel il est rattaché (pour dire « rattaché à … »). */
   rattacheA: string | null;
 };
 
@@ -162,10 +170,10 @@ export function planifierRattachementsAuto(
     for (const cle of clesCatalogue(a)) porteurs.set(cle, [...(porteurs.get(cle) ?? []), a]);
   }
   for (const c of cibles) {
-    if (etat.some((r) => r.actif && r.articleStockId === c.id)) continue; // déjà rattaché : rien à faire
+    if (etat.some((r) => r.actif && r.articleStockIds.includes(c.id))) continue; // déjà rattaché : rien à faire
     const laisser = (motif: MotifLaisse, raison: string) => decisions.push({ action: "LAISSER", articleStockId: c.id, motif, raison });
     if (!c.actif) { laisser("CATALOGUE_INACTIF", "article du catalogue désactivé : réactivez-le au catalogue avant tout rattachement"); continue; }
-    const desactives = etat.filter((r) => !r.actif && r.articleStockId === c.id);
+    const desactives = etat.filter((r) => !r.actif && r.articleStockIds.includes(c.id));
     if (desactives.length > 0) {
       laisser("RATTACHE_DESACTIVE", `${guillemets(desactives.map((r) => r.designation))} lui est rattaché mais désactivé au restaurant : réactivez-le, ou rattachez un autre article`);
       continue;
@@ -180,7 +188,7 @@ export function planifierRattachementsAuto(
     }
     const homonymes = etat.filter((r) => cles.has(cleRattachement(r.designation)));
     const espace = espaceDeDomaine(c.domaine);
-    let libres = homonymes.filter((r) => r.actif && r.articleStockId === null);
+    let libres = homonymes.filter((r) => r.actif && r.articleStockIds.length === 0);
     if (libres.length > 1 && espace) {
       const dansEspace = libres.filter((r) => r.espace === espace);
       if (dansEspace.length === 1) libres = dansEspace;
@@ -193,10 +201,10 @@ export function planifierRattachementsAuto(
       const r = libres[0]!;
       const alerte = alerteUnite(r.unite, { unite: c.unite, contenance: c.contenance, contenanceUnite: c.contenanceUnite });
       if (alerte) {
-        laisser("UNITES", `« ${r.designation} » (${NOM_ESPACE[r.espace]}) porte ce nom, mais ${alerte === "UNITE_MANQUANTE" ? "une unité manque" : "les unités ne se convertissent pas"} (restaurant : ${r.unite?.trim() || "—"}, catalogue : ${c.unite?.trim() || "—"}) : vérifiez puis rattachez à la main`);
+        laisser("UNITES", `« ${r.designation} » (${NOM_ESPACE[r.espace]}) porte ce nom, mais ${alerte === "UNITE_MANQUANTE" ? "une unité manque" : alerte === "UNITES_DIFFERENTES" ? "l'unité diffère de l'Inventaire (alignez-la d'abord)" : "les unités ne se convertissent pas"} (restaurant : ${r.unite?.trim() || "—"}, catalogue : ${c.unite?.trim() || "—"}) : vérifiez puis rattachez à la main`);
         continue;
       }
-      r.articleStockId = c.id;
+      r.articleStockIds.push(c.id);
       r.rattacheA = c.designation;
       decisions.push({ action: "RATTACHER", articleStockId: c.id, articleRestoId: r.id, designationResto: r.designation, espace: r.espace });
       continue;
@@ -205,12 +213,12 @@ export function planifierRattachementsAuto(
     const doublons = homonymes.filter((r) => r.espace === espace);
     if (doublons.length > 0) {
       const d = doublons[0]!;
-      laisser("HOMONYME", `« ${d.designation} » existe déjà au restaurant (${NOM_ESPACE[espace]}, ${!d.actif ? "désactivé" : `rattaché à « ${d.rattacheA ?? "un autre article"} »`}) : choisissez, pour ne pas créer de doublon`);
+      laisser("HOMONYME", `« ${d.designation} » existe déjà au restaurant (${NOM_ESPACE[espace]}, ${!d.actif ? "désactivé" : `rattaché à « ${d.rattacheA ?? "un autre article"} »`}) : choisissez${d.actif ? " (« + Ajouter une marque » sur cet article du restaurant, s'il s'agit d'une autre marque du même produit)" : ""}, pour ne pas créer de doublon`);
       continue;
     }
     if (uniteManquante(c.unite)) { laisser("UNITE_CATALOGUE", "unité du catalogue non renseignée : renseignez-la sur la fiche de l'article, l'article du restaurant sera créé ensuite"); continue; }
     const designation = c.nomCourt?.trim() || c.designation.trim();
-    const cree = { id: `nouveau:${c.id}`, designation, espace, unite: c.unite!.trim(), actif: true, articleStockId: c.id, rattacheA: c.designation };
+    const cree = { id: `nouveau:${c.id}`, designation, espace, unite: c.unite!.trim(), actif: true, articleStockIds: [c.id], rattacheA: c.designation };
     etat.push(cree);
     decisions.push({ action: "CREER", articleStockId: c.id, designation, unite: cree.unite, categorie: c.categorie?.trim() || CATEGORIE_A_CLASSER, espace });
   }

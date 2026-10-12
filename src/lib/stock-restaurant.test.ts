@@ -9,7 +9,7 @@ import { calculerDisponibilite, libelleRaison, type ArticleDispo, type FicheDisp
 // dans l'unité du restaurant. Tout est dérivé : aucun comptage n'est jamais écrit.
 
 const R = (id: string, unite: string | null, articleStockId: string | null, espace: "CUISINE" | "BAR" = "CUISINE"): ArticleRestoSR => ({
-  id, designation: `Resto ${id}`, espace, unite, articleStockId,
+  id, designation: `Resto ${id}`, espace, unite, rattaches: articleStockId ? [{ id: articleStockId, unite: null }] : [],
 });
 const C = (articleRestoId: string, date: string, quantite: string): ComptageSR => ({ articleRestoId, date, quantite });
 let n = 0;
@@ -223,7 +223,7 @@ describe("consommation réelle", () => {
 });
 
 describe("part du restaurant dans la disponibilité des plats", () => {
-  const Rc = (id: string, unite: string, uniteCatalogue: string, articleStockId = "farine"): ArticleRestoSR => ({ ...R(id, unite, articleStockId), uniteCatalogue });
+  const Rc = (id: string, unite: string, uniteCatalogue: string, articleStockId = "farine"): ArticleRestoSR => ({ ...R(id, unite, articleStockId), rattaches: [{ id: articleStockId, unite: uniteCatalogue }] });
   const FARINE: ArticleDispo = { id: "farine", designation: "Farine", unite: "kg" };
   const plat: FicheDispo = {
     id: "p", nom: "Pâte", nbPortions: 1, estSousRecette: false, rendementQuantite: null, rendementUnite: null,
@@ -298,8 +298,8 @@ describe("part du restaurant dans la disponibilité des plats", () => {
 
 describe("stock restaurant et contenance de l'article du catalogue", () => {
   const vodka = (contenance: string | null): ArticleRestoSR => ({
-    id: "vodka", designation: "Resto vodka", espace: "BAR", unite: "cl", articleStockId: "cat-vodka",
-    uniteCatalogue: "Bouteille", contenanceCatalogue: contenance, contenanceUniteCatalogue: contenance ? "cl" : null,
+    id: "vodka", designation: "Resto vodka", espace: "BAR", unite: "cl",
+    rattaches: [{ id: "cat-vodka", unite: "Bouteille", contenance, contenanceUnite: contenance ? "cl" : null }],
   });
   const livraison = (contenance: string | null): LivraisonSR => ({ ...L("cat-vodka", "Bouteille", "2026-09-21", "2"), contenanceCatalogue: contenance, contenanceUniteCatalogue: contenance ? "cl" : null });
 

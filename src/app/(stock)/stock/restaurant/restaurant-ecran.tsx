@@ -3,6 +3,7 @@ import { PropositionsRattachement } from "./propositions-rattachement";
 import type { DecisionAuto, Proposition } from "@/lib/fiches/rattachement-resto";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { BandeauLivraisons } from "./bandeau-livraisons";
+import { BandeauUnites, type EcartAffiche } from "./bandeau-unites";
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { BarreSemaineMobile } from "@/components/barre-semaine-mobile";
@@ -20,7 +21,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
  */
 export function RestaurantEcran({
   espace, jours, aujourdhui, estDirection, afficherDesactives, lignes, categories, catalogue,
-  livraisonsParJour, nonRattachees, signalements, articlesResto, propositions, planAuto = [],
+  livraisonsParJour, nonRattachees, signalements, articlesResto, propositions, planAuto = [], ecartsUnite = [],
 }: {
   espace: "CUISINE" | "BAR"; jours: Jour[]; aujourdhui: string; estDirection: boolean; afficherDesactives: boolean;
   lignes: LigneResto[]; categories: string[]; catalogue: OptionCatalogue[];
@@ -30,6 +31,8 @@ export function RestaurantEcran({
   propositions: Proposition[];
   /** Plan du rattachement automatique des livraisons non rattachées (lecture seule). */
   planAuto?: DecisionAuto[];
+  /** Articles dont l'unité diffère de celle de l'Inventaire (lecture seule ; l'alignement est un geste confirmé). */
+  ecartsUnite?: EcartAffiche[];
 }) {
   const semLien = (offset: number) => {
     const d = new Date(jours[0].iso); d.setUTCDate(d.getUTCDate() + offset * 7);
@@ -130,12 +133,14 @@ export function RestaurantEcran({
 
       <BandeauLivraisons nonRattachees={nonRattachees} signalements={signalements} articles={articlesResto} planAuto={planAuto} />
 
+      <BandeauUnites ecarts={ecartsUnite} estDirection={estDirection} />
+
       <PropositionsRattachement propositions={propositions} />
 
       <div id="grille-restaurant" />
       <RestaurantGrille
         espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection}
-        catalogue={catalogue.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite ?? "" }))}
+        catalogue={catalogue}
       />
     </div>
     </JourMobileProvider>

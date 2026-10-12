@@ -95,7 +95,7 @@ const article = async (designation: string, o: { unite?: string | null; domaine?
   return a.id;
 };
 const resto = (designation: string, o: { espace?: "CUISINE" | "BAR"; unite?: string | null; articleStockId?: string; actif?: boolean } = {}) =>
-  prisma.articleResto.create({ data: { espace: o.espace ?? "CUISINE", designation, unite: o.unite === undefined ? "Paquet" : o.unite, articleStockId: o.articleStockId ?? null, actif: o.actif ?? true } });
+  prisma.articleResto.create({ data: { espace: o.espace ?? "CUISINE", designation, unite: o.unite === undefined ? "Paquet" : o.unite, actif: o.actif ?? true, ...(o.articleStockId ? { liens: { create: { articleStockId: o.articleStockId } } } : {}) } });
 /** Arriéré : une sortie « Livraison restaurant » déjà en base (avant la règle). */
 const livraisonPassee = (articleId: string, quantite: number, date = DATE) =>
   prisma.mouvementStock.create({ data: { articleId, type: "SORTIE", quantite, date: jour(date), categorieSortie: "LIVRAISON_RESTAURANT", origine: "Livraison restaurant" } });
@@ -106,7 +106,7 @@ const sortie = (articleId: string, quantite: number, categorieSortie = "LIVRAISO
   f.append("articleId", articleId); f.append("quantite", ecrireSaisieNombre(quantite));
   return f;
 };
-const rattacheA = async (articleStockId: string) => prisma.articleResto.findMany({ where: { articleStockId }, orderBy: { designation: "asc" } });
+const rattacheA = async (articleStockId: string) => prisma.articleResto.findMany({ where: { liens: { some: { articleStockId } } }, orderBy: { designation: "asc" } });
 const journal = () => prisma.journalAudit.findMany({ where: { entite: "ArticleResto" }, orderBy: { date: "asc" } });
 const message = (r: unknown) => (r as { message: string }).message;
 
@@ -138,7 +138,7 @@ describe("à la sortie « Livraison restaurant » (après la transaction, jamais
     await mouvementManuel(sortie(eau, 6));
     expect((await rattacheA(eau)).map((x) => x.id)).toEqual([r1.id]);
     expect(await prisma.articleResto.count()).toBe(1);
-    expect(await journal()).toMatchObject([{ entiteId: r1.id, champ: "articleStockId (automatique)", ancienneValeur: null, nouvelleValeur: eau, userId: U.dir.id }]);
+    expect(await journal()).toMatchObject([{ entiteId: r1.id, champ: "lien article du catalogue (automatique)", ancienneValeur: null, nouvelleValeur: eau, userId: U.dir.id }]);
   }, 60_000);
 
   it("(c) plusieurs candidats : rien n'est écrit, la sortie le dit", async () => {
@@ -178,7 +178,7 @@ describe("à la sortie « Livraison restaurant » (après la transaction, jamais
     await livraisonPassee(sel, 1); await livraisonPassee(riz, 1);
     PANNE.journalAutomatique = true;
     expect(await rattacherLivraisonsAutomatiquement([sel, riz])).toMatchObject({ erreur: expect.stringContaining("rien n'a été écrit") });
-    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: rs.id } })).articleStockId).toBeNull();
+    expect(await prisma.articleRestoStock.count({ where: { articleRestoId: rs.id } })).toBe(0);
     expect(await prisma.articleResto.count()).toBe(1);
   }, 60_000);
 
@@ -216,7 +216,7 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
       article("Beurre", { unite: "kg" }), article("Farfalle Molisana"), article("Citron", { domaine: "AUTRE" }),
       article("Vin rouge", { domaine: "BOISSON", unite: "l" }), article("Lait"), article("Gaz", { domaine: "AUTRE", unite: "Bouteille" }),
     ]);
-    const rb = await resto("Beurre", { unite: "g" });
+    const rb = await resto("Beurre", { unite: "kg" });
     await resto("Citron"); await resto("Citron ", { espace: "BAR" });
     // Unités incompatibles, déjà rattaché : à corriger À LA MAIN — le bouton n'y touche pas.
     const rv = await resto("Vin rouge", { espace: "BAR", unite: "bouteille", articleStockId: vin });
@@ -235,8 +235,8 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     expect((await rattacheA(beurre)).map((x) => x.id)).toEqual([rb.id]);
     expect(await rattacheA(citron)).toEqual([]);
     expect(await rattacheA(jamaisLivre)).toEqual([]);
-    expect(await prisma.articleResto.findUniqueOrThrow({ where: { id: rv.id } })).toMatchObject({ unite: "bouteille", articleStockId: vin });
-    expect((await journal()).map((j) => j.champ).sort()).toEqual(["articleStockId (automatique)", "creation (automatique)"]);
+    expect(await prisma.articleResto.findUniqueOrThrow({ where: { id: rv.id } })).toMatchObject({ unite: "bouteille" });
+    expect((await journal()).map((j) => j.champ).sort()).toEqual(["creation (automatique)", "lien article du catalogue (automatique)"]);
 
     // Relancé : plus rien à faire pour les écrits, les laissés restent laissés (idempotent).
     const bis = await rattacherLivraisonsAutomatiquement([beurre, farfalle, citron]);
@@ -245,24 +245,21 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
   }, 60_000);
 
   it("le stock théorique du restaurant relit le rattachement : les livraisons de la semaine comptent après le clic", async () => {
-    const beurre = await article("Beurre", { unite: "kg" });
-    const penne = await article("Penne");
-    const rb = await resto("Beurre", { unite: "g" });
-    await prisma.comptageResto.create({ data: { articleRestoId: rb.id, date: jour(veille(DATE, 2)), quantite: 500 } }); // 500 g comptés
-    await livraisonPassee(beurre, 2, veille(DATE)); // 2 kg livrés la veille
-    await livraisonPassee(penne, 3, veille(DATE));
+    const penne = await article("Penne"); // même unité que le restaurant (« Paquet ») : la règle « une seule unité par produit »
+    const rp = await resto("Penne");
+    await prisma.comptageResto.create({ data: { articleRestoId: rp.id, date: jour(veille(DATE, 2)), quantite: 5 } }); // 5 paquets comptés
+    await livraisonPassee(penne, 3, veille(DATE)); // 3 paquets livrés la veille
     const charger = () => chargerEntreesStockResto({ depuis: veille(DATE, 6), jusquA: DATE });
 
     const avant = stockRestaurantTheorique(await charger(), DATE);
-    expect(avant.nonRattachees.map((l) => l.designation).sort()).toEqual(["Beurre", "Penne"]);
-    expect(avant.parArticle.get(rb.id)!.stock).toBe("500"); // la livraison n'est pas encore additionnée
+    expect(avant.nonRattachees.map((l) => l.designation)).toEqual(["Penne"]);
+    expect(avant.parArticle.get(rp.id)!.stock).toBe("5"); // la livraison n'est pas encore additionnée
 
-    await rattacherLivraisonsAutomatiquement([beurre, penne]);
+    await rattacherLivraisonsAutomatiquement([penne]);
     const apres = stockRestaurantTheorique(await charger(), DATE);
     expect(apres.nonRattachees).toEqual([]);
-    expect(apres.parArticle.get(rb.id)!.stock).toBe("2500"); // 500 g + 2 kg, dans l'unité du restaurant
-    const [rp] = await rattacheA(penne);
-    expect(apres.parArticle.get(rp!.id)).toMatchObject({ stock: "3", aucunComptage: true }); // estimé, jamais 0
+    expect(apres.parArticle.get(rp.id)!.stock).toBe("8"); // 5 + 3, dans l'unité du restaurant
+    expect(apres.parArticle.get(rp.id)).toMatchObject({ aucunComptage: false });
   }, 60_000);
 
   it("droits : un compte RH sans accès Stock est refusé, rien n'est écrit (mêmes droits que le rattachement à la main)", async () => {
@@ -279,11 +276,18 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     await livraisonPassee(riz, 1); await livraisonPassee(sel, 1);
     en("resp");
     await rattacherLivraisonsAutomatiquement([riz, sel]);
+    // Compte Stock : « Sel » (libre, un seul candidat) n'est PAS rattaché — il est PROPOSÉ à la Direction (demande à valider) ;
+    // « Riz » (aucun article du restaurant) est créé, comme avant. La Direction reçoit les deux notifications.
     const n = await prisma.notification.findMany();
-    expect(n.map((x) => [x.destinataireUserId, x.lien])).toEqual([[U.dir.id, "/stock/restaurant"]]);
-    expect(n[0]!.message).toBe("Rattachement automatique au stock du restaurant par Jean — 1 article rattaché (« Sel »), 1 article créé (« Riz »)");
+    expect(n.map((x) => [x.destinataireUserId, x.lien]).sort()).toEqual([[null, "/stock/a-valider"], [U.dir.id, "/stock/restaurant"]].sort());
+    expect(n.find((x) => x.lien === "/stock/restaurant")!.message).toBe("Rattachement automatique au stock du restaurant par Jean — 1 article créé (« Riz »)");
+    expect(n.find((x) => x.lien === "/stock/a-valider")!.message).toContain("Rattacher « Sel » à « Sel »");
     expect((await journal()).every((j) => j.userId === U.resp.id)).toBe(true);
-    expect((await rattacheA(sel)).map((x) => x.id)).toEqual([rs.id]);
+    expect((await rattacheA(sel)).map((x) => x.id)).toEqual([]);
+    const demande = await prisma.demandeValidationStock.findMany({ where: { nature: "LIEN_RESTO", statut: "EN_ATTENTE" } });
+    expect(demande).toHaveLength(1);
+    expect(demande[0]!.auteurId).toBe(U.resp.id);
+    expect(rs.id).toBeTruthy();
 
     await prisma.notification.deleteMany();
     const poivre = await article("Poivre");

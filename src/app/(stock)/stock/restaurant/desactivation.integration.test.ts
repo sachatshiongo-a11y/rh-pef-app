@@ -55,11 +55,11 @@ beforeAll(async () => {
   const farine = await prisma.articleStock.create({ data: { designation: "Farine T45", domaine: "NOURRITURE", unite: "kg", stock: { create: { quantite: 10 } } } });
   ids.farineCat = farine.id;
   await prisma.mouvementStock.create({ data: { articleId: farine.id, type: "ENTREE", quantite: 10, date: le(AUJ) } });
-  ids.farine = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "kg", ordre: 1, articleStockId: farine.id } })).id;
+  ids.farine = (await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "kg", ordre: 1, liens: { create: { articleStockId: farine.id } } } })).id;
   await prisma.comptageResto.create({ data: { articleRestoId: ids.farine, date: le(AUJ), quantite: 20 } });
   // Glaçons : comptés 0 le 22/09, puis 5 livrés depuis ; Sucre : compté 0, rien depuis ; Sel : jamais compté.
   const glacesCat = await prisma.articleStock.create({ data: { designation: "Glaçons sac 5 kg", domaine: "BOISSON", unite: "sac" } });
-  ids.glacons = (await prisma.articleResto.create({ data: { espace: "BAR", designation: "Glaçons", unite: "sac", ordre: 1, articleStockId: glacesCat.id } })).id;
+  ids.glacons = (await prisma.articleResto.create({ data: { espace: "BAR", designation: "Glaçons", unite: "sac", ordre: 1, liens: { create: { articleStockId: glacesCat.id } } } })).id;
   await prisma.comptageResto.create({ data: { articleRestoId: ids.glacons, date: le("2026-09-22"), quantite: 0 } });
   await prisma.mouvementStock.create({ data: { articleId: glacesCat.id, type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", quantite: 5, date: le("2026-09-24") } });
   ids.sucre = (await prisma.articleResto.create({ data: { espace: "BAR", designation: "Sucre", unite: "kg", ordre: 2 } })).id;

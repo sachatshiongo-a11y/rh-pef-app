@@ -15,7 +15,7 @@ const m = vi.hoisted(() => ({
 vi.mock("./actions", () => ({
   majComptage: m.majComptage, changerActivationArticlesResto: m.changerActivationArticlesResto,
   modifierArticleResto: vi.fn(async () => undefined), creerArticleResto: vi.fn(async () => undefined),
-  supprimerArticleResto: vi.fn(async () => undefined), rattacherArticleResto: vi.fn(async () => ({ n: 0 })),
+  supprimerArticleResto: vi.fn(async () => undefined), ajouterLiensResto: vi.fn(async () => ({ n: 0 })), retirerLiensResto: vi.fn(async () => ({ n: 0 })),
 }));
 
 const { RestaurantGrille } = await import("./restaurant-client");
@@ -27,7 +27,7 @@ const { SelecteurJour } = await import("@/components/selecteur-jour");
 const JOURS: Jour[] = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]
   .map((iso, i) => ({ iso, label: ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"][i]!, num: `${Number(iso.slice(8))} ${iso.startsWith("2026-10") ? "oct." : "sept."}` }));
 const ligne = (p: Partial<LigneResto> & { id: string; designation: string }): LigneResto => ({
-  categorie: "Épicerie", unite: "kg", base: "", comptages: {}, articleStockId: null, articleStockDesignation: null,
+  categorie: "Épicerie", unite: "kg", base: "", comptages: {}, articlesStock: [],
   recus: {}, signauxJour: {}, theorique: { stock: null, aucunComptage: true, signalements: [] }, ...p,
 });
 const LIGNES = [

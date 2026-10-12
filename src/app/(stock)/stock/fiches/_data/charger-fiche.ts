@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { StockArticle } from "@/lib/fiches/disponibilite";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { stockRestaurantPourDisponibilite } from "@/lib/stock-restaurant";
+import { depotsMutualises, stockRestaurantPourDisponibilite } from "@/lib/stock-restaurant";
 import { chargerEntreesStockResto, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import type { ArticleOption, FicheVue } from "./fiche-calc";
 import { prixArticleEnUSDTexte, prixSaisi, type DevisePrix } from "@/lib/prix-article";
@@ -154,7 +154,7 @@ export async function chargerStocksDesFiches(aujourdhui: string = jourKinshasaIS
     prisma.mouvementStock.groupBy({ by: ["articleId"], _max: { date: true } }),
     // Articles du restaurant DÉSACTIVÉS avec encore du stock compté : l'article du catalogue
     // rattaché passe « À vérifier » (jamais repli silencieux sur le dépôt seul).
-    stocksComptesResto({ actif: false, articleStockId: { not: null } }),
+    stocksComptesResto({ actif: false, liens: { some: {} } }),
   ]);
   // `MouvementStock.date` est une date PURE (@db.Date, minuit UTC) : AAAA-MM-JJ sans fuseau.
   const dernierMouvement = new Map(mouvements.map((m) => [m.articleId, m._max.date ? m._max.date.toISOString().slice(0, 10) : null]));
@@ -162,12 +162,22 @@ export async function chargerStocksDesFiches(aujourdhui: string = jourKinshasaIS
 
   const stocks: Record<string, StockArticle> = {};
   for (const d of depots) stocks[d.articleId] = { depot: d.quantite.toString(), restaurant: null, dernierMouvement: dm(d.articleId) };
+  // Plusieurs marques rattachées au même article du restaurant : leur dépôt se SOMME (converti), un dépôt
+  // négatif ou une unité inconvertible d'une marque est annoncé (voir `depotsMutualises`).
+  const mutualises = depotsMutualises(entrees.articles, new Map(depots.map((d) => [d.articleId, d.quantite.toString()])));
+  for (const [articleId, m] of mutualises) {
+    stocks[articleId] = {
+      depot: m.depot, restaurant: null, dernierMouvement: dm(articleId),
+      ...(m.negatif ? { depotNegatif: true } : {}), ...(m.inconvertibles.length > 0 ? { depotInconvertibles: m.inconvertibles } : {}),
+    };
+  }
   for (const [articleId, restaurant] of stockRestaurantPourDisponibilite(entrees, aujourdhui)) {
-    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant, dernierMouvement: dm(articleId) };
+    stocks[articleId] = { ...(stocks[articleId] ?? { depot: null }), restaurant, dernierMouvement: dm(articleId) };
   }
   for (const d of desactives) {
-    const articleId = d.articleStockId!;
-    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant: { etat: "DESACTIVE_AVEC_STOCK", articleResto: d.designation, dateComptage: d.dateComptage }, dernierMouvement: dm(articleId) };
+    for (const { id } of d.articlesStock) {
+      stocks[id] = { ...(stocks[id] ?? { depot: null }), restaurant: { etat: "DESACTIVE_AVEC_STOCK", articleResto: d.designation, dateComptage: d.dateComptage }, dernierMouvement: dm(id) };
+    }
   }
   return stocks;
 }

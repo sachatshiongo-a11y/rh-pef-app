@@ -80,7 +80,6 @@ const ADMISES: Record<string, { n: number; raison: string }> = {
   "app/espace/cloche-salarie.tsx": { n: 1, raison: "fenêtre de la cloche de notifications" },
   "app/(stock)/stock/_rapport/bouton-rapport.tsx": { n: 1, raison: "fenêtre flottante du rapport (fixed, max-h-[80vh])" },
   "app/(stock)/stock/imports/doublons-client.tsx": { n: 1, raison: "cases des imports à comparer (sélecteur de 3-4 lots, pas un tableau)" },
-  "app/(stock)/stock/restaurant/choix-article.tsx": { n: 1, raison: "liste déroulante de recherche d'un article du catalogue" },
   "components/notification-bell.tsx": { n: 1, raison: "fenêtre de la cloche de notifications" },
 };
 

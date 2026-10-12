@@ -3,7 +3,7 @@ import { alerteUnite, cleRattachement, planifierRattachementsAuto, proposerRatta
 import { facteur } from "./conversion";
 
 const cat = (id: string, designation: string, actif = true, unite: string | null = "kg") => ({ id, designation, actif, unite });
-const resto = (id: string, designation: string, articleStockId: string | null = null, unite: string | null = "kg") => ({ id, designation, articleStockId, unite });
+const resto = (id: string, designation: string, articleStockId: string | null = null, unite: string | null = "kg") => ({ id, designation, articleStockIds: articleStockId ? [articleStockId] : [], unite });
 const kg = { uniteResto: "kg", uniteCatalogue: "kg", alerteUnite: null };
 
 describe("proposerRattachements — jamais de rattachement deviné", () => {
@@ -56,7 +56,7 @@ describe("propositions — unités du restaurant et du catalogue", () => {
       [resto("r1", "Farine", null, "g"), resto("r2", "Penne", null, "g")],
       [cat("a1", "Farine", true, "kg"), cat("a2", "Penne", true, "500 GR")],
     );
-    expect(p.map((x) => [x.uniteResto, x.uniteCatalogue, x.alerteUnite])).toEqual([["g", "kg", null], ["g", "500 GR", null]]);
+    expect(p.map((x) => [x.uniteResto, x.uniteCatalogue, x.alerteUnite])).toEqual([["g", "kg", "UNITES_DIFFERENTES"], ["g", "500 GR", "UNITES_DIFFERENTES"]]); // convertibles, mais PAS la même unité que l'Inventaire : jamais cochées d'office
   });
 
   it("conversion impossible : « unités incompatibles » (masse contre volume, comptages différents)", () => {
@@ -92,7 +92,7 @@ const C = (id: string, designation: string, o: Partial<CibleAuto> = {}): CibleAu
   id, designation, nomCourt: null, actif: true, domaine: "NOURRITURE", unite: "Paquet", contenance: null, contenanceUnite: null, categorie: "Pâtes", ...o,
 });
 const R = (id: string, designation: string, o: Partial<RestoAuto> = {}): RestoAuto => ({
-  id, designation, espace: "CUISINE", unite: "Paquet", actif: true, articleStockId: null, rattacheA: null, ...o,
+  id, designation, espace: "CUISINE", unite: "Paquet", actif: true, articleStockIds: [] as string[], rattacheA: null, ...o,
 });
 
 describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
@@ -141,22 +141,22 @@ describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
   it("homonyme déjà rattaché ailleurs ou désactivé dans l'espace : LAISSER pour ne pas créer de doublon", () => {
     const d = planifierRattachementsAuto(
       [C("a1", "Farfalle"), C("a2", "Penne")],
-      [R("r1", "Farfalle", { articleStockId: "a9", rattacheA: "Farfalle Barilla" }), R("r2", "Penne", { actif: false })],
+      [R("r1", "Farfalle", { articleStockIds: ["a9"], rattacheA: "Farfalle Barilla" }), R("r2", "Penne", { actif: false })],
     );
     expect(d.map((x) => (x as { raison: string }).raison)).toEqual([
-      "« Farfalle » existe déjà au restaurant (Cuisine, rattaché à « Farfalle Barilla ») : choisissez, pour ne pas créer de doublon",
+      "« Farfalle » existe déjà au restaurant (Cuisine, rattaché à « Farfalle Barilla ») : choisissez (« + Ajouter une marque » sur cet article du restaurant, s'il s'agit d'une autre marque du même produit), pour ne pas créer de doublon",
       "« Penne » existe déjà au restaurant (Cuisine, désactivé) : choisissez, pour ne pas créer de doublon",
     ]);
   });
 
   it("homonyme dans l'AUTRE espace seulement : la création dans l'espace du domaine reste permise", () => {
-    expect(planifierRattachementsAuto([C("a1", "Citron")], [R("r1", "Citron", { espace: "BAR", articleStockId: "a9" })])).toMatchObject([{ action: "CREER", espace: "CUISINE" }]);
+    expect(planifierRattachementsAuto([C("a1", "Citron")], [R("r1", "Citron", { espace: "BAR", articleStockIds: ["a9"] })])).toMatchObject([{ action: "CREER", espace: "CUISINE" }]);
   });
 
   it("domaine « Autre », unité du catalogue manquante, catalogue désactivé, rattaché à un article désactivé : LAISSER", () => {
     const d = planifierRattachementsAuto(
       [C("a1", "Gaz", { domaine: "AUTRE" }), C("a2", "Sucre", { unite: " " }), C("a3", "Riz", { actif: false }), C("a4", "Thon")],
-      [R("r4", "Thon en boîte", { actif: false, articleStockId: "a4" })],
+      [R("r4", "Thon en boîte", { actif: false, articleStockIds: ["a4"] })],
     );
     expect(d.map((x) => [x.articleStockId, (x as { motif: string }).motif])).toEqual([
       ["a1", "DOMAINE_AUTRE"], ["a2", "UNITE_CATALOGUE"], ["a3", "CATALOGUE_INACTIF"], ["a4", "RATTACHE_DESACTIVE"],
@@ -164,7 +164,7 @@ describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
   });
 
   it("déjà rattaché (actif) : rien à faire, absent du plan", () => {
-    expect(planifierRattachementsAuto([C("a1", "Sel")], [R("r1", "Autre nom", { articleStockId: "a1" })])).toEqual([]);
+    expect(planifierRattachementsAuto([C("a1", "Sel")], [R("r1", "Autre nom", { articleStockIds: ["a1"] })])).toEqual([]);
   });
 
   it("deux cibles livrées au même nom : AUCUNE n'est rattachée ni créée (jamais « la première gagne »)", () => {

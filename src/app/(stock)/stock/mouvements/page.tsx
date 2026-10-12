@@ -82,11 +82,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true, stock: { select: { quantite: true } } } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
-    prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
+    prisma.articleResto.findMany({ where: { actif: true, liens: { some: {} } }, select: { id: true, designation: true, espace: true, unite: true, liens: { select: { articleStock: { select: { id: true, unite: true, contenance: true, contenanceUnite: true } } } } } }),
   ]);
   const conseilsLivraison: Record<string, ConseilLivraison> = {};
+  const restosSR = restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, rattaches: r.liens.map((l) => ({ id: l.articleStock.id, unite: l.articleStock.unite, contenance: l.articleStock.contenance?.toString() ?? null, contenanceUnite: l.articleStock.contenanceUnite })) }));
   for (const a of articles) {
-    const c = conseilLivraison(etatRattachementLivraison(a.id, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite }, restos, a.domaine), a.id, restos);
+    const c = conseilLivraison(etatRattachementLivraison(a.id, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite }, restosSR, a.domaine), a.id, restosSR);
     if (c) conseilsLivraison[a.id] = c;
   }
   const nbTotal = nbSortiesFiltre + nbEntreesFiltre;

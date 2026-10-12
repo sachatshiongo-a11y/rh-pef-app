@@ -11,7 +11,7 @@ import { NATURE_LIBELLE, type NatureDemande } from "@/lib/validations-stock/char
 import { AlertesDemande, DetailDemande } from "./detail-demande";
 import { MOTIFS_SORTIE } from "@/lib/motif-sortie";
 
-const ORDRE: NatureDemande[] = ["PAIEMENT_FACTURE", "RECONCILIATION", "MOUVEMENT_MANUEL", "MODIF_ARTICLE"];
+const ORDRE: NatureDemande[] = ["PAIEMENT_FACTURE", "RECONCILIATION", "MOUVEMENT_MANUEL", "MODIF_ARTICLE", "LIEN_RESTO", "UNITE_RESTO"];
 const quand = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Kinshasa" });
 
 /**

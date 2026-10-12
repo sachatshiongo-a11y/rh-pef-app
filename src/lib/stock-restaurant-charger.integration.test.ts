@@ -30,8 +30,8 @@ describe("chargerEntreesStockResto", () => {
   it("dernier comptage avant la période + comptages de la période ; livraisons depuis le plus ancien de ces comptages", async () => {
     const farine = await prisma.articleStock.create({ data: { designation: "Farine", domaine: "NOURRITURE", unite: "kg" } });
     const sel = await prisma.articleStock.create({ data: { designation: "Sel", domaine: "NOURRITURE", unite: "kg" } });
-    const r = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "g", articleStockId: farine.id } });
-    const inactif = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Ancien", unite: "g", articleStockId: farine.id, actif: false } });
+    const r = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "g", liens: { create: { articleStockId: farine.id } } } });
+    const inactif = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Ancien", unite: "g", liens: { create: { articleStockId: farine.id } }, actif: false } });
     const compter = (id: string, date: string, q: string) => prisma.comptageResto.create({ data: { articleRestoId: id, date: new Date(date), quantite: q } });
     await compter(r.id, "2026-09-01", "1"); // plus ancien que le dernier avant la période : non chargé
     await compter(r.id, "2026-09-10", "2"); // dernier avant la période
@@ -54,7 +54,7 @@ describe("chargerEntreesStockResto", () => {
     expect(espions.map((s) => s.mock.calls.length)).toEqual([1, 1, 1, 1]);
     espions.forEach((s) => s.mockRestore());
 
-    expect(e.articles).toEqual([{ id: r.id, designation: "Farine", espace: "CUISINE", unite: "g", articleStockId: farine.id, uniteCatalogue: "kg", contenanceCatalogue: null, contenanceUniteCatalogue: null }]);
+    expect(e.articles).toEqual([{ id: r.id, designation: "Farine", espace: "CUISINE", unite: "g", rattaches: [{ id: farine.id, unite: "kg", designation: "Farine", domaine: "NOURRITURE", contenance: null, contenanceUnite: null }] }]);
     expect(e.comptages.map((c) => [c.date, c.quantite]).sort()).toEqual([["2026-09-10", "2"], ["2026-09-22", "3"]]);
     expect(e.livraisons.map((l) => [l.designation, l.date, l.categorieSortie]).sort()).toEqual([
       ["Farine", "2026-09-12", "LIVRAISON_RESTAURANT"],
@@ -65,17 +65,17 @@ describe("chargerEntreesStockResto", () => {
   it("la contenance de l'article du catalogue est chargée (articles rattachés ET livraisons) : un comptage en cl s'y convertit", async () => {
     await prisma.mouvementStock.deleteMany(); await prisma.comptageResto.deleteMany(); await prisma.articleResto.deleteMany();
     const vodka = await prisma.articleStock.create({ data: { designation: "Absolut Vodka-75cl", domaine: "BOISSON", unite: "Bouteille", contenance: 75, contenanceUnite: "cl" } });
-    await prisma.articleResto.create({ data: { espace: "BAR", designation: "Vodka", unite: "cl", articleStockId: vodka.id } });
+    await prisma.articleResto.create({ data: { espace: "BAR", designation: "Vodka", unite: "cl", liens: { create: { articleStockId: vodka.id } } } });
     await prisma.mouvementStock.create({ data: { articleId: vodka.id, type: "SORTIE", quantite: "1", date: new Date("2026-09-22"), categorieSortie: "LIVRAISON_RESTAURANT" } });
     const e = await chargerEntreesStockResto({ depuis: "2026-09-21", jusquA: "2026-09-27" });
-    expect([e.articles[0]!.contenanceCatalogue, e.articles[0]!.contenanceUniteCatalogue]).toEqual(["75", "cl"]);
+    expect([e.articles[0]!.rattaches[0]!.contenance, e.articles[0]!.rattaches[0]!.contenanceUnite]).toEqual(["75", "cl"]);
     expect([e.livraisons[0]!.contenanceCatalogue, e.livraisons[0]!.contenanceUniteCatalogue]).toEqual(["75", "cl"]);
   }, 60_000);
 
   it("un article rattaché jamais compté : seules les livraisons de la période sont chargées (plus tout l'historique)", async () => {
     await prisma.mouvementStock.deleteMany(); await prisma.comptageResto.deleteMany(); await prisma.articleResto.deleteMany();
     const beurre = await prisma.articleStock.create({ data: { designation: "Beurre", domaine: "NOURRITURE", unite: "kg" } });
-    await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", articleStockId: beurre.id } });
+    await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", liens: { create: { articleStockId: beurre.id } } } });
     const livrer = (date: string) => prisma.mouvementStock.create({ data: { articleId: beurre.id, type: "SORTIE", quantite: "1", date: new Date(date), categorieSortie: "LIVRAISON_RESTAURANT" } });
     await livrer("2026-06-01");
     await livrer("2026-09-22");

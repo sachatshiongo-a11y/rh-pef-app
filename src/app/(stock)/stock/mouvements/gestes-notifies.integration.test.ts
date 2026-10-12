@@ -218,7 +218,9 @@ describe("Anti-avalanche : une rafale du même auteur met à jour la notificatio
     let n = await uneParDirection();
     expect(n.message).toMatch(/^2 saisies de sorties \(Livraison restaurant\) par Jean depuis \d{1,2} h \d{2} — dernière : 2 Kg — Sel$/);
     expect(n.lien).toBe(`/stock/mouvements?mois=${MOIS}&motif=livraison`);
-    expect(PUSH.appels.map((a) => a.payload.tag)).toEqual([PUSH.appels[0].payload.tag, PUSH.appels[0].payload.tag]); // l'appareil remplace
+    // L'appareil remplace (les pushes « À valider » d'un rattachement PROPOSÉ par le compte Stock sont d'une autre famille).
+    const pushsGeste = PUSH.appels.filter((a) => String(a.payload.tag).startsWith("geste"));
+    expect(pushsGeste.map((a) => a.payload.tag)).toEqual([pushsGeste[0].payload.tag, pushsGeste[0].payload.tag]);
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[sel, 1]] }));
     n = await uneParDirection();
     expect(n.message).toMatch(/^3 saisies de sorties/);
