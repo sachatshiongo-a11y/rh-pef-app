@@ -1,5 +1,6 @@
 "use client";
 
+import { PastilleMotif } from "@/components/stock/pastille-mouvement";
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from "./actions";
@@ -55,11 +56,6 @@ export type MvtLite = {
   dlcISO?: string | null;
 };
 
-const MOTIF_CHIP: Record<string, { texte: string; classe: string }> = {
-  LIVRAISON_RESTAURANT: { texte: "Livraison restaurant", classe: "bg-sky-100 text-sky-900" },
-  PERTE: { texte: "Perte", classe: "bg-red-100 text-red-900" },
-  "": { texte: "sans motif", classe: "bg-muted text-muted-foreground" },
-};
 
 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
 
@@ -235,7 +231,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                         {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
                         {m.dlcISO && <div data-dlc className="text-[11px] text-muted-foreground">DLC {m.dlcISO.slice(8, 10)}/{m.dlcISO.slice(5, 7)}/{m.dlcISO.slice(0, 4)}</div>}
                         {m.type === "SORTIE" && m.motif !== undefined && (
-                          <span className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${MOTIF_CHIP[m.motif ?? ""]?.classe ?? MOTIF_CHIP[""]!.classe}`}>{MOTIF_CHIP[m.motif ?? ""]?.texte ?? m.motif}</span>
+                          <PastilleMotif motif={m.motif} className="mt-0.5" />
                         )}
                         {(m.facture || m.bc || m.fournId) && (
                           <div className="mt-0.5 flex flex-wrap items-center gap-1">

@@ -57,7 +57,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       : bc
         ? `BC ${bc.numero}${bc.fournisseur?.nom ? ` — ${bc.fournisseur.nom}` : ""}`
         : null;
-    return { id: m.id, date: m.date, type: m.type, quantite: Number(m.quantite), origine: m.origine, source };
+    return { id: m.id, date: m.date, type: m.type, quantite: Number(m.quantite), origine: m.origine, source, motif: m.categorieSortie };
   });
 
   const buffer = await renderPdfBuffer(

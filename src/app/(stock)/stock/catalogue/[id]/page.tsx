@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { EditerArticle } from "./editer-article";
+import { PastilleMotif, PastilleType } from "@/components/stock/pastille-mouvement";
 import { FournisseursArticle, type LigneFournisseurArticle } from "./fournisseurs-article";
 import { chargerPrixParFournisseur } from "@/lib/article-fournisseurs";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, uniteAffichee, type NiveauAlerte } from "@/lib/stock";
@@ -349,6 +350,7 @@ export default async function ArticleFichePage({
             <div className="divide-y">
               {mouvementsAffiches.map((m) => {
                 const sortie = m.type === "SORTIE";
+                const ajustement = m.type === "AJUSTEMENT"; // son sens n'est pas enregistré : ni + ni −
                 const src = source(m);
                 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
                 return (
@@ -360,12 +362,14 @@ export default async function ArticleFichePage({
                         {src.facture && <Link href={`/stock/factures/${src.facture.id}`} className={chip}>🧾 Facture{src.facture.numero ? ` ${src.facture.numero}` : ""}</Link>}
                         {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
                         {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
-                        {sortie && m.categorieSortie && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{m.categorieSortie === "PERTE" ? "Perte" : "Livraison restaurant"}</span>}
+                        {/* Mêmes pastilles que l'écran Mouvements : le type (couleur + libellé), puis le motif d'une sortie. */}
+                        <PastilleType type={m.type} />
+                        {sortie && <PastilleMotif motif={m.categorieSortie} />}
                         {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
                       </div>
                     </div>
-                    <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : "text-emerald-700"}`}>
-                      {sortie ? "−" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
+                    <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : ajustement ? "text-amber-800" : "text-emerald-700"}`}>
+                      {sortie ? "−" : ajustement ? "±" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
                     </div>
                   </div>
                 );
