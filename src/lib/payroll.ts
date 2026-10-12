@@ -289,6 +289,11 @@ export type LignePaie = {
   onemUSD: number;
   coutEmployeurUSD: number;
   coutEmployeurCDF: number;
+  /** Salaire au MOIS (back-office, stage) — décisions Direction 2026-10-12 : retenue des jours N/S à
+   *  1/26e et du tiers d'un jour M non justifié, en BRUT, déjà retranchées de `remuneration100`. Le
+   *  bulletin imprime « salaire de base » = remuneration100 + ces deux retenues, puis chaque retenue. */
+  retenueAbsencesUSD?: number;
+  retenueMaladieUSD?: number;
   // Facteur de reconstitution brut/net (ρ) appliqué au salaire de base quand les salaires sont
   // saisis en net (1 sinon). Exposé pour que l'appelant (paie-batch) grossisse de façon COHÉRENTE
   // les composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés),
@@ -376,7 +381,50 @@ export type EntreesPaieBackoffice = {
   primesUSD?: number;
   acompteUSD?: number;
   retenuePretUSD?: number;
+  /** Absences du mois (`absencesDuMois`, paie-absences.ts) ; absent = mois entier sans absence. */
+  absences?: AbsencesSalaireMois;
 };
+
+/** Ce qui réduit un salaire au MOIS (back-office, stage) — décisions Direction du 2026-10-12. */
+export type AbsencesSalaireMois = {
+  /** Jours N/S retenus, chacun à 1/26e (`joursOuvrablesMois`) du salaire mensuel. */
+  joursAbsenceRetenus: number;
+  /** Jours M sans justificatif préalable : payés aux 2/3, le tiers restant est retenu. */
+  joursMaladieNonJustifies: number;
+  /** Entrée/sortie en cours de mois : prorata des jours ouvrables ; null = mois entier. */
+  prorata: { joursTravailles: number; joursMois: number } | null;
+};
+
+/**
+ * Salaire au mois DÛ, dans l'unité de la saisie (net si les salaires sont saisis en net) :
+ *   base = salaire × jours ouvrables travaillables / jours ouvrables du mois (mois entier : salaire) ;
+ *   retenue absences = salaire / 26 × jours N/S ; retenue maladie = salaire / 26 × 1/3 × jours M non
+ *   justifiés ; dû = base − retenues, jamais négatif (les retenues sont bornées à la base).
+ * Le diviseur 26 est `params.joursOuvrablesMois` (paramètre légal), jamais un nombre en dur.
+ */
+export function salaireMoisDu(salaire: number, a: AbsencesSalaireMois | undefined, params: ParametresPaie): { base: number; retenueAbsences: number; retenueMaladie: number; du: number } {
+  const base = a?.prorata && a.prorata.joursMois > 0 ? (salaire * a.prorata.joursTravailles) / a.prorata.joursMois : salaire;
+  const jour = params.joursOuvrablesMois > 0 ? salaire / params.joursOuvrablesMois : 0;
+  const retenueAbsences = Math.min(base, jour * (a?.joursAbsenceRetenus ?? 0));
+  const retenueMaladie = Math.min(base - retenueAbsences, (jour * (a?.joursMaladieNonJustifies ?? 0)) / 3);
+  return { base, retenueAbsences, retenueMaladie, du: Math.max(0, base - retenueAbsences - retenueMaladie) };
+}
+
+/**
+ * Le même, en montants AU CENTIME dont la somme tombe juste : base − retenueAbsences − retenueMaladie
+ * = `brutDu` EXACTEMENT. `baseBrute` est la base (salaire du mois, au prorata s'il y a lieu) en brut —
+ * reconstituée depuis le net si les salaires sont saisis en net, donc le « salaire de base » que la
+ * case récapitulative du bulletin imprime pour un mois entier. Les retenues en brut sont la différence
+ * base brute − brut dû, partagée entre absences et maladie au prorata de leurs montants dans l'unité
+ * de la saisie : en net, le salaire perd exactement 1/26e par jour ; en brut, la retenue suit l'impôt.
+ */
+function decomposerSalaireMois(d: { base: number; retenueAbsences: number; retenueMaladie: number; du: number }, brutDu: number, baseBrute: number): { base: number; retenueAbsences: number; retenueMaladie: number } {
+  if (d.retenueAbsences === 0 && d.retenueMaladie === 0) return { base: brutDu, retenueAbsences: 0, retenueMaladie: 0 };
+  const base = auCentime(baseBrute);
+  const total = auCentime(base - brutDu);
+  const retenueAbsences = d.retenueMaladie === 0 ? total : auCentime((total * d.retenueAbsences) / (d.retenueAbsences + d.retenueMaladie));
+  return { base, retenueAbsences, retenueMaladie: auCentime(total - retenueAbsences) };
+}
 
 export function calculerPaieBackoffice(
   entrees: EntreesPaieBackoffice,
@@ -389,29 +437,39 @@ export function calculerPaieBackoffice(
   // brut de base est reconstitué avant d'ajouter transport/primes (hors périmètre de l'inversion).
   // Pas d'heures supplémentaires en back-office (EntreesPaieBackoffice n'en porte pas) : rien d'autre
   // à grossir ici.
+  // Absences et entrée/sortie en cours de mois (décisions Direction 2026-10-12) : le salaire DÛ est
+  // calculé dans l'unité de la saisie, PUIS le brut est reconstitué sur ce dû (un net de 400 $ avec 3
+  // jours N donne un net de 400 × 23/26). Sans absence ni prorata : à l'identique d'avant.
+  const du = salaireMoisDu(entrees.salaireBaseUSD, entrees.absences, params);
   const salaireBaseUSD = params.salairesSaisisEnNet
-    ? reconstituerBrutDepuisNet(entrees.salaireBaseUSD, params, entrees.enfants)
-    : auCentime(entrees.salaireBaseUSD);
+    ? reconstituerBrutDepuisNet(du.du, params, entrees.enfants)
+    : auCentime(du.du);
+  const baseBrute = params.salairesSaisisEnNet ? reconstituerBrutDepuisNet(du.base, params, entrees.enfants) : du.base;
+  const decomp = decomposerSalaireMois(du, salaireBaseUSD, baseBrute);
   const salBrutUSD = auCentime(salaireBaseUSD + transportUSD + primesUSD);
 
   // Le salaire de base est porté par `remuneration100` (2026-09-24) : avant, le back-office
   // stockait 0 et le bulletin imprimait « Salaire de base 0,00 $ » au-dessus d'un brut imposable
   // positif — des lignes qui ne s'additionnaient pas.
-  return finaliserLignePaie(
-    {
-      remuneration100: salaireBaseUSD,
-      remuneration2_3: 0,
-      hsValorisee: 0,
-      salBrutUSD,
-      enfants: entrees.enfants,
-      fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
-      primesUSD,
-      acompteUSD: entrees.acompteUSD ?? 0,
-      retenuePretUSD: entrees.retenuePretUSD ?? 0,
-      transportUSD,
-    },
-    params
-  );
+  return {
+    ...finaliserLignePaie(
+      {
+        remuneration100: salaireBaseUSD,
+        remuneration2_3: 0,
+        hsValorisee: 0,
+        salBrutUSD,
+        enfants: entrees.enfants,
+        fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
+        primesUSD,
+        acompteUSD: entrees.acompteUSD ?? 0,
+        retenuePretUSD: entrees.retenuePretUSD ?? 0,
+        transportUSD,
+      },
+      params
+    ),
+    retenueAbsencesUSD: decomp.retenueAbsences,
+    retenueMaladieUSD: decomp.retenueMaladie,
+  };
 }
 
 export type EntreesPaieStage = {
@@ -421,6 +479,8 @@ export type EntreesPaieStage = {
   primesUSD?: number;
   acompteUSD?: number;
   retenuePretUSD?: number;
+  /** Absences du mois (mêmes règles que le back-office, décisions Direction 2026-10-12). */
+  absences?: AbsencesSalaireMois;
 };
 
 /**
@@ -429,7 +489,10 @@ export type EntreesPaieStage = {
  * fiscal des indemnités de stage n'est pas celui d'un salaire). Pas d'heures supp. ni de congés.
  */
 export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresPaie): LignePaie {
-  const indemniteUSD = auCentime(entrees.indemniteUSD);
+  // Pas d'impôt ni de cotisation : l'indemnité due (prorata, retenues) est payée telle quelle.
+  const du = salaireMoisDu(entrees.indemniteUSD, entrees.absences, params);
+  const indemniteUSD = auCentime(du.du);
+  const decomp = decomposerSalaireMois(du, indemniteUSD, du.base);
   const transportUSD = auCentime(entrees.transportUSD);
   const primesUSD = auCentime(entrees.primesUSD ?? 0);
   const acompteUSD = auCentime(entrees.acompteUSD ?? 0);
@@ -458,6 +521,8 @@ export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresP
     onemUSD: 0,
     coutEmployeurUSD: salBrutUSD,
     coutEmployeurCDF: auCentime(salBrutUSD * params.tauxChangeCDF),
+    retenueAbsencesUSD: decomp.retenueAbsences,
+    retenueMaladieUSD: decomp.retenueMaladie,
   };
 }
 

@@ -737,3 +737,39 @@ describe("semaine à cheval sur deux mois — la semaine civile est évaluée en
     expect(avecOctobre.hs).toEqual(sansOctobre.hs);
   });
 });
+
+// ── Maladie justifiée (décision Direction 2026-10-12, TOUT le personnel) ───────────────────────
+// Avant : tout jour M de la brigade payé aux 2/3. Depuis : M justifié au préalable (certificat) payé
+// 100 %, sans justificatif 2/3 — en mode planning comme en repli sur le contrat.
+describe("brigade : jour M justifié payé 100 %, non justifié 2/3", () => {
+  const martineMalade = (justifies: number[], referencePlanningDepuis: number | null = 202609) => {
+    const h = (d: Date) => (dow(d) >= 1 && dow(d) <= 5) || jour(d) === 12 || jour(d) === 26 ? 9 : 0;
+    const malade = (d: Date) => [21, 22, 23].includes(jour(d));
+    const jours = joursDuMois(2026, 9, {
+      heures: h,
+      faites: (d) => (malade(d) ? 0 : h(d)),
+      code: (d) => (malade(d) ? "M" : h(d) > 0 ? "P" : null),
+    }).map((j) => ({ ...j, maladieJustifiee: justifies.includes(jour(j.date)) }));
+    return calculerReferenceMois(entrees({ salaireMensuel: 400, heuresHebdomadaires: 54, heuresParJour: 9, jours, referencePlanningDepuis }));
+  };
+
+  it("planning : 2 j non justifiés (2/3) + 1 j justifié (100 %) = un tiers de journée de plus qu'avant", () => {
+    const avant = martineMalade([]);
+    const apres = martineMalade([23]);
+    expect(apres.source).toBe("PLANNING");
+    const t = apres.tauxMois;
+    expect(apres.moteur.joursPayes2_3).toBe(18); // 2 jours de 9 h aux 2/3
+    expect(apres.affichage.montantMaladieJustifieeNet).toBeCloseTo(9 * t, 10);
+    expect(baseNette(apres) - baseNette(avant)).toBeCloseTo((9 * t) / 3, 10);
+    // 400 $ de planning : 400 − 2 × 9 h × t / 3 (≈ 7,41 $ au lieu de 11,11 $ quand les 3 j étaient aux 2/3).
+    expect(baseNette(apres)).toBeCloseTo(400 - (18 * t) / 3, 8);
+  });
+
+  it("repli sur le contrat : même règle à la journée", () => {
+    const avant = martineMalade([], null);
+    const apres = martineMalade([23], null);
+    expect(apres.source).toBe("CONTRAT");
+    expect([apres.moteur.joursPayes2_3, avant.moteur.joursPayes2_3]).toEqual([2, 3]);
+    expect(apres.moteur.joursPayesNonTravailles - avant.moteur.joursPayesNonTravailles).toBe(1);
+  });
+});

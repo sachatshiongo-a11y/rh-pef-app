@@ -701,3 +701,47 @@ describe("argent au centime, à la source (2026-09-24) — les lignes du bulleti
     expect(l.salNetUSD).toBe(164);
   });
 });
+
+
+// ── Salaire au mois : absences, prorata, maladie (décisions Direction 2026-10-12) ─────────────
+import { calculerPaieBackoffice as bo, calculerPaieStage as stage } from "./payroll";
+describe("back-office et stagiaires : retenue 1/26e, prorata des jours ouvrables, maladie aux 2/3", () => {
+  const sans = { joursAbsenceRetenus: 0, joursMaladieNonJustifies: 0, prorata: null };
+  it("400 $ et 3 jours N → 400 × 23/26 = 353,85, la retenue imprimable 46,15", () => {
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, joursAbsenceRetenus: 3 } }, params);
+    expect(l.remuneration100).toBe(353.85);
+    expect(l.retenueAbsencesUSD).toBe(46.15);
+    expect(l.salBrutUSD).toBe(353.85);
+  });
+  it("salaires saisis en NET : le net de base tombe à 400 × 23/26, au centime", () => {
+    const pn: ParametresPaie = { ...params, salairesSaisisEnNet: true };
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, joursAbsenceRetenus: 3 } }, pn);
+    expect(l.salNetUSD - l.allocFamilialeUSD).toBe(353.85);
+    // Base brute − retenue brute = brut dû : les lignes du bulletin s'additionnent.
+    expect(Math.round((l.remuneration100 + l.retenueAbsencesUSD!) * 100) / 100).toBe(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0 }, pn).remuneration100);
+  });
+  it("entrée le 15 octobre 2026 : 15 jours ouvrables sur 27 → 400 × 15/27 = 222,22", () => {
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, prorata: { joursTravailles: 15, joursMois: 27 } } }, params);
+    expect(l.remuneration100).toBe(222.22);
+    expect(l.retenueAbsencesUSD).toBe(0);
+  });
+  it("maladie : 2 jours sans justificatif → retenue 2 × 400/26 × 1/3 = 10,26 ; un jour justifié ne retient rien", () => {
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, joursMaladieNonJustifies: 2 } }, params);
+    expect(l.remuneration100).toBe(389.74);
+    expect(l.retenueMaladieUSD).toBe(10.26);
+  });
+  it("stagiaire : mêmes règles sur l'indemnité, sans impôt", () => {
+    const l = stage({ indemniteUSD: 260, transportUSD: 10, absences: { ...sans, joursAbsenceRetenus: 2 } }, params);
+    expect(l.remuneration100).toBe(240);
+    expect(l.retenueAbsencesUSD).toBe(20);
+    expect(l.salNetUSD).toBe(250);
+  });
+  it("sans absence ni prorata : à l'identique d'avant", () => {
+    expect(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: sans }, params)).toEqual(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0 }, params));
+  });
+  it("toutes les retenues bornées à la base : jamais de salaire négatif", () => {
+    const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 27, joursMaladieNonJustifies: 0, prorata: null } }, params);
+    expect(l.remuneration100).toBe(0);
+    expect(l.retenueAbsencesUSD).toBe(400);
+  });
+});

@@ -42,6 +42,9 @@ export type JourReference = {
   heuresFaites: number;
   /** `Shift.tauxHoraireUSD` du créneau du jour, `null` sinon. */
   tauxRole: number | null;
+  /** Jour M justifié au préalable (certificat) : payé 100 % au lieu de 2/3 (décision Direction
+   *  2026-10-12). Absent ou false = non justifié. */
+  maladieJustifiee?: boolean;
 };
 
 export type EntreesReference = {
@@ -114,6 +117,8 @@ export type ResultatReference = {
     montantJoursPayesNet: number;
     /** Indemnité de congé NETTE, avant ρ. */
     indemniteCongesNet: number;
+    /** Part des jours payés non travaillés due aux jours M JUSTIFIÉS (payés 100 %), NETTE, avant ρ. */
+    montantMaladieJustifieeNet: number;
   };
   avertissements: AvertissementPaie[];
 };
@@ -254,6 +259,7 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
 
   let heuresPayees100 = 0;
   let heuresMaladie = 0;
+  let heuresMaladieJustifiee = 0;
   let heuresConge = 0;
   let joursPayes = 0;
   let heuresBaseFerieTravaille = 0; // base d'un férié dû travaillé : déjà payée par le forfait
@@ -279,12 +285,15 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
       continue;
     }
     if (j.heuresFaites > 0 || j.code == null) continue;
-    const payeCent = PAYES_100.has(j.code);
+    // Maladie JUSTIFIÉE au préalable (certificat) : payée à 100 % comme un jour payé non travaillé ;
+    // sans justificatif, aux 2/3 (décision Direction 2026-10-12, tout le personnel).
+    const maladieJustifiee = j.code === "M" && j.maladieJustifiee === true;
+    const payeCent = PAYES_100.has(j.code) || maladieJustifiee;
     if (!payeCent && j.code !== "M") continue;
     const h = j.heuresPlanifiees > 0 ? j.heuresPlanifiees : hduSansCreneau(j);
     if (h <= 0) continue; // jour de repos du modèle, ou semaine déjà à H : ni dû, ni payé
     if (j.heuresPlanifiees <= 0) R += h; // sinon déjà dans les heures planifiées
-    if (payeCent) { heuresPayees100 += h; joursPayes++; if (j.code === "C") heuresConge += h; }
+    if (payeCent) { heuresPayees100 += h; joursPayes++; if (j.code === "C") heuresConge += h; if (maladieJustifiee) heuresMaladieJustifiee += h; }
     else heuresMaladie += h;
   }
 
@@ -370,6 +379,7 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
       heuresPayeesNonTravaillees: heuresPayees100,
       montantJoursPayesNet: t * heuresPayees100,
       indemniteCongesNet: t * heuresConge,
+      montantMaladieJustifieeNet: t * heuresMaladieJustifiee,
     },
     avertissements,
   };
@@ -405,9 +415,12 @@ function ancienneRegle(
   });
   let jours = 0;
   let joursMaladie = 0;
+  let joursMaladieJustifies = 0;
   for (const j of e.jours) {
     if (j.heuresFaites > 0 || j.code == null) continue;
     if (PAYES_100.has(j.code)) jours++;
+    // Maladie justifiée au préalable : 100 % (décision Direction 2026-10-12) ; sinon 2/3.
+    else if (j.code === "M" && j.maladieJustifiee === true) { jours++; joursMaladieJustifies++; }
     else if (j.code === "M") joursMaladie++;
   }
   return {
@@ -430,6 +443,7 @@ function ancienneRegle(
       heuresPayeesNonTravaillees: jours * e.heuresParJour,
       montantJoursPayesNet: salaireJournalier * jours,
       indemniteCongesNet: e.joursCongePris * salaireJournalier,
+      montantMaladieJustifieeNet: salaireJournalier * joursMaladieJustifies,
     },
     // Même libellé que le badge de l'écran Paie et le bulletin (un seul endroit : paie-reference-libelles).
     // Seuls les NOUVEAUX calculs le portent : une ligne figée garde le texte avec lequel elle a été validée.

@@ -86,7 +86,7 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
       select: { employeeId: true, date: true, updatedAt: true, shift: { select: { heureDebut: true, heureFin: true, dureeHeures: true, systeme: true, tauxHoraireUSD: true } } },
     }),
     db.planningModele.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
-    db.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, code: true, createdAt: true } }),
+    db.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, code: true, maladieJustifiee: true, createdAt: true } }),
     db.overtimeEntry.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, heuresTravaillees: true, createdAt: true, updatedAt: true } }),
     db.contrat.findMany({
       where: { employeeId: { in: employeeIds }, dateDebut: { lte: fin }, OR: [{ dateFin: null }, { dateFin: { gte: debut } }] },
@@ -157,6 +157,7 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
       code: (p?.code ?? null) as CodePresence | null,
       heuresFaites,
       tauxRole: c?.shift.tauxHoraireUSD != null ? Number(c.shift.tauxHoraireUSD) : null,
+      maladieJustifiee: p?.code === "M" && p.maladieJustifiee === true,
     };
     return { ref, c, p, h };
   };
