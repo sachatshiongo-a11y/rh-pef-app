@@ -7,8 +7,10 @@ import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { FicheArticleDocument, type MouvementLigne } from "@/lib/pdf/fiche-article";
 import { libelleArticle } from "@/lib/libelle-article";
+import { lireFiltreMouvements, typeDuFiltre } from "@/lib/fiche-article";
+import { bornesPeriode, libelleMoisAnnee, periodeDeRequete } from "@/lib/mouvements-article-mois";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await exigerEspaceStock();
   if (!g.ok) return g.reponse;
   const { id } = await params;
@@ -50,7 +52,29 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       .filter((x): x is NonNullable<typeof x> => x !== null),
   ]);
 
-  const mouvements: MouvementLigne[] = a.mouvements.map((m) => {
+  // L'export suit la période et le type choisis sur la fiche (?annee= &mois= &filtre=) ; sans période, les 200 derniers comme avant.
+  // L'évolution du prix, elle, garde tout l'historique chargé : elle ne dépend pas de la période.
+  const query = new URL(request.url).searchParams;
+  const periode = periodeDeRequete(query);
+  const filtre = lireFiltreMouvements(query.get("filtre") ?? undefined);
+  const restreint = periode !== null || filtre !== "tous";
+  const listeMouvements = restreint
+    ? await prisma.mouvementStock.findMany({
+        where: { articleId: id, ...(typeDuFiltre(filtre) ? { type: typeDuFiltre(filtre) } : {}), ...(periode && bornesPeriode(periode) ? { date: bornesPeriode(periode)! } : {}) },
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        take: 200,
+        include: {
+          facture: { select: { numero: true, fournisseurNom: true } },
+          reception: { select: { bonDeCommande: { select: { numero: true, fournisseur: { select: { nom: true } } } } } },
+        },
+      })
+    : a.mouvements;
+  const libellePeriode = [
+    periode && periode.annee !== "toutes" ? (periode.mois ? libelleMoisAnnee(periode.annee, periode.mois) : String(periode.annee)) : null,
+    filtre !== "tous" ? { entrees: "Entrées", sorties: "Sorties", ajustements: "Ajustements" }[filtre] : null,
+  ].filter(Boolean).join(" · ");
+
+  const mouvements: MouvementLigne[] = listeMouvements.map((m) => {
     const bc = m.reception?.bonDeCommande;
     const source = m.facture
       ? `Facture ${m.facture.numero ?? ""}${m.facture.fournisseurNom ? ` — ${m.facture.fournisseurNom}` : ""}`.trim()
@@ -79,6 +103,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       alerteLabel: niv ? ALERTE_LABEL[niv] : "—",
       analyse,
       mouvements,
+      periode: libellePeriode || undefined,
     }),
   );
 

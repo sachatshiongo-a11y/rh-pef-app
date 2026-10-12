@@ -72,13 +72,15 @@ function PRow({ label, value }: { label: string; value: string }) {
 export function FicheArticleDocument({
   designation, code, domaineLabel, categorieNom, fournisseurNom, unite,
   stock, stockMinimum, seuilUrgent, valeur, prixReference, alerteLabel, prixLibelle, valeurApprox,
-  analyse, mouvements,
+  analyse, mouvements, periode,
 }: {
   designation: string; code: string | null; domaineLabel: string; categorieNom: string; fournisseurNom: string; unite: string | null;
   stock: number | null; stockMinimum: number | null; seuilUrgent: number | null; valeur: number | null; prixReference: number | null; alerteLabel: string;
   /** Prix de référence tel que saisi + l'autre devise (« 7 000 FC (≈ 2,50 $) ») ; « ≈ » devant la valeur d'un article en francs. */
   prixLibelle?: string; valeurApprox?: boolean;
   analyse: AnalysePrix; mouvements: MouvementLigne[];
+  /** Période de la liste quand elle est restreinte (« Octobre 2026 », « 2025 », « Entrées · 2025 ») ; absent = les derniers mouvements. */
+  periode?: string;
 }) {
   const uSuffix = unite ? ` ${unite}` : "";
   return (
@@ -150,7 +152,7 @@ export function FicheArticleDocument({
           </Text>
         )}
 
-        <PdfSectionHeader>Mouvements ({mouvements.length})</PdfSectionHeader>
+        <PdfSectionHeader>Mouvements{periode ? ` — ${periode}` : ""} ({mouvements.length})</PdfSectionHeader>
         <View style={[styles.table, { marginTop: 0 }]}>
           <View style={styles.th}>
             <Text style={[styles.cDate, styles.cCol]}>Date</Text>

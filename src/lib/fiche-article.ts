@@ -4,7 +4,8 @@
 // Module pur (ni base, ni `server-only`) : lu par la page et par ses tests. L'onglet et le filtre
 // vivent DANS L'URL (`?onglet=mouvements&filtre=sorties`) : un lien, un favori ou un rechargement
 // retombent exactement là où on était. `?mouvements=tous` et `?prix=tous` (« Voir les plus anciens »)
-// restent des paramètres à part et sont conservés d'un lien à l'autre.
+// restent des paramètres à part et sont conservés d'un lien à l'autre. L'année et le mois de l'onglet Mouvements
+// (`?annee=2026&mois=10`, demande de la Direction du 2026-10-12) se combinent avec le filtre : chaque lien les garde.
 
 export const ONGLETS_ARTICLE = ["mouvements", "fournisseurs", "fiches", "prix", "informations"] as const;
 export type OngletArticle = (typeof ONGLETS_ARTICLE)[number];
@@ -38,10 +39,14 @@ export function typeDuFiltre(f: FiltreMouvements): "ENTREE" | "SORTIE" | "AJUSTE
 export function lienFicheArticle(
   articleId: string,
   onglet: OngletArticle,
-  opts: { filtre?: FiltreMouvements; tousMouvements?: boolean; tousPrix?: boolean } = {},
+  opts: { filtre?: FiltreMouvements; annee?: number | "toutes"; mois?: number | null; tousMouvements?: boolean; tousPrix?: boolean } = {},
 ): string {
   const p = new URLSearchParams({ onglet });
   if (onglet === "mouvements") {
+    if (opts.annee !== undefined) {
+      p.set("annee", String(opts.annee));
+      if (opts.annee !== "toutes" && opts.mois) p.set("mois", String(opts.mois));
+    }
     if (opts.filtre && opts.filtre !== FILTRE_MOUVEMENTS_PAR_DEFAUT) p.set("filtre", opts.filtre);
     if (opts.tousMouvements) p.set("mouvements", "tous");
   }

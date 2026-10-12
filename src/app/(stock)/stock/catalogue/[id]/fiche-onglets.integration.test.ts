@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
-import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 // FICHE ARTICLE EN ONGLETS (demande de la Direction, 2026-10-12 : « agencée comme la fiche fournisseur ») :
 // rendu de la VRAIE page sur une base éphémère. Ce qu'on tient ici :
@@ -155,8 +155,10 @@ describe("onglet Mouvements : pastilles de filtre et pastilles de type en couleu
   it("les effectifs sont exacts et chaque pastille mène à son filtre (?filtre=)", async () => {
     const html = await rendre();
     for (const lib of ["Entrées (2)", "Sorties (3)", "Ajustements (1)", "Tous (6)"]) expect(html).toContain(`${lib}</a>`);
-    expect(html).toContain(`href="/stock/catalogue/${idA}?onglet=mouvements&amp;filtre=sorties"`);
-    expect(html).toContain(`href="/stock/catalogue/${idA}?onglet=mouvements"`); // Tous = le défaut, adresse courte
+    // Les liens gardent l'année affichée (celle en cours par défaut) : le type se combine avec elle.
+    const an = anneeCouranteKinshasa();
+    expect(html).toContain(`href="/stock/catalogue/${idA}?onglet=mouvements&amp;annee=${an}&amp;filtre=sorties"`);
+    expect(html).toContain(`href="/stock/catalogue/${idA}?onglet=mouvements&amp;annee=${an}"`); // Tous = le défaut du type
   });
   it("?filtre=sorties : seules les sorties, avec leur motif ; le filtre actif est marqué", async () => {
     const html = await rendre({ onglet: "mouvements", filtre: "sorties" });
