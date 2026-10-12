@@ -37,6 +37,7 @@ const RAISONS: Record<Raison, string> = {
 
 /** Lectures `.designation` restantes, par fichier : nombre exact et raison(s). */
 const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
+  "src/app/(app)/parametres/jours-feries-liste.tsx": { n: 3, raisons: ["AUTRE_MODELE"] }, // jours fériés (liste groupée)
   "src/app/(app)/parametres/page.tsx": { n: 1, raisons: ["AUTRE_MODELE"] }, // jours fériés
   "src/app/(stock)/stock/_tableau-de-bord/bloc-dlc-proches.tsx": { n: 1, raisons: ["AMONT"] }, // lib/dlc-stock
   "src/app/(stock)/stock/a-valider/detail-demande.tsx": { n: 5, raisons: ["AMONT"] }, // validations-stock/apercu

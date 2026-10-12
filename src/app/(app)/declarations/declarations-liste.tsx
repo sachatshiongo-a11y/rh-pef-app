@@ -122,7 +122,7 @@ export function DeclarationsListe({ lignes, mois, annee, periode, provisoire, es
       </div>
 
       {/* Ordinateur : tableau. */}
-      <div className="tableau-normal hidden overflow-x-auto rounded-lg border lg:block">
+      <div className="tableau-normal hidden rounded-lg border lg:block">
         <table className="w-full text-sm">
           <thead className="en-tete-collante bg-muted text-left">
             <tr>
