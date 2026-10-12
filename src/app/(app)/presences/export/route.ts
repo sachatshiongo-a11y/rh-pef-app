@@ -3,6 +3,7 @@ import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { classeurExcel } from "@/lib/export-excel";
 
@@ -93,11 +94,13 @@ export async function GET() {
 
   // HS valorisées : le montant de la PAIE (même chemin que le lot), « — » si la paie n'en paie pas ;
   // par semaine : les heures de la semaine au taux de la paie (taux du contrat, brut reconstitué).
-  const hsPaie = await hsValoriseesPaie(mois, annee, employees, parametres);
+  const [hsPaie, avantMois] = await Promise.all([hsValoriseesPaie(mois, annee, employees, parametres), chargerHeuresAvantMois(annee, mois)]);
+  for (const f of avantMois.feriesIso) joursFeries.add(f);
   for (const e of employees) {
     const paie = hsPaie.get(e.id) ?? { montant: null, tauxHoraire: null };
     const hs = calculerHeuresSupp({
       jours: joursParEmploye[e.id] ?? [],
+      joursAvantMois: avantMois.parEmploye[e.id] ?? [],
       heuresParJourContrat: Number(e.heuresParJour),
       heuresHebdoContrat: Number(e.heuresHebdomadaires),
       salaireHoraire: paie.tauxHoraire ?? 0,

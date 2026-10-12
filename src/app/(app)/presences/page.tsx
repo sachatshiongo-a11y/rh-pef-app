@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
 import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { datesDeSortie, inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
 import { BarreVuePresences, PresencesVueProvider, type VuePresences } from "./vue-presences";
@@ -135,10 +136,13 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // Détail hebdomadaire (HS par semaine) — calculé côté serveur pour le tableau replié.
   // « HS valorisées » : le MONTANT de la paie (même chemin que le lot : référence du mois puis moteur),
   // plus aucun taux recalculé ici (salaire ÷ 26 ÷ heures/jour divergeait du bulletin).
-  const [hsPaie, sorties] = await Promise.all([
+  const [hsPaie, sorties, avantMois] = await Promise.all([
     hsValoriseesPaie(mois, annee, employees, parametres),
     datesDeSortie(prisma, employees.filter((e) => !e.actif).map((e) => e.id)),
+    // Semaine à cheval sur le mois précédent : ses heures placent le seuil des HS (même règle que la paie).
+    chargerHeuresAvantMois(annee, mois),
   ]);
+  for (const f of avantMois.feriesIso) joursFeries.add(f);
   const semainesParEmploye: Record<string, DetailSemaineHS[]> = {};
   const toRow = (e: (typeof employees)[number]): EmployeeRow => ({
     id: e.id,
@@ -148,12 +152,14 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
     heuresParJour: Number(e.heuresParJour),
     heuresHebdo: Number(e.heuresHebdomadaires),
     hsValoriseePaie: hsPaie.get(e.id)?.montant ?? null,
+    heuresAvantMois: (avantMois.parEmploye[e.id] ?? []).map((j) => ({ date: j.date.toISOString().slice(0, 10), heures: j.heuresTravaillees })),
     sortieLe: sorties.get(e.id) ?? null,
   });
   const rows = employees.map(toRow);
   for (const r of rows) {
     semainesParEmploye[r.id] = calculerHeuresSupp({
       jours: joursParEmploye[r.id] ?? [],
+      joursAvantMois: avantMois.parEmploye[r.id] ?? [],
       heuresParJourContrat: r.heuresParJour,
       heuresHebdoContrat: r.heuresHebdo,
       salaireHoraire: hsPaie.get(r.id)?.tauxHoraire ?? 0, // le tableau hebdomadaire ne montre que des heures

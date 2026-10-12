@@ -57,6 +57,9 @@ export type EmployeeRow = {
    *  + moteur de paie), au dernier chargement ; `null` = pas d'heures supp. payées à ce salarié
    *  (back-office au salaire fixe, stage, intérim) — affiché « — », jamais 0. */
   hsValoriseePaie?: number | null;
+  /** Heures des jours de la semaine à cheval AVANT le 1er du mois (mois précédent) : placent le seuil
+   *  hebdomadaire des heures supp., jamais comptées dans le mois (même règle que la paie). */
+  heuresAvantMois?: { date: string; heures: number }[];
   /** Salarié sorti dans le mois : jour de sortie (AAAA-MM-JJ). Les jours suivants ne se saisissent pas. */
   sortieLe?: string | null;
 };
@@ -484,6 +487,7 @@ export function TempsGrid({
       const r = resumerPresences(codes);
       const hs = calculerHeuresSupp({
         jours,
+        joursAvantMois: (e.heuresAvantMois ?? []).map((j) => ({ date: new Date(j.date + "T00:00:00Z"), heuresTravaillees: j.heures })),
         heuresParJourContrat: e.heuresParJour,
         heuresHebdoContrat: e.heuresHebdo,
         // Heures seulement : le MONTANT des HS vient de la paie (`hsValoriseePaie`), jamais d'un taux recalculé ici.
