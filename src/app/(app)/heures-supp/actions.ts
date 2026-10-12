@@ -6,6 +6,7 @@ import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { journaliser } from "@/lib/audit";
 import { lireNombreSaisi } from "@/lib/nombre";
+import { heuresDansLesBornes } from "@/lib/heures-bornes";
 
 /**
  * Écrit (ou vide : 0 / vide) les heures d'un jour. Vider reste une correction de grille ouverte au
@@ -20,6 +21,8 @@ function lireHeures(heures: string): number {
   if (!heures) return 0;
   const v = lireNombreSaisi(heures) ?? Number(heures);
   if (Number.isNaN(v)) throw new Error(`Heures « ${heures} » illisibles : écrivez 7,5 pour sept heures et demie.`);
+  // Bornes serveur (0–24 h) : la saisie directe ne passait pas par la garde des présences et de l'import IVMS.
+  if (!heuresDansLesBornes(v)) throw new Error(`Heures « ${heures} » hors bornes : une journée compte de 0 à 24 h. Rien n'a été enregistré.`);
   return v;
 }
 
@@ -70,6 +73,8 @@ export async function saisirHeuresEnLot(
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  // Tout ou rien : une seule valeur illisible ou hors bornes refuse le lot AVANT la première écriture.
+  for (const e of entrees) lireHeures(e.heures);
   const [enConge, repos] = await Promise.all([joursEnConge(entrees), joursDeReposSelonModele(entrees)]);
   const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, heures } of entrees) {

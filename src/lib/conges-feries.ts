@@ -21,7 +21,7 @@ const jjmmaaaa = (d: Date) => {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 };
 
-export type RecalageFerie = { demandes: number; codes: number; figes: number };
+export type RecalageFerie = { demandes: number; codes: number; figes: number; travailles?: number };
 
 /** À appeler dans la transaction qui vient d'ajouter (ou de retirer) le férié `date` (date pure). */
 export async function recalerCongesSurFerie(
@@ -51,6 +51,7 @@ export async function recalerCongesSurFerie(
   let nbDemandes = 0;
   let codes = 0;
   let figes = 0;
+  let travailles = 0;
   for (const d of demandes) {
     const avant = Number(d.nbJours);
     const apres = calculerJoursOuvrables(new Date(d.dateDebut), new Date(d.dateFin), feries.map((f) => f.date));
@@ -73,6 +74,13 @@ export async function recalerCongesSurFerie(
       codes += count;
     } else {
       const code = tauxParType.get(d.type) === 0 ? "S" : "C";
+      // Un jour que le salarié a TRAVAILLÉ (présence P ou heures saisies) n'est jamais écrasé par un
+      // retrait de férié : ses heures seraient perdues. Il est laissé tel quel, et dit.
+      const [existant, heures] = await Promise.all([
+        tx.attendance.findUnique({ where: { employeeId_date: { employeeId: d.employeeId, date } }, select: { code: true } }),
+        tx.overtimeEntry.count({ where: { employeeId: d.employeeId, date } }),
+      ]);
+      if (existant?.code === "P" || heures > 0) { travailles++; continue; }
       await tx.attendance.upsert({
         where: { employeeId_date: { employeeId: d.employeeId, date } },
         update: { code },
@@ -82,7 +90,7 @@ export async function recalerCongesSurFerie(
       codes++;
     }
   }
-  return { demandes: nbDemandes, codes, figes };
+  return { demandes: nbDemandes, codes, figes, travailles };
 }
 
 /** Phrase de compte rendu (vide si rien n'a bougé). */
@@ -91,5 +99,6 @@ export function resumeRecalage(r: RecalageFerie, sens: "ajout" | "retrait"): str
   if (r.demandes > 0) parts.push(`${r.demandes} demande(s) de congé recalculée(s)`);
   if (r.codes > 0) parts.push(sens === "ajout" ? `${r.codes} code(s) de congé retiré(s) de la grille Présences` : `${r.codes} code(s) de congé reposé(s) sur la grille Présences`);
   if (r.figes > 0) parts.push(`${r.figes} jour(s) laissé(s) tels quels : paie du mois déjà validée`);
+  if ((r.travailles ?? 0) > 0) parts.push(`${r.travailles} jour(s) laissé(s) tels quels : le salarié y a travaillé (présence ou heures saisies)`);
   return parts.join(" ; ");
 }

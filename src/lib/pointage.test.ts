@@ -162,3 +162,13 @@ describe("lecture des dates du rapport IVMS : JJ/MM/AAAA explicite, rien de devi
     expect(s.ok && s.pointages[0].dateHeure.toISOString().slice(0, 16)).toBe("2026-10-13T07:58");
   });
 });
+
+describe("rapport IVMS — colonne « Time » seule (relecture 2026-10-12)", () => {
+  it("sans colonne de date, « Time » porte la date ET l'heure (comme avant l'audit)", () => {
+    const r = extrairePointagesRapport([{ "Person ID": "12", Name: "A", Time: "2026/10/05 08:05:12" }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.illisibles).toHaveLength(0);
+    expect(r.pointages[0].dateHeure.toISOString().slice(0, 19)).toBe("2026-10-05T08:05:12");
+  });
+});

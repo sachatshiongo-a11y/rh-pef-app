@@ -424,9 +424,19 @@ export function TempsGrid({
           return;
         }
         nbIgnores += ignores.length;
-        if (ignores.length > 0)
+        // Jour sans travail (N, A, M, O, C, S) : le serveur a retiré les heures du jour — la grille le montre
+        // (sinon des heures fantômes resteraient affichées et comptées dans les totaux jusqu'au rechargement).
+        const sansHeures = !faireHeures && ["N", "A", "M", "O", "C", "S"].includes(code);
+        if (ignores.length > 0 || sansHeures)
           setCellules((c) => {
             const n = { ...c };
+            if (sansHeures) {
+              const ignorees = new Set(ignores.map((ig) => `${ig.employeeId}_${isoDates.indexOf(ig.date) + 1}`));
+              for (const empId of emps) for (const d of cibles) {
+                const k = `${empId}_${d}`;
+                if (!ignorees.has(k) && n[k]) n[k] = { ...n[k], heures: null };
+              }
+            }
             for (const ig of ignores) {
               const d = isoDates.indexOf(ig.date) + 1;
               const k = `${ig.employeeId}_${d}`;

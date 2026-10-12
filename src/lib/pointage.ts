@@ -292,8 +292,12 @@ export function extrairePointagesRapport(lignes: Record<string, unknown>[]): Lec
   if (lignes.length === 0) return { ok: false, message: "Le fichier ne contient aucune ligne." };
   const cles = Object.keys(lignes[0]);
   const colId = cles.find((c) => /id|matricule|badge|employ/i.test(c));
-  const colDateHeure = cles.find((c) => /date.?heure|horodat|time|pointage|event/i.test(c) && !/^time$/i.test(c));
   const colDate = cles.find((c) => /^date$|jour/i.test(c));
+  // Une colonne « Time » / « Heure » SEULE (aucune colonne de date à côté) porte la date ET l'heure
+  // (rapport IVMS : « 2026/10/05 08:05:12 ») ; avec une colonne de date, elle ne porte que l'heure.
+  const colDateHeure =
+    cles.find((c) => /date.?heure|horodat|time|pointage|event/i.test(c) && !/^time$/i.test(c)) ??
+    (colDate ? undefined : cles.find((c) => /^time$/i.test(c)));
   const colHeure = cles.find((c) => /^heure$|^time$/i.test(c));
   if (!colId || (!colDateHeure && !(colDate && colHeure))) {
     return {
