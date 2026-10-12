@@ -742,6 +742,8 @@ describe("back-office et stagiaires : retenue 1/26e, prorata des jours ouvrables
   it("prorata borné au salaire : 26 jours travaillables ou plus → jamais plus de 26/26", () => {
     const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, prorata: { joursTravailles: 26, joursMois: 27 } } }, params);
     expect(l.remuneration100).toBe(400);
+    // Plus de 26 jours travaillables (ici 27 : un mois de 27 jours ouvrables, entré le 1er) : toujours le salaire, pas 400 × 27/26.
+    expect(bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { ...sans, prorata: { joursTravailles: 27, joursMois: 27 } } }, params).remuneration100).toBe(400);
   });
   it("toutes les retenues bornées à la base : jamais de salaire négatif", () => {
     const l = bo({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 27, joursMaladieNonJustifies: 0, prorata: null } }, params);

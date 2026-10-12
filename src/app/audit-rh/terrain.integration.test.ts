@@ -129,7 +129,9 @@ describe("1 — types de congé : un type utilisé ou protégé ne se renomme ni
 describe("2 — « C » posé dans la grille sans demande : décompté, sans double compte, et signalé", () => {
   it("3 C posés en lot entament le solde de 3 ; une demande approuvée qui en couvre 2 ne les recompte pas", async () => {
     comme("ADMIN");
-    const id = await emp();
+    // Embauché un 20 : aucune acquisition mensuelle ne tombe du 5 au 7 octobre (plafond jour par jour : une
+    // acquisition le jour même d'un congé le referait remonter, et « avant − 3 » ne serait plus vrai).
+    const id = await emp({ dateEmbauche: "2020-01-20" });
     const quand = new Date("2026-10-10T12:00:00Z");
     const avant = await chargerSoldeCongeSalarie(prisma, id, quand);
     await PRES.saisirPresencesEnLot(["2026-10-05", "2026-10-06", "2026-10-07"].map((date) => ({ employeeId: id, date, code: "C" as const })));

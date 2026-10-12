@@ -336,7 +336,10 @@ describe("le PDF de la demande", () => {
     const texte = await textePdf(ancienne);
     expect(texte).toContain("Solde de congé annuel disponible");
     expect(texte).toContain("au 15/10/2026, date d'édition");
-    expect(texte).toContain("11 jours"); // 18 − 4 − 3, le solde du jour
+    // Plafond jour par jour (Sacha, 2026-10-12) : embauché le 01/01/2025, solde à 18 j jusqu'au 03/08 (les
+    // acquisitions de l'année sont perdues tant qu'il est plein) ; 4 j le 03/08 → 14 ; +1,5 le 01/09 et le 01/10
+    // → 17 ; les 3 j du 02/11 (déjà approuvés) → 14. Pas « 18 − 4 − 3 » : les mois révolus depuis août reviennent.
+    expect(texte).toContain("14 jours");
     expect(texte).not.toContain("date d'approbation");
     // Et l'ouverture du PDF n'a rien écrit en base.
     expect(await instantane(ancienne)).toEqual({ jours: null, acquis: null, pris: null, le: null });
