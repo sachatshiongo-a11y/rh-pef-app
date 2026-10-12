@@ -91,3 +91,52 @@ describe("fusionnerArticles — choix de l'article à conserver", () => {
     expect(await prisma.articleRestoStock.count({ where: { articleStockId: doublon.id } })).toBe(0);
   }, 60_000);
 });
+
+// Audit du 10/10/2026, constat 5 : fusionner un doublon EFFAÇAIT ses commandes du restaurant (cascade) et
+// détachait ses articles du restaurant (SetNull), et gardait le seuil de l'article choisi quel qu'il soit.
+describe("fusionnerArticles — restaurant, seuils, clôture", () => {
+  const d = (j: string) => new Date(`2026-10-${j}`);
+
+  it("reporte les commandes du restaurant du doublon (cumul si même jour) et rattache ses articles du restaurant", async () => {
+    const garder = await prisma.articleStock.create({ data: { designation: "Mozzarella", domaine: "NOURRITURE" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "MOZZARELLA", domaine: "NOURRITURE" } });
+    // Le 5 : les deux ont une commande (cumul 4 + 3) ; le 6 : seulement le doublon (reportée) ; le 7 : seulement l'article gardé.
+    await prisma.commandeResto.createMany({ data: [
+      { articleId: garder.id, date: d("05"), quantite: 4 }, { articleId: doublon.id, date: d("05"), quantite: 3 },
+      { articleId: doublon.id, date: d("06"), quantite: 2.5 }, { articleId: garder.id, date: d("07"), quantite: 1 },
+    ] });
+    const ar = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Mozzarella (cuisine)", liens: { create: { articleStockId: doublon.id } } } });
+
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+
+    const cmds = (await prisma.commandeResto.findMany({ where: { articleId: garder.id }, orderBy: { date: "asc" } })).map((c) => [c.date.toISOString().slice(0, 10), Number(c.quantite)]);
+    expect(cmds).toEqual([["2026-10-05", 7], ["2026-10-06", 2.5], ["2026-10-07", 1]]);
+    expect(await prisma.commandeResto.count()).toBeGreaterThanOrEqual(3);
+    expect((await prisma.articleRestoStock.findMany({ where: { articleRestoId: ar.id } })).map((l) => l.articleStockId)).toEqual([garder.id]);
+  }, 60_000);
+
+  it("garde le seuil le plus élevé (minimum et urgent) et additionne les articles endommagés", async () => {
+    const garder = await prisma.articleStock.create({ data: { designation: "Beurre", domaine: "NOURRITURE" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "BEURRE doux", domaine: "NOURRITURE" } });
+    await prisma.stock.create({ data: { articleId: garder.id, quantite: 2, stockMinimum: 5, seuilUrgent: 1, quantiteEndommagee: 1 } });
+    await prisma.stock.create({ data: { articleId: doublon.id, quantite: 3, stockMinimum: 8, seuilUrgent: 0.5, quantiteEndommagee: 2 } });
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+    const st = await prisma.stock.findUniqueOrThrow({ where: { articleId: garder.id } });
+    expect([Number(st.quantite), Number(st.stockMinimum), Number(st.seuilUrgent), Number(st.quantiteEndommagee)]).toEqual([5, 8, 1, 3]);
+  }, 60_000);
+
+  it("un doublon dont les mouvements sont d'un mois clôturé : fusion refusée, nommée, rien n'est modifié", async () => {
+    const garder = await prisma.articleStock.create({ data: { designation: "Sucre blanc", domaine: "NOURRITURE" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "SUCRE BLANC kg", domaine: "NOURRITURE" } });
+    await prisma.stock.create({ data: { articleId: doublon.id, quantite: 4 } });
+    await prisma.mouvementStock.create({ data: { articleId: doublon.id, type: "ENTREE", quantite: 4, date: new Date("2026-03-10") } });
+    await prisma.clotureStock.create({ data: { annee: 2026, mois: 3 } });
+    expect(await fusionnerArticles([garder.id, doublon.id], garder.id)).toMatchObject({ erreur: expect.stringMatching(/Fusion refusée[\s\S]*03\/2026[\s\S]*SUCRE BLANC kg[\s\S]*1 mouvement/) });
+    expect(await prisma.articleStock.findUnique({ where: { id: doublon.id } })).not.toBeNull();
+    expect(await prisma.mouvementStock.count({ where: { articleId: doublon.id } })).toBe(1);
+    // Mois rouvert : la fusion passe.
+    await prisma.clotureStock.deleteMany({});
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+    expect(await prisma.mouvementStock.count({ where: { articleId: garder.id } })).toBe(1);
+  }, 60_000);
+});

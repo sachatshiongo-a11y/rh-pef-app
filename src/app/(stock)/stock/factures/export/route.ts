@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { statutAffiche } from "@/lib/facture-echue";
 import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
@@ -43,7 +44,7 @@ export async function GET(req: Request) {
       d(f.datePaiement),
       ...usdCols,
       ...cdfCols,
-      STATUT_FACTURE_LABEL[f.statut] ?? f.statut,
+      STATUT_FACTURE_LABEL[statutAffiche(f)],
       f.modePaiement ?? "",
     ];
   });

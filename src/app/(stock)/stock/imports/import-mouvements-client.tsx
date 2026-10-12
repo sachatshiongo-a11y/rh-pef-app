@@ -59,6 +59,9 @@ export function ImportMouvementsClient() {
       const p = await analyserMouvementsAction(fd);
       if (estErreur(p)) { setErreur(p.erreur); return; }
       setPreview(p);
+      // Un rapprochement APPROCHANT (« Approché ») n'est jamais importé d'office : ces lignes arrivent décochées, la
+      // Direction les vérifie une à une et coche celles qui sont justes (un appariement incertain se signale, il ne s'applique pas).
+      setDecochees(new Set(p.lignes.filter((l) => l.rapprochement === "flou").map((l) => l.ligne)));
       // Période pré-remplie avec les bornes du fichier (dates effectives).
       const dates = p.lignes.map((l) => l.date ?? dateDefaut).sort();
       setDu(dates[0] ?? "");
@@ -119,6 +122,11 @@ export function ImportMouvementsClient() {
       {preview && preview.lignes.length > 0 && (
         <div className="space-y-2">
           <MotifSortiesApercu />
+          {preview.lignes.some((l) => l.rapprochement === "flou") && (
+            <p data-flou-decoches className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <b>{preview.lignes.filter((l) => l.rapprochement === "flou").length} ligne(s) « Approché »</b> (nom seulement ressemblant, pas identique) sont <b>décochées par défaut</b> : vérifiez l&apos;article rapproché de chacune et cochez celles qui sont justes.
+            </p>
+          )}
           {/* Période + sélection */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 text-sm">
             <label className="flex flex-col gap-1 text-xs">

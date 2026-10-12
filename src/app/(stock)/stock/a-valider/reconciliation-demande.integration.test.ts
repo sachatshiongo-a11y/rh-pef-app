@@ -135,7 +135,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     // Comptage fait il y a deux jours : les mouvements datés d'aujourd'hui sont postérieurs au comptage.
     await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { createdAt: new Date(Date.now() - 2 * 86_400_000) } });
     // Datés du jour à Kinshasa, comme les saisit l'écran (une sortie datée d'un jour antérieur serait une saisie tardive).
-    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); return f; };
+    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); else f.set("origine", "don"); return f; };
     en("dir"); // la Direction saisit en direct
     await mouvementManuel(mvt("ENTREE", 5)); // 15
     await mouvementManuel(mvt("SORTIE", 1)); // 14

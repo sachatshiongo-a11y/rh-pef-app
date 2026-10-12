@@ -15,6 +15,7 @@ import { analyserListeAchat, avertissementsListeAchat, catalogueCandidats, type 
 import { cleArticleExacte, lireDlc, memeDesignation, type AnalyseLigne } from "@/lib/achats-doublons";
 import { decisionArticle, prochesDansListe } from "@/lib/article-proche";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
+import { decisionFournisseur } from "@/lib/fournisseur-doublon";
 import { prixReferenceNouvelArticle } from "@/lib/prix-article";
 
 /**
@@ -202,6 +203,22 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const illisible = lignes.find((l) => !l.fournId && l.fournNom && !cleAlnum(l.fournNom));
   if (illisible) throw new Error(`Nom de fournisseur illisible (ligne ${illisible.rang}) : écrivez son nom en lettres ou en chiffres, ou laissez le champ vide.`);
 
+  // ANTI-DOUBLON DE FOURNISSEUR (audit du 10/10/2026), comme les articles : un NOM NOUVEAU qui ressemble à un
+  // fournisseur existant (« Kathy » / « Maison Kathy ») n'est pas créé en silence — l'écran propose « Utiliser … »
+  // ou « Créer quand même » (`fournisseurCreerQuandMeme`, une valeur par nom). Le même nom exact, lui, est
+  // rapproché (ci-dessus) sans rien demander. Rien n'est enregistré tant que le choix n'est pas fait.
+  const quandMemeF = new Set(formData.getAll("fournisseurCreerQuandMeme").map((v) => cleAlnum(String(v))));
+  const nomsNouveaux = new Map<string, string>();
+  for (const l of lignes) if (!l.fournId && l.fournNom && !fournParNom.has(cleAlnum(l.fournNom))) nomsNouveaux.set(cleAlnum(l.fournNom), l.fournNom);
+  const fournAChoisir: string[] = [];
+  for (const [cle, nom] of nomsNouveaux) {
+    const d = decisionFournisseur(nom, fournisseurs);
+    if (d.type === "choix" && !(d.creationPossible && quandMemeF.has(cle))) fournAChoisir.push(`« ${nom} » → ${d.candidats.map((c) => `« ${c.nom} »`).join(", ")}`);
+  }
+  if (fournAChoisir.length > 0) {
+    throw new Error(`Fournisseur déjà enregistré sous un nom proche : choisissez « Utiliser … » ou « Créer quand même un nouveau fournisseur » pour ${fournAChoisir.length > 1 ? "chaque nom" : "ce nom"} ; rien n'a été enregistré. ${fournAChoisir.join(" ; ")}.`);
+  }
+
   // Avertissements non bloquants (double saisie à ±14 jours, comptage postérieur), calculés AVANT
   // l'écriture (sinon la liste se signalerait elle-même).
   const avertissements = await avertissementsListeAchat(dateISO, lignes.flatMap((l) => (l.articleId || l.rattache ? [{ articleId: l.articleId || l.rattache, quantite: l.quantite }] : [])));
@@ -286,6 +303,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une
   // notification pour toute la liste, après l'écriture, jamais bloquante.
   await notifierGesteStock(user, { genre: "ACHAT", nbLignes: lignes.length, montants: lignes.map((l) => ({ devise: l.devise, montant: l.montant })) });
+  // Fournisseur(s) créé(s) à la volée par un compte non-Direction : la Direction en est notifiée (vérifier le doublon, compléter les coordonnées).
+  if (fournisseursCrees.length > 0) await notifierGesteStock(user, { genre: "FOURNISSEUR", noms: fournisseursCrees, origine: "Liste d'achat" });
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} entrées`, champ: "entree (liste d'achat)", nouvelleValeur: origine, userId: user.id });
   // Un article créé à la volée hors Direction reste permis (la Liste d'achat ne doit jamais bloquer

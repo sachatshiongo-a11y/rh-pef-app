@@ -67,6 +67,12 @@ export default async function ScanPage({ searchParams }: { searchParams: Promise
             Votre mot de passe est encore le mot de passe temporaire : il doit être remplacé avant de
             pointer, mais l&apos;espace salarié est fermé pour le moment. Adressez-vous à la Direction.
           </div>
+        ) : !espaceOuvert ? (
+          // Interrupteur de l'espace salarié éteint : le pointage par l'affiche est fermé, le scanner
+          // n'est pas monté (et le serveur refuse tout scan).
+          <div className="rounded-2xl border border-dashed bg-card p-6 text-sm text-muted-foreground">
+            Le pointage par l&apos;affiche est fermé : l&apos;espace salarié est fermé pour le moment. Adressez-vous à la Direction.
+          </div>
         ) : (
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <ScannerAffiche codeInitial={code} />

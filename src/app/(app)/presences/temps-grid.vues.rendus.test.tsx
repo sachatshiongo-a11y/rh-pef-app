@@ -42,7 +42,7 @@ const params = {
 const days = Array.from({ length: 31 }, (_, i) => i + 1);
 const isoDates = days.map((d) => `2026-10-${String(d).padStart(2, "0")}`);
 const semaines = semainesDuMois(2026, 10, 31);
-const emp = (id: string, nom: string): EmployeeRow => ({ id, matricule: id, nom, heuresParJour: 8, heuresHebdo: 48, salaireHoraire: 1 });
+const emp = (id: string, nom: string): EmployeeRow => ({ id, matricule: id, nom, heuresParJour: 8, heuresHebdo: 48 });
 const alice = emp("e1", "Alice");
 const bruno = emp("e2", "Bruno");
 const shiftMap: Record<string, InfoShift> = {

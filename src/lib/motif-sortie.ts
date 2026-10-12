@@ -31,3 +31,6 @@ export function exigerMotifSortie(type: string, categorie: unknown): MotifSortie
 /** Libellé d'origine posé automatiquement sur une sortie selon son motif (« Perte — moisi »). */
 export const origineDuMotif = (motif: MotifSortieObligatoire, raison: string | null) =>
   motif === "PERTE" ? `Perte${raison ? ` — ${raison}` : ""}` : MOTIFS_SORTIE[motif];
+
+/** Motif OBLIGATOIRE d'une entrée manuelle (comme la sortie) : « Retour restaurant », ou un motif écrit. */
+export const MESSAGE_MOTIF_ENTREE = "Indiquez le motif de l'entrée (« Retour restaurant », ou un motif écrit : correction, don, achat direct…) : une entrée manuelle sans motif n'est pas acceptée. Rien n'a été enregistré.";

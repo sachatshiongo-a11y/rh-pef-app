@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, type DoublonRenommage, doublonDeRenommage, exigerCategorieActive, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, changementsDe, lireArticlesTx, nomsReferencesTx, texteChangements, type DoublonRenommage, doublonDeRenommage, exigerCategorieActive, exigerCategorieDansLeDomaine, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
-import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { derniereClotureStock, exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -150,8 +150,14 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   const doublon = await doublonDeRenommage(prisma, id, patch);
   if (doublon && (!doublon.creationPossible || !renommerQuandMeme)) return doublon;
   if (!estDirection(user)) return proposer(user, "Modification de l'article", [{ id, patch }]);
-  await prisma.$transaction((tx) => appliquerPatchArticleTx(tx, id, patch, { renommerQuandMeme }));
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
+  // Le journal écrit ce qui a VRAIMENT changé, avant → après (état relu sous verrou, dans la même transaction).
+  const changements = await prisma.$transaction(async (tx) => {
+    const etat = (await lireArticlesTx(tx, [id], true)).get(id);
+    const diff = etat ? changementsDe(etat, patch, await nomsReferencesTx(tx)) : [];
+    await appliquerPatchArticleTx(tx, id, patch, { renommerQuandMeme });
+    return diff;
+  });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", nouvelleValeur: changements.length ? texteChangements(changements) : "aucun changement", userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath(`/stock/catalogue/${id}`); // la fiche article se modifie aussi depuis elle-même
 });
@@ -179,21 +185,64 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
   const losers = arts.filter((a) => a.id !== keep.id);
   if (losers.length === 0) return;
 
+  const bilan = { commandesReportees: 0, commandesCumulees: 0, articlesRestoRepointes: 0 };
   await prisma.$transaction(async (tx) => {
+    // CLÔTURE : rattacher à l'article conservé les mouvements d'un doublon réécrit l'historique PAR ARTICLE des
+    // mois figés (consommations, rapports de ces mois). La fusion est donc refusée tant qu'un doublon a des
+    // mouvements datés d'une période clôturée — la Direction rouvre ces mois (Paramètres → Clôture mensuelle),
+    // fusionne, puis reclôture. Le total du stock ne change pas, mais « une période clôturée ne se réécrit pas en douce ».
+    const borne = await derniereClotureStock();
+    if (borne) {
+      const limite = new Date(Date.UTC(borne.annee, borne.mois, 1)); // 1er jour du mois qui suit le dernier mois clôturé
+      const figes = await tx.mouvementStock.groupBy({ by: ["articleId"], where: { articleId: { in: losers.map((l) => l.id) }, date: { lt: limite } }, _count: { _all: true } });
+      if (figes.length > 0) {
+        const noms = figes.map((f) => `« ${losers.find((l) => l.id === f.articleId)?.designation ?? "?"} » (${f._count._all} mouvement(s))`).join(", ");
+        throw new Error(`Fusion refusée : des mouvements de ${figes.length > 1 ? "doublons" : "ce doublon"} sont datés de la période clôturée (jusqu'à ${String(borne.mois).padStart(2, "0")}/${borne.annee}) — ${noms}. Les rattacher à « ${keep.designation} » réécrirait l'historique par article de ces mois figés. Direction : Paramètres → Clôture mensuelle pour rouvrir ces mois, fusionner, puis les clôturer à nouveau. Rien n'a été fusionné.`);
+      }
+    }
     // Stock des doublons cumulé en UNE variation (l'ordre des doublons ne compte pas : 3 − 5 + 5 = 3),
     // par la porte unique : un total qui ferait passer l'article conservé sous 0 refuse la fusion,
     // nommée — corriger d'abord le stock négatif du doublon (comptage ou mise à 0).
     const cumul = losers.reduce((t, l) => (l.stock ? t.plus(l.stock.quantite) : t), new Prisma.Decimal(0));
     if (!cumul.isZero()) await variationsStockTx(tx, [{ articleId: keep.id, delta: cumul }], { verbe: "à retirer (stock négatif des doublons)" });
+    // Seuils : le plus ÉLEVÉ des articles fusionnés (le moins élevé laisserait manquer l'alerte que l'autre aurait donnée) ;
+    // les articles endommagés s'additionnent comme le stock. Écrits hors `quantite` (porte unique).
+    const stocks = arts.map((a) => a.stock).filter((x): x is NonNullable<typeof x> => !!x);
+    if (stocks.length > 0) {
+      const max = (champ: "stockMinimum" | "seuilUrgent") => stocks.reduce((m, x) => (x[champ].greaterThan(m) ? x[champ] : m), new Prisma.Decimal(0));
+      const stockMinimum = max("stockMinimum"), seuilUrgent = max("seuilUrgent");
+      const quantiteEndommagee = stocks.reduce((t, x) => t.plus(x.quantiteEndommagee), new Prisma.Decimal(0));
+      await tx.stock.upsert({
+        where: { articleId: keep.id },
+        update: { stockMinimum, seuilUrgent, quantiteEndommagee },
+        create: { articleId: keep.id, quantite: 0, stockMinimum, seuilUrgent, quantiteEndommagee },
+      });
+    }
+    // Commandes du restaurant : `CommandeResto.articleId` est en cascade — sans report, supprimer le doublon EFFAÇAIT
+    // ses commandes (la comparaison commande / livraison perdait des jours). Elles passent à l'article conservé ;
+    // un jour déjà commandé sur l'article conservé (unicité article + date) CUMULE les deux quantités.
+    const deLArticleGarde = new Map((await tx.commandeResto.findMany({ where: { articleId: keep.id } })).map((c) => [c.date.toISOString().slice(0, 10), c]));
     for (const l of losers) {
-      // Articles du restaurant rattachés au doublon (disponibilité des plats, rattachement des livraisons) : leur lien
-      // SUIT l'article conservé, au lieu de disparaître avec le doublon (cascade). Un article du restaurant déjà
+      for (const c of await tx.commandeResto.findMany({ where: { articleId: l.id } })) {
+        const jour = c.date.toISOString().slice(0, 10);
+        const existante = deLArticleGarde.get(jour);
+        if (existante) {
+          deLArticleGarde.set(jour, await tx.commandeResto.update({ where: { id: existante.id }, data: { quantite: existante.quantite.plus(c.quantite) } }));
+          await tx.commandeResto.delete({ where: { id: c.id } });
+          bilan.commandesCumulees++;
+        } else {
+          deLArticleGarde.set(jour, await tx.commandeResto.update({ where: { id: c.id }, data: { articleId: keep.id } }));
+          bilan.commandesReportees++;
+        }
+      }
+      // Articles du restaurant rattachés au doublon (un article du restaurant peut en avoir plusieurs : table ArticleRestoStock) :
+      // leur lien SUIT l'article conservé, au lieu de disparaître avec le doublon (cascade). Un article du restaurant déjà
       // rattaché à l'article conservé garde son seul lien : jamais deux fois le même couple.
       const liens = await tx.articleRestoStock.findMany({ where: { articleStockId: l.id }, select: { id: true, articleRestoId: true } });
       if (liens.length > 0) {
         const dejaSurGarde = new Set((await tx.articleRestoStock.findMany({ where: { articleStockId: keep.id, articleRestoId: { in: liens.map((x) => x.articleRestoId) } }, select: { articleRestoId: true } })).map((x) => x.articleRestoId));
         const aRepointer = liens.filter((x) => !dejaSurGarde.has(x.articleRestoId)).map((x) => x.id);
-        if (aRepointer.length > 0) await tx.articleRestoStock.updateMany({ where: { id: { in: aRepointer } }, data: { articleStockId: keep.id } });
+        if (aRepointer.length > 0) bilan.articlesRestoRepointes += (await tx.articleRestoStock.updateMany({ where: { id: { in: aRepointer } }, data: { articleStockId: keep.id } })).count;
       }
       await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
@@ -208,7 +257,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       await tx.articleStock.delete({ where: { id: l.id } });
     }
   });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) fusionné(s) → ${keep.designation}`, userId: user.id });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) fusionné(s) → ${keep.designation}${bilan.commandesReportees + bilan.commandesCumulees > 0 ? ` · commandes du restaurant : ${bilan.commandesReportees} reportée(s), ${bilan.commandesCumulees} cumulée(s) (même jour)` : ""}${bilan.articlesRestoRepointes > 0 ? ` · ${bilan.articlesRestoRepointes} article(s) du restaurant rattaché(s)` : ""}`, userId: user.id });
   revalidatePath("/stock/catalogue");
 });
 
@@ -216,13 +265,16 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
 export const categoriserEnMasse = actionLisible(async (articleIds: string[], categorieId: string) => {
   const user = await garde();
   for (const id of new Set(articleIds.map(String))) await exigerCategorieActive(prisma, categorieId, id); // archivée : refusée (sauf pour qui la porte déjà)
+  await exigerCategorieDansLeDomaine(prisma, [...new Set(articleIds.map(String))].filter(Boolean), categorieId); // du domaine de chaque article, sinon refus qui les nomme (tout ou rien)
   if (!estDirection(user)) {
     if (articleIds.length === 0 || !categorieId) return;
     return proposer(user, "Catégorie en masse", [...new Set(articleIds.map(String))].filter(Boolean).map((id) => ({ id, patch: { categorieId } })));
   }
   if (articleIds.length === 0 || !categorieId) return;
   await prisma.articleStock.updateMany({ where: { id: { in: articleIds } }, data: { categorieId } });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: categorieId, userId: user.id });
+  // Le journal garde le NOM de la catégorie (un id ne dit rien) ; l'id suit entre parenthèses si le nom est introuvable.
+  const cat = await prisma.categorieStock.findUnique({ where: { id: categorieId }, select: { nom: true } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: cat?.nom ?? categorieId, userId: user.id });
   revalidatePath("/stock/catalogue");
 });
 

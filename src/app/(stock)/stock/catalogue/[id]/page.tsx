@@ -74,7 +74,7 @@ export default async function ArticleFichePage({
   // Catégories ARCHIVÉES : plus proposées dans le choix, sauf celle que l'article porte déjà (il reste rattaché).
   const categories = toutesCategories.filter((c) => c.actif || c.id === a.categorieId);
 
-  const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+  const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : 0;
   // Prix de référence dans SA devise (2026-10-08) ; l'autre devise et la valeur en dollars d'un
   // article en francs sont « ≈ » au taux du jour (src/lib/prix-article.ts), « — » sans taux.

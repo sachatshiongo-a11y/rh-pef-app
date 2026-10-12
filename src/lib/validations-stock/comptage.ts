@@ -104,8 +104,8 @@ export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Dom
 }
 
 /** Niveaux d'alerte des stocks donnés (à lire AVANT l'écriture, pour notifier ceux qui passent bas). */
-export function niveauxDe(stocks: { articleId: string; quantite: Prisma.Decimal; stockMinimum: Prisma.Decimal }[]): Map<string, NiveauAlerte> {
-  return new Map(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.stockMinimum)]));
+export function niveauxDe(stocks: { articleId: string; quantite: Prisma.Decimal; stockMinimum: Prisma.Decimal; seuilUrgent?: Prisma.Decimal }[]): Map<string, NiveauAlerte> {
+  return new Map(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.stockMinimum, s.seuilUrgent)]));
 }
 
 /** Après l'écriture (hors transaction) : écarts hors tolérance et articles passés sous le seuil. */

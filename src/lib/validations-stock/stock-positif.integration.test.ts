@@ -76,7 +76,7 @@ function sortie(lignes: [string, string][], motif = "LIVRAISON_RESTAURANT") {
 }
 function entree(lignes: [string, string][]) {
   const fd = new FormData();
-  fd.set("type", "ENTREE"); fd.set("date", JOUR);
+  fd.set("type", "ENTREE"); fd.set("date", JOUR); fd.set("origine", "don"); // motif obligatoire d'une entrée manuelle
   for (const [id, q] of lignes) { fd.append("articleId", id); fd.append("quantite", q); }
   return mouvementManuel(fd);
 }

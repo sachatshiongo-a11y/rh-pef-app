@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
-import { prixArticleEnUSD } from "@/lib/prix-article";
+import { prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 
 // Inventaire valorisé : chaque article avec sa catégorie, son fournisseur, son statut de
@@ -18,6 +18,13 @@ export type LigneInventaire = {
    */
   prixUnitaireCDF?: number; tauxChange?: number | null;
   /**
+   * Article EN STOCK sans aucun prix (2026-10-10) : sa valeur n'est pas 0, elle est inconnue. Absent
+   * d'un instantané plus ancien : `ligneSansPrix` le déduit alors du prix (0 = pas de prix connu).
+   */
+  sansPrix?: boolean;
+  /** Seuil « Urgent » de l'article (2026-10-10) ; absent d'un instantané plus ancien (comportement d'avant). */
+  seuilUrgent?: number;
+  /**
    * Contenance de l'article (2026-10-09), pour le LIBELLÉ des exports (`libelleArticle`). Figée avec
    * l'instantané depuis cette date ; absente d'un instantané plus ancien : le document garde le nom
    * qu'il avait (jamais complété après coup par la contenance d'aujourd'hui).
@@ -27,8 +34,22 @@ export type LigneInventaire = {
 export type Inventaire = {
   fige: boolean; // true = instantané figé à la clôture ; false = état actuel du stock
   valeurTotaleUSD: number;
+  /** Articles en stock sans prix : le total est PARTIEL de leur valeur (jamais comptés 0 sans le dire). */
+  nbSansPrix: number;
+  /**
+   * Instant où l'instantané a été pris (`ClotureStock.createdAt`) quand il est figé : le stock figé est celui
+   * de CE moment, pas un « stock de fin de mois » reconstitué (2026-10-10).
+   */
+  figeLe?: Date;
   lignes: LigneInventaire[];
 };
+
+/** Cette ligne est-elle en stock sans prix connu ? (valeur inconnue, à annoncer — jamais 0 muet) */
+export const ligneSansPrix = (l: LigneInventaire): boolean =>
+  l.quantite !== 0 && (l.sansPrix ?? (l.prixUnitaireCDF === undefined && !(l.prixUnitaireUSD > 0)));
+
+/** Nombre d'articles en stock sans prix. */
+export const compterSansPrix = (lignes: LigneInventaire[]): number => lignes.filter(ligneSansPrix).length;
 
 export const DOMAINES = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
 export const DOMAINE_LABEL: Record<string, string> = { NOURRITURE: "Nourriture", BOISSON: "Boissons", AUTRE: "Autre" };
@@ -36,7 +57,7 @@ export const DOMAINE_LABEL: Record<string, string> = { NOURRITURE: "Nourriture",
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Statut de réapprovisionnement lisible (Urgent / À réapprovisionner / Satisfaisant). */
-export const alerteLabel = (quantite: number, stockMinimum: number) => ALERTE_LABEL[niveauAlerte(quantite, stockMinimum)];
+export const alerteLabel = (quantite: number, stockMinimum: number, seuilUrgent?: number) => ALERTE_LABEL[niveauAlerte(quantite, stockMinimum, seuilUrgent)];
 
 /** Construit l'inventaire à partir de l'état ACTUEL du stock (articles actifs). */
 export async function inventaireActuel(): Promise<Inventaire> {
@@ -47,7 +68,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
       devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true,
       categorie: { select: { nom: true } },
       fournisseur: { select: { nom: true } },
-      stock: { select: { quantite: true, stockMinimum: true } },
+      stock: { select: { quantite: true, stockMinimum: true, seuilUrgent: true } },
     },
   });
   const taux = await tauxDuJour();
@@ -61,13 +82,15 @@ export async function inventaireActuel(): Promise<Inventaire> {
     fournisseur: a.fournisseur?.nom ?? "",
     quantite: a.stock ? Number(a.stock.quantite) : 0,
     stockMinimum: a.stock ? Number(a.stock.stockMinimum) : 0,
+    seuilUrgent: a.stock ? Number(a.stock.seuilUrgent) : 0,
+    sansPrix: (a.stock ? Number(a.stock.quantite) : 0) !== 0 && prixSaisi(a) === null,
     // Article en dollars : à l'identique d'avant. En francs : converti au taux du jour (tracé sur la ligne).
     prixUnitaireUSD: a.devisePrix === "CDF" ? prixArticleEnUSD(a, taux)?.valeur ?? 0 : a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
     ...(a.devisePrix === "CDF" && a.prixUnitaireCDF !== null ? { prixUnitaireCDF: Number(a.prixUnitaireCDF), tauxChange: taux } : {}),
     ...(a.contenance !== null && a.contenanceUnite ? { contenance: a.contenance.toString(), contenanceUnite: a.contenanceUnite } : {}),
   }));
   const valeurTotaleUSD = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
-  return { fige: false, valeurTotaleUSD, lignes };
+  return { fige: false, valeurTotaleUSD, nbSansPrix: compterSansPrix(lignes), lignes };
 }
 
 /** Sérialise l'inventaire actuel pour le figer dans ClotureStock.snapshot. */
@@ -79,7 +102,7 @@ export async function snapshotActuel() {
   if (sansTaux.length > 0) {
     throw new Error(`Taux de change non défini (Paramètres) : ${sansTaux.length} article(s) au prix en francs (${sansTaux.slice(0, 3).map((l) => `« ${l.designation} »`).join(", ")}${sansTaux.length > 3 ? "…" : ""}) ne peuvent pas être valorisés — renseignez le taux avant de clôturer.`);
   }
-  return { valeurTotaleUSD: inv.valeurTotaleUSD, lignes: inv.lignes };
+  return { valeurTotaleUSD: inv.valeurTotaleUSD, nbSansPrix: inv.nbSansPrix, lignes: inv.lignes };
 }
 
 /** L'inventaire (figé ou actuel) contient-il des prix en francs convertis au taux du jour (« ≈ ») ? */
@@ -103,7 +126,7 @@ export async function inventaireFige(annee: number, mois: number): Promise<Inven
   const snap = cloture?.snapshot as { valeurTotaleUSD?: number; lignes?: LigneInventaire[] } | null | undefined;
   // On n'utilise l'instantané que s'il porte le format enrichi (présence d'articleId).
   if (snap?.lignes && snap.lignes.length > 0 && "articleId" in snap.lignes[0]) {
-    return { fige: true, valeurTotaleUSD: r2(snap.valeurTotaleUSD ?? snap.lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0)), lignes: snap.lignes };
+    return { fige: true, valeurTotaleUSD: r2(snap.valeurTotaleUSD ?? snap.lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0)), nbSansPrix: compterSansPrix(snap.lignes), figeLe: cloture!.createdAt, lignes: snap.lignes };
   }
   return null;
 }
@@ -123,6 +146,6 @@ export function parDomaine(inv: Inventaire) {
   return DOMAINES.map((dom) => {
     const lignes = inv.lignes.filter((l) => l.domaine === dom).sort(parCode);
     const valeur = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
-    return { domaine: dom, label: DOMAINE_LABEL[dom], lignes, valeur };
+    return { domaine: dom, label: DOMAINE_LABEL[dom], lignes, valeur, nbSansPrix: compterSansPrix(lignes) };
   });
 }

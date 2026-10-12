@@ -44,13 +44,13 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré »
   "src/app/(stock)/stock/catalogue/_view.tsx": { n: 1, raisons: ["FORMULAIRE"] },
-  "src/app/(stock)/stock/catalogue/actions.ts": { n: 8, raisons: ["AUDIT_ACTION"] },
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 10, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/commandes/[id]/reception-client.tsx": { n: 2, raisons: ["AMONT"] },
   "src/app/(stock)/stock/commandes/actions.ts": { n: 5, raisons: ["AUDIT_ACTION"] },
-  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 2, raisons: ["FORMULAIRE"] },
+  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // + ligne remplie ? (compte des lignes sans prix)
   "src/app/(stock)/stock/commandes/nouveau/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/actions.ts": { n: 24, raisons: ["AUDIT_ACTION"] },
   "src/app/(stock)/stock/entree/alertes-ligne.tsx": { n: 2, raisons: ["FORMULAIRE"] }, // nom tapé d'un nouvel article
@@ -58,7 +58,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/entree/entree-telephone.tsx": { n: 5, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/[id]/page.tsx": { n: 5, raisons: ["CLE", "FIGE"] }, // clé du rapprochement bon/facture, ligne libre
-  "src/app/(stock)/stock/factures/actions.ts": { n: 6, raisons: ["IMPORT", "AUDIT_ACTION"] },
+  "src/app/(stock)/stock/factures/actions.ts": { n: 3, raisons: ["IMPORT", "AUDIT_ACTION"] }, // lecture du PDF : libellé LU conservé (rapprochement par `rapprocherLignePdf`, nom affiché par libelleArticle) ; filtre des lignes saisies
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": { n: 4, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/nouveau/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/fiches/[id]/disponibilite-fiche.tsx": { n: 2, raisons: ["AMONT"] }, // lib/fiches/disponibilite
@@ -99,14 +99,13 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
 const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
   "src/app/(stock)/stock/catalogue/actions.ts": { n: 3, raison: "anti-doublon à la création, messages et journal d'audit (vraie désignation)" },
   "src/app/(stock)/stock/entree/actions.ts": { n: 1, raison: "anti-doublon de la Liste d'achat, sous verrou" },
-  "src/app/(stock)/stock/factures/actions.ts": { n: 1, raison: "import PDF d'une facture : rapprochement des lignes avec le catalogue" },
   "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 1, raison: "fiche « Commande journalière » : noms du classeur de la Direction (clé)" },
   "src/app/(stock)/stock/journalier/import-commande-actions.ts": { n: 2, raison: "import du classeur Commande : rapprochement par nom" },
   "src/lib/doublons-imports.ts": { n: 1, raison: "doublons d'import : rapprochement des mouvements importés" },
-  "src/lib/import-inventaire.ts": { n: 3, raison: "import d'inventaire : rapprochement et messages d'import" },
+  "src/lib/import-inventaire.ts": { n: 5, raison: "import d'inventaire : rapprochement et messages d'import, refus d'annulation (articles nommés avec leurs saisies postérieures)" },
   "src/lib/import-mouvements.ts": { n: 1, raison: "import de mouvements : rapprochement par nom et code" },
   "src/lib/rattachement-auto.ts": { n: 2, raison: "rattachement au restaurant : la règle (homonymes, « rattaché à ») compare des noms" },
-  "src/lib/validations-stock/article.ts": { n: 2, raison: "modification d'article : message d'erreur et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
+  "src/lib/validations-stock/article.ts": { n: 3, raison: "modification d'article : messages d'erreur (domaine, catégorie du domaine de l'article) et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
   "src/lib/validations-stock/demandes.ts": { n: 2, raison: "demandes à valider : noms figés dans la demande et contrôle d'unicité de la désignation" },
 };
 

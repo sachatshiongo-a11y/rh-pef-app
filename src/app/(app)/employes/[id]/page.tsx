@@ -25,6 +25,7 @@ import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
+import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD, formaterNombre } from "@/lib/montant";
 import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
@@ -245,6 +246,9 @@ export default async function FicheEmployePage({
     tab === "fin"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
       : [];
+  // Solde de tout compte : reste des prêts, acomptes non retenus, bulletin du mois déjà figé — les
+  // mêmes chiffres que l'action revérifie (lib/solde-tout-compte.ts).
+  const reprisesSolde = tab === "fin" && employee.actif ? await chargerReprisesSolde(prisma, id, { mois, annee }) : null;
   // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
   const joursModele =
     tab === "contrats"
@@ -345,7 +349,7 @@ export default async function FicheEmployePage({
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
-  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges } = soldeConge;
+  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande } = soldeConge;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -715,6 +719,14 @@ export default async function FicheEmployePage({
           <Stat label="Congés pris (année)" value={congesPrisAnnee} />
           <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
+        {cSansDemande > 0 && (
+          // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
+          <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
+            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences depuis le 1er janvier : décompté(s) des congés pris.
+            Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
+          </p>
+        )}
 
         <AbsencesCard
           absences={leaveRequests.map((l) => ({
@@ -843,7 +855,9 @@ export default async function FicheEmployePage({
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
-                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
+                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé</>}
+                {plafondAcompte.echeancePretUSD > 0 && <> — {formaterUSD(plafondAcompte.echeancePretUSD)} d&apos;échéance de prêt retenue ce mois</>}
+                {(plafondAcompte.dejaEngageUSD > 0 || plafondAcompte.echeancePretUSD > 0) && <>, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
               </p>
             </form>
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
@@ -1017,6 +1031,7 @@ export default async function FicheEmployePage({
         evaluations={evaluations}
         documents={documents}
         finContrats={finContrats}
+        reprisesSolde={reprisesSolde}
         peutModifier={peutModifier}
         estAdmin={estAdmin}
       />

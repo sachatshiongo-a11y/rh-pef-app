@@ -72,6 +72,11 @@ export function VueMesConges({
           <Stat n={solde.acquis} label="Acquis" />
           <Stat n={solde.pris} label={`Pris en ${annee}`} />
         </div>
+        {solde.cSansDemande > 0 && (
+          <p className="mt-3 border-t pt-3 text-xs text-amber-800">
+            Dont {solde.cSansDemande} jour(s) de congé posé(s) directement sur la feuille de présence, sans demande : ils se déduisent aussi.
+          </p>
+        )}
         {solde.typesDeduits.length > 0 && (
           <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
             Se déduisent de votre solde : {solde.typesDeduits.join(", ")}. Les autres types d&apos;absence ne le diminuent pas.

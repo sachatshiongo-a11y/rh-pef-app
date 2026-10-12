@@ -60,3 +60,37 @@ export function meilleurFournisseur(nom: string, liste: CandidatFournisseur[], s
   }
   return best;
 }
+
+// ── Rattachement : l'IDENTIQUE s'applique, le PROCHE se propose (audit du 10/10/2026, constat 7) ──────
+//
+// Un fournisseur « proche » rattaché d'office (seuils 0,82 à la saisie, 0,7 à la lecture d'un PDF) faisait
+// glisser une facture chez le mauvais fournisseur — « Maison Kathy » pris pour « Maman Kathy » — avec une
+// pastille verte rassurante. Règle de fond : un appariement incertain se SIGNALE, il ne s'applique pas.
+//  - `fournisseurIdentique` : le SEUL rattachement d'office — même nom à la casse, aux accents, aux espaces
+//    et à la ponctuation près (`cle`) ; s'il y en a PLUSIEURS, ce n'est plus un rattachement sûr (à choisir).
+//  - `fournisseursProches` : les ressemblants, à PROPOSER à l'écran (« Utiliser … » / « Créer »).
+
+/** Les fournisseurs de même nom (casse, accents, espaces, ponctuation près). */
+export function fournisseursIdentiques<T extends CandidatFournisseur>(nom: string, liste: readonly T[]): T[] {
+  const k = cle(nom);
+  return k ? liste.filter((f) => cle(f.nom) === k) : [];
+}
+
+/** Le fournisseur de même nom — seulement s'il est UNIQUE (sinon null : l'écran fait choisir). */
+export function fournisseurIdentique<T extends CandidatFournisseur>(nom: string, liste: readonly T[]): T | null {
+  const ids = fournisseursIdentiques(nom, liste);
+  return ids.length === 1 ? ids[0] : null;
+}
+
+/** Les fournisseurs qui RESSEMBLENT au nom (au plus `max`, du plus ressemblant au moins), identiques compris s'ils sont plusieurs. */
+export function fournisseursProches<T extends CandidatFournisseur>(nom: string, liste: readonly T[], { seuil = 0.7, max = 5 }: { seuil?: number; max?: number } = {}): (T & { score: number })[] {
+  if (!cle(nom)) return [];
+  const identiques = fournisseursIdentiques(nom, liste);
+  // Un seul identique : c'est LE fournisseur, rien à proposer. Plusieurs : on les propose tous.
+  if (identiques.length === 1) return [];
+  return liste
+    .map((f) => ({ ...f, score: similariteNom(nom, f.nom) }))
+    .filter((f) => f.score >= seuil)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max);
+}

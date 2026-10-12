@@ -47,7 +47,7 @@ function rendre() {
   conteneur = c;
   racine = r;
   act(() => r.render(createElement(TempsGrid, {
-    employees: [{ id: "e1", matricule: "e1", nom: "Alice", heuresParJour: 9, heuresHebdo: 54, salaireHoraire: 1 }],
+    employees: [{ id: "e1", matricule: "e1", nom: "Alice", heuresParJour: 9, heuresHebdo: 54 }],
     days: [1, 2],
     attendanceMap: { e1_1: "P", e1_2: "P" },
     hoursMap: { e1_1: jour1, e1_2: jour2 },

@@ -9,6 +9,7 @@ import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
+import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import {
   clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
   type IdentiteFiche,
@@ -19,6 +20,45 @@ import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doub
 // lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
 function decimalField(formData: FormData, name: string, libelle: string): number {
   return decSaisi(formData.get(name), libelle);
+}
+
+/** Champs réservés à la Direction dans « Modifier » (audit RH 2026-10-10) : ils font la paie et
+ *  les droits (ancienneté, congés, régime). Absents du formulaire hors Direction, REFUSÉS par le
+ *  serveur s'ils arrivent quand même. Le salaire suit, pour la Direction, le chemin journalisé de
+ *  « Changer le salaire » (historique). */
+const CHAMPS_DIRECTION = ["salaireMensuel", "dateEmbauche", "contrat", "fraisMedicauxMoisCourant"] as const;
+
+const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
+
+/**
+ * Unicité lisible (au lieu de l'erreur brute de la base) : matricule non vide et libre ; identifiant
+ * de pointeuse IVMS libre — ni l'ID IVMS d'un autre, ni le matricule d'un autre (l'import apparie
+ * aussi par matricule : la pointeuse confondrait les deux salariés).
+ */
+async function exigerIdentifiantsLibres(p: { matricule: string; idExterneIVMS: string | null }, exclureId?: string): Promise<void> {
+  const autres = exclureId ? { id: { not: exclureId } } : {};
+  if (p.matricule) {
+    const pris = await prisma.employee.findFirst({ where: { matricule: p.matricule, ...autres }, select: { nom: true } });
+    if (pris) throw new Error(`Le matricule « ${p.matricule} » est déjà celui de ${pris.nom}. Rien n'a été enregistré.`);
+  }
+  if (p.idExterneIVMS) {
+    const autre = await prisma.employee.findFirst({
+      where: { OR: [{ idExterneIVMS: p.idExterneIVMS }, { matricule: p.idExterneIVMS }], ...autres },
+      select: { nom: true, matricule: true, idExterneIVMS: true },
+    });
+    if (autre) {
+      const comment = autre.idExterneIVMS === p.idExterneIVMS ? "est déjà l'identifiant de pointeuse de" : "est le matricule de";
+      throw new Error(`L'identifiant IVMS « ${p.idExterneIVMS} » ${comment} ${autre.nom} (${autre.matricule}) : la pointeuse confondrait les deux. Rien n'a été enregistré.`);
+    }
+  }
+}
+
+/** Erreur d'unicité de la base (course entre deux enregistrements) → message lisible. */
+function lisibleSiDoublon(e: unknown): never {
+  if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
+    throw new Error("Ce matricule (ou cet identifiant) vient d'être pris par une autre fiche. Rien n'a été enregistré : vérifiez et réessayez.");
+  }
+  throw e;
 }
 
 function toEmployeeInput(formData: FormData) {
@@ -98,7 +138,8 @@ export async function creerEmploye(formData: FormData) {
       data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
     }
 
-    const nouvel = await prisma.employee.create({ data });
+    await exigerIdentifiantsLibres(data);
+    const nouvel = await prisma.employee.create({ data }).catch(lisibleSiDoublon);
     // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
     if (ecartes.length > 0) {
       await journaliser(prisma, { entite: "Employee", entiteId: nouvel.id, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
@@ -122,15 +163,50 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
-    const data = toEmployeeInput(formData);
+    const direction = user.role === "ADMIN";
+    // Hors Direction : salaire, date d'embauche, contrat et frais médicaux ne se modifient pas ici.
+    // Le formulaire ne les envoie pas ; s'ils arrivent quand même, rien n'est enregistré.
+    if (!direction) {
+      const envoyes = CHAMPS_DIRECTION.filter((c) => formData.has(c));
+      if (envoyes.length > 0) {
+        throw new Error("Le salaire, la date d'embauche, le type de contrat et les frais médicaux se modifient par la Direction seulement. Rien n'a été enregistré.");
+      }
+    }
+    const complet = toEmployeeInput(formData);
+    const { salaireMensuel, dateEmbauche, contrat, fraisMedicauxMoisCourant, ...commun } = complet;
+    if (!commun.matricule) throw new Error("Le matricule ne peut pas être vide (il sert à la connexion et à la pointeuse). Rien n'a été enregistré.");
+    await exigerIdentifiantsLibres(commun, employeeId);
     // La question des doublons ne se repose que si l'identité (nom, téléphone, date de naissance) change.
-    const avant = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true, telephone: true, dateNaissance: true } });
-    const ecartes = avant && identiteModifiee(avant, data) ? await exigerDoublonsTranches(data, formData, employeeId) : [];
+    const avant = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+    const ecartes = identiteModifiee(avant, commun) ? await exigerDoublonsTranches(commun, formData, employeeId) : [];
 
-    await prisma.employee.update({
-      where: { id: employeeId },
-      data,
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.employee.update({ where: { id: employeeId }, data: commun });
+      if (!direction) return;
+      if (Number.isNaN(dateEmbauche.getTime())) throw new Error("Date d'embauche invalide.");
+      // Direction : le salaire passe par le chemin de « Changer le salaire » (historique + journal).
+      if (Number(avant.salaireMensuel) !== salaireMensuel) {
+        await enregistrerChangementSalaire(tx, {
+          employeeId,
+          ancienSalaire: avant.salaireMensuel,
+          nouveauSalaire: salaireMensuel,
+          ancienPoste: avant.poste,
+          nouveauPoste: commun.poste || avant.poste,
+          motif: "Modification de la fiche",
+          userId: user.id,
+        });
+      }
+      await tx.employee.update({ where: { id: employeeId }, data: { dateEmbauche, contrat, fraisMedicauxMoisCourant } });
+      // Les autres champs de la Direction laissent aussi leur trace (ancienneté, régime, frais du mois).
+      const traces = [
+        { champ: "dateEmbauche", a: jjmmaaaa(new Date(avant.dateEmbauche)), n: jjmmaaaa(dateEmbauche) },
+        { champ: "contrat", a: avant.contrat, n: contrat },
+        { champ: "fraisMedicauxMoisCourant", a: String(Number(avant.fraisMedicauxMoisCourant)), n: String(fraisMedicauxMoisCourant) },
+      ].filter((t) => t.a !== t.n);
+      for (const t of traces) {
+        await journaliser(tx, { entite: "Employee", entiteId: employeeId, champ: t.champ, ancienneValeur: t.a, nouvelleValeur: t.n, userId: user.id });
+      }
+    }).catch(lisibleSiDoublon);
     if (ecartes.length > 0) {
       await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
     }

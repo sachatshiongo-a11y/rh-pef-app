@@ -13,7 +13,7 @@ export type MethodeCalcul = "PREMIERE_DERNIERE" | "PAIRES";
 export type AnomaliePointage = {
   idExterne: string;
   date: string; // YYYY-MM-DD
-  type: "POINTAGE_UNIQUE" | "DUREE_ABERRANTE" | "NON_APPARIE";
+  type: "POINTAGE_UNIQUE" | "DUREE_ABERRANTE" | "NON_APPARIE" | "LIGNE_ILLISIBLE" | "APRES_SORTIE";
   detail: string;
 };
 
@@ -190,4 +190,155 @@ export function apparierPointages(
   }
 
   return { apparies, anomalies };
+}
+
+// ── Lecture des dates du rapport (audit RH 2026-10-10) ─────────────────────────────────────────
+// Le rapport d'IVMS-4200 exporté au Congo écrit les dates à la française (JJ/MM/AAAA). La lecture
+// « devinée » du tableur les prenait pour des dates américaines : « 05/10/2026 » devenait le 10 mai,
+// et « 13/10/2026 » (pas de 13e mois) était perdu SANS UN MOT. Désormais : lecture EXPLICITE de
+// JJ/MM/AAAA (séparateurs / . -) et de AAAA-MM-JJ (ou AAAA/MM/JJ), avec l'heure HH:MM[:SS] ; une
+// cellule de date du tableur (numéro de série Excel) est lue telle quelle, sans fuseau. Toute ligne
+// illisible est SIGNALÉE (numéro de ligne, valeur), jamais devinée ni ignorée en silence.
+//
+// Repère des heures : l'heure MURALE est portée en UTC (`Date.UTC(…)`), comme `isoJour` et
+// `ajusterHeuresJour` l'attendent.
+
+/** Origine des numéros de série Excel (calendrier 1900, bogue du 29/02/1900 compris). */
+const ORIGINE_EXCEL = Date.UTC(1899, 11, 30);
+
+function composer(a: number, mo: number, j: number, h = 0, mi = 0, se = 0): Date | null {
+  if (mo < 1 || mo > 12 || j < 1 || j > 31 || h > 23 || mi > 59 || se > 59) return null;
+  const d = new Date(Date.UTC(a, mo - 1, j, h, mi, se));
+  // 31/02 ou 31/04 : le calendrier refuse, on ne glisse pas au mois suivant.
+  if (d.getUTCFullYear() !== a || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== j) return null;
+  return d;
+}
+
+const RE_JJMMAAAA = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:[ T]+(\d{1,2})[:h](\d{2})(?::(\d{2}))?)?$/;
+const RE_AAAAMMJJ = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?Z?)?$/;
+
+/** Lit une date (avec ou sans heure) : `{ date, avecHeure }`, ou null si illisible. */
+function lireDate(v: unknown): { date: Date; avecHeure: boolean } | null {
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    // Une Date venue du tableur a été construite à l'heure LOCALE du serveur : on en relit les
+    // composantes locales, arrondies à la seconde.
+    const t = new Date(v.getTime() + 500);
+    const d = composer(t.getFullYear(), t.getMonth() + 1, t.getDate(), t.getHours(), t.getMinutes(), t.getSeconds());
+    return d ? { date: d, avecHeure: true } : null;
+  }
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v < 1) return null;
+    const ms = Math.round((v * 86_400_000) / 1000) * 1000; // arrondi à la seconde
+    return { date: new Date(ORIGINE_EXCEL + ms), avecHeure: v % 1 !== 0 };
+  }
+  const t = String(v ?? "").trim();
+  if (!t) return null;
+  let m = RE_JJMMAAAA.exec(t);
+  if (m) {
+    const d = composer(Number(m[3]), Number(m[2]), Number(m[1]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
+    return d ? { date: d, avecHeure: m[4] !== undefined } : null;
+  }
+  m = RE_AAAAMMJJ.exec(t);
+  if (m) {
+    const d = composer(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
+    return d ? { date: d, avecHeure: m[4] !== undefined } : null;
+  }
+  return null;
+}
+
+/** Horodatage complet (date ET heure) ; null si illisible ou sans heure. */
+export function lireHorodatage(v: unknown): Date | null {
+  const r = lireDate(v);
+  return r && r.avecHeure ? r.date : null;
+}
+
+/** Jour seul, « AAAA-MM-JJ » ; null si illisible. */
+export function lireJourSeul(v: unknown): string | null {
+  const r = lireDate(v);
+  return r ? isoJour(r.date) : null;
+}
+
+/** Heure seule (« 08:05 », « 8h05 », « 17:30:12 », fraction de jour du tableur, ou Date) en
+ *  millisecondes depuis minuit ; null si illisible. */
+export function lireHeureSeule(v: unknown): number | null {
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    const t = new Date(v.getTime() + 500);
+    return ((t.getHours() * 60 + t.getMinutes()) * 60 + t.getSeconds()) * 1000;
+  }
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v < 0) return null;
+    const f = v % 1;
+    return Math.round((f * 86_400_000) / 1000) * 1000;
+  }
+  const m = /^(\d{1,2})[:h](\d{2})(?::(\d{2}))?$/.exec(String(v ?? "").trim());
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]), se = Number(m[3] ?? 0);
+  if (h > 23 || mi > 59 || se > 59) return null;
+  return ((h * 60 + mi) * 60 + se) * 1000;
+}
+
+export type LectureRapport =
+  | { ok: true; pointages: PointageBrut[]; illisibles: AnomaliePointage[] }
+  | { ok: false; message: string };
+
+/**
+ * Lignes d'un rapport (tableur ou CSV, première ligne = en-têtes, valeurs BRUTES : texte non
+ * interprété, dates en numéro de série) → pointages bruts + lignes illisibles signalées. Colonnes
+ * reconnues souplement : un identifiant, puis une date/heure, ou une date et une heure séparées.
+ */
+export function extrairePointagesRapport(lignes: Record<string, unknown>[]): LectureRapport {
+  if (lignes.length === 0) return { ok: false, message: "Le fichier ne contient aucune ligne." };
+  const cles = Object.keys(lignes[0]);
+  const colId = cles.find((c) => /id|matricule|badge|employ/i.test(c));
+  const colDate = cles.find((c) => /^date$|jour/i.test(c));
+  // Une colonne « Time » / « Heure » SEULE (aucune colonne de date à côté) porte la date ET l'heure
+  // (rapport IVMS : « 2026/10/05 08:05:12 ») ; avec une colonne de date, elle ne porte que l'heure.
+  const colDateHeure =
+    cles.find((c) => /date.?heure|horodat|time|pointage|event/i.test(c) && !/^time$/i.test(c)) ??
+    (colDate ? undefined : cles.find((c) => /^time$/i.test(c)));
+  const colHeure = cles.find((c) => /^heure$|^time$/i.test(c));
+  if (!colId || (!colDateHeure && !(colDate && colHeure))) {
+    return {
+      ok: false,
+      message: "Colonnes non reconnues. Le rapport doit contenir une colonne d'identifiant et une colonne date/heure (ou date + heure séparées).",
+    };
+  }
+
+  const pointages: PointageBrut[] = [];
+  const illisibles: AnomaliePointage[] = [];
+  lignes.forEach((l, i) => {
+    const numero = i + 2; // ligne 1 = en-têtes
+    const idExterne = String(l[colId] ?? "").trim();
+    const brutDate = colDateHeure ? l[colDateHeure] : `${String(l[colDate!] ?? "")} ${String(l[colHeure!] ?? "")}`.trim();
+    const vide = (x: unknown) => x === undefined || x === null || String(x).trim() === "";
+    // Ligne entièrement vide (fin de tableau) : rien à signaler.
+    if (!idExterne && (colDateHeure ? vide(l[colDateHeure]) : vide(l[colDate!]) && vide(l[colHeure!]))) return;
+    const texte = (x: unknown) => (typeof x === "number" ? `n° de série ${x}` : String(x ?? "").trim() || "(vide)");
+    if (!idExterne) {
+      illisibles.push({ idExterne: "—", date: "", type: "LIGNE_ILLISIBLE", detail: `Ligne ${numero} : identifiant vide (date « ${texte(colDateHeure ? l[colDateHeure] : brutDate)} ») — ligne ignorée` });
+      return;
+    }
+    let dh: Date | null = null;
+    if (colDateHeure) {
+      dh = lireHorodatage(l[colDateHeure]);
+    } else {
+      const jour = lireJourSeul(l[colDate!]);
+      const heure = lireHeureSeule(l[colHeure!]);
+      dh = jour !== null && heure !== null ? new Date(new Date(`${jour}T00:00:00.000Z`).getTime() + heure) : null;
+    }
+    if (!dh) {
+      const valeur = colDateHeure ? texte(l[colDateHeure]) : `${texte(l[colDate!])} ${texte(l[colHeure!])}`;
+      illisibles.push({
+        idExterne,
+        date: "",
+        type: "LIGNE_ILLISIBLE",
+        detail: `Ligne ${numero} : date/heure « ${valeur} » illisible (attendu JJ/MM/AAAA HH:MM ou AAAA-MM-JJ HH:MM) — ligne ignorée`,
+      });
+      return;
+    }
+    pointages.push({ idExterne, dateHeure: dh });
+  });
+  return { ok: true, pointages, illisibles };
 }

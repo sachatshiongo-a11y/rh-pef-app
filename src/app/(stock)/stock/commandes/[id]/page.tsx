@@ -4,6 +4,9 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, delaiPaiementLabel } from "@/lib/stock";
+import { compterSansPrixBon, deviseBon, formaterMontantBon, libelleTotalBon, prixLigneBon, totalLigneBon } from "@/lib/bon-commande-devise";
+import { quantiteRecueAffichee, resteARecevoir } from "@/lib/reception-bc";
+import { symboleDevise } from "@/lib/facture-devise";
 import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 import { LierFacture } from "./lier-facture";
@@ -49,16 +52,28 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
     ...(f.devise === "CDF" ? { montantTexte: formaterMontantFacture(Number(f.montantCDF), "CDF") } : {}),
   }));
 
-  const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: libelleLigneArticle(l), quantite: l.quantite.toString() }));
+  // Toutes les lignes se réceptionnent, lignes libres (sans article du catalogue) comprises : seules celles qui
+  // ont encore un reste sont proposées, pré-remplies de CE reste (la réception s'ajoute au cumul déjà reçu).
+  const lignesAReceptionner = bc.lignes
+    .map((l) => ({ id: l.id, designation: libelleLigneArticle(l), quantite: l.quantite.toString(), recue: quantiteRecueAffichee(bc.statut, l), reste: resteARecevoir(l.quantite, quantiteRecueAffichee(bc.statut, l) ?? 0), libre: !l.articleId }))
+    .filter((l) => Number(l.reste) > 0);
   const estBrouillon = bc.statut === "BROUILLON";
   const peutExporter = !estBrouillon && bc.statut !== "ANNULE";
-  const receptionnable = ["VALIDE", "ENVOYE", "RECU_PARTIEL"].includes(bc.statut) && lignesArticle.length > 0;
-  // Le bon est en dollars ; une facture en francs ne s'y compare pas (jamais convertie en silence) :
-  // le facturé se dit par devise, l'écart n'est calculé que s'il n'y a que des factures en dollars.
+  const receptionnable = ["VALIDE", "ENVOYE", "RECU_PARTIEL"].includes(bc.statut) && lignesAReceptionner.length > 0;
+  const devise = deviseBon(bc);
+  const nbSansPrix = compterSansPrixBon(bc.lignes, devise);
+  const sym = symboleDevise(devise);
+  // Une facture dans l'autre devise que le bon ne s'y compare pas (jamais convertie en silence) :
+  // le facturé se dit par devise, l'écart n'est calculé que dans la devise du bon.
   const facturesDevises = totalFactures(bc.factures, "montant");
-  const totalFacture = facturesDevises.usd;
-  const ecartFacture = totalFacture - Number(bc.totalUSD);
-  const avecFC = facturesDevises.nbCDF > 0;
+  // L'écart ne se calcule que dans UNE devise : celle du bon, avec des factures de cette seule devise, et un bon
+  // dont toutes les lignes sont chiffrées (un total partiel n'est pas comparable à un facturé complet).
+  const bonEnFrancs = devise === "CDF";
+  const ecartFacture = bonEnFrancs ? facturesDevises.cdf - Number(bc.totalCDF ?? 0) : facturesDevises.usd - Number(bc.totalUSD ?? 0);
+  const motifNonComparable = bonEnFrancs && facturesDevises.nbUSD > 0 ? "— (bon en francs, facture en dollars : non comparés)"
+    : !bonEnFrancs && facturesDevises.nbCDF > 0 ? "— (facture en francs, bon en dollars : non comparés)"
+    : null;
+  const nonComparable = motifNonComparable ?? (nbSansPrix > 0 ? "— (bon incomplet : lignes sans prix)" : null);
 
   return (
     <div className="w-full space-y-5">
@@ -144,8 +159,9 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
                 <th className="py-1.5">Désignation</th>
                 <th className="py-1.5 text-right">Quantité</th>
                 <th className="py-1.5 text-right">Cartons</th>
-                <th className="py-1.5 text-right">P.U. USD</th>
-                <th className="py-1.5 text-right">Total USD</th>
+                <th className="py-1.5 text-right">P.U. {sym}</th>
+                <th className="py-1.5 text-right">Total {sym}</th>
+                {!estBrouillon && <th className="py-1.5 text-right">Reçu / commandé</th>}
               </tr>
             </thead>
             <tbody>
@@ -154,15 +170,17 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
                   <td className="py-1.5">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{libelleLigneArticle(l)}</Link> : l.designation}</td>
                   <td className="py-1.5 text-right">{qte(l.quantite)}</td>
                   <td className="py-1.5 text-right">{l.nbCartons ? qte(l.nbCartons) : "—"}</td>
-                  <td className="py-1.5 text-right">{usd(l.prixUnitaireUSD)}</td>
-                  <td className="py-1.5 text-right">{usd(l.totalLigneUSD)}</td>
+                  {/* Ligne sans prix : « — » et signalée, jamais 0. */}
+                  <td className="py-1.5 text-right">{prixLigneBon(l, devise) === null ? <span className="text-amber-800" data-sans-prix>sans prix</span> : formaterMontantBon(prixLigneBon(l, devise)!, devise)}</td>
+                  <td className="py-1.5 text-right">{totalLigneBon(l, devise) === null ? "—" : formaterMontantBon(totalLigneBon(l, devise)!, devise)}</td>
+                  {!estBrouillon && <CelluleRecu statut={bc.statut} l={l} />}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="font-semibold">
                 <td className="py-2" colSpan={4}>Total</td>
-                <td className="py-2 text-right">{usd(bc.totalUSD)}</td>
+                <td className="py-2 text-right" colSpan={estBrouillon ? 1 : 2}>{libelleTotalBon(bc, nbSansPrix, bc.lignes.length)}</td>
               </tr>
             </tfoot>
           </table>
@@ -180,7 +198,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
         <div className="rounded-lg border p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-semibold">Réception</h2>
-            {receptionnable && <ReceptionForm bcId={bc.id} lignes={lignesArticle} />}
+            {receptionnable && <ReceptionForm bcId={bc.id} lignes={lignesAReceptionner} />}
           </div>
           {bc.receptions.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aucune réception enregistrée. À l&apos;arrivée de la marchandise, enregistrez les quantités reçues : cela met à jour le statut du bon. L&apos;entrée en stock, elle, se fait à l&apos;enregistrement de la facture fournisseur (pas à la réception).</p>
@@ -220,17 +238,17 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
               ))}
             </ul>
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
-              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Commandé</p><p className="font-semibold">{usd(bc.totalUSD)}</p></div>
+              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Commandé</p><p className="font-semibold">{libelleTotalBon(bc, nbSansPrix, bc.lignes.length)}</p></div>
               <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Facturé</p><p className="font-semibold">{libelleTotal(facturesDevises, undefined, usd)}</p></div>
-              {avecFC ? (
+              {nonComparable ? (
                 <div className="rounded-md border p-2">
                   <p className="text-xs text-muted-foreground">Écart</p>
-                  <p className="text-xs text-muted-foreground">— (facture en francs, bon en dollars : non comparés)</p>
+                  <p className="text-xs text-muted-foreground">{nonComparable}</p>
                 </div>
               ) : (
               <div className={`rounded-md border p-2 ${Math.abs(ecartFacture) < 0.01 ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
                 <p className="text-xs text-muted-foreground">Écart</p>
-                <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{usd(ecartFacture)}</p>
+                <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{formaterMontantBon(ecartFacture, devise)}</p>
               </div>
               )}
             </div>
@@ -258,6 +276,14 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
       </div>
     </div>
   );
+}
+
+/** Reçu / commandé d'une ligne : « — » tant qu'aucune quantité n'est enregistrée (jamais 0 par défaut). */
+function CelluleRecu({ statut, l }: { statut: string; l: { quantite: { toString(): string }; quantiteRecue: { toString(): string } | null } }) {
+  const recue = quantiteRecueAffichee(statut, l);
+  if (recue === null) return <td className="py-1.5 text-right text-muted-foreground" data-recu="inconnu">—</td>;
+  const complet = recue >= Number(l.quantite);
+  return <td className={`py-1.5 text-right tabular-nums ${complet ? "text-emerald-700" : "text-amber-800"}`} data-recu={complet ? "complet" : "partiel"}>{qte(recue)} / {qte(Number(l.quantite.toString()))}</td>;
 }
 
 function Partie({ titre, lignes }: { titre: string; lignes: [string, React.ReactNode][] }) {

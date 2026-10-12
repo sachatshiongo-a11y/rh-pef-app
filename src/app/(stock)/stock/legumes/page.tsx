@@ -86,7 +86,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
             <TelechargerFormulaire action="/stock/legumes/fiche" className="space-y-1.5 rounded-lg border p-2.5">
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                 Remplie avec les achats du
-                <input type="date" name="date" required defaultValue={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)} className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground" />
+                <input type="date" name="date" required defaultValue={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)} max={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)} className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground" />
               </label>
               <button type="submit" className={`${classeLienFiche} w-full`}>Fiche remplie</button>
             </TelechargerFormulaire>

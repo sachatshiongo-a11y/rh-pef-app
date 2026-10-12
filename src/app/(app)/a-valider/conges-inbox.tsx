@@ -50,7 +50,11 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
       const r = await fn(ids);
       setSelection(new Set());
       // Rapport de fin : l'échec d'une demande ne bloque pas les autres, mais il est NOMMÉ.
-      if (r.echecs.length > 0) setNote(`${r.traitees} traitée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}`);
+      const notes = [
+        ...(r.echecs.length > 0 ? [`${r.traitees} traitée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}`] : []),
+        ...(r.avertissements ?? []),
+      ];
+      if (notes.length > 0) setNote(notes.join(" · "));
     });
   }
   function confirmerRefus(motif: string) {
@@ -62,6 +66,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
         if (ids.length === 1) {
           const r = await refuserConge(ids[0], motif);
           if (r.erreur) { setRefus({ ids, erreur: r.erreur }); return; }
+          if (r.avertissement) setNote(r.avertissement);
         } else {
           const r = await refuserCongesEnLot(ids, motif);
           if (r.traitees === 0 && r.echecs.length > 0) { setRefus({ ids, erreur: r.echecs.join(" · ") }); return; }
@@ -80,6 +85,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
       const r = await fn(id);
       // Une approbation qui n'a pas pu figer le solde n'est pas enregistrée : la raison est dite.
       if (r && typeof r === "object" && "erreur" in r && typeof r.erreur === "string") setNote(r.erreur);
+      else if (r && typeof r === "object" && "avertissement" in r && typeof r.avertissement === "string") setNote(r.avertissement);
     });
   }
 

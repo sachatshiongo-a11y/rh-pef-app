@@ -49,7 +49,7 @@ beforeAll(async () => {
 
   // Factures : 120 à régler cette semaine, 80 échue non réglée, 500 réglée (ignorée).
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. A", montantUSD: 120, resteAPayerUSD: 120, mois: 9, annee: 2026, statut: "A_REGLER", dateEcheance: auj } });
-  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. B", montantUSD: 80, resteAPayerUSD: 80, mois: 9, annee: 2026, statut: "ECHUE_NON_REGLEE" } });
+  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. B", montantUSD: 80, resteAPayerUSD: 80, mois: 9, annee: 2026, statut: "ECHUE_NON_REGLEE", dateEcheance: new Date("2026-09-01") } }); // « échue » se juge à l'échéance (lecture), plus au statut stocké
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. C", montantUSD: 500, resteAPayerUSD: 0, mois: 9, annee: 2026, statut: "REGLEE" } });
   // Légumes du mois : 15,50. Conso du mois : sortie valorisée 12,00 + sortie sans montant 2 × 2,50 = 17,00.
   await prisma.achatLegume.create({ data: { date: auj, legume: "Tomate", quantite: 5, montantUSD: 15.5 } });
@@ -70,7 +70,7 @@ describe("accueil Stock — mêmes chiffres avant et après l'extraction", () =>
     expect(t).toContain("À régler cette semaine 120,00 $ 1 facture(s)");
     expect(t).toContain("Factures échues 80,00 $ 1 facture(s)");
     expect(t).toContain("Légumes frais du mois 15,50 $ 1 achat(s)");
-    expect(t).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisées");
+    expect(t).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $");
     // Articles au seuil : l'urgent d'abord.
     expect(t).toContain("Articles au seuil minimum (2)");
     expect(t.indexOf("Beurre")).toBeLessThan(t.indexOf("Sel 3"));
@@ -84,7 +84,7 @@ describe("indicateursStock — fonction partagée", () => {
     const i = await indicateursStock(new Date(Date.UTC(2020, 0, 15)));
     expect(i.legumesMois).toEqual({ montant: null, nb: 0 });
     expect(i.facturesSemaine).toEqual({ montant: null, nb: 0, montantCDF: null });
-    expect(i.consoMois).toEqual({ montant: 0, nb: 0 });
+    expect(i.consoMois).toMatchObject({ montant: 0, nb: 0, nbSansPrix: 0 });
   }, 60_000);
 
   it("option `mois` : seuls légumes et consommation changent de mois ; le mois courant rend les chiffres d'avant", async () => {
@@ -94,7 +94,7 @@ describe("indicateursStock — fonction partagée", () => {
     expect(await indicateursStock(new Date(), { mois: moisDe(new Date()) })).toEqual(sans);
     const avant = await indicateursStock(new Date(), { mois: "2020-01" });
     expect(avant.legumesMois).toEqual({ montant: null, nb: 0 });
-    expect(avant.consoMois).toEqual({ montant: 0, nb: 0 });
+    expect(avant.consoMois).toMatchObject({ montant: 0, nb: 0, nbSansPrix: 0 });
     // Les instantanés restent ceux d'aujourd'hui.
     expect({ ...avant, legumesMois: null, consoMois: null }).toEqual({ ...sans, legumesMois: null, consoMois: null });
   }, 60_000);

@@ -23,6 +23,7 @@ import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/atte
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
 import type { Echeancier } from "@/lib/prets";
+import type { ReprisesSolde } from "@/lib/solde-tout-compte";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { jourKinshasa, jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { PretForm } from "./pret-form";
@@ -161,6 +162,7 @@ export function DossierEmploye({
   evaluations,
   documents,
   finContrats,
+  reprisesSolde = null,
   peutModifier,
   estAdmin,
 }: {
@@ -208,6 +210,8 @@ export function DossierEmploye({
   evaluations: Evaluation[];
   documents: DocumentEmploye[];
   finContrats: FinContrat[];
+  /** Ce que le solde de tout compte reprend et signale (onglet « fin » seulement). */
+  reprisesSolde?: ReprisesSolde | null;
   peutModifier: boolean;
   estAdmin: boolean;
 }) {
@@ -1020,6 +1024,8 @@ export function DossierEmploye({
                   <th className="py-1 text-right">Préavis</th>
                   <th className="py-1 text-right">Licenciement</th>
                   <th className="py-1 text-right">Total</th>
+                  <th className="py-1 text-right">Repris</th>
+                  <th className="py-1 text-right">Net versé</th>
                 </tr>
               </thead>
               <tbody>
@@ -1031,7 +1037,9 @@ export function DossierEmploye({
                     <td className="py-1.5 text-right">{money(Number(f.indemniteCongesUSD))}</td>
                     <td className="py-1.5 text-right">{money(Number(f.indemnitePreavisUSD))}</td>
                     <td className="py-1.5 text-right">{money(Number(f.indemniteLicenciementUSD))}</td>
-                    <td className="py-1.5 text-right font-semibold">{money(Number(f.totalUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.totalUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.reprisePretUSD) + Number(f.repriseAcomptesUSD))}</td>
+                    <td className="py-1.5 text-right font-semibold">{money(Number(f.totalUSD) - Number(f.reprisePretUSD) - Number(f.repriseAcomptesUSD))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1049,6 +1057,7 @@ export function DossierEmploye({
             preavisDemission={preavisDemission}
             preavisLicenciement={preavisLicenciement}
             indemniteLicenciementJoursParAn={indemniteLicenciementJoursParAn}
+            reprises={reprisesSolde}
           />
         ) : !actif ? (
           <p className="text-sm text-muted-foreground">Cet employé n&apos;est plus actif (contrat terminé).</p>

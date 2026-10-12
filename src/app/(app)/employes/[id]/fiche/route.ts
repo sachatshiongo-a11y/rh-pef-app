@@ -89,7 +89,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       periodePresences,
       soldes: [
         { label: "Congés acquis (année)", value: `${soldeConge.acquis} j` },
-        { label: "Congés pris (année)", value: `${soldeConge.pris} j` },
+        { label: "Congés pris (année)", value: `${soldeConge.pris} j${soldeConge.cSansDemande > 0 ? ` (dont ${soldeConge.cSansDemande} j C posés sans demande)` : ""}` },
         { label: "Solde de congé annuel", value: `${soldeConge.solde} j` },
       ],
       conges: leaveRequests.map((l) => ({

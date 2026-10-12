@@ -28,7 +28,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
   const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
   const lignes = articles.map((a) => {
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
     const enUSD = prixArticleEnUSD(a, taux);
@@ -41,6 +41,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     return [
       libelleArticle(a),
       qte,
+      a.unite ?? "",
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
       a.categorie?.nom ?? "",
@@ -54,8 +55,8 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     <PrintDoc
       titre="Inventaire — Stock & Achats"
       sousTitre={jourKinshasa(new Date())}
-      entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix", "Valeur USD"]}
-      aligneDroite={[1, 3, 6, 7]}
+      entete={["Désignation", "Stock", "Unité", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix", "Valeur USD"]}
+      aligneDroite={[1, 4, 7, 8]}
       lignes={lignes}
     />
   );

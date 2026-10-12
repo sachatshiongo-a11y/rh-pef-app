@@ -16,7 +16,7 @@ import { ListeConges, type GroupeMois, type SectionListe } from "./liste-conges"
 import { FiltresConges } from "./filtres-conges";
 import { NouvelleDemandeConge } from "./nouvelle-demande";
 
-type SP = { statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; vue?: string; erreur?: string; erreurDecision?: string; page?: string; par?: string } & SPCalendrier;
+type SP = { statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; vue?: string; erreur?: string; erreurDecision?: string; noteDecision?: string; page?: string; par?: string } & SPCalendrier;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const AVEC_SALARIE = { employee: true, approuvePar: true } satisfies Prisma.LeaveRequestInclude;
@@ -148,6 +148,10 @@ export default async function CongesPage({ searchParams }: { searchParams: Promi
           dans le panneau « Nouvelle demande » (qui a sa propre erreur, `?erreur=`). */}
       {sp.erreurDecision && (
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreurDecision}</p>
+      )}
+      {/* Décision enregistrée, avec une réserve à connaître (ex. mois à paie validée laissé intact). */}
+      {sp.noteDecision && (
+        <p role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{sp.noteDecision}</p>
       )}
 
       <ListeConges

@@ -12,7 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 // 120 jours pour un salarié : 110 importables, 10 en congé (jours 1 à 10).
 const LIGNES = Array.from({ length: 120 }, (_, i) => ({
   employeeId: "e1", nom: "Awa", matricule: "M1", date: new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10), heures: 8, code: "P" as const,
-  statut: i < 10 ? ("CONGE" as const) : ("OK" as const),
+  statut: i < 10 ? ("CONGE" as const) : ("OK" as const), existant: null,
 }));
 const ANOMALIES = Array.from({ length: 60 }, (_, i) => ({ date: "2026-01-01", idExterne: `X${i + 1}`, type: "inconnu", detail: "non apparié" }));
 const appliquerPointageIVMS = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "ok" }));

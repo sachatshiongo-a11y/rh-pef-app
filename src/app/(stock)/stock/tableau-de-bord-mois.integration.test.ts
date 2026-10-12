@@ -86,7 +86,7 @@ beforeAll(async () => {
   // Factures : 120 à régler cette semaine (sept.), 80 échue non réglée (août), 500 réglée (sept.),
   // 60 réglée d'août.
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Sept", montantUSD: 120, resteAPayerUSD: 120, mois: 9, annee: 2026, statut: "A_REGLER", dateEcheance: d("2026-09-30"), createdAt: new Date("2026-09-20T09:00:00Z") } });
-  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Echue", montantUSD: 80, resteAPayerUSD: 80, mois: 8, annee: 2026, statut: "ECHUE_NON_REGLEE", createdAt: new Date("2026-08-05T09:00:00Z") } });
+  await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Echue", montantUSD: 80, resteAPayerUSD: 80, mois: 8, annee: 2026, statut: "ECHUE_NON_REGLEE", dateEcheance: new Date("2026-08-31"), createdAt: new Date("2026-08-05T09:00:00Z") } }); // « échue » se juge à l'échéance (lecture), plus au statut stocké
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Reglee", montantUSD: 500, resteAPayerUSD: 0, mois: 9, annee: 2026, statut: "REGLEE", createdAt: new Date("2026-09-10T09:00:00Z") } });
   await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. Aout", montantUSD: 60, resteAPayerUSD: 0, mois: 8, annee: 2026, statut: "REGLEE", createdAt: new Date("2026-08-12T09:00:00Z") } });
 
@@ -120,7 +120,7 @@ afterAll(async () => { vi.useRealTimers(); await fermer?.(); });
 // Texte de l'ANCIENNE page (sans sélecteur, 90133f9) rendue sur ce même jeu de données au 30/09/2026 :
 // relevé avant la modification. La nouvelle page, au mois courant, doit le redonner à l'identique,
 // au titre du sélecteur près.
-const AVANT = " ST Bonjour Sacha Direction · mercredi 30 septembre 2026 · Stock & Achats Taux du jour 1 USD = 2 800 CDF Articles 3 Alertes urgentes 1 À réapprovisionner 1 Valeur du stock 37,00 $ Factures à payer 200,00 $ 2 facture(s) Commandes du mois 1 À régler cette semaine 120,00 $ 1 facture(s) Factures échues 80,00 $ 1 facture(s) Légumes frais du mois 15,50 $ 1 achat(s) Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisées Articles au seuil minimum (2) Tout voir Beurre 0 Sel 3 Derniers bons de commande Tout voir 001/PEF/SEPT/26 · — Validé 009/PEF/AOUT/26 · — Validé Dernières factures Tout voir Fourn. Sept · 120,00 $ À régler Fourn. Reglee · 500,00 $ Réglée Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières entrées & sorties Tout voir Farine · 29/09/2026 −2 Farine · 28/09/2026 −4 Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations récentes (ajustements) Tout voir Sel · 25/08/2026 2 Derniers comptages Tout voir 29/09/2026 · 2 article(s) 0 écart(s) 31/08/2026 · 3 article(s) 0 écart(s) Pertes récentes Tout voir Sel · 18/08/2026 −1 Sel humide août Articles les plus commandés Tout voir Aucune commande enregistrée. Fournisseurs les plus sollicités Tout voir Aucun bon de commande. 0 fournisseurs · 3 articles au catalogue. ";
+const AVANT = " ST Bonjour Sacha Direction · mercredi 30 septembre 2026 · Stock & Achats Taux du jour 1 USD = 2 800 CDF Articles 3 Alertes urgentes 1 À réapprovisionner 1 Valeur du stock 37,00 $ Factures à payer 200,00 $ 2 facture(s) Commandes du mois 1 À régler cette semaine 120,00 $ 1 facture(s) Factures échues 80,00 $ 1 facture(s) Légumes frais du mois 15,50 $ 1 achat(s) Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $ Articles au seuil minimum (2) Tout voir Beurre 0 Sel 3 Derniers bons de commande Tout voir 001/PEF/SEPT/26 · — Validé 009/PEF/AOUT/26 · — Validé Dernières factures Tout voir Fourn. Sept · 120,00 $ À régler Fourn. Reglee · 500,00 $ Réglée Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières entrées & sorties Tout voir Farine · 29/09/2026 −2 Farine · 28/09/2026 −4 Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations récentes (ajustements) Tout voir Sel · 25/08/2026 2 Derniers comptages Tout voir 29/09/2026 · 2 article(s) 0 écart(s) 31/08/2026 · 3 article(s) 0 écart(s) Pertes récentes Tout voir Sel · 18/08/2026 −1 Sel humide août Articles les plus commandés Tout voir Aucune commande enregistrée. Fournisseurs les plus sollicités Tout voir Aucun bon de commande. 0 fournisseurs · 3 articles au catalogue. ";
 
 describe("accueil Stock — mois courant inchangé", () => {
   it("sans ?mois= : exactement le texte d'avant, au titre du sélecteur et aux cartes « Entrées de stock » près", async () => {
@@ -190,7 +190,7 @@ describe("accueil Stock — un mois passé", () => {
     const t = texte(await rendreHtml({ mois: "2026-08" }));
     expect(t).toContain("Commandes du mois 1 ");
     expect(t).toContain("Légumes frais du mois 12,25 $ 2 achat(s)");
-    expect(t).toContain("Conso. du mois (sorties) ≈ 11,50 $ 2 sortie(s) valorisées");
+    expect(t).toContain("Conso. du mois (sorties) ≈ 11,50 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 4,00 $ · sans motif 7,50 $");
     expect(t).toContain("Derniers bons de commande · août 2026 Tout voir 009/PEF/AOUT/26");
     expect(t).not.toContain("001/PEF/SEPT/26");
     expect(t).toContain("Dernières factures · août 2026 Tout voir Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières");
@@ -211,7 +211,7 @@ describe("accueil Stock — un mois passé", () => {
     expect(t).toContain("Articles 3 aujourd'hui");
     expect(t).toContain("Alertes urgentes 1 aujourd'hui");
     expect(t).toContain("À réapprovisionner 1 aujourd'hui");
-    expect(t).toContain("Valeur du stock 52,50 $ figée à la clôture d'août 2026");
+    expect(t).toContain("Valeur du stock 52,50 $ stock au 30/09/2026 à 11:00 (figé à la clôture d'août 2026)");
     expect(t).toContain("Factures à payer 200,00 $ 2 facture(s) · aujourd'hui");
     expect(t).toContain("À régler cette semaine 120,00 $ 1 facture(s) · semaine en cours");
     expect(t).toContain("Factures échues 80,00 $ 1 facture(s) · aujourd'hui");
@@ -342,7 +342,7 @@ describe("accueil Stock — le 1er du mois entre 00 h et 01 h à Kinshasa", () =
       const t = texte(html);
       expect(t).toContain("Le mois · octobre 2026");
       expect(t).toMatch(/jeudi 1(er)? octobre 2026/);
-      expect(t).toContain("Conso. du mois (sorties) ≈ 3,00 $ 1 sortie(s) valorisées");
+      expect(t).toContain("Conso. du mois (sorties) ≈ 3,00 $ 1 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 3,00 $");
       expect(html).not.toContain("data-retour-mois-courant");
       expect(html).not.toContain("data-avertissement-instantane");
       expect(await rendreHtml({ mois: "2026-10" })).toBe(html); // ?mois= du mois courant = adresse nue
@@ -352,7 +352,7 @@ describe("accueil Stock — le 1er du mois entre 00 h et 01 h à Kinshasa", () =
       const soir = texte(await rendreHtml());
       expect(soir).toContain("Le mois · septembre 2026");
       expect(soir).toContain("mercredi 30 septembre 2026");
-      expect(soir).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisées");
+      expect(soir).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $");
     } finally {
       await prisma.mouvementStock.delete({ where: { id: sortie.id } });
       vi.setSystemTime(new Date("2026-09-30T10:00:00Z"));

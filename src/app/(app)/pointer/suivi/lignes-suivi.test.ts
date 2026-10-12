@@ -50,3 +50,20 @@ describe("lignesSuivi — heures, pause et total du jour", () => {
     expect(ancien.totalHeures).toBe(9);
   });
 });
+
+describe("lignesSuivi — départ manquant, congé, repos (audit RH 2026-10-10)", () => {
+  it("jour passé : une arrivée sans départ est un « Départ manquant », plus « En cours »", () => {
+    const r = lignesSuivi([employes[2]], [pointage("c", { pauseMinutes: 0, pauseParDefaut: false, heureFin: null })], { jourPasse: true });
+    expect(r.lignes[0]).toMatchObject({ statut: "DEPART_MANQUANT", departLabel: "manquant" });
+    expect({ e: r.nbEnCours, d: r.nbDepartManquant }).toEqual({ e: 0, d: 1 });
+  });
+  it("aujourd'hui : toujours « En cours »", () => {
+    const r = lignesSuivi([employes[2]], [pointage("c", { pauseMinutes: 0, pauseParDefaut: false, heureFin: null })], { jourPasse: false });
+    expect(r.lignes[0].statut).toBe("EN_COURS");
+  });
+  it("sans pointage : congé et repos ne sont pas « Pas pointé »", () => {
+    const r = lignesSuivi(employes, [], { conges: new Set(["a"]), repos: new Set(["b"]) });
+    expect(r.lignes.map((l) => l.statut)).toEqual(["CONGE", "REPOS", "ABSENT", "ABSENT"]);
+    expect({ a: r.nbAbsent, cr: r.nbCongeRepos }).toEqual({ a: 2, cr: 2 });
+  });
+});

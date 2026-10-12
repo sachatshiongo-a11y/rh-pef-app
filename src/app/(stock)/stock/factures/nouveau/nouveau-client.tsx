@@ -11,6 +11,7 @@ import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { ChoixRecherche } from "@/components/choix-recherche";
+import { ChoixFournisseurProche } from "@/components/stock/choix-fournisseur-proche";
 import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 import { formaterMontantFacture, libelleAutreDevise } from "@/lib/facture-devise";
 import { formaterNombre } from "@/lib/montant";
@@ -38,7 +39,10 @@ type Devise = "USD" | "CDF";
 type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
 type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
-type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string };
+/** `suggestion` : article PROCHE proposé à la lecture d'un PDF (ligne « à choisir ») — jamais appliqué sans clic. */
+type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string; suggestion?: { id: string; libelle: string; unite: string | null } | null };
+/** Doublon de facture signalé par le serveur (même fournisseur, même montant à ±14 jours). */
+type DoublonFactureEcran = { message: string; factures: { id: string; numero: string | null; date: string | null }[] };
 
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", quantite: "", prix: "" });
@@ -63,6 +67,12 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [doublon, setDoublon] = useState<string | null>(null);
+  // Garde-fous franchis EN CONNAISSANCE DE CAUSE : chacun reste vrai pour les envois suivants (un second garde-fou ne défait pas le premier).
+  const [forcerStock, setForcerStock] = useState(false);
+  const [forcerFacture, setForcerFacture] = useState(false);
+  const [fournisseurNouveau, setFournisseurNouveau] = useState(false);
+  const [doublonFacture, setDoublonFacture] = useState<DoublonFactureEcran | null>(null);
+  const [proches, setProches] = useState<{ candidats: { id: string; nom: string }[]; creationPossible: boolean } | null>(null);
   const [isPending, start] = useTransition();
   const [bonId, setBonId] = useState(bon0?.id ?? "");
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
@@ -113,11 +123,14 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           setNoteDevise(r.devise === "CDF" ? "Document lu en francs : facture en francs (FC), montants tels que lus — à vérifier." : null);
         }
         if (r.lignes.length > 0) {
-          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prixUnitaireUSD) })));
+          // Le libellé LU dans le PDF est conservé ; l'article n'est rattaché que sur un nom identique, sinon la ligne est « à choisir » (suggestion).
+          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prixUnitaireUSD), suggestion: l.articleId ? null : l.suggestion })));
         } else if (r.montant != null) {
           setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: canoniqueVersSaisie(r.montant) }]);
         }
-        // Fournisseur : proche existant → on l'associe ; sinon on prépare la création automatique.
+        // Fournisseur : associé d'office SEULEMENT sur un nom identique ; sinon les noms qui ressemblent sont
+        // proposés (« Utiliser … » / « Créer »), jamais appliqués.
+        setFournisseurNouveau(false);
         if (r.match) { setFournisseurId(r.match.id); setFournisseurNom(r.match.nom); setCoord(null); }
         else if (r.fournisseur.nom) { setFournisseurId(""); setFournisseurNom(r.fournisseur.nom); setCoord(r.fournisseur); }
       })
@@ -153,6 +166,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
 
   const choisirFournisseur = (id: string) => {
     setFournisseurId(id);
+    setFournisseurNouveau(false);
     const f = fournisseurs.find((x) => x.id === id);
     if (f) { setFournisseurNom(f.nom); calcEcheance(date, f.delaiJours); }
   };
@@ -162,7 +176,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const totalFC = Math.round(lignes.reduce((t, l) => t + Math.round(nombreDeSaisie(l.quantite) * (Math.round(nombreDeSaisie(l.prix) * 100) / 100) * 100) / 100, 0) * 100) / 100;
 
   const submit = (fd: FormData) => {
-    setErreur(null); setDoublon(null);
+    setErreur(null); setDoublon(null); setDoublonFacture(null); setProches(null);
     start(async () => {
       let r: Awaited<ReturnType<typeof creerFactureAvecLignes>>;
       try { r = await creerFactureAvecLignes(fd); }
@@ -174,6 +188,8 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
       }
       if (!estErreur(r)) return;
       if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
+      else if (r.erreur.startsWith("DOUBLON_FACTURE|")) setDoublonFacture(JSON.parse(r.erreur.slice("DOUBLON_FACTURE|".length)) as DoublonFactureEcran);
+      else if (r.erreur.startsWith("FOURNISSEUR_PROCHE|")) setProches(JSON.parse(r.erreur.slice("FOURNISSEUR_PROCHE|".length)) as { candidats: { id: string; nom: string }[]; creationPossible: boolean });
       else setErreur(r.erreur);
     });
   };
@@ -186,6 +202,35 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     if (!f || !f.reportValidity()) return;
     const fd = new FormData(f);
     fd.set("forcerDoublons", "1");
+    setForcerStock(true);
+    submit(fd);
+  };
+
+  // « Créer quand même » : la facture ressemble à une déjà saisie, la Direction confirme qu'elle est bien distincte.
+  const creerQuandMeme = () => {
+    const f = formRef.current;
+    if (!f || !f.reportValidity()) return;
+    const fd = new FormData(f);
+    fd.set("forcerFacture", "1");
+    setForcerFacture(true);
+    submit(fd);
+  };
+
+  // Fournisseur proche : « Utiliser » rattache à l'existant, « Créer » en fait un nouveau — puis l'envoi reprend.
+  const utiliserFournisseur = (p: { id: string; nom: string }) => {
+    const f = formRef.current;
+    if (!f || !f.reportValidity()) return;
+    choisirFournisseur(p.id);
+    const fd = new FormData(f);
+    fd.set("fournisseurId", p.id); fd.set("fournisseurNom", p.nom);
+    submit(fd);
+  };
+  const creerFournisseur = () => {
+    const f = formRef.current;
+    if (!f || !f.reportValidity()) return;
+    setFournisseurNouveau(true);
+    const fd = new FormData(f);
+    fd.set("fournisseurNouveau", "1");
     submit(fd);
   };
 
@@ -203,6 +248,26 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         </div>
       )}
 
+      {doublonFacture && (
+        <div data-doublon-facture className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">⚠ Facture peut-être déjà saisie</p>
+          <p className="mt-1">{doublonFacture.message}</p>
+          <ul className="mt-1 list-disc pl-5 text-xs">
+            {doublonFacture.factures.map((f) => <li key={f.id}>{f.numero ? `Facture n° ${f.numero}` : "Facture sans numéro"}{f.date ? ` du ${f.date.split("-").reverse().join("/")}` : ""} — à retrouver dans la liste des factures de ce fournisseur</li>)}
+          </ul>
+          <button type="button" onClick={creerQuandMeme} disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
+            Créer quand même
+          </button>
+        </div>
+      )}
+      {proches && (
+        <ChoixFournisseurProche nom={fournisseurNom} candidats={proches.candidats} creationPossible={proches.creationPossible} libelleCreer={`Créer « ${fournisseurNom.trim()} »`} desactive={isPending} onUtiliser={utiliserFournisseur} onCreer={creerFournisseur} />
+      )}
+
+      {forcerStock && <input type="hidden" name="forcerDoublons" value="1" />}
+      {forcerFacture && <input type="hidden" name="forcerFacture" value="1" />}
+      {fournisseurNouveau && <input type="hidden" name="fournisseurNouveau" value="1" />}
+
       <div className="rounded-lg border bg-muted/20 p-3">
         <div className="text-sm font-medium">Joindre le PDF de la facture <span className="font-normal text-muted-foreground">(facultatif)</span></div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -215,7 +280,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           <div className="mt-2 space-y-1 text-xs text-muted-foreground">
             <p>Extrait : {analyse.montant != null ? `${analyse.montant} ${analyse.devise === "CDF" ? "FC" : "$"}` : "montant ?"} · {analyse.date ?? "date ?"}{analyse.numero ? ` · n° ${analyse.numero}` : ""} — <span className="font-medium">à vérifier</span> (le PDF joint reste la source de vérité).</p>
             {analyse.match ? (
-              <p className="text-emerald-700">Fournisseur : associé à <span className="font-medium">« {analyse.match.nom} »</span> (proche de « {analyse.fournisseur.nom} » lu).</p>
+              <p className="text-emerald-700">Fournisseur : associé à <span className="font-medium">« {analyse.match.nom} »</span> (même nom que « {analyse.fournisseur.nom} » lu).</p>
+            ) : analyse.fournisseur.nom && analyse.proches.length > 0 && !fournisseurId && !fournisseurNouveau ? (
+              <ChoixFournisseurProche nom={analyse.fournisseur.nom} candidats={analyse.proches} creationPossible libelleCreer={`Créer « ${analyse.fournisseur.nom.trim()} »`} onUtiliser={(p) => { choisirFournisseur(p.id); setCoord(null); }} onCreer={() => setFournisseurNouveau(true)} />
             ) : analyse.fournisseur.nom ? (
               <p className="text-sky-700">
                 Nouveau fournisseur <span className="font-medium">« {analyse.fournisseur.nom} »</span> — sera créé à l’enregistrement
@@ -227,7 +294,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
               <p>Fournisseur non détecté — renseignez-le à la main.</p>
             )}
             {analyse.lignes.length > 0 && (
-              <p>{analyse.lignes.length} ligne(s) lue(s), dont <span className="font-medium">{analyse.lignes.filter((l) => l.articleId).length}</span> rapprochée(s) d’un article du catalogue — vérifiez le tableau ci-dessous.</p>
+              <p>{analyse.lignes.length} ligne(s) lue(s), dont <span className="font-medium">{analyse.lignes.filter((l) => l.articleId).length}</span> rattachée(s) à un article de même nom{analyse.lignes.some((l) => !l.articleId && l.suggestion) ? <> et <span className="font-medium text-amber-700">{analyse.lignes.filter((l) => !l.articleId && l.suggestion).length} à choisir</span> (article proche proposé, jamais appliqué sans votre clic)</> : null} — vérifiez le tableau ci-dessous.</p>
             )}
           </div>
         )}
@@ -273,7 +340,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           <span className="text-muted-foreground">Fournisseur *</span>
           <ChoixRecherche options={optionsFour} value={fournisseurId} vide="— catalogue —" onChange={choisirFournisseur} aria-label="Fournisseur (catalogue)" className={inp} />
           <input type="hidden" name="fournisseurId" value={fournisseurId} />
-          <input name="fournisseurNom" value={fournisseurNom} onChange={(e) => setFournisseurNom(e.target.value)} placeholder="Nom fournisseur *" required className={inp} />
+          <input name="fournisseurNom" value={fournisseurNom} onChange={(e) => { setFournisseurNom(e.target.value); setFournisseurNouveau(false); }} placeholder="Nom fournisseur *" required className={inp} />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">N° facture</span>
@@ -292,6 +359,13 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">Déjà réglé ({devise === "USD" ? "$" : "FC"})</span>
             <input name="montantRegle" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
+          </label>
+        )}
+        {estDirection && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Date du paiement (si déjà réglé)</span>
+            <input name="datePaiement" type="date" max={jourCourantKinshasaISO()} title="Vide : la date de la facture" className={inp} />
+            <span className="text-[11px] text-muted-foreground">Vide : date de la facture. Un Paiement daté est créé.</span>
           </label>
         )}
       </div>
@@ -326,6 +400,13 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
                 <td className="px-2 py-1">
                   <ChoixRecherche options={optionsArt} colonne="article" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-44`} />
                   <input type="hidden" name="ligne_articleId" value={l.articleId} />
+                  {!l.articleId && l.suggestion && (
+                    <span data-ligne-a-choisir className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-amber-800">
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium">à choisir</span>
+                      proche : « {l.suggestion.libelle} »
+                      <button type="button" onClick={() => maj(i, { articleId: l.suggestion!.id, unite: l.unite || (l.suggestion!.unite ?? ""), suggestion: null })} className="rounded border border-amber-400 px-1.5 py-0.5 font-semibold hover:bg-amber-100">Utiliser</button>
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full min-w-40`} placeholder="Désignation" /></td>
                 <td className="px-2 py-1"><input name="ligne_unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} placeholder="Kg…" /></td>

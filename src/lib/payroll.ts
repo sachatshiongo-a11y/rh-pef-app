@@ -251,7 +251,7 @@ export type EntreesPaieBrigade = {
   heuresNormales: number; // heures payées au taux normal (heures travaillées − hs30 − hs60 − hs100)
   joursPayesNonTravailles: number; // O/A/C/F sans heures travaillées : payés à la journée (100%)
   joursPayes2_3: number; // M (maladie) : payés 2/3 à la journée
-  hsValorisee: number; // primes d'heures supp (prime seule), depuis calculerHeuresSupp()
+  hsValorisee: number; // heures supp payées en totalité (heure + majoration), depuis calculerHeuresSupp() — retirées de heuresNormales
   transportMoisUSD: number;
   enfants: number;
   fraisMedicauxUSD?: number;
@@ -555,7 +555,7 @@ export type SaisieHeuresJour = {
 };
 
 export type DetailSemaineHS = {
-  semaine: number; // 1 à 5, semaines de 7 jours calendaires du mois (jours 1-7, 8-14, ...)
+  semaine: number; // semaine civile lundi → dimanche dans le mois (1 = celle du 1er, jusqu'à 6), cf. numeroSemaineDuMois
   heuresTotales: number;
   hs30: number; // heures à la majoration tranche 1
   hs60: number; // heures à la majoration tranche 2
@@ -575,13 +575,29 @@ export type HeuresSuppResultat = {
 
 /**
  * Heures supplémentaires (déclenchement = dépassement des heures CONTRACTUELLES hebdomadaires,
- * choix de l'employeur — plus généreux que le seuil légal de 45 h/sem, art. 119) :
+ * choix de l'employeur — plus généreux que le seuil légal de 45 h/sem, art. 119), par semaine
+ * CIVILE lundi → dimanche (`numeroSemaineDuMois`) :
  * — Dimanche ou jour férié : TOUTES les heures travaillées comptées (hs100), sans soustraction
- *   du quota journalier ; catégorie isolée, hors tranches 30/60 et hors seuil hebdomadaire. La
- *   valorisation ne compte QUE la prime (× hsMajDimancheFerie), car la journée de base est déjà
- *   payée par le code de présence (P/F = 100%) → total « payé double » (base + prime), pas triple.
- * — Autres jours, par semaine calendaire : les hsSeuilHebdoH premières heures au-delà de
- *   l'horaire hebdo contractuel à hsMajTranche1, le reste à hsMajTranche2.
+ *   du quota journalier ; catégorie isolée, hors tranches 30/60 et hors seuil hebdomadaire.
+ * — Autres jours : les hsSeuilHebdoH premières heures au-delà de l'horaire hebdo contractuel à
+ *   hsMajTranche1, le reste à hsMajTranche2.
+ * VALORISATION (ce que fait le code, décision client 2026-07-06) : chaque heure supp. est payée EN
+ * TOTALITÉ ici, heure comprise — taux × (1 + majoration) : × 1,30 / × 1,60 / × (1 + hsMajDimancheFerie),
+ * soit × 2 le dimanche ou le férié avec 1,00. Ce n'est pas un double paiement : ces heures sont
+ * RETIRÉES de la base (`heuresNormales` = heures faites − hs30 − hs60 − hs100, paie-reference.ts) et
+ * un jour travaillé n'est jamais compté en « jour payé non travaillé ». Total d'un dimanche ou d'un
+ * férié travaillé : payé double, pas triple. Seule exception, en mode PLANNING : un férié DÛ et
+ * travaillé, dont la base est déjà payée au forfait, voit cette base retranchée de la prime par
+ * l'appelant (`heuresBaseFerieTravaille`, paie-reference.ts).
+ *
+ * SEMAINE À CHEVAL SUR DEUX MOIS (« bug connu Tier 2 #4 », corrigé le 2026-10-10) : `joursAvantMois`
+ * reçoit les jours de la même semaine civile tombés AVANT le 1er du mois (mois précédent). Ils ne
+ * sont PAS payés ici (le mois précédent les a payés) ; leurs heures hors dimanche/férié servent
+ * seulement à placer le seuil hebdomadaire. Règle (celle déjà décrite dans paie-batch.ts) : les
+ * heures sont attribuées dans l'ordre chronologique de la semaine — une heure supp. est payée dans
+ * le mois du jour qui fait franchir le seuil, et ensuite. Les jours APRÈS la fin du mois ne
+ * changent donc rien au mois en cours : ils seront évalués par le mois suivant, avec ceux-ci pour
+ * contexte. Sans `joursAvantMois`, le calcul est identique à l'ancien, au bit près.
  */
 /**
  * Numéro de la semaine DANS LE MOIS, alignée sur des semaines réelles lundi→dimanche.
@@ -594,8 +610,18 @@ export function numeroSemaineDuMois(date: Date): number {
   return Math.floor((date.getUTCDate() - 1 + offsetLundi) / 7) + 1;
 }
 
+/** "AAAA-MM-JJ" du lundi de la semaine civile d'une date PURE (lue en UTC). */
+function lundiIso(date: Date): string {
+  const decalage = (date.getUTCDay() + 6) % 7; // lundi = 0 … dimanche = 6
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - decalage))
+    .toISOString()
+    .slice(0, 10);
+}
+
 export function calculerHeuresSupp(entrees: {
   jours: SaisieHeuresJour[];
+  /** Jours de la même semaine civile tombés AVANT le 1er du mois : contexte du seuil, jamais payés. */
+  joursAvantMois?: SaisieHeuresJour[];
   heuresParJourContrat: number;
   heuresHebdoContrat: number;
   salaireHoraire: number;
@@ -605,11 +631,22 @@ export function calculerHeuresSupp(entrees: {
   const { jours, heuresParJourContrat, heuresHebdoContrat, salaireHoraire, joursFeries, params } =
     entrees;
 
-  const parSemaine = new Map<number, { totalNormal: number; hs100: number; heuresTotales: number }>();
+  // Heures « normales » (hors dimanche et férié) déjà faites dans la semaine AVANT le 1er du mois,
+  // par lundi : elles comptent pour le seuil hebdomadaire, pas dans ce mois.
+  const premierJourT = jours.reduce((min, j) => Math.min(min, j.date.getTime()), Infinity);
+  const normalAvantParLundi = new Map<string, number>();
+  for (const jour of entrees.joursAvantMois ?? []) {
+    if (!(jour.date.getTime() < premierJourT) || !(jour.heuresTravaillees > 0)) continue;
+    if (jour.date.getUTCDay() === 0 || joursFeries.has(jour.date.toISOString().slice(0, 10))) continue;
+    const lundi = lundiIso(jour.date);
+    normalAvantParLundi.set(lundi, (normalAvantParLundi.get(lundi) ?? 0) + jour.heuresTravaillees);
+  }
+
+  const parSemaine = new Map<number, { totalNormal: number; hs100: number; heuresTotales: number; lundi: string }>();
 
   for (const jour of jours) {
     const semaine = numeroSemaineDuMois(jour.date);
-    const entree = parSemaine.get(semaine) ?? { totalNormal: 0, hs100: 0, heuresTotales: 0 };
+    const entree = parSemaine.get(semaine) ?? { totalNormal: 0, hs100: 0, heuresTotales: 0, lundi: lundiIso(jour.date) };
     entree.heuresTotales += jour.heuresTravaillees;
 
     const iso = jour.date.toISOString().slice(0, 10);
@@ -631,10 +668,14 @@ export function calculerHeuresSupp(entrees: {
 
   const semaines: DetailSemaineHS[] = [...parSemaine.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([semaine, { totalNormal, hs100, heuresTotales }]) => {
-      const excedentSemaine = Math.max(0, totalNormal - heuresHebdoContrat);
-      const hs30 = Math.min(params.hsSeuilHebdoH, excedentSemaine);
-      const hs60 = Math.max(0, excedentSemaine - params.hsSeuilHebdoH);
+    .map(([semaine, { totalNormal, hs100, heuresTotales, lundi }]) => {
+      // Excédent de la semaine civile ENTIÈRE à la fin de ce mois, moins celui déjà atteint avant
+      // le 1er (payé par le mois précédent). Sans jours avant le mois : avant = 0, calcul inchangé.
+      const avant = normalAvantParLundi.get(lundi) ?? 0;
+      const excedentAvant = Math.max(0, avant - heuresHebdoContrat);
+      const excedentSemaine = Math.max(0, avant + totalNormal - heuresHebdoContrat);
+      const hs30 = Math.min(params.hsSeuilHebdoH, excedentSemaine) - Math.min(params.hsSeuilHebdoH, excedentAvant);
+      const hs60 = Math.max(0, excedentSemaine - params.hsSeuilHebdoH) - Math.max(0, excedentAvant - params.hsSeuilHebdoH);
       // Valorisation COMPLÈTE des heures supp (décision client 2026-07-06) : la base ne paie que
       // les heures NORMALES ; les heures supp sont donc payées entièrement ici = taux horaire ×
       // (1 + majoration) : 6 premières h/sem → ×1,30 ; au-delà → ×1,60 ; dimanche/férié → ×2.

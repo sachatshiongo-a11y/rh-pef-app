@@ -55,6 +55,8 @@ export type GesteStock =
   | { genre: "ACHAT"; nbLignes: number; montants: { devise: "USD" | "CDF"; montant: number }[] }
   | { genre: "ACHAT_LEGUMES"; nbLignes: number; montantsCDF: (number | null)[] }
   | { genre: "RECEPTION"; bonDeCommandeId: string; numero: string; fournisseurNom: string | null; nbLignes: number; complete: boolean }
+  /** Fournisseur(s) créé(s) à la volée par un compte non-Direction (Liste d'achat, facture) — audit du 10/10/2026. */
+  | { genre: "FOURNISSEUR"; noms: string[]; origine: string }
   /** Rattachement AUTOMATIQUE au stock du restaurant par le bouton du bandeau (lib/rattachement-auto.ts). */
   | { genre: "RATTACHEMENT_RESTO"; declencheur: "SORTIE" | "BOUTON"; rattaches: string[]; crees: string[] }
   /** Date de sorties changée (2026-10-08) : `nouvelle` = date pure du jour retenu. */
@@ -167,6 +169,11 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
         lien: lienDateSortie(g), titre: "Date de sortie changée", cle: null,
       };
     }
+    case "FOURNISSEUR":
+      return {
+        message: borne(`${g.noms.length > 1 ? `${g.noms.length} nouveaux fournisseurs créés` : "Nouveau fournisseur créé"} par ${auteurNom} (${g.origine}) : ${g.noms.map((n) => `« ${n} »`).join(", ")} — à vérifier (doublon, coordonnées)`),
+        lien: "/stock/fournisseurs", titre: "Fournisseur créé", cle: null,
+      };
     case "RECEPTION":
       return {
         message: borne(`Réception du bon de commande n° ${g.numero}${g.fournisseurNom ? ` (${g.fournisseurNom})` : ""} enregistrée par ${auteurNom} — ${pluriel(g.nbLignes, "ligne reçue", "lignes reçues")}, ${g.complete ? "complète" : "partielle"}`),

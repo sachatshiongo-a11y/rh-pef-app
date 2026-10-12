@@ -13,6 +13,7 @@ import {
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
+import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
 
 export type ApercuBulletin = {
   ligne: LignePaie;
@@ -68,19 +69,18 @@ export async function calculerBulletinLive(
   });
   const typeContrat = contratActif?.type ?? employee.contrat;
 
-  // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici.
+  // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Embauché
+  // après la fin du mois : aucun bulletin non plus (même règle que le lot, estCalculeEnPaie).
   if (typeContrat === "INTERIM") return null;
+  if (new Date(employee.dateEmbauche).getTime() > Date.UTC(annee, mois, 0)) return null;
   const estStage = typeContrat === "STAGE";
 
   const parametres = await chargerParametresPaie();
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  // BUG CONNU documenté (Tier 2, #4 — NON corrigé, montants impactés) : les heures faites ne sont
-  // données à `calculerHeuresSupp` que pour les jours DU MOIS, alors qu'il regroupe par vraies semaines
-  // lundi→dimanche → une semaine à cheval sur deux mois sous-évalue les heures supp. de chaque côté.
-  // Voir l'explication complète et la piste de correction recommandée dans paie-batch.ts (même
-  // assemblage `chargerJoursMois`, même moteur `calculerHeuresSupp`).
+  // Semaine à cheval sur deux mois : évaluée en entier, comme le lot (paie-batch.ts, corrigé le
+  // 2026-10-10) — même assemblage `chargerJoursMois`, même moteur `calculerHeuresSupp`.
   const [attendances, primesDuMois, fraisMedDuMois, acomptesDuMois, pretsEnCours, avantagesDuMois, joursParEmp] =
     await Promise.all([
       prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
@@ -187,7 +187,21 @@ export async function calculerBulletinLive(
       motif: ref.motif,
       heuresReference: ref.heuresReference,
       tauxMois: ref.tauxMois,
-      avertissements,
+      // Mêmes signalements que la ligne du lot (paie-batch.ts) : mois entier non proratisé, net ≤ 0.
+      avertissements: [
+        ...avertissements,
+        ...(employee.categorie === "BRIGADE" && !estStage
+          ? []
+          : avertissementsMoisEntier({
+              mois,
+              annee,
+              presences: attendances.map((a) => ({ date: a.date, code: a.code as CodePresence })),
+              joursCongeSansSolde: joursParEmp.get(employeeId)?.joursCongeSansSolde ?? [],
+              dateEmbauche: new Date(employee.dateEmbauche),
+              dateFinContrat: joursParEmp.get(employeeId)?.dateFinContrat ?? null,
+            })),
+        ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
+      ],
     },
   };
 }

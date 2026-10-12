@@ -47,13 +47,23 @@ export const WHERE_ACHATS_LISTE: Prisma.MouvementStockWhereInput = {
  * La période de stock clôturée est contrôlée à part (`exigerPeriodeOuverte`, en base).
  */
 export function lireDateAchat(saisie: string | null | undefined, maintenant: Date = new Date()): string {
+  return lireDateJour(saisie, "de l'achat", maintenant);
+}
+
+/**
+ * Même lecture pour toute date de mouvement de stock saisie (`AAAA-MM-JJ`) : mouvements manuels,
+ * achats de légumes, entrées issues d'une facture. `quoi` complète le message (« de l'achat »,
+ * « du mouvement »…). Jamais dans le futur (jour civil de Kinshasa) : un stock ne se date pas d'un
+ * jour qui n'est pas arrivé.
+ */
+export function lireDateJour(saisie: string | null | undefined, quoi: string, maintenant: Date = new Date()): string {
   const aujourdHui = jourKinshasaISO(maintenant);
   const s = (saisie ?? "").trim();
   if (!s) return aujourdHui;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error("Date de l'achat invalide.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error(`Date ${quoi} invalide.`);
   const d = new Date(`${s}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error("Date de l'achat invalide.");
-  if (s > aujourdHui) throw new Error("La date de l'achat ne peut pas être dans le futur.");
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error(`Date ${quoi} invalide.`);
+  if (s > aujourdHui) throw new Error(`La date ${quoi} ne peut pas être dans le futur.`);
   return s;
 }
 

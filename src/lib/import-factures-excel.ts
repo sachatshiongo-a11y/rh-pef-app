@@ -64,9 +64,8 @@ function mapColonnes(ws: any): { headerRow: number; col: Record<string, number> 
 }
 
 /**
- * Une facture lue. `devise` (2026-10-09) : celle de la colonne « Devise » quand le classeur en a une
- * et que la cellule est remplie (FC/CDF/francs → CDF ; $/USD/dollars → USD) ; sinon USD, comme avant.
- * `montant`, `regle`, `reste` sont DANS cette devise — une facture en francs n'est jamais convertie.
+ * Une facture lue. `devise` : celle de la colonne « Devise » (FC/CDF/francs → CDF ; $/USD/dollars → USD),
+ * obligatoire. `montant`, `regle`, `reste` sont DANS cette devise — jamais convertis.
  */
 export type FactureImportee = {
   fournisseurNom: string; numero: string | null;
@@ -76,7 +75,7 @@ export type FactureImportee = {
   mois: number; annee: number;
 };
 
-/** Devise lue dans une cellule « Devise » : null si vide (→ comportement d'avant), "?" si illisible (jamais devinée). */
+/** Devise lue dans une cellule « Devise » : null si vide (ligne refusée), "?" si illisible (ligne refusée) — jamais devinée. */
 export function lireDeviseCellule(v: unknown): "USD" | "CDF" | null | "?" {
   const t = norm(v).replace(/\s+/g, "");
   if (t === "") return null;
@@ -94,12 +93,14 @@ export function donneesMontantsImportee(r: FactureImportee) {
 
 /**
  * Parse un classeur Excel. `defautAnnee` sert de repli quand une ligne n'a pas de date.
- * Sans devise indiquée (pas de colonne « Devise », ou cellule vide) : comme avant — `taux` : les
- * montants ≥ 10 000 sont considérés comme saisis en CDF (impossible en USD pour une facture) et
- * convertis en USD (÷ taux). Avec « FC » dans la colonne Devise : facture EN FRANCS, montants gardés
- * tels quels. Une devise illisible : la ligne est écartée et nommée dans `erreurs`.
+ *
+ * DEVISE OBLIGATOIRE (audit du 10/10/2026, constat 9) : la devise de saisie fait foi. Avant, une ligne sans
+ * devise était devinée — « ≥ 10 000 = francs, ÷ taux » : une facture de 12 000 $ devenait 4,29 $, un prix
+ * de 9 000 FC restait 9 000 $. Désormais la colonne « Devise » doit exister et être remplie (FC / CDF /
+ * francs ; $ / USD / dollars) : une ligne sans devise, ou à la devise illisible, est REFUSÉE et nommée dans
+ * `erreurs`. Les montants sont gardés tels quels, dans leur devise, jamais convertis.
  */
-export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defautAnnee: number, taux: number, erreurs: string[] = []): Promise<FactureImportee[]> {
+export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defautAnnee: number, erreurs: string[] = []): Promise<FactureImportee[]> {
   const wb = new ExcelJS.Workbook();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(buffer as any);
@@ -110,11 +111,13 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
     const m = mapColonnes(ws);
     if (!m) continue;
     const { headerRow, col } = m;
+    let sansColonneDevise = 0;
     for (let r = headerRow + 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       const fournisseur = String(cellVal(row.getCell(col.fournisseur)) ?? "").trim();
       let montant = toNum(cellVal(row.getCell(col.montant)));
       if (!fournisseur || montant == null) continue;
+      if (!col.devise) { sansColonneDevise++; continue; } // refusée : une seule phrase par feuille, plus bas
       const numeroRaw = col.numero ? cellVal(row.getCell(col.numero)) : null;
       const date = col.date ? toDate(cellVal(row.getCell(col.date))) : null;
       const echeance = col.echeance ? toDate(cellVal(row.getCell(col.echeance))) : null;
@@ -132,14 +135,16 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
       else if (reste == null) { reste = Math.max(0, montant - (regle ?? 0)); }
       else if (regle == null) { regle = Math.max(0, montant - reste); }
 
-      const devCellule = col.devise ? lireDeviseCellule(cellVal(row.getCell(col.devise))) : null;
+      const devCellule = lireDeviseCellule(cellVal(row.getCell(col.devise)));
       if (devCellule === "?") {
-        erreurs.push(`${ws.name}, ligne ${r} (${fournisseur}) : devise « ${String(cellVal(row.getCell(col.devise!)) ?? "").trim()} » illisible — indiquez FC ou $ ; ligne ignorée.`);
+        erreurs.push(`${ws.name}, ligne ${r} (${fournisseur}) : devise « ${String(cellVal(row.getCell(col.devise)) ?? "").trim()} » illisible — indiquez FC ou $ ; ligne refusée.`);
         continue;
       }
-      const devise = devCellule ?? "USD";
-      // Sans devise indiquée : conversion CDF → USD si le montant est manifestement en francs (comme avant).
-      if (devCellule === null && montant >= 10000 && taux > 0) { montant /= taux; regle = (regle ?? 0) / taux; reste = (reste ?? 0) / taux; }
+      if (devCellule === null) {
+        erreurs.push(`${ws.name}, ligne ${r} (${fournisseur}) : devise absente — indiquez FC ou $ (elle n'est jamais devinée d'après le montant) ; ligne refusée.`);
+        continue;
+      }
+      const devise = devCellule;
       const rnd = (x: number) => Math.round(x * 100) / 100;
       montant = rnd(montant); regle = rnd(regle ?? 0); reste = rnd(reste ?? 0);
       if (statut === "REGLEE") reste = 0;
@@ -154,6 +159,7 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
         annee: date ? date.getUTCFullYear() : defautAnnee,
       });
     }
+    if (sansColonneDevise > 0) erreurs.push(`${ws.name} : pas de colonne « Devise » — ${sansColonneDevise} facture(s) refusée(s). Ajoutez une colonne « Devise » (FC ou $) à chaque ligne : la devise n'est jamais devinée d'après le montant.`);
   }
   return out;
 }

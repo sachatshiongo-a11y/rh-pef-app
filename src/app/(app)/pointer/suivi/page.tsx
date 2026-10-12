@@ -7,6 +7,7 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { SuiviBulk } from "./suivi-bulk";
 import { lignesSuivi } from "./lignes-suivi";
 import { exigerPageRH } from "@/lib/garde-page";
+import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 
 export default async function SuiviPointagesPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const user = await exigerPageRH();
@@ -42,7 +43,19 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
     // mesure glissante (§3 de la conception), indépendante du sélecteur de date ci-dessous.
     resumeSemaineCourante(prisma),
   ]);
-  const { lignes, nbTermine, nbEnCours, nbAbsent, totalHeures } = lignesSuivi(employees, pointages);
+  // Jour passé : une arrivée sans départ est un « départ manquant ». Congé (approuvé, ou C/S posé
+  // sur la grille) et repos (planning > modèle, ou code O) : pas « Pas pointé ».
+  const jourPasse = jour < jourKinshasaISO();
+  const sansPointage = employees.filter((e) => !pointages.some((p) => p.employeeId === e.id)).map((e) => ({ employeeId: e.id, date: jour }));
+  const [enConge, reposModele, codesDuJour] = await Promise.all([
+    joursEnConge(sansPointage),
+    joursDeReposSelonModele(sansPointage),
+    prisma.attendance.findMany({ where: { date, code: { in: ["C", "S", "O"] } }, select: { employeeId: true, code: true } }),
+  ]);
+  const conges = new Set([...enConge].map((k) => k.split("|")[0]));
+  const repos = new Set([...reposModele].map((k) => k.split("|")[0]));
+  for (const a of codesDuJour) (a.code === "O" ? repos : conges).add(a.employeeId);
+  const { lignes, nbTermine, nbEnCours, nbDepartManquant, nbAbsent, nbCongeRepos, totalHeures } = lignesSuivi(employees, pointages, { jourPasse, conges, repos });
 
   const autreJour = (delta: number) => {
     const d = new Date(`${jour}T12:00:00Z`);
@@ -83,11 +96,14 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
         </form>
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {[
           { l: "Terminés", v: nbTermine, c: "text-emerald-600" },
-          { l: "En cours", v: nbEnCours, c: "text-amber-600" },
+          jourPasse
+            ? { l: "Départs manquants", v: nbDepartManquant, c: "text-red-700" }
+            : { l: "En cours", v: nbEnCours, c: "text-amber-600" },
           { l: "Pas pointés", v: nbAbsent, c: "text-muted-foreground" },
+          { l: "Congé ou repos", v: nbCongeRepos, c: "text-sky-700" },
           { l: "Total heures", v: `${totalHeures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h`, c: "text-foreground" },
         ].map((k) => (
           <div key={k.l} className="rounded-xl border bg-card p-3">

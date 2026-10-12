@@ -51,7 +51,7 @@ describe("VueAccueil", () => {
 describe("VueMesConges", () => {
   const base = {
     nomSalarie: "Awa Test",
-    solde: { acquis: 18, pris: 5, solde: 13, typesDeduits: ["Congé annuel"] },
+    solde: { acquis: 18, pris: 5, solde: 13, cSansDemande: 0, typesDeduits: ["Congé annuel"] },
     annee: 2026,
     types: ["Congé annuel", "Maladie"],
     feries: [],

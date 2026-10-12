@@ -71,6 +71,8 @@ beforeAll(async () => {
     prisma.factureFournisseur.create({ data: { fournisseurId, fournisseurNom: fournisseurId === f.id ? "SENEVE" : "AUTRE SARL", numero, annee, mois, date: d(`${annee}-${String(mois).padStart(2, "0")}-10`), montantUSD: montant, resteAPayerUSD: reste, montantRegleUSD: montant - reste, statut } });
   const s1 = await fac("F-SEPT-1", 2026, 9, "A_REGLER", 100, 100);
   const s2 = await fac("F-SEPT-2", 2026, 9, "ECHUE_NON_REGLEE", 50, 50);
+  // « Échue » se juge à la lecture : il faut une échéance dépassée (le statut stocké ne suffit plus).
+  await prisma.factureFournisseur.update({ where: { id: s2.id }, data: { dateEcheance: d("2026-09-30") } });
   await fac("F-AOUT-1", 2026, 8, "REGLEE", 200, 0);
   await fac("F-JUIL-1", 2026, 7, "A_REGLER", 30, 30);
   await fac("G-UNIQUE", 2026, 9, "A_REGLER", 999, 999, g.id);

@@ -79,6 +79,7 @@ export function EmployeeForm({
   impact,
   doublons,
   famille,
+  champsDirection = "modifiables",
 }: {
   employee?: Employee;
   action: (formData: FormData) => void;
@@ -91,7 +92,11 @@ export function EmployeeForm({
   doublons?: { fiches: FicheDoublonClient[]; ecartees: string[]; peutReactiver: boolean };
   /** Section « Famille » (page Modifier), hors du formulaire. */
   famille?: ReactNode;
+  /** « lecture » (Modifier, hors Direction) : salaire, date d'embauche, contrat et frais médicaux
+   *  sont AFFICHÉS sans être envoyés (le serveur les refuserait) — ils se changent par la Direction. */
+  champsDirection?: "modifiables" | "lecture";
 }) {
+  const verrou = champsDirection === "lecture";
   // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
   const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
   const [sim, setSim] = useState<ValeursSimulation>({
@@ -142,7 +147,8 @@ export function EmployeeForm({
             action={action}
             onInput={(e) => {
               const fd = new FormData(e.currentTarget);
-              if (parametres) setSim(lireValeursSimulation(fd));
+              // Champs verrouillés (non envoyés) : la simulation garde les valeurs de la fiche.
+              if (parametres) setSim({ ...lireValeursSimulation(fd), ...(verrou ? { salaireMensuel: Number(employee?.salaireMensuel ?? 0), contrat: employee?.contrat ?? "CDD" } : {}) });
               if (doublons) {
                 setIdentite({ nom: String(fd.get("nom") ?? ""), telephone: String(fd.get("telephone") ?? ""), dateNaissance: String(fd.get("dateNaissance") ?? "") });
                 setDoublonBloque(false);
@@ -241,25 +247,33 @@ export function EmployeeForm({
                 defaultValue={employee?.categorieProfessionnelle ?? ""}
                 options={[{ value: "", label: "— non définie —" }, ...CATEGORIES_PRO.map((c) => ({ value: c.value, label: c.label }))]}
               />
-              <Select
-                label="Contrat"
-                name="contrat"
-                defaultValue={employee?.contrat ?? "CDD"}
-                options={[
-                  { value: "CDD", label: "CDD" },
-                  { value: "CDI", label: "CDI" },
-                  { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
-                  { value: "JOURNALIER", label: "Journalier" },
-                  { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
-                ]}
-              />
-              <Field
-                label="Date d'embauche"
-                name="dateEmbauche"
-                type="date"
-                defaultValue={toDateInput(employee?.dateEmbauche)}
-                required
-              />
+              {verrou ? (
+                <LectureDirection label="Contrat" valeur={employee?.contrat ?? "—"} />
+              ) : (
+                <Select
+                  label="Contrat"
+                  name="contrat"
+                  defaultValue={employee?.contrat ?? "CDD"}
+                  options={[
+                    { value: "CDD", label: "CDD" },
+                    { value: "CDI", label: "CDI" },
+                    { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
+                    { value: "JOURNALIER", label: "Journalier" },
+                    { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
+                  ]}
+                />
+              )}
+              {verrou ? (
+                <LectureDirection label="Date d'embauche" valeur={employee?.dateEmbauche ? toDateInput(employee.dateEmbauche).split("-").reverse().join("/") : "—"} />
+              ) : (
+                <Field
+                  label="Date d'embauche"
+                  name="dateEmbauche"
+                  type="date"
+                  defaultValue={toDateInput(employee?.dateEmbauche)}
+                  required
+                />
+              )}
               <Field
                 label="ID pointeuse IVMS (optionnel)"
                 name="idExterneIVMS"
@@ -274,6 +288,7 @@ export function EmployeeForm({
                 heuresParJourInit={versChamp(employee?.heuresParJour) ?? "8"}
                 joursOuvrablesMois={joursOuvrablesMois}
                 salaireEstNet={parametres?.salairesSaisisEnNet ?? false}
+                salaireVerrouille={verrou}
               />
               <Field
                 label="Transport / jour (CDF)"
@@ -303,13 +318,17 @@ export function EmployeeForm({
                 suffixe="$"
                 defaultValue={versChamp(employee?.cnssMontant)}
               />
-              <Field
-                label="Frais médicaux du mois ($)"
-                name="fraisMedicauxMoisCourant"
-                nombre
-                suffixe="$"
-                defaultValue={versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"}
-              />
+              {verrou ? (
+                <LectureDirection label="Frais médicaux du mois ($)" valeur={`${versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"} $`} />
+              ) : (
+                <Field
+                  label="Frais médicaux du mois ($)"
+                  name="fraisMedicauxMoisCourant"
+                  nombre
+                  suffixe="$"
+                  defaultValue={versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"}
+                />
+              )}
               <Field
                 label="Enfants à charge (retenus par la paie)"
                 name="enfants"
@@ -410,6 +429,7 @@ function SalaireHoraire({
   heuresParJourInit,
   joursOuvrablesMois,
   salaireEstNet,
+  salaireVerrouille = false,
 }: {
   salaireMensuelInit: string;
   heuresHebdoInit: string;
@@ -418,6 +438,8 @@ function SalaireHoraire({
   /** true si les salaires saisis sont interprétés comme des NETS (flag `salaires_saisis_en_net`) :
       les libellés le reflètent alors, sinon on garde les libellés historiques (montant = brut). */
   salaireEstNet: boolean;
+  /** Hors Direction : le salaire s'affiche sans être envoyé ; le taux horaire (qui le recalculerait) est figé. */
+  salaireVerrouille?: boolean;
 }) {
   // Les champs sont des textes à la française (« 1 250,5 ») : on les lit avec `lireNombreSaisi` (illisible ou vide → 0,
   // le calcul dérivé se tait), on les réécrit avec `versSaisie` (virgule décimale).
@@ -464,7 +486,15 @@ function SalaireHoraire({
     <>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="salaireMensuel" className="text-sm font-medium">{salaireEstNet ? "Salaire NET mensuel $" : "Salaire mensuel $"}</label>
-        <ChampNombre id="salaireMensuel" name="salaireMensuel" suffixe="$" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} classeConteneur="w-full" />
+        {salaireVerrouille ? (
+          <>
+            {/* Sans `name` : jamais envoyé. Le changement passe par la Direction (« Changer le salaire », historisé). */}
+            <input id="salaireMensuel" readOnly value={`${mensuel} $`} className={`${champCls} bg-muted text-muted-foreground`} />
+            <span className="text-xs text-muted-foreground">Réservé à la Direction (« Changer le salaire », sur la fiche).</span>
+          </>
+        ) : (
+          <ChampNombre id="salaireMensuel" name="salaireMensuel" suffixe="$" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} classeConteneur="w-full" />
+        )}
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="heuresHebdomadaires" className="text-sm font-medium">Heures / semaine</label>
@@ -476,7 +506,7 @@ function SalaireHoraire({
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="tauxHoraire" className="text-sm font-medium">{salaireEstNet ? "Taux horaire NET $/h (modifiable)" : "Taux horaire $/h (modifiable)"}</label>
-        <ChampNombre id="tauxHoraire" suffixe="$/h" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} classeConteneur="w-full" />
+        <ChampNombre id="tauxHoraire" suffixe="$/h" value={taux} readOnly={salaireVerrouille} onChange={(e) => onTaux(e.target.value)} className={`${champCls} ${salaireVerrouille ? "bg-muted text-muted-foreground" : ""}`} classeConteneur="w-full" />
       </div>
       <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" nombre suffixe="h" alerteMilliers defaultValue={heuresParJourInit} />
       <details className="group -mt-1 text-xs text-muted-foreground sm:col-span-2">
@@ -500,6 +530,17 @@ function SalaireHoraire({
         </p>
       </details>
     </>
+  );
+}
+
+/** Valeur réservée à la Direction, affichée sans être envoyée (pas de `name`). */
+function LectureDirection({ label, valeur }: { label: string; valeur: string }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium">{label}</span>
+      <span className={`${champCls} bg-muted text-muted-foreground`}>{valeur}</span>
+      <span className="text-xs text-muted-foreground">Modifiable par la Direction seulement.</span>
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ import { pdfColors } from "./theme";
 import { delaiPaiementLabel } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
 import { libelleLigneArticle } from "@/lib/libelle-article";
+import { compterSansPrixBon, deviseBon, prixLigneBon, totalBon, totalLigneBon } from "@/lib/bon-commande-devise";
 
 registerPdfFonts();
 
@@ -32,6 +33,9 @@ const styles = StyleSheet.create({
 });
 
 const usd = (v: number) => `${formaterNombre(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+const fc = (v: number) => `${formaterNombre(Math.round(v))} FC`;
+/** Montant dans la devise du bon ; « - » pour une absence (jamais 0). */
+const montant = (v: number | null, devise: "USD" | "CDF") => (v === null ? "-" : devise === "CDF" ? fc(v) : usd(v));
 
 function PRow({ label, value }: { label: string; value: string }) {
   return (
@@ -53,6 +57,8 @@ export function BonCommandeDocument({
   acheteur: ParametresAchat | null;
 }) {
   const date = new Date(bc.date).toLocaleDateString("fr-FR");
+  const devise = deviseBon(bc);
+  const sansPrix = compterSansPrixBon(bc.lignes, devise);
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -84,16 +90,16 @@ export function BonCommandeDocument({
             <Text style={[styles.cDes, styles.cCol]}>Désignation</Text>
             <Text style={[styles.cNum, styles.cCol]}>Quantité</Text>
             <Text style={[styles.cNum, styles.cCol]}>Cartons</Text>
-            <Text style={[styles.cNum, styles.cCol]}>P.U. (USD)</Text>
-            <Text style={[styles.cNum, styles.cCol]}>Total (USD)</Text>
+            <Text style={[styles.cNum, styles.cCol]}>P.U. ({devise})</Text>
+            <Text style={[styles.cNum, styles.cCol]}>Total ({devise})</Text>
           </View>
           {bc.lignes.map((l) => (
             <View key={l.id} style={styles.tr}>
               <Text style={styles.cDes}>{libelleLigneArticle(l)}</Text>
               <Text style={styles.cNum}>{formaterNombre(Number(l.quantite), { maximumFractionDigits: 3 })}</Text>
               <Text style={styles.cNum}>{l.nbCartons ? formaterNombre(Number(l.nbCartons), { maximumFractionDigits: 2 }) : "—"}</Text>
-              <Text style={styles.cNum}>{usd(Number(l.prixUnitaireUSD))}</Text>
-              <Text style={styles.cNum}>{usd(Number(l.totalLigneUSD))}</Text>
+              <Text style={styles.cNum}>{montant(prixLigneBon(l, devise), devise)}</Text>
+              <Text style={styles.cNum}>{montant(totalLigneBon(l, devise), devise)}</Text>
             </View>
           ))}
         </View>
@@ -101,9 +107,10 @@ export function BonCommandeDocument({
         <View style={styles.totalBox}>
           <View style={styles.totalInner}>
             <Text style={styles.totalLabel}>TOTAL</Text>
-            <Text style={styles.totalValue}>{usd(Number(bc.totalUSD))}</Text>
+            <Text style={styles.totalValue}>{montant(totalBon(bc), devise)}</Text>
           </View>
         </View>
+        {sansPrix > 0 ? <Text style={{ textAlign: "right", fontSize: 8, color: pdfColors.textMuted, marginBottom: 10 }}>Total incomplet : {sansPrix} ligne(s) sans prix ne sont pas chiffrées.</Text> : null}
 
         <View style={styles.meta}>
           <View style={styles.partie}>

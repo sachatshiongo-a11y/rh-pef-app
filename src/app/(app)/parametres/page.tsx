@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
+import { estTypeCongeProtege } from "@/lib/conges-regles";
 import { PointageReglages } from "./pointage-reglages";
 import { ComptesEnLot } from "./comptes-lot";
 import { etatCompteSalarie } from "@/lib/comptes-salaries";
@@ -72,7 +73,10 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     employeeId: u.employeeId,
     employeNom: u.employe?.nom ?? null,
   }));
-  const typeCongeRows: TypeCongeRow[] = typesConges.map((t) => ({ id: t.id, nom: t.nom, joursPayes: t.joursPayes, tauxPct: t.tauxPct, compteDansSolde: t.compteDansSolde, systeme: t.systeme, actif: t.actif }));
+  // Demandes par type : un type utilisé ne se renomme ni ne se supprime (il se désactive).
+  const usageTypes = await prisma.leaveRequest.groupBy({ by: ["type"], _count: { _all: true } });
+  const nbParType = new Map(usageTypes.map((u) => [u.type, u._count._all]));
+  const typeCongeRows: TypeCongeRow[] = typesConges.map((t) => ({ id: t.id, nom: t.nom, joursPayes: t.joursPayes, tauxPct: t.tauxPct, compteDansSolde: t.compteDansSolde, systeme: t.systeme, actif: t.actif, nbDemandes: nbParType.get(t.nom) ?? 0, protege: estTypeCongeProtege(t.nom) }));
 
   const mesurePosition = dernierReglagePosition?.nouvelleValeur?.match(/\(([^)]+)\)$/)?.[1] ?? null;
 

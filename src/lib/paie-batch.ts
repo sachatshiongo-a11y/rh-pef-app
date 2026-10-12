@@ -14,6 +14,7 @@ import {
   type CodePresence,
 } from "@/lib/payroll";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
+import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
 import type { Employee, Prisma } from "@prisma/client";
@@ -85,25 +86,12 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  // BUG CONNU documenté le 2026-07-22 (Tier 2, #4 — NON corrigé, montants impactés) : les heures faites
-  // ne sont données à `calculerHeuresSupp` que pour les jours DU MOIS (`jours` de `chargerJoursMois`,
-  // qui lit pourtant la semaine entière pour le seul plafond de la référence). `calculerHeuresSupp` (payroll.ts) regroupe pourtant les
-  // heures par VRAIES semaines lundi→dimanche (`numeroSemaineDuMois`, déjà correct EN INTRA-mois). Une
-  // semaine à cheval sur deux mois est donc scindée : le seuil hebdomadaire contractuel qui déclenche
-  // les heures supp. (30 %/60 %) repart de zéro de CHAQUE côté de la coupure → sous-évaluation possible
-  // des heures supp. sur ces semaines-charnières (ex. semaine du 27 juin au 3 juillet : les heures du
-  // 27-30 juin ne « comptent » pas pour le seuil de la semaine côté juillet, et inversement).
-  // Piste de correction recommandée (NON implémentée ici — risquée sans tests dédiés) : élargir la
-  // fenêtre des heures faites passées à `calculerHeuresSupp` aux semaines complètes qui chevauchent le
-  // mois (du lundi de la semaine du 1er au dimanche de la semaine du dernier jour — cf. `lundiDe` dans
-  // `src/lib/dates-fr.ts`), puis faire évoluer `calculerHeuresSupp` pour qu'il attribue les heures supp.
-  // JOUR PAR JOUR (cumul chronologique dans la semaine) au lieu d'un agrégat hebdomadaire, afin de ne
-  // compter dans `heuresTotalesMois`/`hs30`/`hs60`/`hsValorisee` QUE les jours du mois en cours (les
-  // jours « hors mois » ne servant qu'à positionner correctement le seuil, sans être payés deux fois —
-  // ils sont déjà couverts par le mois voisin, y compris s'il est déjà VALIDE/PAYE et donc figé). C'est
-  // un changement de signature/algorithme du moteur central (`calculerHeuresSupp`), couvert par
-  // `payroll.test.ts` et `payroll-reference.test.ts` : à faire dans un lot dédié avec de nouveaux tests
-  // de semaines-charnières, plutôt qu'un correctif partiel ici.
+  // Semaine à cheval sur deux mois (« bug connu Tier 2 #4 », corrigé le 2026-10-10) : la semaine
+  // civile lundi → dimanche est évaluée en entier. Les jours d'avant le 1er (mois précédent, lus par
+  // `chargerJoursMois` dans `joursHorsMois`) placent le seuil hebdomadaire sans être payés ici ; une
+  // heure supp. est payée dans le mois du jour qui fait franchir le seuil (attribution chronologique,
+  // `calculerHeuresSupp` dans payroll.ts, `joursAvantMois`). Un mois déjà validé ne bouge pas : ses
+  // jours de fin de semaine ont été comptés dans l'ordre, les jours suivants ne le concernent pas.
   const [employees, joursFeriesDuMois, attendances, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
     await Promise.all([
       db.employee.findMany({ where: { actif: true } }),
@@ -159,8 +147,10 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
   for (const a of acomptesDuMois) acomptesParEmp.set(a.employeeId, (acomptesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
 
   const codesParEmp = new Map<string, CodePresence[]>();
+  const datesParEmp = new Map<string, { date: Date; code: CodePresence }[]>();
   for (const a of attendances) {
     (codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, []).get(a.employeeId)!).push(a.code as CodePresence);
+    (datesParEmp.get(a.employeeId) ?? datesParEmp.set(a.employeeId, []).get(a.employeeId)!).push({ date: a.date, code: a.code as CodePresence });
   }
 
   // Jours du mois (créneaux, modèle, codes, heures, horodatages), jours hors du mois des semaines à
@@ -174,7 +164,8 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
     const typeContrat = typeContratParEmp.get(employee.id) ?? employee.contrat;
     // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Règle
     // partagée avec les totaux et les exports (paie-hors-calcul.ts) : « calculé » = « compté ».
-    if (!estCalculeEnPaie(employee, typeContratParEmp.get(employee.id))) continue;
+    // Embauche postérieure au dernier jour du mois : aucun bulletin ce mois-là (règle partagée, idem).
+    if (!estCalculeEnPaie(employee, typeContratParEmp.get(employee.id), { mois, annee })) continue;
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
@@ -188,7 +179,7 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
     const estStage = typeContrat === "STAGE";
     const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
     // Référence d'heures et avertissements : le MÊME chemin que l'aperçu de la fiche (bulletin-live.ts).
-    const { ref, avertissements: avertissementsPaie } = calculerReferenceSalarie({
+    const { ref, avertissements: avertissementsReference } = calculerReferenceSalarie({
       mois,
       annee,
       employee,
@@ -232,6 +223,24 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
             { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
             parametres
           );
+
+    // Signalements (audit du 2026-10-10), jamais un montant changé : le back-office et les stagiaires
+    // sont payés au MOIS ENTIER, sans retenue pour N/S/M ni prorata d'entrée/sortie — la règle attend
+    // la décision de la Direction. L'écran Paie et la confirmation de validation les nomment.
+    const avertissementsPaie: AvertissementPaie[] = [
+      ...avertissementsReference,
+      ...(employee.categorie === "BRIGADE" && !estStage
+        ? []
+        : avertissementsMoisEntier({
+            mois,
+            annee,
+            presences: datesParEmp.get(employee.id) ?? [],
+            joursCongeSansSolde: joursParEmp.get(employee.id)?.joursCongeSansSolde ?? [],
+            dateEmbauche: new Date(employee.dateEmbauche),
+            dateFinContrat: joursParEmp.get(employee.id)?.dateFinContrat ?? null,
+          })),
+      ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
+    ];
 
     // Facteur de reconstitution brut/net appliqué à la base (1 hors brigade / flag inactif). Les
     // composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés)

@@ -9,7 +9,10 @@ import { calculerJoursOuvrables } from "@/lib/payroll";
 import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
-import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
+import { poserCodesConge, retirerCodesConge, chargerPreloadConges, noteMoisFige } from "@/lib/conges-presences";
+import {
+  demandeQuiRecouvre, exigerAucunRecouvrement, exigerRemplacantDisponible, exigerTypeCongeUtilisable, messageRecouvrement, verrouillerCongesSalarie,
+} from "@/lib/conges-regles";
 import { MAX_SUPPRESSIONS_PAR_LOT, verifierMotifRefus } from "@/lib/conges-liste";
 import { figerSoldesApprobation, INSTANTANE_SOLDE_EFFACE, resumeInstantane } from "@/lib/solde-conge-fige";
 
@@ -52,11 +55,18 @@ export async function demanderConge(formData: FormData) {
     if (ecart) throw new Error(ecart);
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
+    // Le type fait foi côté serveur : il existe et il est actif (sinon le nom libre décidait du solde et du taux).
+    await exigerTypeCongeUtilisable(prisma, type);
+    await exigerRemplacantDisponible(prisma, { remplacantId, employeeId, dateDebut, dateFin });
 
     // La Direction n'a pas à valider ses propres demandes : approuvée d'office (comme les BC).
     const autoValide = user.role === "ADMIN";
     // Approuvée d'office = approuvée : le solde est figé dans la même transaction que la création.
+    // Le recouvrement se contrôle DANS la transaction, sous le verrou du salarié : deux envois
+    // simultanés du même congé ne passent plus tous les deux.
     const demande = await prisma.$transaction(async (tx) => {
+      await verrouillerCongesSalarie(tx, employeeId);
+      await exigerAucunRecouvrement(tx, { employeeId, dateDebut, dateFin });
       const d = await tx.leaveRequest.create({
         data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
       });
@@ -75,8 +85,10 @@ export async function demanderConge(formData: FormData) {
       });
     } else {
       await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
-      // Synchro grille Présences : les jours ouvrables du congé reçoivent leur code (C ou S).
-      await poserCodesConge(employeeId, dateDebut, dateFin, type);
+      // Synchro grille Présences : les jours ouvrables du congé reçoivent leur code (C ou S) —
+      // jamais dans un mois à paie validée (tracé au journal).
+      const { figes } = await poserCodesConge(employeeId, dateDebut, dateFin, type);
+      if (figes > 0) await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "presences", nouvelleValeur: noteMoisFige(figes, "posé"), userId: user.id });
       await creerNotification({
         type: "CONGE",
         message: `Congé (${type}) approuvé — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
@@ -98,7 +110,7 @@ export async function demanderConge(formData: FormData) {
  * Seul un échec de la base elle-même laisse la demande EN ATTENTE ; la raison est alors RENDUE
  * (`erreur`), jamais lancée.
  */
-export async function approuverConge(leaveRequestId: string): Promise<{ erreur?: string }> {
+export async function approuverConge(leaveRequestId: string): Promise<{ erreur?: string; avertissement?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
@@ -110,6 +122,10 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
   let approuvee: boolean;
   try {
     approuvee = await prisma.$transaction(async (tx) => {
+      // Deux demandes qui se recouvrent ne sont jamais approuvées toutes les deux (double décompte).
+      await verrouillerCongesSalarie(tx, demande.employeeId);
+      const autre = await demandeQuiRecouvre(tx, { employeeId: demande.employeeId, dateDebut: demande.dateDebut, dateFin: demande.dateFin, exclureId: demande.id, statuts: ["APPROUVE"] });
+      if (autre) throw new Error(messageRecouvrement(autre));
       const { count } = await tx.leaveRequest.updateMany({
         where: { id: leaveRequestId, statut: { not: "APPROUVE" } },
         data: { statut: "APPROUVE", approuveParId: user.id, motifRefus: null },
@@ -126,8 +142,8 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
     revaliderConges();
     return {};
   }
-  // Synchro grille Présences : jours ouvrables du congé → code C/S, heures retirées.
-  await poserCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), demande.type);
+  // Synchro grille Présences : jours ouvrables du congé → code C/S, heures retirées (jamais un mois figé).
+  const { figes } = await poserCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), demande.type);
   await journaliser(prisma, {
     entite: "LeaveRequest",
     entiteId: leaveRequestId,
@@ -139,7 +155,8 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
   await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), true);
 
   revaliderConges();
-  return {};
+  const note = noteMoisFige(figes, "posé");
+  return note ? { avertissement: `Congé approuvé. ${note}` } : {};
 }
 
 /** Filtres de la liste des congés, conservés dans l'URL de retour d'une décision. */
@@ -156,18 +173,19 @@ export type FiltresListeConges = {
 export async function approuverCongeFormulaire(leaveRequestId: string, filtres: FiltresListeConges = {}): Promise<void> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
-  const { erreur } = await approuverConge(leaveRequestId);
+  const { erreur, avertissement } = await approuverConge(leaveRequestId);
   if (erreur) redirect(urlRetourConges(filtres, erreur));
+  if (avertissement) redirect(urlRetourConges(filtres, avertissement, "noteDecision"));
 }
 
 /** `/conges?statut=…&type=…&q=…&quand=…&mois=…&du=…&au=…&groupe=…&page=…&par=…&erreurDecision=…` (tous les filtres de la liste, la page et la taille de page sont gardés) */
-function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
+function urlRetourConges(filtres: FiltresListeConges, erreur: string, cleMessage: "erreurDecision" | "noteDecision" = "erreurDecision"): string {
   const p = new URLSearchParams();
   for (const cle of ["statut", "type", "q", "quand", "mois", "du", "au", "groupe", "page", "par"] as const) {
     const v = filtres?.[cle];
     if (typeof v === "string" && v !== "") p.set(cle, v.slice(0, 200));
   }
-  p.set("erreurDecision", erreur);
+  p.set(cleMessage, erreur);
   return `/conges?${p.toString()}`;
 }
 
@@ -176,7 +194,7 @@ function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
  * 500 caractères) rien n'est écrit et la raison est RENDUE (`erreur`), jamais lancée. Le motif est stocké,
  * porté au journal d'audit, repris dans la notification au salarié et imprimé sur le PDF.
  */
-export async function refuserConge(leaveRequestId: string, motifBrut: string): Promise<{ erreur?: string }> {
+export async function refuserConge(leaveRequestId: string, motifBrut: string): Promise<{ erreur?: string; avertissement?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const verifie = verifierMotifRefus(motifBrut);
@@ -192,7 +210,10 @@ export async function refuserConge(leaveRequestId: string, motifBrut: string): P
     data: { statut: "REFUSE", approuveParId: user.id, motifRefus: motif, ...INSTANTANE_SOLDE_EFFACE },
   });
   // Un congé auparavant approuvé avait posé ses codes sur la grille : on les retire.
-  if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
+  // Jamais dans un mois à paie validée : la paie a payé ces jours tels qu'ils étaient.
+  const { figes } = demande.statut === "APPROUVE"
+    ? await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin))
+    : { figes: 0 };
   await journaliser(prisma, {
     entite: "LeaveRequest",
     entiteId: leaveRequestId,
@@ -216,7 +237,8 @@ export async function refuserConge(leaveRequestId: string, motifBrut: string): P
   await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), false, motif);
 
   revaliderConges();
-  return {};
+  const note = noteMoisFige(figes, "retiré");
+  return note ? { avertissement: `Demande refusée. ${note}` } : {};
 }
 
 /** Notifie le salarié concerné (cloche perso + push) de la décision sur SA demande de congé. */
@@ -248,36 +270,40 @@ export async function supprimerConge(leaveRequestId: string) {
 }
 
 /** Le corps de la suppression d'UNE demande, commun à l'action unitaire et à l'action groupée (la garde Direction est posée par chacune). */
-async function supprimerUneDemande(leaveRequestId: string, userId: string) {
+async function supprimerUneDemande(leaveRequestId: string, userId: string): Promise<{ figes: number }> {
   const demande = await prisma.leaveRequest.findUnique({
     where: { id: leaveRequestId },
     include: { employee: { select: { nom: true, matricule: true } } },
   });
-  if (!demande) return;
+  if (!demande) return { figes: 0 };
 
   const resume = `${demande.type} de ${demande.employee.nom} (${demande.employee.matricule}) du ${new Date(
     demande.dateDebut
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
   await supprimerNotificationsPour(leaveRequestId);
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     // Les codes de présence partent DANS la transaction de la suppression : un échec de l'une ne laisse
-    // jamais une demande approuvée sans ses codes (ni des codes sans demande).
-    if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), tx);
+    // jamais une demande approuvée sans ses codes (ni des codes sans demande). Un mois à paie validée
+    // garde les siens (ils comptent alors comme « C posés sans demande » dans le solde).
+    const { figes } = demande.statut === "APPROUVE"
+      ? await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), tx)
+      : { figes: 0 };
     await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
     await journaliser(tx, {
       entite: "LeaveRequest",
       entiteId: leaveRequestId,
       champ: "suppression",
-      ancienneValeur: resume,
+      ancienneValeur: figes > 0 ? `${resume} — ${noteMoisFige(figes, "retiré")}` : resume,
       userId,
     });
+    return { figes };
   });
 }
 
 /** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
  * les autres — les approbations sont des actes indépendants, contrairement au lot de paie). */
-export type RapportLotConges = { traitees: number; echecs: string[] };
+export type RapportLotConges = { traitees: number; echecs: string[]; avertissements?: string[] };
 
 /** ACTION GROUPÉE : approuve plusieurs demandes en attente d'un coup. */
 export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotConges> {
@@ -296,10 +322,17 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
   //    demande approuvée entre-temps par quelqu'un d'autre n'est ni réapprouvée ni refigée. Un
   //    solde illisible n'empêche aucune approbation (instantané vide, voir figerSoldesApprobation).
   let approuvees: typeof candidates;
+  const recouvrements: string[] = [];
   try {
     approuvees = await prisma.$transaction(async (tx) => {
       const ok: typeof candidates = [];
+      recouvrements.length = 0;
       for (const d of candidates) {
+        // Recouvrement avec une demande déjà approuvée — y compris une approuvée plus haut dans ce
+        // même lot (la transaction voit ses propres écritures) : nommée, jamais approuvée.
+        await verrouillerCongesSalarie(tx, d.employeeId);
+        const autre = await demandeQuiRecouvre(tx, { employeeId: d.employeeId, dateDebut: d.dateDebut, dateFin: d.dateFin, exclureId: d.id, statuts: ["APPROUVE"] });
+        if (autre) { recouvrements.push(`${d.employee.nom} : ${messageRecouvrement(autre)}`); continue; }
         const { count } = await tx.leaveRequest.updateMany({
           where: { id: d.id, statut: "EN_ATTENTE" },
           data: { statut: "APPROUVE", approuveParId: user.id, motifRefus: null },
@@ -315,11 +348,14 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
     revaliderConges();
     return { traitees: 0, echecs: candidates.map((d) => `${d.employee.nom} : approbation non enregistrée (${raison})`) };
   }
+  echecs.push(...recouvrements);
+  const avertissements: string[] = [];
   // 2. Les suites, demande par demande : l'échec de l'une ne bloque pas les autres.
   for (const d of approuvees) {
     const id = d.id;
     try {
-      await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type, preload);
+      const { figes } = await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type, preload);
+      if (figes > 0) avertissements.push(`${d.employee.nom} : ${noteMoisFige(figes, "posé")}`);
       await journaliser(prisma, {
         entite: "LeaveRequest",
         entiteId: id,
@@ -335,7 +371,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
     }
   }
   revaliderConges();
-  return { traitees: n, echecs };
+  return { traitees: n, echecs, ...(avertissements.length > 0 ? { avertissements } : {}) };
 }
 
 /** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
@@ -396,16 +432,18 @@ export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotCon
   const echecs: string[] = [];
   const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
   const demandeParId = new Map(demandes.map((d) => [d.id, d]));
+  const avertissements: string[] = [];
   for (const id of [...new Set(ids)]) {
     const d = demandeParId.get(id);
     if (!d) continue; // déjà supprimée (autre onglet) : rien à faire
     try {
-      await supprimerUneDemande(id, user.id);
+      const { figes } = await supprimerUneDemande(id, user.id);
+      if (figes > 0) avertissements.push(`${d.employee.nom} : ${noteMoisFige(figes, "retiré")}`);
       n++;
     } catch (e) {
       echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
     }
   }
   revaliderConges();
-  return { traitees: n, echecs };
+  return { traitees: n, echecs, ...(avertissements.length > 0 ? { avertissements } : {}) };
 }

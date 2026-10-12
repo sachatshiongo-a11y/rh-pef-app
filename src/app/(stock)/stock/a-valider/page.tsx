@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { usd } from "@/lib/stock";
+import { WHERE_LIGNE_SANS_PRIX, libelleTotalBon } from "@/lib/bon-commande-devise";
 import { validerBonCommande } from "../commandes/actions";
 import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -27,7 +27,7 @@ export default async function AValiderPage() {
     prisma.bonDeCommande.findMany({
       where: { statut: "BROUILLON" },
       orderBy: [{ annee: "desc" }, { sequence: "desc" }],
-      include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
+      include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } },
     }),
     apercusDemandes({ statut: "EN_ATTENTE", ...miennes }, { detail: true }),
     apercusDemandes({ statut: { not: "EN_ATTENTE" }, ...miennes }, { take: 15 }),
@@ -54,7 +54,7 @@ export default async function AValiderPage() {
               <li key={bc.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div>
                   <Link href={`/stock/commandes/${bc.id}`} className="font-medium text-primary underline">{bc.numero}</Link>
-                  <span className="text-sm text-muted-foreground"> · {bc.fournisseur?.nom ?? "—"} · {bc._count.lignes} ligne(s) · {usd(bc.totalUSD)}</span>
+                  <span className="text-sm text-muted-foreground"> · {bc.fournisseur?.nom ?? "—"} · {bc._count.lignes} ligne(s) · {libelleTotalBon(bc, bc.lignes.length, bc._count.lignes)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>

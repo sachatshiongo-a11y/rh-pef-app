@@ -22,8 +22,12 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 export type SoldeConge = {
   /** Droits acquis à ce jour (0 pour un stage ou un intérim). */
   acquis: number;
-  /** Jours approuvés depuis le 1er janvier, des seuls types qui entament le solde. */
+  /** Jours approuvés depuis le 1er janvier, des seuls types qui entament le solde, PLUS les « C »
+   *  posés directement sur la grille Présences sans demande approuvée qui couvre le jour (`cSansDemande`). */
   pris: number;
+  /** « C » de la grille (depuis le 1er janvier, jours ouvrables) qu'aucune demande approuvée ne
+   *  couvre : payés comme congé par la paie, donc décomptés — et signalés à l'écran. */
+  cSansDemande: number;
   /** acquis − pris, au dixième. */
   solde: number;
   /** Noms des types actifs qui entament le solde — pour le dire au salarié. */
@@ -36,16 +40,40 @@ export function calculerSoldeConge(p: {
   demandesApprouvees: { type: string; nbJours: number; dateDebut: Date }[];
   compteDansSolde: Map<string, boolean>;
   debutAnnee: Date;
-}): { acquis: number; pris: number; solde: number } {
+  /** « C » de la grille sans demande approuvée (voir `compterCSansDemande`) ; 0 par défaut. */
+  cSansDemande?: number;
+}): { acquis: number; pris: number; solde: number; cSansDemande: number } {
+  const cSansDemande = p.cSansDemande ?? 0;
   const pris = p.demandesApprouvees
     .filter((l) => new Date(l.dateDebut) >= p.debutAnnee && congeDeductibleDuSolde(p.compteDansSolde.get(l.type)))
-    .reduce((a, l) => a + l.nbJours, 0);
-  return { acquis: p.acquis, pris, solde: Math.round((p.acquis - pris) * 10) / 10 };
+    .reduce((a, l) => a + l.nbJours, 0) + cSansDemande;
+  return { acquis: p.acquis, pris, solde: Math.round((p.acquis - pris) * 10) / 10, cSansDemande };
 }
 
 /**
- * Les soldes de PLUSIEURS salariés, en lot : 4 requêtes quel que soit leur nombre (salariés,
- * droits annuels de l'exercice actif, types, demandes approuvées de l'année). Même règle, ligne à ligne, que pour un seul.
+ * « C » POSÉS SANS DEMANDE (audit RH 2026-10-10) : la régularisation d'un congé directement dans la
+ * grille Présences est courante en cuisine ; la paie le paie comme congé (code C), le solde doit donc
+ * le décompter. Un jour compte s'il porte C, n'est ni dimanche ni férié (jamais décomptés), et
+ * qu'AUCUNE demande approuvée (de n'importe quel type) ne le couvre — un C posé par une demande
+ * approuvée est déjà décompté par elle (ou exclu du solde par son type) : jamais deux fois. PURE.
+ */
+export function compterCSansDemande(
+  joursC: Date[],
+  demandesApprouvees: { dateDebut: Date; dateFin: Date }[],
+  feriesIso: Set<string>,
+): number {
+  const iso = (d: Date) => new Date(d).toISOString().slice(0, 10);
+  return joursC.filter((j) => {
+    const d = new Date(j);
+    if (d.getUTCDay() === 0 || feriesIso.has(iso(d))) return false;
+    return !demandesApprouvees.some((c) => d >= new Date(c.dateDebut) && d <= new Date(c.dateFin));
+  }).length;
+}
+
+/**
+ * Les soldes de PLUSIEURS salariés, en lot : 7 requêtes quel que soit leur nombre (salariés,
+ * droits annuels de l'exercice actif, types, demandes approuvées de l'année, « C » de la grille,
+ * demandes qui les couvrent, fériés). Même règle, ligne à ligne, que pour un seul.
  *
  * `entameLeSolde` est la règle de décompte (case « compte dans le solde » du type, types retirés
  * compris) : un écran qui compte des jours pris sur une AUTRE période — le calendrier sur l'année
@@ -60,7 +88,7 @@ export async function chargerSoldesCongeSalaries(
   // (1,5 j de plus) et l'année des congés avaient encore un jour de retard avec l'horloge UTC.
   const aujourdhui = jourCivilKinshasa(maintenant);
   const debutAnnee = new Date(Date.UTC(aujourdhui.getUTCFullYear(), 0, 1));
-  const [emps, droitsCongesAnnuel, types, approuvees] = await Promise.all([
+  const [emps, droitsCongesAnnuel, types, approuvees, joursC, couvrantes, feries] = await Promise.all([
     db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true } }),
     // Les SEULS droits annuels, pas toute la paie : une clé CNSS absente ou un barème IPR vide ne
     // doit ni vider un écran de congé ni bloquer une approbation (2026-09-29).
@@ -71,7 +99,19 @@ export async function chargerSoldesCongeSalaries(
       where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { gte: debutAnnee } },
       select: { employeeId: true, type: true, nbJours: true, dateDebut: true },
     }),
+    // « C » de la grille depuis le 1er janvier, et TOUTES les demandes approuvées qui peuvent les
+    // couvrir (une demande commencée en décembre couvre aussi les jours de janvier).
+    db.attendance.findMany({
+      where: { employeeId: { in: employeeIds }, code: "C", date: { gte: debutAnnee } },
+      select: { employeeId: true, date: true },
+    }),
+    db.leaveRequest.findMany({
+      where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateFin: { gte: debutAnnee } },
+      select: { employeeId: true, dateDebut: true, dateFin: true },
+    }),
+    db.jourFerie.findMany({ where: { date: { gte: debutAnnee } }, select: { date: true } }),
   ]);
+  const feriesIso = new Set(feries.map((f) => new Date(f.date).toISOString().slice(0, 10)));
   const compteDansSolde = new Map(types.map((t) => [t.nom, t.compteDansSolde]));
   const typesDeduits = types.filter((t) => t.actif && t.compteDansSolde).map((t) => t.nom);
   const soldes = new Map<string, SoldeConge>();
@@ -86,6 +126,11 @@ export async function chargerSoldesCongeSalaries(
         .map((l) => ({ type: l.type, nbJours: Number(l.nbJours), dateDebut: l.dateDebut })),
       compteDansSolde,
       debutAnnee,
+      cSansDemande: compterCSansDemande(
+        joursC.filter((a) => a.employeeId === emp.id).map((a) => a.date),
+        couvrantes.filter((c) => c.employeeId === emp.id),
+        feriesIso,
+      ),
     });
     soldes.set(emp.id, { ...r, typesDeduits });
   }

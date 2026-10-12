@@ -38,13 +38,12 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
 
   const rows: ArticleRow[] = articles.map((a) => {
-    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
     return {
       id: a.id,
       code: a.code,
       designation: a.designation,
       ...contenancePourClient(a), // libellé affiché (désignation + contenance) : `libelleArticle`, côté écran
-      nomCourt: a.nomCourt,
       surFicheCommande: a.surFicheCommande,
       domaine: a.domaine,
       categorieId: a.categorieId,

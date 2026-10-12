@@ -15,9 +15,11 @@ import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificat
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
+import { exigerBulletinModifiable } from "@/lib/paie-element-fige";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { actionLisible } from "@/lib/action-lisible";
+import { exigerAucunRecouvrement, exigerTypeCongeUtilisable, verrouillerCongesSalarie } from "@/lib/conges-regles";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
@@ -101,9 +103,16 @@ export async function demanderMonConge(formData: FormData) {
     const ecart = ecartJoursSoumis(formData.get("nbJours"), nbJours);
     if (ecart) throw new Error(ecart);
 
+    // Le type fait foi côté serveur (existe, actif) ; une demande qui recouvre une des miennes en
+    // attente ou approuvée est refusée (sinon le même congé se décomptait deux fois).
+    await exigerTypeCongeUtilisable(prisma, type);
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
-    const demande = await prisma.leaveRequest.create({
-      data: { employeeId, type, dateDebut, dateFin, nbJours, motif, statut: "EN_ATTENTE" },
+    const demande = await prisma.$transaction(async (tx) => {
+      await verrouillerCongesSalarie(tx, employeeId);
+      await exigerAucunRecouvrement(tx, { employeeId, dateDebut, dateFin }, "Vous avez");
+      return tx.leaveRequest.create({
+        data: { employeeId, type, dateDebut, dateFin, nbJours, motif, statut: "EN_ATTENTE" },
+      });
     });
     await creerNotification({
       type: "CONGE",
@@ -133,6 +142,8 @@ export async function demanderMonAcompte(formData: FormData) {
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
     const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
     const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
+    // Bulletin du mois déjà validé ou payé : l'acompte n'y serait plus déduit (même refus que la fiche).
+    await exigerBulletinModifiable(prisma, { employeeId, mois, annee });
 
     // Même plafond que côté Direction : le salarié ne peut pas demander plus que son salaire net
     // du mois précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.

@@ -18,6 +18,7 @@ import { MESSAGE_MOTIF_SORTIE } from "@/lib/motif-sortie";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { similairesEnStock } from "@/lib/article-proche";
 import { contenancePourClient, libelleArticle } from "@/lib/libelle-article";
+import { mentionSansPrix, sommeValeurs } from "@/lib/valeur-stock";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -137,7 +138,12 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
   // Décocher quoi que ce soit quitte le mode « tout le filtre » (comme Gmail).
   const toggle = (id: string) => { setModeFiltre(false); setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const toggleJour = (lignes: MvtLite[], on: boolean) => { if (!on) setModeFiltre(false); setSel((s) => { const n = new Set(s); for (const m of lignes) { if (on) n.add(m.id); else n.delete(m.id); } return n; }); };
-  const totalValeur = (ms: MvtLite[]) => ms.reduce((t, m) => t + (m.valeur ?? 0), 0);
+  /** Total de valeur : « ≈ 12,00 $ · partiel : 2 sans prix » ; « — » s'il n'y a aucune valeur connue. Jamais un 0 muet. */
+  const totalValeur = (ms: MvtLite[]) => {
+    const t = sommeValeurs(ms.map((m) => m.valeur));
+    const manque = mentionSansPrix(t.nbSansPrix);
+    return t.nbValorises > 0 ? `≈ ${usd(t.montant)}${manque ? ` · ${manque}` : ""}` : ms.length > 0 ? `— · ${t.nbSansPrix} sans prix` : "—";
+  };
   /** Le serveur a recompté un autre nombre : rien n'est écrit, on affiche le nouveau pour reconfirmer. */
   const surRecompte = (n: number) => { if (toutLeFiltre) setRecompte({ base: toutLeFiltre.total, n }); };
 
@@ -160,7 +166,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
           )}
           {titre} <span className="font-normal opacity-70">· {mouvements.length}{filtreDepasse ? ` affichées sur ${totalFiltre}` : ""}</span>
         </span>
-        <span className="text-xs font-normal opacity-80">≈ {usd(totalValeur(mouvements))}{filtreDepasse ? " (affichées)" : ""}</span>
+        <span className="text-xs font-normal opacity-80">{totalValeur(mouvements)}{filtreDepasse ? " (affichées)" : ""}</span>
       </div>
 
       {/* Barre d'actions groupées (Direction ; date des sorties : tout compte Stock) */}
@@ -216,7 +222,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                   {cochable && <input type="checkbox" checked={tousSel} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleJour(j.lignes, e.target.checked)} aria-label="Tout sélectionner ce jour" />}
                   <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{j.titre}
                 </span>
-                <span className="font-normal text-muted-foreground">{j.lignes.length} mouvement(s) · {signe}{qte(j.lignes.reduce((t, m) => t + m.quantite, 0))} · ≈ {usd(totalValeur(j.lignes))}</span>
+                <span className="font-normal text-muted-foreground">{j.lignes.length} mouvement(s) · {signe}{qte(j.lignes.reduce((t, m) => t + m.quantite, 0))} · {totalValeur(j.lignes)}</span>
               </summary>
               <div className="divide-y border-t">
                 {j.lignes.map((m) => (
@@ -437,7 +443,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         </div>
         <input type="hidden" name="type" value={type} />
         {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} /></label>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} max={jourCourantKinshasaISO()} className={inp} /></label>
         {type === "SORTIE" ? (
           <label className="flex items-center gap-1 text-xs text-muted-foreground">Motif
             <select name="categorieSortie" value={motif} aria-required aria-invalid={motifManquant || undefined} aria-label="Motif de la sortie (obligatoire)"
@@ -454,7 +460,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
               <option value="">Autre entrée (correction, don…)</option>
               <option value="RETOUR_RESTAURANT">Retour restaurant</option>
             </select>
-            <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
+            <input name="origine" placeholder={motifEntree === "RETOUR_RESTAURANT" ? "Précision (facultatif)" : "Motif de l'entrée (obligatoire : correction, don, achat direct…)"} required={motifEntree !== "RETOUR_RESTAURANT"} aria-required={motifEntree !== "RETOUR_RESTAURANT"} className={`${inp} min-w-56 flex-1`} />
           </>
         )}
         {type === "SORTIE" && motif === "PERTE" && (

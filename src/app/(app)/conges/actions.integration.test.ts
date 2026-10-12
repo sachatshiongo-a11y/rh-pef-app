@@ -38,6 +38,8 @@ beforeAll(async () => {
     },
   });
   empId = e.id;
+  // Le type demandé doit exister et être actif (vérifié côté serveur depuis l'audit RH du 2026-10-10).
+  await prisma.typeConge.create({ data: { nom: "Congé annuel", tauxPct: 100, compteDansSolde: true } });
   // Le 30 juin est férié (indépendance) : 29 juin → 4 juillet = 5 jours ouvrables, pas 6.
   await prisma.jourFerie.create({ data: { date: new Date("2026-06-30"), designation: "Indépendance", annee: 2026 } });
 }, 120_000);

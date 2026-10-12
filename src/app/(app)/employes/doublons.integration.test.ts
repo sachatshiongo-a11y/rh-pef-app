@@ -130,7 +130,7 @@ describe("modification : la question ne se repose que si l'identité change", ()
   it("salaire modifié sur une fiche qui a un homonyme proche : enregistré sans choix", async () => {
     const a = await employe("Sacha Tshiongo");
     await employe("Tshiongo Sacha", { actif: false });
-    const url = await envoyer(() => RH.modifierEmploye(a.id, formulaire({ nom: "Sacha Tshiongo", salaireMensuel: "450" })));
+    const url = await envoyer(() => RH.modifierEmploye(a.id, formulaire({ matricule: a.matricule, nom: "Sacha Tshiongo", salaireMensuel: "450" })));
     expect(url).toBe("/employes");
     expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id: a.id } })).salaireMensuel)).toBe(450);
   });
@@ -138,12 +138,12 @@ describe("modification : la question ne se repose que si l'identité change", ()
   it("nom changé vers une fiche proche : refusé sans choix, accepté avec, et la fiche elle-même n'est jamais son propre doublon", async () => {
     const a = await employe("Esther Nsundi");
     const b = await employe("Martine Mutombo", { actif: false });
-    const refus = await envoyer(() => RH.modifierEmploye(a.id, formulaire({ nom: "Mutombo Martine" })));
+    const refus = await envoyer(() => RH.modifierEmploye(a.id, formulaire({ matricule: a.matricule, nom: "Mutombo Martine" })));
     expect(refus).toMatch(new RegExp(`^/employes/${a.id}/modifier\\?erreur=`));
     expect((await prisma.employee.findUniqueOrThrow({ where: { id: a.id } })).nom).toBe("Esther Nsundi");
-    expect(await envoyer(() => RH.modifierEmploye(a.id, formulaire({ nom: "Mutombo Martine", doublonsEcartes: b.id })))).toBe("/employes");
+    expect(await envoyer(() => RH.modifierEmploye(a.id, formulaire({ matricule: a.matricule, nom: "Mutombo Martine", doublonsEcartes: b.id })))).toBe("/employes");
     // La paire est écartée : renommer encore (identité modifiée) ne la repose plus.
-    expect(await envoyer(() => RH.modifierEmploye(a.id, formulaire({ nom: "Martine Mutombo" })))).toBe("/employes");
+    expect(await envoyer(() => RH.modifierEmploye(a.id, formulaire({ matricule: a.matricule, nom: "Martine Mutombo" })))).toBe("/employes");
   });
 });
 

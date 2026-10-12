@@ -61,7 +61,7 @@ describe("poserCodesConge / retirerCodesConge", () => {
     // Retrait : seule la plage visée est nettoyée, un P manuel n'est pas touché.
     await prisma.attendance.create({ data: { employeeId: empId, date: new Date("2026-07-11"), code: "P" } });
     const retires = await retirerCodesConge(empId, new Date("2026-07-04"), new Date("2026-07-13"));
-    expect(retires).toBe(6); // 5 C + 1 S
+    expect(retires).toEqual({ retires: 6, figes: 0 }); // 5 C + 1 S
     const restants = await prisma.attendance.findMany({ where: { employeeId: empId } });
     expect(restants).toHaveLength(1);
     expect(restants[0].code).toBe("P");

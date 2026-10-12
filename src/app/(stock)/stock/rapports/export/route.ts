@@ -5,6 +5,7 @@ import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
 import { TableauDocument, TablesDocument } from "@/lib/pdf/tableau";
 import { libellePeriodeRapport, versTableSpec } from "@/lib/rapports-pdf";
 import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
+import { journaliserRapportGenere } from "@/lib/rapports-historique";
 import { jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
@@ -31,13 +32,19 @@ export async function GET(req: Request) {
   const data = mode === "detail" ? await genererDonneesRapportDetail(type, debut, fin) : await genererDonneesRapport(type, debut, fin);
   const periode = libellePeriodeRapport(debut, fin);
 
-  // Journalise la génération (avec mode/format pour re-télécharger depuis les archives).
-  await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
+  // Journalise la génération (avec mode/format pour re-télécharger depuis les archives) — APRÈS le rendu réussi,
+  // et une seule fois pour une même demande répétée de suite (lib/rapports-historique.ts). Un échec d'écriture
+  // de l'historique ne prive jamais du rapport déjà produit.
+  const journaliser = async () => {
+    try { await journaliserRapportGenere(prisma, { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id }); }
+    catch (e) { console.error("[stock] historique des rapports en échec :", e); }
+  };
 
   if (format === "excel") {
     const feuilles: FeuilleExcel[] = [{ nom: (data.soustitre ?? data.titre).slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol, autofiltre: data.autofiltre }];
     if (data.table2) feuilles.push({ nom: data.table2.titre.slice(0, 28), entete: data.table2.entete, lignes: data.table2.lignes, totauxCols: data.table2.sommables });
     const buf = await classeurExcel({ titre: `Rapport — ${data.titre}`, periode, feuilles });
+    await journaliser();
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -50,6 +57,7 @@ export async function GET(req: Request) {
   const buffer = data.table2
     ? await renderPdfBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
     : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data.pdf ?? data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
+  await journaliser();
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
