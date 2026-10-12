@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
-import { chargerSoldeCongeSalarie, chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
+import { chargerCongesParAnnee, chargerSoldeCongeSalarie, chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
 
 // Le chargement EN LOT (calendrier des congés, 2026-09-29) doit donner, salarié par salarié, le
 // même solde que le chargement unitaire (espace salarié, fiche Direction, PDF) : c'est la même
@@ -83,5 +83,47 @@ describe("chargerSoldesCongeSalaries", () => {
     await expect(chargerSoldeCongeSalarie(prisma, "00000000-0000-0000-0000-000000000000", MAINTENANT)).rejects.toThrow();
     const { soldes } = await chargerSoldesCongeSalaries(prisma, ["00000000-0000-0000-0000-000000000000"], MAINTENANT);
     expect(soldes.size).toBe(0);
+  });
+});
+
+// Fiche salarié sur plusieurs années (2026-10-12) : le bilan de l'année en cours EST le solde du chargement
+// unitaire ; le report d'une année est le solde de la précédente ; toutes les demandes sont lues (pas 15).
+describe("chargerCongesParAnnee", () => {
+  it("bilan par année cohérent avec le solde, demandes complètes avec leur part par année", async () => {
+    const e = await salarie("CDI", "2025-06-02");
+    await conge(e, "Congé annuel", "2025-12-29", "2026-01-06", 8); // 3 j en 2025, 5 j en 2026 (aucun férié saisi)
+    await conge(e, "Congé maladie", "2026-04-01", "2026-04-03", 3); // ne se décompte pas
+    await conge(e, "Congé annuel", "2026-10-01", "2026-10-02", 2, "EN_ATTENTE");
+    for (let i = 0; i < 20; i++) await conge(e, "Congé maladie", `2025-0${(i % 5) + 7}-01`, `2025-0${(i % 5) + 7}-01`, 1);
+
+    const { bilans, demandes, sansConges } = await chargerCongesParAnnee(prisma, e, MAINTENANT);
+    expect(sansConges).toBe(false);
+    expect(bilans.map((b) => b.annee)).toEqual([2025, 2026]);
+    const solde = await chargerSoldeCongeSalarie(prisma, e, MAINTENANT);
+    expect(bilans[1]).toEqual({ ...solde, typesDeduits: undefined, enCours: true }); // les types décomptés ne sont pas du bilan
+    expect(bilans[0]).toMatchObject({ report: 0, acquisAnnee: 9, pris: 3, solde: 6, enCours: false });
+    expect(bilans[1].report).toBe(bilans[0].solde);
+    // Toutes les demandes (23 > les 15 d'avant), le congé à cheval réparti, le non décompté sans part.
+    expect(demandes).toHaveLength(23);
+    const cheval = demandes.find((d) => d.nbJours === 8)!;
+    expect(cheval.joursParAnnee).toEqual({ 2025: 3, 2026: 5 });
+    expect(cheval.entameLeSolde).toBe(true);
+    const maladie = demandes.find((d) => d.type === "Congé maladie" && d.nbJours === 3)!;
+    expect(maladie).toMatchObject({ entameLeSolde: false, joursParAnnee: {} });
+    expect(demandes.find((d) => d.statut === "EN_ATTENTE")!.joursParAnnee).toEqual({});
+  });
+
+  // Relecture 2026-10-12 : les fériés de l'année SUIVANTE comptent pour répartir un congé à cheval posé
+  // cette année. 28/12/2026 → 05/01/2027 : 7 jours ouvrables (le 1er janvier férié, le 3 dimanche),
+  // 4 en 2026 (28-31/12), 3 en 2027 (2, 4, 5/01). Sans le férié de 2027 : 8 jours, 3,5 j décomptés en 2026.
+  it("congé à cheval sur l'année suivante : le férié du 1er janvier suivant est connu", async () => {
+    const e = await salarie("CDI", "2024-01-10");
+    await prisma.jourFerie.create({ data: { date: new Date("2027-01-01"), designation: "Nouvel an", annee: 2027 } });
+    await conge(e, "Congé annuel", "2026-12-28", "2027-01-05", 7);
+    const { bilans, demandes } = await chargerCongesParAnnee(prisma, e, MAINTENANT);
+    expect(demandes[0].joursParAnnee).toEqual({ 2026: 4, 2027: 3 });
+    const solde = await chargerSoldeCongeSalarie(prisma, e, MAINTENANT);
+    expect(solde.pris).toBe(4);
+    expect(bilans.at(-1)!.pris).toBe(4);
   });
 });

@@ -181,24 +181,20 @@ export function joursCSansDemande(
   });
 }
 
+/** Ce que `calculerSoldeAnneeCivile` demande, pour un salarié (sans la date de référence). */
+type EntreesSolde = Omit<Parameters<typeof calculerSoldeAnneeCivile>[0], "aujourdhui">;
+
 /**
- * Les soldes de PLUSIEURS salariés, en lot : 7 requêtes quel que soit leur nombre (salariés,
+ * LES ENTRÉES DU SOLDE de plusieurs salariés, en lot : 6 requêtes quel que soit leur nombre (salariés,
  * droits annuels de l'exercice actif, types, demandes approuvées, « C » de la grille, fériés).
- * Même règle, ligne à ligne, que pour un seul.
+ * Une seule lecture, deux usages : le solde d'aujourd'hui (`chargerSoldesCongeSalaries`) et le bilan
+ * année par année de la fiche (`chargerCongesParAnnee`) — le second ne recalcule rien d'autre.
  *
  * Année civile (décisions Direction du 2026-10-12) : le report d'une année sur l'autre oblige à lire
  * l'HISTORIQUE depuis l'embauche — toutes les demandes approuvées et tous les « C » de la grille
  * jusqu'au 31 décembre de l'année en cours (les années suivantes ne comptent pas encore).
- *
- * `entameLeSolde` est la règle de décompte (case « compte dans le solde » du type, types retirés
- * compris) : un écran qui compte des jours pris sur une AUTRE période — le calendrier sur l'année
- * affichée — l'emprunte ici plutôt que de la réécrire.
  */
-export async function chargerSoldesCongeSalaries(
-  db: Prisma.TransactionClient,
-  employeeIds: string[],
-  maintenant: Date = new Date(),
-): Promise<{ soldes: Map<string, SoldeConge>; entameLeSolde: (type: string) => boolean }> {
+async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: string[], maintenant: Date) {
   // « Maintenant » se lit à Kinshasa : le 1er du mois (ou de l'an) entre 00 h et 01 h, le mois révolu
   // (1,5 j de plus) et l'année des congés avaient encore un jour de retard avec l'horloge UTC.
   const aujourdhui = jourCivilKinshasa(maintenant);
@@ -220,28 +216,54 @@ export async function chargerSoldesCongeSalaries(
       where: { employeeId: { in: employeeIds }, code: "C", date: { lte: finAnnee } },
       select: { employeeId: true, date: true },
     }),
-    db.jourFerie.findMany({ where: { date: { lte: finAnnee } }, select: { date: true } }),
+    // TOUS les fériés, pas seulement jusqu'au 31 décembre de l'année en cours : un congé à cheval
+    // (28/12 → 05/01) se répartit sur les jours ouvrables des DEUX années. Sans le 1er janvier suivant,
+    // janvier comptait un jour ouvrable de trop et décembre perdait une part de ce qui y est pris
+    // (7 j saisis du 28/12/2026 au 05/01/2027 : 3,5 j décomptés en 2026 au lieu de 4).
+    db.jourFerie.findMany({ select: { date: true } }),
   ]);
   const feriesIso = new Set(feries.map((f) => iso(f.date)));
   const compteDansSolde = new Map(types.map((t) => [t.nom, t.compteDansSolde]));
   const typesDeduits = types.filter((t) => t.actif && t.compteDansSolde).map((t) => t.nom);
-  const soldes = new Map<string, SoldeConge>();
+  const entrees = new Map<string, EntreesSolde>();
   for (const emp of emps) {
     const demandes = approuvees.filter((l) => l.employeeId === emp.id);
     const prisParJour = demandes
       .filter((l) => congeDeductibleDuSolde(compteDansSolde.get(l.type)))
       .flatMap((l) => repartirCongeParJour({ dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours) }, feriesIso));
-    const r = calculerSoldeAnneeCivile({
+    entrees.set(emp.id, {
       dateEmbauche: new Date(emp.dateEmbauche),
-      aujourdhui,
       droitsAnnuels: droitsCongesAnnuel,
       sansConges: typeSansConges(emp.contrat),
       prisParJour,
       cSansDemande: joursCSansDemande(joursC.filter((a) => a.employeeId === emp.id).map((a) => a.date), demandes, feriesIso),
     });
-    soldes.set(emp.id, { ...r, typesDeduits });
   }
-  return { soldes, entameLeSolde: (type) => congeDeductibleDuSolde(compteDansSolde.get(type)) };
+  return {
+    aujourdhui,
+    entrees,
+    typesDeduits,
+    feriesIso,
+    entameLeSolde: (type: string) => congeDeductibleDuSolde(compteDansSolde.get(type)),
+  };
+}
+
+/**
+ * Les soldes de PLUSIEURS salariés, en lot. Même règle, ligne à ligne, que pour un seul.
+ *
+ * `entameLeSolde` est la règle de décompte (case « compte dans le solde » du type, types retirés
+ * compris) : un écran qui compte des jours pris sur une AUTRE période — le calendrier sur l'année
+ * affichée — l'emprunte ici plutôt que de la réécrire.
+ */
+export async function chargerSoldesCongeSalaries(
+  db: Prisma.TransactionClient,
+  employeeIds: string[],
+  maintenant: Date = new Date(),
+): Promise<{ soldes: Map<string, SoldeConge>; entameLeSolde: (type: string) => boolean }> {
+  const { aujourdhui, entrees, typesDeduits, entameLeSolde } = await chargerEntreesSolde(db, employeeIds, maintenant);
+  const soldes = new Map<string, SoldeConge>();
+  for (const [id, e] of entrees) soldes.set(id, { ...calculerSoldeAnneeCivile({ ...e, aujourdhui }), typesDeduits });
+  return { soldes, entameLeSolde };
 }
 
 export async function chargerSoldeCongeSalarie(
@@ -253,4 +275,83 @@ export async function chargerSoldeCongeSalarie(
   const solde = soldes.get(employeeId);
   if (!solde) throw new Error(`Salarié introuvable : ${employeeId}`);
   return solde;
+}
+
+/** Le bilan d'UNE année civile : ce que `calculerSoldeAnneeCivile` rend pour cette année. */
+export type BilanAnneeConge = Omit<SoldeConge, "typesDeduits"> & {
+  /** Année en cours : le solde est « à date » (jusqu'au 31 décembre pour les jours pris, aujourd'hui pour les acquis). */
+  enCours: boolean;
+};
+
+/**
+ * LE BILAN ANNÉE PAR ANNÉE, de l'embauche (ou du premier jour pris, s'il est plus ancien) à l'année en
+ * cours. PUR. Rien n'est recalculé d'une autre façon : chaque année passe par
+ * `calculerSoldeAnneeCivile`, avec pour date de référence le 31 décembre de cette année (le compte se
+ * rejoue jusque-là, les congés d'après ne comptent pas) ; l'année en cours, elle, est celle du solde
+ * d'aujourd'hui, au jour près. Le solde de fin d'une année est donc le report de la suivante.
+ * Les années à venir n'ont pas de bilan (elles attendent leur 1er janvier).
+ */
+export function bilansParAnnee(e: EntreesSolde & { aujourdhui: Date }): BilanAnneeConge[] {
+  const courante = e.aujourdhui.getUTCFullYear();
+  const premieres = [
+    new Date(e.dateEmbauche).getUTCFullYear(),
+    ...e.prisParJour.map((x) => new Date(x.date).getUTCFullYear()),
+    ...(e.cSansDemande ?? []).map((d) => new Date(d).getUTCFullYear()),
+  ].filter((a) => a <= courante);
+  const debut = Math.min(courante, ...premieres);
+  const bilans: BilanAnneeConge[] = [];
+  for (let annee = debut; annee <= courante; annee++) {
+    const enCours = annee === courante;
+    const r = calculerSoldeAnneeCivile({ ...e, aujourdhui: enCours ? e.aujourdhui : new Date(Date.UTC(annee, 11, 31)) });
+    bilans.push({ ...r, enCours });
+  }
+  return bilans;
+}
+
+/** Une demande de congé de la fiche, avec ce qui la rattache aux années. */
+export type DemandeCongeFiche = {
+  id: string;
+  type: string;
+  dateDebut: Date;
+  dateFin: Date;
+  nbJours: number;
+  statut: string;
+  motifRefus: string | null;
+  /** Le type entame le solde (case « compte dans le solde »). */
+  entameLeSolde: boolean;
+  /** Jours décomptés par année civile (demande APPROUVÉE d'un type qui entame le solde), au prorata des jours ouvrables. */
+  joursParAnnee: Record<number, number>;
+};
+
+/**
+ * Tout ce que l'onglet « Congés & absences » de la fiche lit : le bilan de chaque année (une seule
+ * lecture, la même que le solde d'aujourd'hui) et TOUTES les demandes du salarié (plus seulement les
+ * 15 dernières), chacune avec sa part de jours par année — un congé à cheval sur deux années figure
+ * dans les deux.
+ */
+export async function chargerCongesParAnnee(
+  db: Prisma.TransactionClient,
+  employeeId: string,
+  maintenant: Date = new Date(),
+): Promise<{ bilans: BilanAnneeConge[]; demandes: DemandeCongeFiche[]; sansConges: boolean }> {
+  const { aujourdhui, entrees, feriesIso, entameLeSolde } = await chargerEntreesSolde(db, [employeeId], maintenant);
+  const e = entrees.get(employeeId);
+  if (!e) throw new Error(`Salarié introuvable : ${employeeId}`);
+  const lues = await db.leaveRequest.findMany({
+    where: { employeeId },
+    orderBy: { dateDebut: "desc" },
+    select: { id: true, type: true, nbJours: true, dateDebut: true, dateFin: true, statut: true, motifRefus: true },
+  });
+  const demandes: DemandeCongeFiche[] = lues.map((l) => {
+    const entame = entameLeSolde(l.type);
+    const joursParAnnee: Record<number, number> = {};
+    if (l.statut === "APPROUVE" && entame) {
+      for (const x of repartirCongeParJour({ dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours) }, feriesIso)) {
+        const a = x.date.getUTCFullYear();
+        joursParAnnee[a] = (joursParAnnee[a] ?? 0) + x.jours;
+      }
+    }
+    return { id: l.id, type: l.type, dateDebut: l.dateDebut, dateFin: l.dateFin, nbJours: Number(l.nbJours), statut: l.statut, motifRefus: l.motifRefus, entameLeSolde: entame, joursParAnnee };
+  });
+  return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: e.sansConges };
 }
