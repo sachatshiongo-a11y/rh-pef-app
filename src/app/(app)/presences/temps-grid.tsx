@@ -60,6 +60,9 @@ export type EmployeeRow = {
    *  + moteur de paie), au dernier chargement ; `null` = pas d'heures supp. payées à ce salarié
    *  (back-office au salaire fixe, stage, intérim) — affiché « — », jamais 0. */
   hsValoriseePaie?: number | null;
+  /** Mois PASSÉ : heures supp. du mois FIGÉES sur le bulletin (le bulletin fait foi), `null` = pas de
+   *  bulletin figé (« — »). Absent (`undefined`) : mois courant, total recalculé depuis la grille. */
+  hsMoisFigees?: { hs30: number; hs60: number; hs100: number } | null;
   /** Heures des jours de la semaine à cheval AVANT le 1er du mois (mois précédent) : placent le seuil
    *  hebdomadaire des heures supp., jamais comptées dans le mois (même règle que la paie). */
   heuresAvantMois?: { date: string; heures: number }[];
@@ -219,7 +222,12 @@ export function TempsGrid({
     setCellules((c) => ({ ...c, [k]: { ...c[k], heures: val } }));
     startTransition(async () => {
       try {
-        await saisirHeures(empId, isoDates[day - 1], heures.replace(",", "."));
+        const r = await saisirHeures(empId, isoDates[day - 1], heures.replace(",", "."));
+        if (r?.erreur) {
+          // Refus motivé (mois passé) : la case revient à sa valeur enregistrée et la note dit pourquoi.
+          setCellules((c) => ({ ...c, [k]: { ...c[k], heures: avant } }));
+          setNote(r.erreur);
+        }
       } catch {
         // Refus ou échec : la case revient à sa valeur enregistrée et la note le dit (avant, la valeur restait affichée sans être écrite).
         setCellules((c) => ({ ...c, [k]: { ...c[k], heures: avant } }));
@@ -235,7 +243,10 @@ export function TempsGrid({
     const jour = iso ? isoDates.indexOf(iso) + 1 : jourMobile;
     const k = `${empId}_${jour}`;
     setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: v } }));
-    return saisirHeures(empId, isoDates[jour - 1], v === null ? "" : String(v)).catch((e: unknown) => {
+    return saisirHeures(empId, isoDates[jour - 1], v === null ? "" : String(v)).then((r) => {
+      // Refus motivé (mois passé) : traité comme un échec, avec le vrai motif.
+      if (r?.erreur) throw new Error(r.erreur);
+    }).catch((e: unknown) => {
       // Échec : la valeur locale est annulée (les totaux ne comptent pas des heures non
       // enregistrées) ; la case reste en rouge et le message s'affiche sous la liste.
       setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: precedente } }));
@@ -465,7 +476,14 @@ export function TempsGrid({
         const entrees = emps.flatMap((empId) =>
           cibles.map((d) => ({ employeeId: empId, date: isoDates[d - 1], heures }))
         );
-        const { ignores } = await saisirHeuresEnLot(entrees);
+        const lotHeures = await saisirHeuresEnLot(entrees);
+        if (lotHeures?.erreur) {
+          // Lot d'heures refusé en entier (mois passé) : rien n'a été écrit.
+          setCellules(avantLot);
+          setNote(lotHeures.erreur);
+          return;
+        }
+        const { ignores } = lotHeures;
         nbIgnores += ignores.length;
         if (ignores.length > 0)
           setCellules((c) => {
@@ -499,7 +517,7 @@ export function TempsGrid({
 
   // ── Totaux vivants (présences + heures supp) calculés depuis l'état local ──
   const totaux = useMemo(() => {
-    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number | null; semaines: DetailSemaineHS[] }> = {};
+    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number | null; hsFige: boolean; hsVal: number | null; semaines: DetailSemaineHS[] }> = {};
     for (const e of employees) {
       const codes: CodePresence[] = [];
       const jours: { date: Date; heuresTravaillees: number }[] = [];
@@ -520,12 +538,16 @@ export function TempsGrid({
         joursFeries,
         params,
       });
-      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hs.totalHS, hsVal: e.hsValoriseePaie ?? null, semaines: hs.semaines };
+      // Total HS du MOIS affiché : recalculé sur le mois courant ; sur un mois passé, celui du bulletin figé
+      // (« — » sans bulletin) — jamais un recalcul présenté comme payé.
+      const hsMois = e.hsMoisFigees === undefined ? hs.totalHS : e.hsMoisFigees === null ? null : e.hsMoisFigees.hs30 + e.hsMoisFigees.hs60 + e.hsMoisFigees.hs100;
+      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hsMois, hsFige: e.hsMoisFigees !== undefined, hsVal: e.hsValoriseePaie ?? null, semaines: hs.semaines };
     }
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cellules, employees]);
-  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsVal: null, semaines: [] };
+  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsFige: false, hsVal: null, semaines: [] };
+  const fmtHsMois = (v: number | null) => (v === null ? "—" : fmtH(v));
   /** Heures supp. de la SEMAINE affichée (même calcul que la paie : seuils jour et semaine du contrat). */
   const numeroSemaineAffichee = joursSemaine.length > 0 ? numeroSemaineDuMois(new Date(`${isoDates[joursSemaine[0] - 1]}T00:00:00Z`)) : 0;
   const hsDeLaSemaine = (id: string) => {
@@ -720,7 +742,7 @@ export function TempsGrid({
   /** Nom + sous-ligne de totaux d'un employé (vues Semaine et Mois). */
   function celluleNom(e: EmployeeRow) {
     const t = totauxDe(e.id);
-    const detail = `Payés 100 % : ${formaterNombre(t.p100)} j · payés 2/3 : ${formaterNombre(t.p23)} j · non payés : ${formaterNombre(t.np)} j · heures du mois : ${fmtH(t.h)} · heures supp. du mois : ${fmtH(t.hs)} — au-delà de ${fmtH(e.heuresParJour)} h/jour ou ${fmtH(e.heuresHebdo)} h/semaine du contrat, jours saisis d'avance compris, même calcul que la paie (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
+    const detail = `Payés 100 % : ${formaterNombre(t.p100)} j · payés 2/3 : ${formaterNombre(t.p23)} j · non payés : ${formaterNombre(t.np)} j · heures du mois : ${fmtH(t.h)} · ${t.hsFige ? `heures supp. du mois (bulletin) : ${fmtHsMois(t.hs)} (valorisées : ${fmtHsVal(t.hsVal)})` : `heures supp. du mois : ${fmtHsMois(t.hs)} — au-delà de ${fmtH(e.heuresParJour)} h/jour ou ${fmtH(e.heuresHebdo)} h/semaine du contrat, jours saisis d'avance compris, même calcul que la paie (valorisées par la paie : ${fmtHsVal(t.hsVal)})`}`;
     return (
       <div role="rowheader" className="flex min-w-0 items-center gap-2 px-2 py-1">
         {peutModifier && (
@@ -739,12 +761,12 @@ export function TempsGrid({
                 {`sem. ${fmtH(heuresDeLaSemaine(e.id))} h`}
                 {hsDeLaSemaine(e.id) > 0 && <span className="font-medium text-amber-700">{` (HS ${fmtH(hsDeLaSemaine(e.id))})`}</span>}
                 {` · mois ${fmtH(t.h)} h`}
-                {t.hs > 0 && <span className="font-medium text-amber-700">{` (HS ${fmtH(t.hs)})`}</span>}
+                {t.hs !== null && t.hs > 0 && <span className="font-medium text-amber-700">{` (HS ${fmtH(t.hs)})`}</span>}
               </>
             ) : (
               <>
                 {`${fmtH(t.h)} h`}
-                {t.hs > 0 && <span className="font-medium text-amber-700">{` · HS du mois ${fmtH(t.hs)}`}</span>}
+                {t.hs !== null && t.hs > 0 && <span className="font-medium text-amber-700">{` · HS du mois ${fmtH(t.hs)}`}</span>}
               </>
             )}
           </span>
@@ -766,7 +788,7 @@ export function TempsGrid({
       ["Jours payés 2/3", formaterNombre(t.p23)],
       ["Jours non payés", formaterNombre(t.np)],
       ["Heures du mois", fmtH(t.h)],
-      ["Heures supp.", fmtH(t.hs), t.hs > 0 ? "text-amber-700" : undefined],
+      [t.hsFige ? "Heures supp. (bulletin)" : "Heures supp.", fmtHsMois(t.hs), t.hs !== null && t.hs > 0 ? "text-amber-700" : undefined],
       ["HS valorisées (paie)", fmtHsVal(t.hsVal)],
     ];
     const rang = employees.findIndex((x) => x.id === e.id);

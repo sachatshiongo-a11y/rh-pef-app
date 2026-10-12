@@ -7,6 +7,7 @@ import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { journaliser } from "@/lib/audit";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { heuresDansLesBornes, HEURES_MIN, HEURES_MAX } from "@/lib/heures-bornes";
+import { refusMoisPasse } from "@/lib/presences-mois-serveur";
 
 /**
  * Écrit (ou vide : 0 / vide) les heures d'un jour. Vider reste une correction de grille ouverte au
@@ -57,9 +58,15 @@ async function appliquerHeures(employeeId: string, date: string, heures: string,
   });
 }
 
-export async function saisirHeures(employeeId: string, date: string, heures: string) {
+export async function saisirHeures(employeeId: string, date: string, heures: string): Promise<{ erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Mois PASSÉ (antérieur au mois RH courant) : lecture seule, rien n'est écrit (lib/presences-mois-serveur).
+  // Refus RENVOYÉ (pas levé) : une exception d'action serveur perd son message en production, et la grille
+  // afficherait « Réessayez » au lieu du vrai motif (onglet resté ouvert pendant la clôture).
+  const passe = await refusMoisPasse([date]);
+  if (passe) return { erreur: passe };
 
   await appliquerHeures(employeeId, date, heures, user.id);
 
@@ -67,6 +74,7 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
   revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
+  return {};
 }
 
 /** Saisie en lot (collage / actions groupées). Ne reçoivent pas d'heures (entrée ignorée et
@@ -74,9 +82,14 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
  * selon le modèle hebdo (la saisie unitaire reste libre). L'effacement reste permis partout. */
 export async function saisirHeuresEnLot(
   entrees: { employeeId: string; date: string; heures: string }[]
-): Promise<{ ignores: { employeeId: string; date: string }[] }> {
+): Promise<{ ignores: { employeeId: string; date: string }[]; erreur?: string }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Mois PASSÉ : le lot entier est refusé si un seul de ses jours y tombe, avant la première écriture
+  // (refus renvoyé, pas levé : voir saisirHeures).
+  const passe = await refusMoisPasse(entrees.map((e) => e.date));
+  if (passe) return { ignores: [], erreur: passe };
 
   // Toutes les saisies lues AVANT la première écriture : une valeur hors 0–24 h refuse le lot entier
   // (jamais un lot à moitié appliqué).

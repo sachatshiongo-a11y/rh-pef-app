@@ -106,4 +106,17 @@ describe("Présences mobile — heures", () => {
     expect(c.getAttribute("aria-invalid")).toBe("true");
     expect(conteneur.querySelector('[role="status"]')!.textContent).toContain("Réseau coupé.");
   });
+
+  it("refus motivé du serveur (mois passé, renvoyé et non levé) : la case revient et affiche le VRAI motif", async () => {
+    const motif = "Mois passé — lecture seule : août 2026 est antérieur au mois en cours (septembre 2026). Rien n'a été enregistré.";
+    m.saisirHeures.mockResolvedValueOnce({ erreur: motif } as never);
+    const c = heures("Bruno");
+    act(() => c.focus());
+    taper(c, "6");
+    await act(async () => c.blur());
+    expect(c.getAttribute("aria-invalid")).toBe("true");
+    const statut = conteneur.querySelector('[role="status"]')!.textContent;
+    expect(statut).toContain(motif);
+    expect(statut).not.toContain("Réessayez.");
+  });
 });

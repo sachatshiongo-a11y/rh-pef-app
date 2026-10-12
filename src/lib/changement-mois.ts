@@ -38,6 +38,23 @@ export function annonceCloture(p: Periode): string {
   return `La paie de ${libellePeriode(p)} sera clôturée et l'espace RH passera à ${libellePeriode(moisSuivant(p))}.`;
 }
 
+/**
+ * CLÔTURE ANTICIPÉE (décision de la Direction du 2026-10-12) : clôturer avant le dernier jour du mois reste
+ * permis, mais le mois devient « passé » — ses jours restants (aujourd'hui compris) ne reçoivent plus ni
+ * présences ni heures (verrou « mois passé », lib/presences-mois-serveur). Une ligne de plus dans la
+ * confirmation le dit ; null le dernier jour du mois et après (rien n'est perdu). `aujourdhui` = jour civil
+ * de Kinshasa, AAAA-MM-JJ, fourni par l'appelant.
+ */
+export function ligneClotureAnticipee(close: Periode, aujourdhui: string): string | null {
+  const mm = String(close.mois).padStart(2, "0");
+  const premier = `${close.annee}-${mm}-01`;
+  const dernierJour = new Date(Date.UTC(close.annee, close.mois, 0)).getUTCDate();
+  const dernier = `${close.annee}-${mm}-${String(dernierJour).padStart(2, "0")}`;
+  if (aujourdhui >= dernier) return null;
+  const debut = aujourdhui > premier ? aujourdhui : premier;
+  return `Les jours du ${debut.slice(8, 10)} au ${dernier.slice(8, 10)}/${mm} ne pourront plus recevoir de présences ni d'heures.`;
+}
+
 /** Message après une clôture réussie. */
 export function messageClotureReussie(close: Periode, vers: Periode): string {
   return `Paie de ${libellePeriode(close)} clôturée — l'espace RH est passé à ${libellePeriode(vers)}.`;

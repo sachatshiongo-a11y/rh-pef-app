@@ -20,6 +20,10 @@ const iso = (j: number) => d(j).toISOString().slice(0, 10);
 
 beforeAll(async () => {
   ({ prisma, fermer } = await creerBaseTest()); H.client = prisma;
+  // Mois RH courant = octobre 2026, le mois des jours saisis ici. Sans Config, le verrou « mois passé »
+  // (lib/presences-mois-serveur) lirait l'horloge : dès le 1er novembre 2026, tout ce fichier passerait
+  // au rouge (octobre devenu « passé »), sans rapport avec la maladie justifiée.
+  await prisma.config.create({ data: { id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 10 } });
   H.userId = (await prisma.user.create({ data: { email: "rh@pef.cd", nom: "RH", role: "MANAGER" } })).id;
   emp = (await prisma.employee.create({ data: { matricule: "MJ1", nom: "Mado", sexe: "F", etatCivil: "C", poste: "P", secteur: "S", categorie: "BRIGADE", salaireMensuel: 300, dateEmbauche: new Date("2025-01-06"), contrat: "CDI", heuresParJour: 8 } })).id;
   for (const [j, code] of [[6, "M"], [7, "M"], [8, "P"]] as const) await prisma.attendance.create({ data: { employeeId: emp, date: d(j), code } });

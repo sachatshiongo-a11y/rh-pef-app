@@ -17,6 +17,9 @@ let prisma: PrismaClient; let fermer: () => Promise<void>; let empId = "";
 beforeAll(async () => {
   const db = await creerBaseTest(); prisma = db.prisma; fermer = db.fermer; H.client = prisma;
   await prisma.user.create({ data: { id: "u", email: "d@pef.cd", nom: "Direction", role: "ADMIN" } });
+  // Mois RH courant = septembre 2026, le mois saisi : un mois antérieur au mois RH courant est en lecture seule
+  // (2026-10-12) ; sans Config, ce serait le mois de l'horloge.
+  await prisma.config.create({ data: { id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 9 } });
   empId = (await prisma.employee.create({ data: {
     matricule: "BR1", nom: "Cuisine", sexe: "F", etatCivil: "C", poste: "Cuisinier", secteur: "Cuisine", categorie: "BRIGADE",
     salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8, dateEmbauche: new Date("2025-01-06T00:00:00Z"), contrat: "CDI" } })).id;

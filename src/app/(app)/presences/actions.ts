@@ -8,6 +8,7 @@ import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { refusSuppression, MESSAGE_EFFACER_PRESENCE } from "@/lib/suppression-direction";
 import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
 import { heuresDansLesBornes, messageHeuresHorsBornes } from "@/lib/heures-bornes";
+import { refusMoisPasse } from "@/lib/presences-mois-serveur";
 import {
   chargerContextePresences, codeSansHeures, heuresPreRemplies, messageRetraitAConfirmer, messageRetraitFait, type Entree,
 } from "@/lib/presences-lot";
@@ -113,6 +114,10 @@ export async function saisirPresence(
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  // Mois PASSÉ (antérieur au mois RH courant) : lecture seule, rien n'est écrit (lib/presences-mois-serveur).
+  const passe = await refusMoisPasse([date]);
+  if (passe) return { erreur: passe };
+
   // Vider un code déjà saisi efface le pointage du jour : réservé à la Direction (règle de Sacha,
   // 2026-10-01). Remplacer le code reste ouvert au responsable.
   if (code === "" && (await videUnePresenceSaisie([{ employeeId, date, code }]))) {
@@ -167,6 +172,10 @@ export async function saisirPresencesEnLot(
 ): Promise<ResultatLotPresences> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Mois PASSÉ : le lot entier est refusé si un seul de ses jours y tombe (tout ou rien, rien n'est écrit).
+  const passe = await refusMoisPasse(entrees.map((e) => e.date));
+  if (passe) return { ignores: [], erreur: passe };
 
   // Même règle qu'en saisie unitaire, TOUT OU RIEN : un lot qui viderait un code déjà saisi est
   // refusé en entier, sans rien écrire (pas de lot à moitié appliqué).

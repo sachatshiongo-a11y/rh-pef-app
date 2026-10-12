@@ -89,18 +89,29 @@ const BOUTON_FLECHE = "flex h-11 w-11 shrink-0 items-center justify-center round
  * semaine (‹ › et « Cette semaine ») ou employé (‹ › entre collègues). Pas de « Mois » sur téléphone :
  * le téléphone n'a pas de grille, il lit le jour.
  */
-export function BarreVuePresences({ semaines, semaineAujourdhui, employes }: {
+/** Ajoute `mois=…&annee=…` (mois autre que le mois courant) à l'adresse d'un onglet : ouvert dans un nouvel
+ *  onglet du navigateur, il rouvre le MÊME mois. Vide : l'adresse d'aujourd'hui, inchangée. */
+const avecMois = (href: string, requete: string) => (requete ? `${href}${href.includes("?") ? "&" : "?"}${requete}` : href);
+
+export function BarreVuePresences({ semaines, semaineAujourdhui, employes, requeteMois = "" }: {
   semaines: SemaineAffichee[];
   /** Rang de la semaine d'aujourd'hui (jour civil de Kinshasa), ou de repli si la période est ailleurs. */
   semaineAujourdhui: number;
   employes: EmployePourBarre[];
+  /** `mois=…&annee=…` quand l'écran montre un mois passé ; vide sur le mois courant. */
+  requeteMois?: string;
 }) {
   const { vue, setVue, semaine, setSemaine, employeId, setEmployeId } = useVuePresences();
   const rang = employes.findIndex((e) => e.id === employeId);
   const emp = rang >= 0 ? employes[rang] : null;
+  const hrefs: Record<VuePresences, string> = {
+    semaine: avecMois(HREF.semaine, requeteMois),
+    mois: avecMois(HREF.mois, requeteMois),
+    employe: avecMois(HREF.employe, requeteMois),
+  };
 
   function choisirVue(href: string) {
-    const v = (Object.keys(HREF) as VuePresences[]).find((k) => HREF[k] === href) ?? "semaine";
+    const v = (Object.keys(hrefs) as VuePresences[]).find((k) => hrefs[k] === href) ?? "semaine";
     setVue(v, v === "employe" ? (employeId ?? employes[0]?.id ?? null) : undefined);
   }
 
@@ -110,9 +121,9 @@ export function BarreVuePresences({ semaines, semaineAujourdhui, employes }: {
         libelle="Vue des présences"
         surChoix={choisirVue}
         onglets={[
-          { href: HREF.semaine, label: (<><span className="lg:hidden">Jour</span><span className="max-lg:hidden">Semaine</span></>), actif: vue === "semaine" },
-          { href: HREF.mois, label: "Mois", actif: vue === "mois", masqueTelephone: true },
-          { href: HREF.employe, label: "Employé", actif: vue === "employe" },
+          { href: hrefs.semaine, label: (<><span className="lg:hidden">Jour</span><span className="max-lg:hidden">Semaine</span></>), actif: vue === "semaine" },
+          { href: hrefs.mois, label: "Mois", actif: vue === "mois", masqueTelephone: true },
+          { href: hrefs.employe, label: "Employé", actif: vue === "employe" },
         ]}
       />
 
