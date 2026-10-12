@@ -243,17 +243,18 @@ describe("5 — un jour qui passe à N, A, M ou O perd ses heures (confirmation 
   });
 });
 
-describe("6 — « Modifier » : salaire, embauche, contrat et frais médicaux réservés à la Direction", () => {
+describe("6 — « Modifier » : salaire, embauche, contrat et frais médicaux validés par la Direction", () => {
   const champs = (id: string, o: Record<string, string> = {}) => ({
     matricule: `TS${id}`, sexe: "M", etatCivil: "Célibataire", poste: "Commis", secteur: "Cuisine", categorie: "BRIGADE",
     transportJourCDF: "0", transportMoisCDF: "0", transportMoisUSD: "0", cnssMontant: "0", enfants: "0", heuresParJour: "8", heuresHebdomadaires: "48", type: "NATIONAL", ...o,
   });
-  it("un responsable (MANAGER) qui envoie le salaire est refusé ; sans ces champs, la fiche se modifie et le salaire ne bouge pas", async () => {
+  it("un responsable (MANAGER) qui envoie le salaire crée une demande, rien n'est appliqué ; sans ces champs, la fiche se modifie", async () => {
     const id = await emp();
     const { matricule: m, nom } = await prisma.employee.findUniqueOrThrow({ where: { id } });
     comme("MANAGER");
-    const refus = await url(RH.modifierEmploye(id, fd(champs(id, { matricule: m, nom, salaireMensuel: "900", dateEmbauche: "2010-01-01", contrat: "CDI", fraisMedicauxMoisCourant: "0" }))));
-    expect(refus).toContain("Direction seulement");
+    const demande = await url(RH.modifierEmploye(id, fd(champs(id, { matricule: m, nom, salaireMensuel: "900", dateEmbauche: "2010-01-01", contrat: "CDI", fraisMedicauxMoisCourant: "0" }))));
+    expect(demande).toBe(`/employes/${id}`);
+    expect(await prisma.demandeModifFiche.count({ where: { employeeId: id, statut: "EN_ATTENTE" } })).toBe(1);
     expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).salaireMensuel)).toBe(300);
     const ok = await url(RH.modifierEmploye(id, fd(champs(id, { matricule: m, nom, poste: "Chef de partie" }))));
     expect(ok).toBe("/employes");
