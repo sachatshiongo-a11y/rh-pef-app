@@ -4,7 +4,7 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { MOIS_FR } from "@/lib/dates-fr";
-import { inventaireDuMois, parDomaine, alerteLabel, ligneSansPrix } from "@/lib/cloture-inventaire";
+import { inventaireDuMois, parDomaine, alerteLabel, ligneSansPrix, PLAFOND_MOUVEMENTS_EXPORT } from "@/lib/cloture-inventaire";
 import { mentionSansPrix } from "@/lib/valeur-stock";
 import { dateHeureGenerationKinshasa } from "@/lib/heure-kinshasa";
 import { niveauAlerte, uniteAffichee } from "@/lib/stock";
@@ -24,6 +24,24 @@ export async function GET(req: Request) {
   const g = await exigerEspaceStock();
   if (!g.ok) return g.reponse;
 
+  // Une panne se DIT. Sans ce filet, une erreur levée ici devenait un 500 sans corps, que l'écran traduisait
+  // par « Le document n'a pas pu être récupéré. Vérifiez votre connexion » — la même phrase qu'une coupure de
+  // réseau (constaté en production le 12/10/2026 : impossible de savoir laquelle des deux). La cause réelle va
+  // dans le journal du serveur, sous une référence que la personne peut citer ; elle n'est jamais affichée
+  // (les messages de la base ne sortent pas de la maison).
+  try {
+    return await produire(req);
+  } catch (e) {
+    const reference = `INV-${Date.now().toString(36).slice(-5).toUpperCase()}`;
+    console.error(`[stock] export de l'inventaire en échec (${reference}) :`, req.url, e);
+    return new Response(
+      `L'inventaire n'a pas pu être produit (erreur interne, référence ${reference}). Réessayez ; si cela se répète, communiquez cette référence.`,
+      { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } },
+    );
+  }
+}
+
+async function produire(req: Request): Promise<Response> {
   const sp = new URL(req.url).searchParams;
   const format = sp.get("format") === "pdf" ? "pdf" : "excel";
   const m = (sp.get("mois") ?? "").match(/^(\d{4})-(\d{1,2})$/);
@@ -42,17 +60,24 @@ export async function GET(req: Request) {
   const totalTexte = `${usd(inv.valeurTotaleUSD)}${partiel ? ` (${partiel})` : ""}`;
   const suffixe = `${annee}-${String(mois).padStart(2, "0")}`;
 
-  // Mouvements du mois, groupés par domaine (dans la feuille du domaine, jamais à part).
-  const debut = new Date(Date.UTC(annee, mois - 1, 1)), fin = new Date(Date.UTC(annee, mois, 1));
-  const mouvements = await prisma.mouvementStock.findMany({
-    where: { date: { gte: debut, lt: fin } },
-    orderBy: [{ date: "asc" }],
-    take: 8000,
-    include: { article: { select: { code: true, ...CHAMPS_LIBELLE, unite: true, domaine: true } } },
-  });
-  const mvtParDomaine = (dom: string) => mouvements.filter((x) => String(x.article.domaine) === dom);
-
   if (format === "excel") {
+    // Mouvements du mois, groupés par domaine (dans la feuille du domaine, jamais à part). Lus pour l'EXCEL seulement :
+    // le PDF est un récapitulatif d'inventaire, il n'en affiche aucun (avant, ils étaient chargés pour rien).
+    const debut = new Date(Date.UTC(annee, mois - 1, 1)), fin = new Date(Date.UTC(annee, mois, 1));
+    const lus = await prisma.mouvementStock.findMany({
+      where: { date: { gte: debut, lt: fin } },
+      orderBy: [{ date: "asc" }],
+      take: PLAFOND_MOUVEMENTS_EXPORT + 1, // un de plus : sert à savoir si la liste est coupée
+      select: {
+        type: true, quantite: true, date: true, montantUSD: true,
+        article: { select: { code: true, ...CHAMPS_LIBELLE, unite: true, domaine: true } },
+      },
+    });
+    // Coupée : on le DIT dans le classeur (les « Entrées / Sorties du mois » ne portent alors que sur ce qui est listé).
+    const tronque = lus.length > PLAFOND_MOUVEMENTS_EXPORT;
+    const mouvements = tronque ? lus.slice(0, PLAFOND_MOUVEMENTS_EXPORT) : lus;
+    const mvtParDomaine = (dom: string) => mouvements.filter((x) => String(x.article.domaine) === dom);
+
     const feuilles: FeuilleInventaire[] = groupes.map((g) => {
       const urgents = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent) === "URGENT").length;
       const appros = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent) === "APPRO").length;
@@ -83,7 +108,9 @@ export async function GET(req: Request) {
         ]),
         invTotauxCols: [9],
         alerteCol: 7,
-        mvtTitre: `MOUVEMENTS DU MOIS — ${g.label}`,
+        mvtTitre: tronque
+          ? `MOUVEMENTS DU MOIS — ${g.label} — LISTE COUPÉE aux ${formaterNombre(PLAFOND_MOUVEMENTS_EXPORT)} premiers mouvements du mois (tous domaines) : entrées et sorties ci-dessus INCOMPLÈTES`
+          : `MOUVEMENTS DU MOIS — ${g.label}`,
         // Unité de l'article à côté des quantités (2026-10-09) ; « — » si elle manque, jamais devinée.
         mvtEntete: ["Date", "Code", "Désignation", "Unité", "Entrées", "Sorties", "Valeur USD"],
         mvtLignes: mvts.map((x) => [
@@ -141,7 +168,7 @@ export async function GET(req: Request) {
       totalDerniereLigne: true,
     }),
   );
-    if (buf instanceof Response) return buf; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
+  if (buf instanceof Response) return buf; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",

@@ -51,6 +51,12 @@ export const ligneSansPrix = (l: LigneInventaire): boolean =>
 /** Nombre d'articles en stock sans prix. */
 export const compterSansPrix = (lignes: LigneInventaire[]): number => lignes.filter(ligneSansPrix).length;
 
+/**
+ * Nombre de mouvements qu'un export « Inventaire + mouvements » liste au plus (un mois entier tient très
+ * largement dessous). Au-delà, le classeur le DIT (titre de la liste) au lieu de couper en silence.
+ */
+export const PLAFOND_MOUVEMENTS_EXPORT = 8000;
+
 export const DOMAINES = ["NOURRITURE", "BOISSON", "AUTRE"] as const;
 export const DOMAINE_LABEL: Record<string, string> = { NOURRITURE: "Nourriture", BOISSON: "Boissons", AUTRE: "Autre" };
 
