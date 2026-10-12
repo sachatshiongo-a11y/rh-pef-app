@@ -15,6 +15,8 @@ import {
   filtrerFichesPoste, grouperParDepartement, premiereLigne, MAX_FICHES_PAR_LOT, type FiltreStatut, type LigneFichePoste,
 } from "@/lib/fiches-poste-liste";
 import { enregistrerFichePoste, renommerPoste, supprimerFichePoste, supprimerFichesPoste, supprimerPoste } from "./actions";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
 
 const champCls = "rounded-md border bg-background px-3 py-1.5 text-sm text-foreground";
 const zoneCls = "rounded-md border bg-background px-3 py-2 text-sm text-foreground";
@@ -250,7 +252,7 @@ function PanneauFiche({ ligne: l, peutGerer, estAdmin }: { ligne: LigneFichePost
         </div>
       ) : (
         <>
-          <form action={enregistrerFichePoste} className="space-y-4">
+          <FormulaireGarde action={enregistrerFichePoste} className="space-y-4">
             <input type="hidden" name="poste" value={l.poste} />
             <div className="grid gap-4 lg:grid-cols-2">
               {/* Contenu de la fiche (missions, activités) — ce qu'on rédige le plus. */}
@@ -316,11 +318,11 @@ function PanneauFiche({ ligne: l, peutGerer, estAdmin }: { ligne: LigneFichePost
                 Document joint (PDF ou Word, max 15 Mo){f?.fichierNom ? ` — remplace « ${f.fichierNom} »` : ""}
                 <input type="file" name="fichier" accept=".pdf,.doc,.docx" className="text-xs text-foreground" />
               </label>
-              <button type="submit" className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              <BoutonEnvoi className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 Enregistrer la fiche
-              </button>
+              </BoutonEnvoi>
             </div>
-          </form>
+          </FormulaireGarde>
 
           {/* Le poste lui-même : renommer (répercuté sur employés, contrats, besoins, polyvalences), supprimer (Direction). */}
           <div className="flex flex-col gap-3 border-t pt-3 lg:flex-row lg:items-center">

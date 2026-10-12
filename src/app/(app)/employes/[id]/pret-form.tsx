@@ -5,6 +5,8 @@ import { retenuePourDuree } from "@/lib/prets";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
 
 const inputCls = "rounded border border-input bg-background px-2 py-1 text-sm";
 const usd = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -22,7 +24,7 @@ export function PretForm({
   action,
   periodeCourante,
 }: {
-  action: (formData: FormData) => void | Promise<void>;
+  action: (formData: FormData) => void | Promise<unknown>;
   periodeCourante: { mois: number; annee: number };
 }) {
   const [montant, setMontant] = useState("");
@@ -58,7 +60,7 @@ export function PretForm({
     : null;
 
   return (
-    <form action={action} className="border-t pt-3 text-xs">
+    <FormulaireGarde action={action} className="border-t pt-3 text-xs">
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-0.5">Montant du prêt ($)
           <ChampNombre name="montantUSD" suffixe="$" required value={montant} onChange={(e) => onMontant(e.target.value)} className={inputCls} />
@@ -72,9 +74,9 @@ export function PretForm({
         <label className="flex flex-col gap-0.5">Motif (optionnel)
           <input type="text" name="motif" placeholder="ex. avance médicale" className={inputCls} />
         </label>
-        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
+        <BoutonEnvoi className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60">
           Accorder le prêt
-        </button>
+        </BoutonEnvoi>
       </div>
 
       {moisFin && (
@@ -86,6 +88,6 @@ export function PretForm({
           . La durée n&apos;est pas enregistrée : seule la retenue mensuelle l&apos;est, et elle reste ajustable.
         </p>
       )}
-    </form>
+    </FormulaireGarde>
   );
 }

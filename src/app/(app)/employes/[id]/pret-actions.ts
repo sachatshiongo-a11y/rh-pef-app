@@ -9,7 +9,7 @@ import { decSaisi } from "@/lib/nombre";
 
 /** Accorde un prêt au personnel : montant + retenue mensuelle (déduite auto de la paie). Admin/Manager. */
 export async function creerPret(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -30,7 +30,7 @@ export async function creerPret(employeeId: string, formData: FormData) {
     });
     revalidatePath(`/employes/${employeeId}`);
     revalidatePath("/paie");
-  });
+  }, formData);
 }
 
 /** Annule un prêt (les retenues déjà appliquées restent ; plus de retenue future). Admin. */

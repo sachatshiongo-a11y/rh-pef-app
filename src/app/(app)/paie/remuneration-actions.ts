@@ -24,7 +24,7 @@ async function periodeCourante() {
 
 /** Applique une prime à un employé pour la période en cours (répercutée au calcul de la paie). */
 export async function ajouterPrime(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
     const nom = String(formData.get("nom") ?? "").trim() || "Prime";
@@ -61,7 +61,7 @@ export async function ajouterPrime(employeeId: string, formData: FormData) {
     revalidatePath(`/employes/${employeeId}`);
     revalidatePath("/paie");
 
-  });
+  }, formData);
 }
 
 export async function supprimerPrime(id: string) {
@@ -135,7 +135,7 @@ async function televerserCertificat(employeeId: string, file: File): Promise<str
 
 /** Ajoute un frais médical (avec certificat) pour la période en cours. Répercuté au calcul de la paie. */
 export async function ajouterFraisMedical(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
     const montantUSD = decSaisi(formData.get("montantUSD"), "Montant du frais médical");
@@ -164,7 +164,7 @@ export async function ajouterFraisMedical(employeeId: string, formData: FormData
     revalidatePath(`/employes/${employeeId}`);
     revalidatePath("/paie");
 
-  });
+  }, formData);
 }
 
 export async function supprimerFraisMedical(id: string) {
@@ -192,7 +192,7 @@ export async function supprimerFraisMedical(id: string) {
  * Il apparaît sur le bulletin en mention, jamais dans une addition.
  */
 export async function ajouterAvantageNature(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
     const nature = String(formData.get("nature") ?? "").trim();
@@ -220,7 +220,7 @@ export async function ajouterAvantageNature(employeeId: string, formData: FormDa
     // Le bulletin déjà calculé reprend la valeur au prochain recalcul déclenché par autre chose.
     revalidatePath(`/employes/${employeeId}`);
     revalidatePath("/paie");
-  });
+  }, formData);
 }
 
 /** Retire un avantage en nature. Tracé au journal d'audit. */
@@ -249,7 +249,7 @@ export async function supprimerAvantageNature(id: string) {
 
 /** Demande d'acompte sur salaire (à approuver dans les Demandes de validation). */
 export async function demanderAcompte(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
     const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de l'acompte");
@@ -281,7 +281,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
     revalidatePath("/a-valider");
     revalidatePath("/", "layout");
 
-  });
+  }, formData);
 }
 
 /** `recalculer` : recalcule le bulletin (déjà calculé, non figé) impacté par l'acompte approuvé.

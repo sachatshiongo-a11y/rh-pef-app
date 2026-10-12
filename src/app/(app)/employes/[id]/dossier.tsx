@@ -27,6 +27,9 @@ import type { ReprisesSolde } from "@/lib/solde-tout-compte";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { jourKinshasa, jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { PretForm } from "./pret-form";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { ChampNombre } from "@/components/champ-nombre";
 import { versSaisie } from "@/lib/nombre";
 import { listeEnProse } from "@/lib/texte";
@@ -646,7 +649,7 @@ export function DossierEmploye({
       <Section title="Nouveau contrat">
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
-            <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
+            <FormulaireGarde action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
               <ChampsNouveauContrat courant={courant ? { id: courant.id, type: courant.type, debutTexte: d(courant.dateDebut) } : null} peutCloturer={estAdmin} />
               <LabeledInput name="poste" label="Poste" defaultValue={poste} required />
               <LabeledInput name="dateDebut" label="Début" type="date" required />
@@ -664,7 +667,7 @@ export function DossierEmploye({
               <div className="sm:col-span-2 md:col-span-4">
                 <SubmitBtn>Ajouter / importer le contrat</SubmitBtn>
               </div>
-            </form>
+            </FormulaireGarde>
           </details>
       </Section>
       )}
@@ -746,7 +749,7 @@ export function DossierEmploye({
                   )}
                   {estAdmin && p.statut === "EN_COURS" && (
                     <form action={annulerPret.bind(null, employeeId, p.id)} className="mt-1">
-                      <button className="text-xs text-destructive underline">Annuler le prêt (arrête les retenues futures)</button>
+                      <ConfirmSubmitButton message={`Annuler ce prêt de ${p.montant.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $ ? Les retenues futures s'arrêtent ; l'annulation ne se défait pas.`} className="text-xs text-destructive underline">Annuler le prêt (arrête les retenues futures)</ConfirmSubmitButton>
                     </form>
                   )}
                 </li>
@@ -835,7 +838,7 @@ export function DossierEmploye({
           </ol>
         )}
         {peutModifier && (
-          <form action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
+          <FormulaireGarde action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
             <p className="w-full text-sm font-medium">
               Changer le salaire / poste (tracé à l&apos;historique)
               {!estAdmin && (
@@ -853,7 +856,7 @@ export function DossierEmploye({
               <option>Sanction</option>
             </select>
             <SubmitBtn>{estAdmin ? "Enregistrer le changement" : "Envoyer à la Direction"}</SubmitBtn>
-          </form>
+          </FormulaireGarde>
         )}
       </Section>
 
@@ -880,7 +883,7 @@ export function DossierEmploye({
           </div>
         )}
         {peutModifier && (
-          <form action={ajouterDisciplinaire.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
+          <FormulaireGarde action={ajouterDisciplinaire.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
             <p className="col-span-2 text-sm font-medium md:col-span-4">Ajouter un avertissement / une sanction</p>
             <select name="type" className={inputCls} defaultValue="AVERTISSEMENT">
               <option value="AVERTISSEMENT">Avertissement</option>
@@ -895,7 +898,7 @@ export function DossierEmploye({
             <div className="col-span-2 md:col-span-4">
               <SubmitBtn>Ajouter</SubmitBtn>
             </div>
-          </form>
+          </FormulaireGarde>
         )}
       </Section>
 
@@ -929,14 +932,14 @@ export function DossierEmploye({
           </div>
         )}
         {peutModifier && (
-          <form action={ajouterEvaluation.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
+          <FormulaireGarde action={ajouterEvaluation.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
             <p className="w-full text-sm font-medium">Ajouter une évaluation</p>
             <LabeledInput name="date" label="Date" type="date" required />
             <ChampNombre name="note" placeholder="Note /100" aria-label="Note sur 100" classeConteneur="w-24" className={inputCls} />
             <input name="evaluateur" placeholder="Évaluateur" className={inputCls} />
             <input name="commentaire" placeholder="Commentaire" className={`${inputCls} flex-1`} />
             <SubmitBtn>Ajouter</SubmitBtn>
-          </form>
+          </FormulaireGarde>
         )}
       </Section>
 
@@ -981,7 +984,7 @@ export function DossierEmploye({
           </div>
         )}
         {peutModifier && (
-          <form action={ajouterDocument.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
+          <FormulaireGarde action={ajouterDocument.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
             <p className="col-span-2 text-sm font-medium md:col-span-4">Importer un document</p>
             <select name="type" className={inputCls} defaultValue="CONTRAT">
               <option value="CONTRAT">Contrat</option>
@@ -1011,7 +1014,7 @@ export function DossierEmploye({
             <div className="col-span-2 md:col-span-4">
               <SubmitBtn>Ajouter le document</SubmitBtn>
             </div>
-          </form>
+          </FormulaireGarde>
         )}
       </Section>
       </>
@@ -1131,11 +1134,8 @@ function LabeledInput({
 
 function SubmitBtn({ children }: { children: React.ReactNode }) {
   return (
-    <button
-      type="submit"
-      className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-    >
+    <BoutonEnvoi className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60">
       {children}
-    </button>
+    </BoutonEnvoi>
   );
 }

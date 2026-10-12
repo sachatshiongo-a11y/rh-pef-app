@@ -1,5 +1,6 @@
 "use server";
 
+import { messageLisible } from "@/lib/erreur-metier";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -73,7 +74,7 @@ export async function creerPoste(formData: FormData) {
 
 /** Crée ou met à jour la fiche d'un poste (description + fichier optionnel). Admin/Manager. */
 export async function enregistrerFichePoste(formData: FormData) {
-  await formulaireLisible("/fiches-poste", async () => {
+  return formulaireLisible("/fiches-poste", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -124,14 +125,14 @@ export async function enregistrerFichePoste(formData: FormData) {
         userId: user.id,
       });
     } catch (e) {
-      erreur = e instanceof Error ? e.message : "Erreur lors de l'enregistrement de la fiche.";
+      erreur = messageLisible(e, "fiches-poste enregistrerFichePoste");
     }
 
     if (erreur) redirect(`/fiches-poste?erreur=${encodeURIComponent(erreur)}`);
     revalidatePath("/fiches-poste");
     redirect(`/fiches-poste?msg=${encodeURIComponent(`Fiche du poste « ${poste} » enregistrée.`)}`);
 
-  });
+  }, formData);
 }
 
 const STOPWORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "aux", "au", "un", "une", "pour", "fiche", "poste", "pef"]);
@@ -207,7 +208,7 @@ export async function importerFichesEnMasse(formData: FormData) {
         });
         importes.push(`${poste} ← ${file.name}`);
       } catch (e) {
-        echecs.push(`${file.name} (${e instanceof Error ? e.message : "échec"})`);
+        echecs.push(`${file.name} (${messageLisible(e, "fiches-poste import en masse")})`);
       }
     }
 

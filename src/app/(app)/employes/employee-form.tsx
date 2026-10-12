@@ -12,6 +12,9 @@ import { SommaireSections, SECTION_ANCREE } from "@/components/sommaire-sections
 import { fichesProches, identiteModifiee, CHAMP_DOUBLONS_ECARTES, type IdentiteFiche } from "@/lib/employe-doublon";
 import { AlerteDoublons, type FicheDoublonClient } from "./alerte-doublons";
 import { CHAMP_ORIGINES, estChampSensible, originesDe } from "@/lib/fiche-sensible";
+import { EnvoiEnCours, useEnvoiGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
+import { ErreurAction } from "@/components/erreur-action";
 
 /** Mode « validation » (hors Direction) : les champs sensibles portent la pastille « à valider ». */
 const ModeValidation = createContext(false);
@@ -95,7 +98,7 @@ export function EmployeeForm({
   employee?: Employee;
   /** RÉEMBAUCHE : formulaire « Nouvel employé » pré-rempli depuis la fiche archivée (sans date d'embauche, ni salaire, ni matricule). */
   reembauche?: { ancienneFicheId: string; nom: string; matricule: string; modele: Partial<Employee> };
-  action: (formData: FormData) => void;
+  action: (formData: FormData) => void | Promise<unknown>;
   joursOuvrablesMois: number;
   postes?: string[];
   /** Fournis → simulation de bulletin en direct dans un panneau latéral. */
@@ -115,6 +118,8 @@ export function EmployeeForm({
   const aValider = champsDirection === "validation";
   // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
   const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
+  // Envoi par onSubmit (jamais `action={…}`) : un refus du serveur ne vide plus la fiche en cours de saisie ; le bouton attend la réponse.
+  const envoi = useEnvoiGarde(action, { reinitialiser: false });
   const [sim, setSim] = useState<ValeursSimulation>({
     salaireMensuel: Number(base?.salaireMensuel ?? 0),
     categorie: base?.categorie ?? "BRIGADE",
@@ -150,18 +155,18 @@ export function EmployeeForm({
 
   return (
     <ModeValidation.Provider value={aValider && !!employee}>
+    <EnvoiEnCours.Provider value={envoi.enCours}>
     <div>
       <SommaireSections sections={sections} libelle="Sections de la fiche employé">
-        <button type="submit" form={FORMULAIRE_FICHE_EMPLOYE} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+        <BoutonEnvoi form={FORMULAIRE_FICHE_EMPLOYE} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
           {aValider && !employee ? "Envoyer à la Direction" : "Enregistrer"}
-        </button>
+        </BoutonEnvoi>
       </SommaireSections>
 
       <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-5">
           <form
             id={FORMULAIRE_FICHE_EMPLOYE}
-            action={action}
             onInput={(e) => {
               const fd = new FormData(e.currentTarget);
               if (parametres) setSim(lireValeursSimulation(fd));
@@ -184,7 +189,9 @@ export function EmployeeForm({
                 e.preventDefault();
                 setDoublonBloque(true);
                 document.getElementById("alerte-doublons")?.scrollIntoView({ block: "center" });
+                return;
               }
+              envoi.envoyer(e);
             }}
             className="space-y-5"
           >
@@ -407,13 +414,11 @@ export function EmployeeForm({
                 {erreurSaisie}
               </p>
             )}
+            <ErreurAction message={envoi.erreur} />
             <div>
-              <button
-                type="submit"
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-              >
+              <BoutonEnvoi className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 {aValider && !employee ? "Envoyer à la Direction" : "Enregistrer"}
-              </button>
+              </BoutonEnvoi>
             </div>
           </form>
 
@@ -432,6 +437,7 @@ export function EmployeeForm({
         )}
       </div>
     </div>
+    </EnvoiEnCours.Provider>
     </ModeValidation.Provider>
   );
 }

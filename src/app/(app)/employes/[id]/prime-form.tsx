@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -18,7 +20,7 @@ export function PrimeForm({
   salaireBase,
   tauxAnciennete,
 }: {
-  action: (formData: FormData) => void | Promise<void>;
+  action: (formData: FormData) => void | Promise<unknown>;
   types: string[];
   salaireBase: number;
   tauxAnciennete: number; // % (0 si moins de 3 ans d'ancienneté)
@@ -51,7 +53,7 @@ export function PrimeForm({
   }
 
   return (
-    <form action={action} className="rounded-lg border p-3">
+    <FormulaireGarde action={action} className="rounded-lg border p-3">
       <p className="mb-2 text-sm font-medium">Appliquer une prime</p>
       <div className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="nom" value={nomFinal} />
@@ -87,12 +89,9 @@ export function PrimeForm({
           classeConteneur="w-28"
           className="rounded border border-input bg-background px-2 py-1 text-sm"
         />
-        <button
-          type="submit"
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-        >
+        <BoutonEnvoi className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">
           Ajouter
-        </button>
+        </BoutonEnvoi>
       </div>
       <input
         name="motif"
@@ -111,6 +110,6 @@ export function PrimeForm({
             : "Ancienneté inférieure à 3 ans : aucune prime d'ancienneté légale due (barème à valider)."}
         </p>
       )}
-    </form>
+    </FormulaireGarde>
   );
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import {
   mettreAJourConfig,
   basculerEspaceEmploye,
@@ -450,9 +451,12 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
                 <td className="px-2 py-1.5">{j.designation}</td>
                 <td className="px-2 py-1.5 text-right">
                   <form action={supprimerJourFerie.bind(null, j.id)}>
-                    <button type="submit" className="text-destructive underline">
+                    <ConfirmSubmitButton
+                      message={`Supprimer le jour férié « ${j.designation} » du ${new Date(j.date).toLocaleDateString("fr-FR")} ? Les plannings, congés et paies le comptent de nouveau comme un jour ordinaire.`}
+                      className="text-destructive underline"
+                    >
                       Supprimer
-                    </button>
+                    </ConfirmSubmitButton>
                   </form>
                 </td>
               </tr>

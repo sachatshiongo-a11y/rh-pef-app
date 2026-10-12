@@ -27,11 +27,16 @@ export function ConfirmSubmitButton({
   className,
   children,
   variante,
+  title,
+  "aria-label": ariaLabel,
 }: {
   message: string;
   className?: string;
   children: React.ReactNode;
   variante?: keyof typeof VARIANTES;
+  /** Info-bulle et nom accessible d'un bouton-icône (✕) : sans eux, un lecteur d'écran lit « croix ». */
+  title?: string;
+  "aria-label"?: string;
 }) {
   const confirmer = (ev: React.MouseEvent<HTMLButtonElement>) => {
     if (!window.confirm(message)) {
@@ -42,14 +47,14 @@ export function ConfirmSubmitButton({
   if (variante) {
     const Bouton = VARIANTES[variante];
     return (
-      <Bouton type="submit" className={className} onClick={confirmer}>
+      <Bouton type="submit" className={className} onClick={confirmer} title={title} aria-label={ariaLabel}>
         {children}
       </Bouton>
     );
   }
 
   return (
-    <button type="submit" className={className} onClick={confirmer}>
+    <button type="submit" className={className} onClick={confirmer} title={title} aria-label={ariaLabel}>
       {children}
     </button>
   );

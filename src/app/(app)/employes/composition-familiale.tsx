@@ -2,6 +2,9 @@ import type { MembreFamille } from "@prisma/client";
 import { ageEnAnnees, compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
 import { ajouterMembreFamille, supprimerMembreFamille } from "./actions";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
 const inputCls = "rounded-md border border-input bg-background px-2.5 py-1.5 text-sm text-foreground";
 
@@ -78,7 +81,7 @@ export function CompositionFamiliale({
                 </span>
                 {modifiable && peutRetirer && (
                   <form action={supprimerMembreFamille.bind(null, m.id)}>
-                    <button className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive" title={`Retirer ${m.nom}`} aria-label={`Retirer ${m.nom}`}>✕</button>
+                    <ConfirmSubmitButton message={`Retirer ${m.nom} (${m.lien === "CONJOINT" ? "conjoint" : "enfant"}) de la composition familiale ? Le justificatif de la réduction IPR change.`} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive" title={`Retirer ${m.nom}`} aria-label={`Retirer ${m.nom}`}>✕</ConfirmSubmitButton>
                   </form>
                 )}
               </li>
@@ -88,7 +91,7 @@ export function CompositionFamiliale({
       )}
 
       {modifiable && (
-        <form action={ajouterMembreFamille.bind(null, employeeId)} className="rounded-lg border bg-muted/20 p-3">
+        <FormulaireGarde action={ajouterMembreFamille.bind(null, employeeId)} className="rounded-lg border bg-muted/20 p-3">
           {/* Ajout en une rangée : lien, nom, date, bouton (passe à la ligne sur téléphone). */}
           <div className="flex flex-wrap items-end gap-2">
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -107,13 +110,13 @@ export function CompositionFamiliale({
               Date de naissance
               <input name="dateNaissance" type="date" className={inputCls} />
             </label>
-            <button type="submit" className="rounded-md border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent">Ajouter</button>
+            <BoutonEnvoi className="rounded-md border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-60">Ajouter</BoutonEnvoi>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Justificatif de la réduction IPR pour charges de famille. Sans effet sur le calcul : la paie
             retient le champ « Enfants à charge » de la rémunération, modifiable dans le formulaire.
           </p>
-        </form>
+        </FormulaireGarde>
       )}
     </div>
   );
