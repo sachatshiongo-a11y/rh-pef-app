@@ -9,7 +9,7 @@
 //
 // Le DOUBLON D'ACHAT (même achat saisi deux fois) reste un AVERTISSEMENT non bloquant : même article
 // sur deux lignes de la liste (signalé sur les deux), et le contrôle à ±14 jours de toujours.
-import { cleAlnum } from "@/lib/texte";
+import { cleAlnum, normTexte } from "@/lib/texte";
 import { contenanceCanonique, contenanceDansNom, sansContenance } from "@/lib/fiches/conversion";
 import { jjmmaaaa } from "@/lib/achats-liste";
 
@@ -47,11 +47,26 @@ export function memeDesignation(a: string, b: string): boolean {
   return !!sa && sa === cleAlnum(sansLigatures(b));
 }
 
+/** Deux marques RENSEIGNÉES qui diffèrent (casse, accents et espaces ignorés) : « Président » ≠ « Lurpak ». Une marque absente d'un côté ne différencie rien. */
+export function marquesDifferentes(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normTexte(a ?? "").replace(/\s+/g, " ").trim(), nb = normTexte(b ?? "").replace(/\s+/g, " ").trim();
+  return na !== "" && nb !== "" && na !== nb;
+}
+
+/**
+ * Le MÊME article : même désignation (`memeDesignation`) ET pas deux marques renseignées différentes
+ * (2026-10-14 : « Beurre doux » Président et « Beurre doux » Lurpak sont deux articles, pas un doublon).
+ * Une marque absente d'un côté garde la règle d'avant : même désignation = même article.
+ */
+export function memeArticle(designation: string, marque: string | null | undefined, candidat: { designation: string; marque?: string | null }): boolean {
+  return memeDesignation(designation, candidat.designation) && !marquesDifferentes(marque, candidat.marque);
+}
+
 // ── Types échangés entre le serveur et l'écran ────────────────────────────────────────────────────
 
 /** Un article du catalogue proposé à la place d'une ligne libre (assez pour en faire une ligne du catalogue). */
 /** `prix` : prix de référence dans sa devise `devisePrix` (absente = USD). */
-export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean; contenance?: string | null; contenanceUnite?: string | null };
+export type ArticleCandidat = { id: string; designation: string; marque?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean; contenance?: string | null; contenanceUnite?: string | null };
 
 /**
  * Sort d'une ligne au catalogue :

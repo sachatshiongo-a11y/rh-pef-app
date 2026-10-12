@@ -18,7 +18,7 @@ import { poserStocksTx, variationsStockTx } from "@/lib/validations-stock/stock-
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import { decisionArticle } from "@/lib/article-proche";
-import { cleArticleExacte, memeDesignation, type ArticleCandidat } from "@/lib/achats-doublons";
+import { cleArticleExacte, memeArticle, type ArticleCandidat } from "@/lib/achats-doublons";
 
 
 async function garde() {
@@ -71,6 +71,7 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
   const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" || domaineRaw === "AUTRE" ? domaineRaw : "NOURRITURE";
   const categorieId = String(formData.get("categorieId") ?? "").trim() || null;
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+  const marque = String(formData.get("marque") ?? "").trim().replace(/\s+/g, " ") || null; // facultative : « Président », « Lurpak »
   const creerQuandMeme = String(formData.get("creerQuandMeme") ?? "") === "1";
   await exigerCategorieActive(prisma, categorieId); // une catégorie archivée ne reçoit plus de nouvel article
 
@@ -94,7 +95,8 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
       ? `« ${designation} » ressemble à un article déjà au catalogue : utilisez-le, ou créez quand même un nouvel article. Rien n'a été créé.`
       : `« ${designation} » existe déjà au catalogue sous ce nom : utilisez-le (réactivez-le s'il est inactif). Rien n'a été créé.`,
   });
-  const d = decisionArticle(designation, await catalogueCandidats());
+  // Même désignation et MARQUES différentes (toutes deux renseignées) : deux articles, pas un doublon.
+  const d = decisionArticle(designation, await catalogueCandidats(), marque);
   if (d.type === "auto") return doublon([d.article], false);
   if (d.type === "choix" && (!d.creationPossible || !creerQuandMeme)) return doublon(d.candidats, d.creationPossible);
 
@@ -102,11 +104,12 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
     // Deux créations simultanées du même nom : verrou sur la clé du nom, puis relecture (comme la Liste d'achat).
     const cle = cleArticleExacte(designation) || designation;
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`article:${cle}`}))::text AS verrou`;
-    const meme = (await tx.articleStock.findMany({ select: { id: true, designation: true } })).find((a) => memeDesignation(designation, a.designation));
+    const meme = (await tx.articleStock.findMany({ select: { id: true, designation: true, marque: true } })).find((a) => memeArticle(designation, marque, a));
     if (meme) throw new Error(`« ${meme.designation} » vient d'être créé : rechargez la page et utilisez-le. Rien n'a été créé.`);
     const cree = await tx.articleStock.create({
       data: {
         designation,
+        marque,
         domaine,
         code: String(formData.get("code") ?? "").trim() || null,
         unite: String(formData.get("unite") ?? "").trim() || null,

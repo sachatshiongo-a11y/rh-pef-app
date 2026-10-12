@@ -110,6 +110,7 @@ export const CHAMPS_ARTICLE = {
   code: { libelle: "Code", sorte: "texte", porte: "article" },
   designation: { libelle: "Désignation", sorte: "texte", porte: "article" },
   nomCourt: { libelle: "Nom court", sorte: "texte", porte: "article" },
+  marque: { libelle: "Marque", sorte: "texte", porte: "article" },
   // Domaine (Nourriture / Boissons / Autre) — modifiable depuis le 2026-10-09 (demande de Sacha).
   domaine: { libelle: "Domaine", sorte: "texte", porte: "article" },
   unite: { libelle: "Unité", sorte: "texte", porte: "article" },

@@ -37,7 +37,7 @@ type Lecteur = Pick<Prisma.TransactionClient, "articleStock" | "ficheTechnique" 
 
 async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fiches: FicheExistanteBar[] }> {
   const [articles, fiches, taux] = await Promise.all([
-    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
+    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, marque: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
     db.ficheTechnique.findMany({
       where: { type: "BAR", estSousRecette: false },
       select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, photoUrl: true, _count: { select: { ingredients: true } } },

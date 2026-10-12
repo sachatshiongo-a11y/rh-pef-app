@@ -33,8 +33,8 @@ export default async function RecherchePage({ searchParams }: { searchParams: Pr
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, contactNom: true, ville: true } }),
   ]);
   const rArticles = parContenance
-    ? (() => { const f = tousArticles.filter((a) => parContenance(a) || contientTout(a.designation, motsRecherche(q)) || (a.code ?? "").includes(q)); return { premiers: f.slice(0, LIMITE_RECHERCHE), total: f.length }; })()
-    : filtrerRecherche(tousArticles, q, (a) => [a.designation, a.code]);
+    ? (() => { const f = tousArticles.filter((a) => parContenance(a) || contientTout(`${a.designation} ${a.marque ?? ""}`, motsRecherche(q)) || (a.code ?? "").includes(q)); return { premiers: f.slice(0, LIMITE_RECHERCHE), total: f.length }; })()
+    : filtrerRecherche(tousArticles, q, (a) => [a.designation, a.marque, a.code]);
   const rBons = filtrerRecherche(tousBons, q, (b) => [b.numero, b.fournisseur?.nom]);
   const rFactures = filtrerRecherche(toutesFactures, q, (f) => [f.numero, f.fournisseurNom, f.fournisseur?.nom]);
   const rFournisseurs = filtrerRecherche(tousFournisseurs, q, (f) => [f.nom, f.contactNom, f.ville]);

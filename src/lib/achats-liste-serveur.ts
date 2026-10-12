@@ -21,7 +21,7 @@ export type LigneAVerifier = { articleId: string; designation: string; quantite:
 export async function catalogueCandidats(client: Client = prisma): Promise<ArticleCandidat[]> {
   const articles = await client.articleStock.findMany({
     orderBy: { designation: "asc" },
-    select: { id: true, designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true, contenance: true, contenanceUnite: true },
+    select: { id: true, designation: true, marque: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true, contenance: true, contenanceUnite: true },
   });
   // Prix de référence dans SA devise (2026-10-08) : un article en francs propose ses francs.
   return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, actif: a.actif, ...contenancePourClient(a) }));

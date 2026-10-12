@@ -47,6 +47,8 @@ export type ArticleRow = {
   id: string;
   code: string | null; // code article (repris du fichier d'inventaire)
   designation: string;
+  /** Marque (facultative) : s'insère dans le nom AFFICHÉ avant la contenance (`libelleArticle`) et se cherche. */
+  marque?: string | null;
   /** Contenance enregistrée (« 75 » + « cl ») : s'ajoute au nom AFFICHÉ (`libelleArticle`). */
   contenance?: string | null;
   contenanceUnite?: string | null;
@@ -522,6 +524,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {ajout && (
         <form action={(fd) => run(async () => creer(fd))} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
           <input name="designation" placeholder="Désignation *" required className={cellCls} />
+          <input name="marque" placeholder="Marque (facultatif)" className={cellCls} />
           <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
             <option value="BOISSON">Boisson</option>

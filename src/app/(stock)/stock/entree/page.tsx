@@ -29,7 +29,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const fen = fenetrePage(nbAchats, demande.page, demande.par, PLAFOND_TOUT);
 
   const [articles, mouvements, config, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, contenance: true, contenanceUnite: true } }),
     prisma.mouvementStock.findMany({
       // Les achats saisis ICI, et eux seuls : ni les entrées par facture ou par réception de bon
       // de commande (elles vivent dans « Mouvements » — sinon le même achat s'affichait deux

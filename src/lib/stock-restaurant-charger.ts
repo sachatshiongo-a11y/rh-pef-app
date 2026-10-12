@@ -48,7 +48,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
   const [articles, avant] = await Promise.all([
     prisma.articleResto.findMany({
       where: filtre,
-      select: { id: true, designation: true, espace: true, unite: true, actif: true, liens: { select: { articleStock: { select: { id: true, designation: true, unite: true, contenance: true, contenanceUnite: true, domaine: true } } } } },
+      select: { id: true, designation: true, espace: true, unite: true, actif: true, liens: { select: { articleStock: { select: { id: true, designation: true, marque: true, unite: true, contenance: true, contenanceUnite: true, domaine: true } } } } },
     }),
     prisma.comptageResto.groupBy({
       by: ["articleRestoId"],
@@ -75,7 +75,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
     }),
     prisma.mouvementStock.findMany({
       where: { type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT, date: dateLivraison },
-      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } } },
+      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, marque: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } } },
     }),
   ]);
 

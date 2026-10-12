@@ -244,6 +244,29 @@ export function contenanceDansNom(nom: string): { quantite: Decimal; unite: Unit
 }
 
 /**
+ * Position, dans le nom TEL QU'ÉCRIT (accents compris), du début de la contenance que `contenanceDansNom` lit
+ * (la DERNIÈRE mention valide) ; null s'il n'y en a pas. Sert à glisser la marque AVANT la contenance
+ * (« Beurre doux 250g » → « Beurre doux Président 250g »).
+ */
+export function positionContenanceDansNom(nom: string): number | null {
+  // Le nom sans accents a la même longueur caractère par caractère sauf lettres décomposées : on garde la
+  // correspondance indice normalisé → indice d'origine.
+  let texte = "";
+  const origine: number[] = [];
+  for (let i = 0; i < nom.length; i++) {
+    const morceau = nom[i]!.normalize("NFD").replace(/[̀-ͯ]/g, "");
+    for (const c of morceau) { texte += c; origine.push(i); }
+  }
+  let derniere: number | null = null;
+  for (const m of texte.matchAll(CONTENANCE_REGEX)) {
+    const avant = texte[(m.index ?? 0) - 1];
+    if (avant && /[a-z0-9./,]/i.test(avant)) continue;
+    derniere = m.index ?? 0;
+  }
+  return derniere === null ? null : origine[derniere] ?? null;
+}
+
+/**
  * TOUTES les contenances écrites dans un nom, dans l'ordre (même lecture que `contenanceDansNom`,
  * qui n'en garde que la dernière) : « Pack 6 x 33cl 2L » → [33 cl, 2 l]. Sert à savoir si le nom
  * porte DÉJÀ la contenance enregistrée de l'article (libellé affiché, `lib/libelle-article.ts`).

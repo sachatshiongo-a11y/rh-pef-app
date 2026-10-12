@@ -165,6 +165,7 @@ export default async function ArticleFichePage({
               code: a.code,
               designation: a.designation,
               nomCourt: a.nomCourt,
+              marque: a.marque,
               unite: a.unite,
               contenance: a.contenance !== null ? a.contenance.toString() : null,
               contenanceUnite: a.contenanceUnite,

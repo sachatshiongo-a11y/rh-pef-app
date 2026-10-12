@@ -187,7 +187,7 @@ function selectsSansContenance(src: string): string[] {
     const sel = selectDe(bloc(s, m.index! + m[0].length));
     if (sel) blocs.push(sel);
   }
-  return blocs.map(premierNiveau).filter((haut) => /\bdesignation\s*:\s*true\b/.test(haut) && !/contenance|CHAMPS_LIBELLE/.test(haut));
+  return blocs.map(premierNiveau).filter((haut) => /\bdesignation\s*:\s*true\b/.test(haut) && !(/CHAMPS_LIBELLE/.test(haut) || (/contenance/.test(haut) && /\bmarque\b/.test(haut))));
 }
 /** Variables qui reçoivent un libellé (« const nom = libelleArticle(a) ») : elles ne s'écrivent jamais dans `designation`. */
 function ecritLeLibelle(src: string): boolean {
@@ -214,7 +214,7 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     for (const v of Object.values(RECENSES)) for (const r of v.raisons) expect(RAISONS[r]).toBeTruthy();
   }, 60_000);
 
-  it("une sélection Prisma de la désignation d'un article lit aussi sa contenance (sauf clés recensées, nombre exact)", () => {
+  it("une sélection Prisma de la désignation d'un article lit aussi sa contenance ET sa marque (sauf clés recensées, nombre exact)", () => {
     const releve: Record<string, number> = {};
     for (const p of fichiers(path.join(RACINE, "src"))) {
       const n = selectsSansContenance(readFileSync(p, "utf8")).length;
@@ -258,7 +258,9 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     expect(ecritLeLibelle("const designation = libelleArticle(a); await tx.articleStock.create({ data: { designation, domaine } });")).toBe(true);
     expect(ecritLeLibelle("const t = libelleArticle(a); await tx.articleStock.create({ data: { designation: d } });")).toBe(false);
     expect(selectsSansContenance("include: { article: { select: { ...CHAMPS_LIBELLE, unite: true } } }")).toHaveLength(0);
-    expect(selectsSansContenance("include: { article: { select: { designation: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(0);
+    expect(selectsSansContenance("include: { article: { select: { designation: true, marque: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(0);
+    // Sans la marque, le libellé ne peut pas la porter : la sélection est signalée (contenance seule ne suffit plus).
+    expect(selectsSansContenance("include: { article: { select: { designation: true, contenance: true, contenanceUnite: true } } }")).toHaveLength(1);
     expect(selectsSansContenance("include: { article: { select: { unite: true } } }")).toHaveLength(0);
     expect(appelleLeLibelle("const t = libelleArticle(a);")).toBe(true);
     expect(appelleLeLibelle("// libelleArticle(a)\nconst t = a.designation;")).toBe(false);
