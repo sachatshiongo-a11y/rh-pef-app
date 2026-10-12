@@ -479,23 +479,19 @@ describe("le taux de change fait partie des montants affichés (jeton)", () => {
     expect(avant.split("|")).toHaveLength(4);
   });
 
-  it("payer : taux changé depuis l'affichage → refusé, pour la RH comme pour la Direction (unité et lot), message « francs »", async () => {
-    const affichee = await ligne(ids.fanny); // VALIDÉE : ses dollars sont figés
+  // Décision Direction 2026-10-12 : une ligne VALIDÉE garde le taux de SA validation. Le taux de la
+  // paie du mois peut bouger (recalcul), ses francs non : le jeton affiché reste bon, la RH paie.
+  // (Avant ce lot, le même scénario était refusé : les francs d'un bulletin validé suivaient le taux du jour.)
+  it("payer : taux de la paie changé depuis l'affichage → la ligne VALIDÉE garde son taux figé, le paiement passe", async () => {
+    const affichee = await ligne(ids.fanny); // VALIDÉE : ses dollars ET son taux sont figés
     const jetonAffiche = jetonLigne(affichee);
     await changerTaux(2500);
     const apres = await ligne(ids.fanny);
     expect([apres.salNetUSD.toString(), apres.salBrutUSD.toString()]).toEqual([affichee.salNetUSD.toString(), affichee.salBrutUSD.toString()]);
     expect(Number(apres.payrollRun.tauxChangeUtilise)).toBe(2500);
-    for (const role of ["MANAGER", "ADMIN"] as Role[]) {
-      en(role);
-      await expect(changerStatutPaie(affichee.id, fd({ versStatut: "PAYE", jeton: jetonAffiche }))).rejects.toThrow(redirection(MESSAGE_TAUX_CHANGE));
-      expect(await changerStatutEnLot([affichee.id], "PAYE", null, { [affichee.id]: jetonAffiche })).toEqual({ erreur: MESSAGE_TAUX_CHANGE });
-    }
-    expect(await statut(ids.fanny)).toBe("VALIDE");
-    expect(MESSAGE_TAUX_CHANGE).toContain("Les montants en francs ont changé");
-    // Page rechargée (nouveau taux sous les yeux) : la RH paie.
+    expect(jetonLigne(apres)).toBe(jetonAffiche);
     en("MANAGER");
-    expect(await changerStatutEnLot([apres.id], "PAYE", null, { [apres.id]: jetonLigne(apres) })).toBe(1);
+    expect(await changerStatutEnLot([affichee.id], "PAYE", null, { [affichee.id]: jetonAffiche })).toBe(1);
   });
 
   it("valider (Direction, même jeton) : taux de la paie changé depuis l'affichage → refusé, rien d'écrit ; à jour → validé", async () => {

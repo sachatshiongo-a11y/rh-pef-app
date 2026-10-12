@@ -4,7 +4,8 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatCDF } from "./theme";
 import { formaterNombre } from "@/lib/montant";
-import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
+import { salaireNetHabituelUSD } from "@/lib/paie-net";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
@@ -45,8 +46,12 @@ const usd = (n: number) => `${formaterNombre(Number(n), { minimumFractionDigits:
 const cdf = (n: number) => `${formatCDF(Number(n))} CDF`;
 
 /**
- * Attestation de paie — atteste, pour UN MOIS donné, le salaire net réellement perçu par un
- * salarié, d'après la ligne de paie figée de ce mois (aucun recalcul). Réutilise le style de
+ * Attestation de paie — atteste, pour UN MOIS donné, le SALAIRE NET HABITUEL d'un salarié, d'après la
+ * ligne de paie PAYÉE de ce mois (aucun recalcul). Décision de la Direction du 2026-10-12 :
+ *  - le net habituel (`salaireNetHabituelUSD`, lib/paie-net) : AVANT acompte et retenue de prêt (des
+ *    avances remboursées, pas une baisse du salaire), hors transport et frais médicaux remboursés ;
+ *  - délivrée seulement une fois le bulletin PAYÉ (la route refuse avant) ;
+ *  - francs au taux du bulletin, figé à sa validation (`tauxDeLigne`). Réutilise le style de
  * l'attestation de travail/salaire (attestation.tsx) : en-tête, signature, mentions.
  *
  * Document à usage officiel (banque, administration…) : les montants engagent l'entreprise —
@@ -68,13 +73,11 @@ export function AttestationPaieDocument({
   const periode = moisAnnee(run.mois, run.annee);
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
 
-  // Salaire net (hors transport) et total versé : `lib/paie-net`, seule soustraction du dépôt —
-  // l'attestation la faisait localement depuis le 2026-07-22 ; le bulletin l'a rejointe le 2026-09-22.
-  const verseUSD = totalVerseUSD(ligne);
-  const verseCDF = Number(ligne.salNetCDF);
-  const taux = Number(run.tauxChangeUtilise) || 1;
+  // Net habituel et transport : `lib/paie-net`, seule soustraction du dépôt ; francs au taux du bulletin.
+  const taux = tauxDeLigne(ligne, run);
   const transportUSD = Number(ligne.transportUSD);
-  const salaireNetHorsTransportUSD = salaireNetUSD(ligne);
+  const netHabituelUSD = salaireNetHabituelUSD(ligne);
+  const totalUSD = netHabituelUSD + transportUSD;
   const avecTransport = transportUSD > 0;
 
   return (
@@ -95,17 +98,16 @@ export function AttestationPaieDocument({
             {employee.matricule ? <>, matricule <Text style={styles.gras}>{employee.matricule}</Text></> : null},
             {" "}en qualité de <Text style={styles.gras}>{employee.poste}</Text> au sein de notre établissement,
             a perçu, au titre du mois de <Text style={styles.gras}>{periode}</Text>, un salaire{" "}
-            <Text style={styles.gras}>net</Text> de <Text style={styles.gras}>{usd(salaireNetHorsTransportUSD)}</Text>
+            <Text style={styles.gras}>net</Text> de <Text style={styles.gras}>{usd(netHabituelUSD)}</Text> (soit {cdf(netHabituelUSD * taux)})
             {avecTransport ? <>, ainsi qu&apos;une indemnité de transport de <Text style={styles.gras}>{usd(transportUSD)}</Text> (soit {cdf(transportUSD * taux)})</> : null},
-            {avecTransport ? <>{" "}soit un montant net total de <Text style={styles.gras}>{usd(verseUSD)}</Text> ({cdf(verseCDF)}),</> : <>{" "}(soit {cdf(verseCDF)}),</>}
-            {" "}selon les éléments de paie arrêtés par l&apos;entreprise pour cette période.
+            {" "}selon les éléments de paie arrêtés et payés par l&apos;entreprise pour cette période.
           </Text>
 
           <View style={styles.recap}>
             <Text style={styles.recapTitre}>Détail perçu — {periode}</Text>
             <View style={styles.recapLigne}>
               <Text style={styles.recapLabel}>Salaire net (hors transport)</Text>
-              <Text style={styles.recapValeur}>{usd(salaireNetHorsTransportUSD)}</Text>
+              <Text style={styles.recapValeur}>{usd(netHabituelUSD)} ({cdf(netHabituelUSD * taux)})</Text>
             </View>
             {avecTransport && (
               <View style={styles.recapLigne}>
@@ -113,10 +115,12 @@ export function AttestationPaieDocument({
                 <Text style={styles.recapValeur}>{usd(transportUSD)} ({cdf(transportUSD * taux)})</Text>
               </View>
             )}
-            <View style={styles.recapLigneNet}>
-              <Text style={styles.recapLabel}>Total net perçu</Text>
-              <Text style={styles.recapValeur}>{usd(verseUSD)} ({cdf(verseCDF)})</Text>
-            </View>
+            {avecTransport && (
+              <View style={styles.recapLigneNet}>
+                <Text style={styles.recapLabel}>Total mensuel (salaire net et transport)</Text>
+                <Text style={styles.recapValeur}>{usd(totalUSD)} ({cdf(totalUSD * taux)})</Text>
+              </View>
+            )}
           </View>
 
           <Text style={styles.paragraphe}>
@@ -126,6 +130,8 @@ export function AttestationPaieDocument({
           <Text style={styles.mention}>
             Ce document reprend les éléments du bulletin de paie du mois de {periode} ; il ne s&apos;y
             substitue pas et ne saurait engager l&apos;entreprise au-delà des montants qui y figurent.
+            Le salaire net s&apos;entend avant les avances consenties au salarié (acompte, remboursement de
+            prêt), qui ne réduisent pas sa rémunération, et hors remboursement de frais médicaux.
           </Text>
         </View>
 

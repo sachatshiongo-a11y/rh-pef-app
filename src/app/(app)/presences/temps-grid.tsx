@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { formaterUSD } from "@/lib/montant";
 import { saisirPresence, saisirPresencesEnLot } from "./actions";
+import { joindreCertificatMaladie, marquerMaladieJustifiee } from "./maladie-actions";
 import { saisirHeures, saisirHeuresEnLot } from "../heures-supp/actions";
 import { COULEUR_CODE_HEX, LIBELLE_CODE } from "./attendance-colors";
 import { infoHoraire, type InfoShift } from "./horaire-case";
@@ -84,6 +85,7 @@ export function TempsGrid({
   employees,
   days,
   attendanceMap,
+  maladieJustifieeMap = {},
   hoursMap,
   shiftMap = {},
   peutModifier,
@@ -96,6 +98,8 @@ export function TempsGrid({
   employees: EmployeeRow[];
   days: number[];
   attendanceMap: Record<string, string>; // `${employeeId}_${day}` -> code
+  /** Jours M justifiés par certificat (payés 100 %, sinon 2/3) — décision Direction 2026-10-12. */
+  maladieJustifieeMap?: Record<string, boolean>;
   hoursMap: Record<string, number>; // `${employeeId}_${day}` -> heures
   shiftMap?: Record<string, InfoShift>; // `${employeeId}_${day}` -> shift du jour (réel > planning > modèle)
   peutModifier: boolean;
@@ -472,6 +476,18 @@ export function TempsGrid({
     });
   }
 
+  /** Justifie (ou non) les jours M des employés et jours ciblés par la barre d'actions groupées. */
+  function justifierLot(justifiee: boolean, variante: Variante) {
+    const emps = empsDuLot();
+    const cibles = joursCibles(porteeChoisie(variante), variante);
+    const cases = emps.flatMap((empId) => cibles.filter((d) => cel(empId, d).code === "M").map((d) => ({ employeeId: empId, date: isoDates[d - 1] })));
+    if (cases.length === 0) { setNote("Aucun jour de maladie (M) dans la sélection."); return; }
+    startTransition(async () => {
+      const r = await marquerMaladieJustifiee(cases, justifiee);
+      setNote(r.erreur ?? r.message ?? null);
+    });
+  }
+
   // ── Totaux vivants (présences + heures supp) calculés depuis l'état local ──
   const totaux = useMemo(() => {
     const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number | null }> = {};
@@ -525,12 +541,14 @@ export function TempsGrid({
     const quand = libelleJourLong(isoDates[d - 1]);
     // Après la sortie du salarié : jour hors contrat, non saisissable (le serveur l'ignore aussi).
     const horsContrat = !!e.sortieLe && isoDates[d - 1] > e.sortieLe;
-    const resume = `${c.code ? LIBELLE_CODE[c.code as CodePresence] : "aucun code"}${c.heures ? `, ${fmtH(c.heures)} h` : ""}`;
+    const justifie = c.code === "M" && !!maladieJustifieeMap[`${e.id}_${d}`];
+    const resume = `${c.code ? LIBELLE_CODE[c.code as CodePresence] : "aucun code"}${c.code === "M" ? (justifie ? " justifiée (certificat, payée 100 %)" : " sans justificatif (payée 2/3)") : ""}${c.heures ? `, ${fmtH(c.heures)} h` : ""}`;
     const aide = peutModifier ? ` Clic : menu code + heures. Ou tapez une lettre (P, O, M…)${peutEffacer ? " ; Suppr efface" : ""} ; flèches pour naviguer.` : "";
     return {
       emp: e.id,
       day: d,
       code: c.code,
+      justifie,
       heures: c.heures,
       supp: hs.supp,
       horaire: hs.horaire,
@@ -622,6 +640,23 @@ export function TempsGrid({
             >
               Supprimer
             </button>}
+            {/* Maladie en lot : ne touche que les cases déjà en M (le serveur ignore les autres et le dit). */}
+            <button
+              onClick={() => justifierLot(true, variante)}
+              disabled={isPending || !prete}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 max-lg:min-h-11"
+              title="Jours M de la sélection : justifiés par certificat médical, payés 100 %"
+            >
+              M justifiée
+            </button>
+            <button
+              onClick={() => justifierLot(false, variante)}
+              disabled={isPending || !prete}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 max-lg:min-h-11"
+              title="Jours M de la sélection : sans justificatif, payés aux 2/3"
+            >
+              M non justifiée
+            </button>
             <button onClick={() => { setSelection(new Set()); setJoursSel(new Set()); }} className="text-xs text-muted-foreground underline max-lg:min-h-11">Désélectionner</button>
           </>
         )}
@@ -1040,6 +1075,41 @@ export function TempsGrid({
               </span>
             </label>
             {pop.erreur && <p className="mb-2 text-xs font-medium text-destructive">{pop.erreur}</p>}
+            {/* Maladie (décision Direction 2026-10-12) : justifiée au préalable = 100 %, sinon 2/3. Se
+                règle sur un jour déjà enregistré en M ; le certificat est facultatif. */}
+            {cel(pop.empId, pop.day).code === "M" && pop.code === "M" && (
+              <div className="mb-3 rounded-md border p-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!maladieJustifieeMap[`${pop.empId}_${pop.day}`]}
+                    disabled={isPending}
+                    onChange={(e) => {
+                      const v = e.target.checked;
+                      startTransition(async () => {
+                        const r = await marquerMaladieJustifiee([{ employeeId: pop.empId, date: isoDates[pop.day - 1] }], v);
+                        setNote(r.erreur ?? r.message ?? null);
+                      });
+                    }}
+                  />
+                  Justifiée par certificat médical (payée 100 %, sinon 2/3)
+                </label>
+                <form
+                  className="mt-2 flex items-center gap-2"
+                  action={(fd) => {
+                    startTransition(async () => {
+                      const r = await joindreCertificatMaladie(fd);
+                      setNote(r.erreur ?? r.message ?? null);
+                    });
+                  }}
+                >
+                  <input type="hidden" name="employeeId" value={pop.empId} />
+                  <input type="hidden" name="date" value={isoDates[pop.day - 1]} />
+                  <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp" aria-label="Certificat médical" className="min-w-0 flex-1 text-xs" />
+                  <button type="submit" disabled={isPending} className="rounded-md border px-2 py-1 font-medium hover:bg-accent disabled:opacity-50">Joindre</button>
+                </form>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2">
               {peutEffacer ? (
                 <button type="button" onClick={effacerMenu} className="rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">

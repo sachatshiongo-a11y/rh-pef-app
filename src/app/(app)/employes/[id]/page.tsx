@@ -1,4 +1,6 @@
 import { FilAriane } from "@/components/fil-ariane";
+import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { estLibreService } from "@/lib/attestations-donnees";
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -352,7 +354,7 @@ export default async function FicheEmployePage({
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
-  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande } = soldeConge;
+  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande, report: reportConges, acquisAnnee: congesAcquisAnnee, plafonne: congesPlafonnes, annee: anneeConges } = soldeConge;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -719,15 +721,22 @@ export default async function FicheEmployePage({
         }
       >
         <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-          <Stat label="Congés acquis (année)" value={congesAcquis} />
-          <Stat label="Congés pris (année)" value={congesPrisAnnee} />
+          <Stat label={`Droits ${anneeConges} (report compris)`} value={congesAcquis} />
+          <Stat label={`Congés pris en ${anneeConges}`} value={congesPrisAnnee} />
           <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
+        {/* Année civile (décision Direction 2026-10-12) : les droits = report de l'an dernier + acquis
+            de l'année, plafonnés aux droits annuels. Le détail se lit ici. */}
+        <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+          Acquis en {anneeConges} : {congesAcquisAnnee} j
+          {reportConges !== 0 ? ` · report ${anneeConges - 1} : ${reportConges} j` : ""}
+          {congesPlafonnes ? ` · ${soldeConge.perdu} j perdus au plafond (le solde ne dépasse jamais les droits annuels)` : ""}
+        </p>
         {cSansDemande > 0 && (
           // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
           <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
-            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences depuis le 1er janvier : décompté(s) des congés pris.
+            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences cette année : décompté(s) des congés pris.
             Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
           </p>
         )}
@@ -773,7 +782,7 @@ export default async function FicheEmployePage({
                 </td>
                 <td className="px-3 py-2 text-right">{formatMoney(salaireNetUSD(l))}</td>
                 <td className="px-3 py-2 text-right">
-                  {formaterNombre(Math.round(salaireNetCDF(l, Number(l.payrollRun.tauxChangeUtilise))))} CDF
+                  {formaterNombre(Math.round(salaireNetCDF(l, tauxDeLigne(l, l.payrollRun))))} CDF
                 </td>
                 <td className="px-3 py-2 text-right text-muted-foreground">{formatMoney(totalVerseUSD(l))}</td>
                 <td className="px-3 py-2">
@@ -819,13 +828,19 @@ export default async function FicheEmployePage({
                       <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
                     </span>
                   ))}
-                  {l.statutPaiement !== "PAS_VALIDE" && " · "}
-                  {l.statutPaiement !== "PAS_VALIDE" && <ContratViewerButton
+                  {/* Attestation de paie : délivrée une fois le bulletin PAYÉ (décision Direction 2026-10-12). */}
+                  {l.statutPaiement === "PAYE" && " · "}
+                  {l.statutPaiement === "PAYE" && <ContratViewerButton
                     href={`/employes/${employee.id}/attestation-paie/${l.id}`}
                     titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
                     libelle="Attestation"
                     className="text-primary underline"
                   />}
+                  {l.statutPaiement === "VALIDE" && (
+                    <span className="block text-[11px] text-muted-foreground" title={refusAttestationPaie(l.statutPaiement) ?? undefined}>
+                      Attestation : après paiement
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

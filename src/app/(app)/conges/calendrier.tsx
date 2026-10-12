@@ -312,8 +312,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
           <thead className="en-tete-collante bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Employé</th>
-              <th className="px-3 py-2 text-center">Droits acquis</th>
-              <th className="px-3 py-2 text-center">Congés pris depuis le 1er janvier {anneeCourante}</th>
+              <th className="px-3 py-2 text-center">Droits {anneeCourante} (report compris)</th>
+              <th className="px-3 py-2 text-center">Congés pris en {anneeCourante}</th>
               <th className="px-3 py-2 text-center">Solde annuel</th>
               {annee !== anneeCourante && <th className="px-3 py-2 text-center">Décomptés en {annee}</th>}
             </tr>
@@ -329,7 +329,10 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
                       {e.nom}
                     </Link>
                   </td>
-                  <td className="px-3 py-1.5 text-center">{s ? `${s.acquis} j` : "—"}</td>
+                  <td className="px-3 py-1.5 text-center" title={s ? `Acquis ${s.annee} : ${s.acquisAnnee} j ; report ${s.annee - 1} : ${s.report} j${s.plafonne ? ` ; ${s.perdu} j perdus au plafond` : ""}` : undefined}>
+                    {s ? `${s.acquis} j` : "—"}
+                    {s && s.report !== 0 && <span className="ml-1 text-xs text-muted-foreground">dont report {s.report} j</span>}
+                  </td>
                   <td className="px-3 py-1.5 text-center">
                     {s ? `${s.pris} j` : "—"}
                     {s && s.cSansDemande > 0 && (
@@ -353,8 +356,9 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
 
       <p className="mt-4 text-xs text-muted-foreground">
         Source : demandes de congé <span className="font-medium">approuvées</span>, plus les « C » posés
-        directement dans la grille Présences sans demande (payés comme congé, donc décomptés). Solde = droits acquis
-        selon l&apos;ancienneté (mois révolus à ce jour) − congés décomptés depuis le 1er janvier (seuls
+        directement dans la grille Présences sans demande (payés comme congé, donc décomptés). Solde en année civile :
+        droits = reliquat de l&apos;an dernier + acquis de l&apos;année (mois révolus) − congés décomptés dans
+        l&apos;année, le solde ne dépassant jamais les droits annuels (l&apos;acquis au-delà est perdu) (un congé à cheval sur deux années est réparti ; seuls
         les types cochés « Solde annuel » dans Paramètres se déduisent) — le même chiffre que sur la
         fiche employé et l&apos;espace salarié. Les droits légaux restent à valider
         par un comptable. Colonne orange = dimanche ou jour férié.

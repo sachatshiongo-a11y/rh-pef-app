@@ -7,7 +7,8 @@ import { lireAvertissements } from "@/lib/paie-avertissements";
 // Audit paie du 2026-10-10 (preuves Nagi) :
 //  #1 embauché APRÈS la fin du mois : bulletin du mois entier (back-office) ou allocations pour 0 h
 //     (brigade) → plus aucun bulletin ce mois-là. Absences N/S/M et entrée en cours de mois du
-//     back-office : AUCUN montant changé (décision Direction en attente), mais un signalement nommé.
+//     back-office : RETENUES depuis les décisions de la Direction du 2026-10-12 (1/26e par jour N/S,
+//     tiers d'un jour M non justifié, prorata des jours ouvrables à l'entrée).
 //  #5 net négatif possible sans alerte → signalé, et la validation (unitaire comme la clôture) refusée ;
 //     l'échéance de prêt du mois est réservée sur le plafond d'acompte.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
@@ -29,7 +30,7 @@ const { calculerBulletinLive } = await import("@/lib/bulletin-live");
 const { chargerPlafondAcompte, verifierMontantAcompte } = await import("@/lib/acompte-plafond");
 
 let prisma: PrismaClient; let fermer: () => Promise<void>;
-const ids = { absent: "", futurBO: "", futurBrigade: "", entree: "", endette: "" };
+const ids = { absent: "", futurBO: "", futurBrigade: "", entree: "", endette: "", malade: "" };
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
 const ligne = (employeeId: string) => prisma.payrollLine.findFirst({ where: { employeeId, payrollRun: { mois: 9, annee: 2026 } } });
 async function erreurDe(action: Promise<unknown>): Promise<string | null> {
@@ -54,6 +55,10 @@ beforeAll(async () => {
   ids.futurBrigade = (await cree("BR1", "Futur Cuisine", "BRIGADE", "2026-11-01", 4)).id;
   ids.entree = (await cree("BO3", "Entree Mi-Mois", "BACKOFFICE", "2026-09-15")).id;
   ids.endette = (await cree("BO4", "Dora Dette", "BACKOFFICE", "2025-01-06")).id;
+  ids.malade = (await cree("BO5", "Mado Malade", "BACKOFFICE", "2025-01-06")).id;
+  // Maladie : 2 jours sans justificatif (21 et 22/09), 1 jour justifié par certificat (23/09).
+  for (const [j, justifiee] of [[21, false], [22, false], [23, true]] as const)
+    await prisma.attendance.create({ data: { employeeId: ids.malade, date: new Date(Date.UTC(2026, 8, j)), code: "M", maladieJustifiee: justifiee } });
   for (let j = 1; j <= 3; j++) await prisma.attendance.create({ data: { employeeId: ids.absent, date: new Date(Date.UTC(2026, 8, j)), code: "N" } });
   await prisma.attendance.create({ data: { employeeId: ids.absent, date: new Date(Date.UTC(2026, 8, 10)), code: "S" } });
   await prisma.attendance.create({ data: { employeeId: ids.absent, date: new Date(Date.UTC(2026, 8, 14)), code: "M" } });
@@ -73,25 +78,37 @@ describe("#1 embauche postérieure au mois : aucun bulletin", () => {
   });
 });
 
-describe("#1 back-office : absences et entrée en cours de mois signalées, montants inchangés", () => {
-  it("N les 01-03/09, S le 10/09, M le 14/09 : salaire entier (décision en attente) mais chaque jour nommé", async () => {
+describe("back-office : absences retenues à 1/26e, entrée au prorata, maladie (décisions Direction 2026-10-12)", () => {
+  it("N les 01-03/09 + S le 10/09 = 4 j × 400/26 ; M non justifié le 14/09 = 1/3 de 400/26", async () => {
     const l = (await ligne(ids.absent))!;
-    expect(Number(l.remuneration100)).toBe(400);
-    const msgs = lireAvertissements(l.avertissementsPaie).filter((a) => a.code === "ABSENCES_NON_DEDUITES").map((a) => a.message);
-    expect(msgs).toEqual([
-      "Payé au mois entier, rien n'est retenu pour : absence injustifiée (N) les 01/09, 02/09, 03/09 (3 j) ; sans solde (S) le 10/09 ; maladie (M) le 14/09. Retenue à décider par la Direction (règle en attente).",
-    ]);
+    // 400 − 61,54 (4 j) − 5,13 (1/3 j) = 333,33 ; le bulletin imprime la base et chaque retenue.
+    expect(Number(l.remuneration100)).toBe(333.33);
+    expect(Number(l.retenueAbsencesUSD)).toBe(61.54);
+    expect(l.joursAbsenceRetenus).toBe(4);
+    expect(Number(l.retenueMaladieUSD)).toBe(5.13);
+    expect(l.joursMaladieNonJustifies).toBe(1);
+    expect(Number(l.remuneration100) + Number(l.retenueAbsencesUSD) + Number(l.retenueMaladieUSD)).toBe(400);
+    // Plus d'avertissement « rien n'est retenu » : la retenue est faite.
+    expect(lireAvertissements(l.avertissementsPaie).map((a) => a.code)).not.toContain("ABSENCES_NON_DEDUITES");
+    // La fiche (aperçu) calcule pareil que le lot.
+    expect((await calculerBulletinLive(ids.absent, 9, 2026))!.ligne.remuneration100).toBe(333.33);
   });
 
-  it("embauche le 15/09 : mois entier versé, signalé", async () => {
+  it("embauche le 15/09 : 14 jours ouvrables travaillables, base 26 → 400 × 14/26 = 215,38", async () => {
     const l = (await ligne(ids.entree))!;
-    expect(Number(l.remuneration100)).toBe(400);
-    expect(lireAvertissements(l.avertissementsPaie).map((a) => a.message)).toContain(
-      "Mois incomplet (embauche le 15/09/2026) : salaire du mois entier versé, sans prorata. Prorata à décider par la Direction (règle en attente).",
-    );
+    expect(Number(l.remuneration100)).toBe(215.38);
+    expect([l.prorataJoursTravailles, l.prorataJoursMois]).toEqual([14, 26]);
+    expect((await calculerBulletinLive(ids.entree, 9, 2026))!.ligne.remuneration100).toBe(215.38);
   });
 
-  it("le signalement ne bloque pas : la ligne se valide", async () => {
+  it("maladie : 2 j sans justificatif aux 2/3, 1 j justifié à 100 % → 400 − 2 × 400/26/3 = 389,74", async () => {
+    const l = (await ligne(ids.malade))!;
+    expect(Number(l.remuneration100)).toBe(389.74);
+    expect(Number(l.retenueMaladieUSD)).toBe(10.26);
+    expect([l.joursMaladieNonJustifies, l.joursMaladieJustifies]).toEqual([2, 1]);
+  });
+
+  it("la ligne avec retenues se valide", async () => {
     const l = (await ligne(ids.absent))!;
     expect(await erreurDe(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) })))).toBeNull();
     expect((await ligne(ids.absent))!.statutPaiement).toBe("VALIDE");

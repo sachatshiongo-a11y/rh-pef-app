@@ -308,6 +308,36 @@ describe("bulletin — les lignes s'additionnent au centime (moteur au centime �
     expect(t).toMatch(/SALAIRE NET\s*164,00 \$/);
   }, 60_000);
 
+  // Décisions Direction 2026-10-12 : chaque retenue sur sa ligne, nombre de jours compris ; le
+  // bulletin reste sur une page et ses lignes s'additionnent au brut imposable.
+  it("back-office : 400 $ net, 3 j N + 2 j M non justifiés + 1 j M justifié → lignes distinctes, une page", async () => {
+    const bea = { ...employee, nom: "Bea Bureau", categorie: "BACKOFFICE", salaireMensuel: 400 } as unknown as Employee;
+    const m = calculerPaieBackoffice({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 3, joursMaladieNonJustifies: 2, prorata: null } }, params);
+    const l = ligne({ ...versLigne(m, 0), retenueAbsencesUSD: m.retenueAbsencesUSD, retenueMaladieUSD: m.retenueMaladieUSD, joursAbsenceRetenus: 3, joursMaladieNonJustifies: 2, joursMaladieJustifies: 1 });
+    const pdf = await renderPdfBuffer(BulletinDocument({ employee: bea, ligne: l, run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params }));
+    const t = await texteDu(pdf);
+    expect(t).toMatch(/Absences non payées \(N, sans solde\), 1\/26e par jour\s*3 j\s*\([\d ,]+ \$\)/);
+    expect(t).toMatch(/Maladie sans justificatif, payée 2\/3 \(retenue 1\/3\)\s*2 j\s*\([\d ,]+ \$\)/);
+    expect(t).toMatch(/Maladie justifiée \(certificat\), payée 100 %\s*1 j/);
+    // Salaire de base − retenues = brut imposable, au centime.
+    const c = (x: string) => Math.round(Number(x.replace(/ /g, "").replace(",", ".")) * 100);
+    const base = c(montant(t, /Salaire de base\s*([\d ,]+) \$/));
+    const r1 = c(montant(t, /1\/26e par jour\s*3 j\s*\(([\d ,]+) \$\)/));
+    const r2 = c(montant(t, /\(retenue 1\/3\)\s*2 j\s*\(([\d ,]+) \$\)/));
+    expect(base - r1 - r2).toBe(c(montant(t, /Salaire brut imposable \(hors transport\)\s*([\d ,]+) \$/)));
+    // Net : 400 − 3 × 400/26 − 2 × 400/26/3 = 343,59.
+    expect(t).toMatch(/SALAIRE NET\s*343,59 \$/);
+    expect(await pagesDu(pdf)).toBe(1);
+  }, 60_000);
+
+  it("back-office entré en cours de mois : la base dit le prorata des jours ouvrables", async () => {
+    const bea = { ...employee, nom: "Bea Bureau", categorie: "BACKOFFICE", salaireMensuel: 400 } as unknown as Employee;
+    const m = calculerPaieBackoffice({ salaireBaseUSD: 400, transportUSD: 0, enfants: 0, absences: { joursAbsenceRetenus: 0, joursMaladieNonJustifies: 0, prorata: { joursTravailles: 14, joursMois: 26 } } }, params);
+    const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: bea, ligne: ligne({ ...versLigne(m, 0), prorataJoursTravailles: 14, prorataJoursMois: 26 }), run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
+    expect(t).toMatch(/Salaire de base au prorata \(14 j sur 26\)\s*256,25 \$/);
+    expect(t).toMatch(/SALAIRE NET\s*215,38 \$/);
+  }, 60_000);
+
   it("back-office FIGÉ avant le 2026-09-24 (base 0 stockée) : la base imprimée reste la part du brut", async () => {
     const gode = { ...employee, nom: "Gode", categorie: "BACKOFFICE", salaireMensuel: 164 } as unknown as Employee;
     const fige = ligne({ remuneration100: 0, hsValorisee: 0, heuresSupp30: 0, transportUSD: 0, salBrutUSD: 192.63, cnssSalarieUSD: 9.63, netImposableUSD: 183, iprCalculeUSD: 19, salNetUSD: 164 });

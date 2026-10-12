@@ -44,7 +44,8 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
       if (!run) return false;
       runId = run.id;
       await tx.$queryRaw`SELECT "id" FROM "public"."PayrollRun" WHERE "id" = ${runId} FOR UPDATE`;
-      // Le recalcul utilise le taux de change COURANT : on le reflète sur le run.
+      // Le recalcul utilise le taux de change COURANT : on le reflète sur le run. Les lignes VALIDÉES
+      // ou PAYÉES n'en dépendent plus : elles portent leur taux figé à la validation (paie-taux.ts).
       await tx.payrollRun.update({ where: { id: runId }, data: { tauxChangeUtilise: config.tauxChangeCDF } });
     }
 
@@ -98,7 +99,7 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
       .filter((l) => conservees.has(l.employeeId))
       .sort((a, b) => conservees.get(a.employeeId)!.localeCompare(conservees.get(b.employeeId)!));
     for (const { payrollRunId: _run, employeeId, ...donnees } of enPlace) {
-      await tx.payrollLine.update({ where: { id: conservees.get(employeeId)! }, data: { ...donnees, datePaiement: null, modePaiement: null, payeParId: null } });
+      await tx.payrollLine.update({ where: { id: conservees.get(employeeId)! }, data: { ...donnees, datePaiement: null, modePaiement: null, payeParId: null, tauxChangeFige: null } });
     }
     // Écriture en masse des autres (remplace ~100 requêtes par ~4).
     await tx.payrollLine.createMany({ data: nouvellesLignes.filter((l) => !conservees.has(l.employeeId)) });

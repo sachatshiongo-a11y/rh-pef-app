@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { formaterNombre } from "@/lib/montant";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import type { StatutDeclaration, TypeTaxe } from "@prisma/client";
 
 /** Écart (en $) à partir duquel le recalcul est dit différent du montant figé au marquage. */
@@ -30,6 +31,8 @@ export type LigneDeclaration = {
 export type BordereauDeclarations = {
   lignes: LigneDeclaration[];
   tauxChange: number;
+  /** Taux des bulletins du mois (un bulletin validé garde le taux de sa validation) : un seul en général. */
+  tauxDistincts: number[];
   /** Des bulletins du mois ne sont ni validés ni payés : les montants peuvent encore changer. */
   provisoire: boolean;
   nbNonValides: number;
@@ -108,13 +111,19 @@ export async function calculerDeclarationsMois(
   const somme = (f: (l: (typeof lignesRun)[number]) => number) =>
     lignesRun.reduce((acc, l) => acc + f(l), 0);
 
+  // Francs déclarés : CHAQUE bulletin à son taux (figé à la validation pour un bulletin validé ou
+  // payé — décision Direction 2026-10-12, IPR déclaré compris), jamais tout le mois au taux du jour.
   const tauxChange = Number(run.tauxChangeUtilise);
-  const montants: Record<TypeTaxe, number> = {
-    CNSS: somme((l) => Number(l.cnssSalarieUSD) + Number(l.cnssPatronalUSD)),
-    IPR: somme((l) => Number(l.iprCalculeUSD)),
-    INPP: somme((l) => Number(l.inppUSD)),
-    ONEM: somme((l) => Number(l.onemUSD)),
+  const tauxDe = (l: (typeof lignesRun)[number]) => tauxDeLigne(l, run);
+  const parTaxe: Record<TypeTaxe, (l: (typeof lignesRun)[number]) => number> = {
+    CNSS: (l) => Number(l.cnssSalarieUSD) + Number(l.cnssPatronalUSD),
+    IPR: (l) => Number(l.iprCalculeUSD),
+    INPP: (l) => Number(l.inppUSD),
+    ONEM: (l) => Number(l.onemUSD),
   };
+  const montants = Object.fromEntries((Object.keys(parTaxe) as TypeTaxe[]).map((t) => [t, somme(parTaxe[t])])) as Record<TypeTaxe, number>;
+  const montantsCDF = Object.fromEntries((Object.keys(parTaxe) as TypeTaxe[]).map((t) => [t, somme((l) => parTaxe[t](l) * tauxDe(l))])) as Record<TypeTaxe, number>;
+  const tauxDistincts = [...new Set(lignesRun.map(tauxDe))].sort((a, b) => a - b);
 
   // Échéance : le 15 du mois suivant la période de paie.
   const echeance = new Date(Date.UTC(mois === 12 ? annee + 1 : annee, mois === 12 ? 0 : mois, 15));
@@ -128,7 +137,7 @@ export async function calculerDeclarationsMois(
 
   const lignes: LigneDeclaration[] = (Object.keys(montants) as TypeTaxe[]).map((type) => {
     const recalculUSD = montants[type];
-    const recalculCDF = montants[type] * tauxChange;
+    const recalculCDF = montantsCDF[type];
     const suivi = suivis.find((s) => s.type === type);
     const statut: StatutDeclaration = suivi?.statut ?? "A_DECLARER";
     // Déclarée ou payée : le montant qui fait foi est celui figé au marquage.
@@ -151,5 +160,5 @@ export async function calculerDeclarationsMois(
     };
   });
 
-  return { lignes, tauxChange, provisoire: nbNonValides > 0, nbNonValides, nbBulletins: lignesRun.length };
+  return { lignes, tauxChange: tauxDistincts.length === 1 ? tauxDistincts[0] : tauxChange, tauxDistincts, provisoire: nbNonValides > 0, nbNonValides, nbBulletins: lignesRun.length };
 }

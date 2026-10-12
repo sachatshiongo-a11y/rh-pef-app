@@ -4,8 +4,9 @@ import { exigerEspaceRH } from "@/lib/garde-route";
 import { AttestationPaieDocument } from "@/lib/pdf/attestation-paie";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { slugFichier } from "@/lib/texte";
+import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
 
-/** Attestation de paie d'UN MOIS (PDF) — dérivée de la ligne de paie réelle. Direction / Manager. */
+/** Attestation de paie d'UN MOIS (PDF) — dérivée de la ligne de paie PAYÉE. Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; ligneId: string }> }) {
   const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
@@ -18,12 +19,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!ligne || ligne.employeeId !== id) {
     return new Response("Aucune ligne de paie pour cet employé sur cette période.", { status: 404 });
   }
-  // Un brouillon n'est pas un salaire perçu : seule une paie VALIDÉE ou PAYÉE s'atteste.
-  if (ligne.statutPaiement !== "VALIDE" && ligne.statutPaiement !== "PAYE") {
-    return new Response("Cette paie n'est pas encore validée : elle ne peut pas être attestée.", {
-      status: 409,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+  // Délivrée seulement une fois le bulletin PAYÉ (décision Direction 2026-10-12) : un bulletin
+  // validé mais pas encore versé n'est pas un salaire perçu.
+  const refus = refusAttestationPaie(ligne.statutPaiement);
+  if (refus) {
+    return new Response(refus, { status: 409, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
 
   const ent = await chargerEntreprise();

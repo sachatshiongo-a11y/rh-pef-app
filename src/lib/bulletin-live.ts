@@ -13,7 +13,8 @@ import {
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
-import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
+import { avertissementNetNonPositif, netNonValidable } from "@/lib/paie-avertissements-mois";
+import { absencesDuMois } from "@/lib/paie-absences";
 
 export type ApercuBulletin = {
   ligne: LignePaie;
@@ -134,9 +135,14 @@ export async function calculerBulletinLive(
   const fraisMedicauxUSD =
     Number(employee.fraisMedicauxMoisCourant) + fraisMedDuMois.reduce((s, f) => s + Number(f.montantUSD), 0);
 
+  // Salaire au mois (back-office, stage) : mêmes retenues et prorata que le lot (paie-absences.ts).
+  const joursEmp = joursParEmp.get(employeeId);
+  const absences = (estStage || employee.categorie !== "BRIGADE") && joursEmp
+    ? absencesDuMois({ mois, annee, jours: joursEmp.jours, joursCongeSansSolde: joursEmp.joursCongeSansSolde, joursFeries: joursEmp.joursFeries, dateEmbauche: new Date(employee.dateEmbauche), dateFinContrat: joursEmp.dateFinContrat })
+    : undefined;
   const ligne = estStage
     ? calculerPaieStage(
-        { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
+        { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD, absences },
         parametres
       )
     : employee.categorie === "BRIGADE"
@@ -161,6 +167,7 @@ export async function calculerBulletinLive(
             primesUSD,
             acompteUSD,
             retenuePretUSD,
+            absences,
           },
           parametres
         );
@@ -187,19 +194,10 @@ export async function calculerBulletinLive(
       motif: ref.motif,
       heuresReference: ref.heuresReference,
       tauxMois: ref.tauxMois,
-      // Mêmes signalements que la ligne du lot (paie-batch.ts) : mois entier non proratisé, net ≤ 0.
+      // Mêmes signalements que la ligne du lot (paie-batch.ts) : net ≤ 0. Les absences du mois ne
+      // sont plus signalées : elles sont retenues (décisions Direction 2026-10-12).
       avertissements: [
         ...avertissements,
-        ...(employee.categorie === "BRIGADE" && !estStage
-          ? []
-          : avertissementsMoisEntier({
-              mois,
-              annee,
-              presences: attendances.map((a) => ({ date: a.date, code: a.code as CodePresence })),
-              joursCongeSansSolde: joursParEmp.get(employeeId)?.joursCongeSansSolde ?? [],
-              dateEmbauche: new Date(employee.dateEmbauche),
-              dateFinContrat: joursParEmp.get(employeeId)?.dateFinContrat ?? null,
-            })),
         ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
       ],
     },

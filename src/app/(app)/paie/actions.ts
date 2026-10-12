@@ -123,6 +123,10 @@ async function appliquerTransitionPaie(
   }
 
   const deStatut = ligne.statutPaiement;
+  const tauxFige =
+    versStatut === "VALIDE" && deStatut === "PAS_VALIDE" ? ligne.payrollRun.tauxChangeUtilise
+    : versStatut === "PAS_VALIDE" ? null
+    : undefined;
   // Moyen de paiement : celui explicitement choisi, sinon le moyen de paiement de la fiche employé
   // — plus jamais « espèces » imposé par défaut, y compris pour les actions groupées.
   const modePaiement = opts.modePaiement ?? ligne.employee.modePaiement;
@@ -134,6 +138,10 @@ async function appliquerTransitionPaie(
       datePaiement,
       modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
       payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
+      // Taux de change FIGÉ à la validation (décision Direction 2026-10-12) : celui de la paie du mois
+      // à cet instant, avec lequel l'écran a montré les francs (jeton contrôlé). Une réouverture le
+      // libère ; annuler un paiement (PAYÉ → VALIDÉ) le garde.
+      ...(tauxFige !== undefined ? { tauxChangeFige: tauxFige } : {}),
     },
   });
 
@@ -167,7 +175,7 @@ async function appliquerTransitionPaie(
         payrollLineId,
         numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
         // `conges` : la période de congé du mois, figée avec le reste (le bulletin remis la garde).
-        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun, validation, conges: await figerCongesDuMois(tx, ligne.employeeId, ligne.payrollRun.mois, ligne.payrollRun.annee) })),
+        snapshot: JSON.parse(JSON.stringify({ ligne: { ...ligne, ...(tauxFige !== undefined ? { tauxChangeFige: tauxFige } : {}) }, employe: ligne.employee, run: ligne.payrollRun, validation, conges: await figerCongesDuMois(tx, ligne.employeeId, ligne.payrollRun.mois, ligne.payrollRun.annee) })),
         genreParId: userId,
       },
     });

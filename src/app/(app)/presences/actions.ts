@@ -73,7 +73,9 @@ async function ecrireEntrees(entrees: Entree[], ctx: Awaited<ReturnType<typeof c
     if (aEffacer.length > 0) {
       await tx.attendance.deleteMany({ where: { OR: aEffacer.map((e) => ({ employeeId: e.employeeId, date: new Date(`${e.date}T00:00:00.000Z`) })) } });
     }
-    for (const [code, ids] of majParCode) await tx.attendance.updateMany({ where: { id: { in: ids } }, data: { code } });
+    // Un jour qui quitte le code M perd son « justifié » (le certificat reste dans le dossier) : un M
+    // reposé plus tard repart non justifié, payé aux 2/3, tant qu'on ne le justifie pas de nouveau.
+    for (const [code, ids] of majParCode) await tx.attendance.updateMany({ where: { id: { in: ids } }, data: { code, ...(code !== "M" ? { maladieJustifiee: false } : {}) } });
     if (aCreer.length > 0) await tx.attendance.createMany({ data: aCreer, skipDuplicates: true });
     if (heuresACreer.length > 0) await tx.overtimeEntry.createMany({ data: heuresACreer, skipDuplicates: true });
     if (heuresARetirer.length > 0) await tx.overtimeEntry.deleteMany({ where: { OR: heuresARetirer } });

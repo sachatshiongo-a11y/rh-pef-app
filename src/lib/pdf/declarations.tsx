@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { libelleTauxPaie } from "@/lib/paie-taux";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
 import { pdfColors, formatCDF, entreprise as entrepriseDefaut } from "./theme";
@@ -72,6 +73,7 @@ export function BordereauDeclarationsDocument({
   mois,
   annee,
   tauxChange,
+  tauxDistincts,
   entreprise = entrepriseDefaut,
   logo,
   provisoire,
@@ -82,6 +84,8 @@ export function BordereauDeclarationsDocument({
   mois: number;
   annee: number;
   tauxChange: number;
+  /** Taux des bulletins du mois, s'ils diffèrent (bulletins validés à des taux différents). */
+  tauxDistincts?: number[];
   entreprise?: typeof entrepriseDefaut;
   logo?: ImageSrc;
 }) {
@@ -102,7 +106,7 @@ export function BordereauDeclarationsDocument({
         <Text style={styles.intro}>
           Récapitulatif des cotisations sociales et fiscales retenues sur la paie de la période
           ci-dessus, à déclarer et à verser aux organismes concernés. Montants convertis au taux
-          de change utilisé pour la paie : 1 $ = {formatCDF(tauxChange)} CDF.
+          de change de la paie : {tauxDistincts && tauxDistincts.length > 1 ? libelleTauxPaie(tauxDistincts) : `1 $ = ${formatCDF(tauxChange)} CDF`}.
         </Text>
 
         <PdfSectionHeader>Détail par organisme</PdfSectionHeader>

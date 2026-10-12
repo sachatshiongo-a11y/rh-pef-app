@@ -79,7 +79,8 @@ export async function poserCodesConge(
   for (const d of jours) {
     await client.attendance.upsert({
       where: { employeeId_date: { employeeId, date: d } },
-      update: { code },
+      // Un jour M justifié recouvert par un congé perd son « justifié » : s'il redevient M plus tard, il repart non justifié.
+      update: { code, maladieJustifiee: false },
       create: { employeeId, date: d, code },
     });
   }

@@ -962,6 +962,11 @@ model Attendance {
   employee   Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   date       DateTime       @db.Date
   code       AttendanceCode
+  /// Jour M (maladie) justifié AU PRÉALABLE par un certificat : payé 100 % (sinon 2/3). Décision
+  /// Direction 2026-10-12, tout le personnel. Sans effet sur un autre code (remis à false).
+  maladieJustifiee Boolean @default(false)
+  /// Certificat médical joint (facultatif), lien applicatif `/fichiers/…` du bucket privé.
+  justificatifUrl  String?
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
@@ -1045,6 +1050,19 @@ model PayrollLine {
   heuresSupp60         Decimal @default(0) @db.Decimal(6, 2)
   heuresSupp100        Decimal @default(0) @db.Decimal(6, 2)
 
+  // Absences et maladie (décisions Direction 2026-10-12) — imprimées en lignes distinctes.
+  // Back-office et stagiaires : jours N/S retenus à 1/26e, retenue d'un tiers de journée par jour M
+  // non justifié ; prorata des jours ouvrables à l'entrée/sortie en cours de mois (null = mois entier).
+  joursAbsenceRetenus      Int     @default(0)
+  retenueAbsencesUSD       Decimal @default(0) @db.Decimal(12, 2)
+  joursMaladieJustifies    Int     @default(0)
+  joursMaladieNonJustifies Int     @default(0)
+  retenueMaladieUSD        Decimal @default(0) @db.Decimal(12, 2)
+  // Brigade : part de `remunerationJoursPayesUSD` due aux jours M justifiés (payés 100 %).
+  remunerationMaladieJustifieeUSD Decimal @default(0) @db.Decimal(12, 2)
+  prorataJoursTravailles   Int?
+  prorataJoursMois         Int?
+
   // Congés & frais médicaux
   joursCongePris     Int     @default(0)
   indemniteCongesUSD Decimal @default(0) @db.Decimal(12, 2)
@@ -1070,6 +1088,11 @@ model PayrollLine {
   onemUSD           Decimal @default(0) @db.Decimal(12, 2)
   coutEmployeurUSD  Decimal @db.Decimal(12, 2)
   coutEmployeurCDF  Decimal @db.Decimal(14, 2)
+
+  // Taux de change FIGÉ à la validation (décision Direction 2026-10-12) : un bulletin validé ou payé
+  // s'imprime et se déclare à ce taux. NULL = ligne non figée (taux de la paie du mois), ou figée
+  // avant le 2026-10-15. Remis à NULL à la réouverture. Lire par `tauxDeLigne` (lib/paie-taux.ts).
+  tauxChangeFige Decimal? @db.Decimal(10, 2)
 
   // Machine à états du paiement
   statutPaiement PaymentStatus @default(PAS_VALIDE)

@@ -1,4 +1,5 @@
 import "server-only";
+import { tauxDeLigne } from "@/lib/paie-taux";
 
 import { Prisma, type PrismaClient, type TypeAttestation } from "@prisma/client";
 import { salaireNetHabituelUSD, brutHorsTransportUSD } from "@/lib/paie-net";
@@ -132,7 +133,7 @@ export async function instantaneAttestation(
       // Brut HORS transport : l'assiette CNSS/IPR, la même formule que le bulletin.
       brutUSD: usd(brutHorsTransportUSD(ligne)),
       allocationsUSD: usd(ligne.allocFamilialeUSD),
-      tauxChange: usd(ligne.payrollRun.tauxChangeUtilise),
+      tauxChange: usd(tauxDeLigne(ligne, ligne.payrollRun)),
     };
     return { ok: true, donnees, payrollLineId: ligne.id };
   }

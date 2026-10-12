@@ -14,7 +14,8 @@ import {
   type CodePresence,
 } from "@/lib/payroll";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
-import { avertissementNetNonPositif, avertissementsMoisEntier, netNonValidable } from "@/lib/paie-avertissements-mois";
+import { avertissementNetNonPositif, netNonValidable } from "@/lib/paie-avertissements-mois";
+import { absencesDuMois, maladieBrigade, type AbsencesMois } from "@/lib/paie-absences";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
 import type { Employee, Prisma } from "@prisma/client";
@@ -41,6 +42,15 @@ export type DonneesLignePaie = {
   heuresSupp30: number;
   heuresSupp60: number;
   heuresSupp100: number;
+  /** Absences et maladie (décisions Direction 2026-10-12) : imprimées en lignes distinctes. */
+  joursAbsenceRetenus: number;
+  retenueAbsencesUSD: number;
+  joursMaladieJustifies: number;
+  joursMaladieNonJustifies: number;
+  retenueMaladieUSD: number;
+  remunerationMaladieJustifieeUSD: number;
+  prorataJoursTravailles: number | null;
+  prorataJoursMois: number | null;
   joursCongePris: number;
   indemniteCongesUSD: number;
   fraisMedicauxUSD: number;
@@ -147,10 +157,8 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
   for (const a of acomptesDuMois) acomptesParEmp.set(a.employeeId, (acomptesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
 
   const codesParEmp = new Map<string, CodePresence[]>();
-  const datesParEmp = new Map<string, { date: Date; code: CodePresence }[]>();
   for (const a of attendances) {
     (codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, []).get(a.employeeId)!).push(a.code as CodePresence);
-    (datesParEmp.get(a.employeeId) ?? datesParEmp.set(a.employeeId, []).get(a.employeeId)!).push({ date: a.date, code: a.code as CodePresence });
   }
 
   // Jours du mois (créneaux, modèle, codes, heures, horodatages), jours hors du mois des semaines à
@@ -189,6 +197,16 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
       parametres,
     });
     const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
+    // Salaire au MOIS (back-office, stage) : retenues 1/26e des N/S, tiers des M non justifiés,
+    // prorata d'entrée/sortie — décisions Direction 2026-10-12 (paie-absences.ts, même appel que la fiche).
+    const auMois = estStage || employee.categorie !== "BRIGADE";
+    const joursEmp = joursParEmp.get(employee.id);
+    const absences: AbsencesMois | null = auMois && joursEmp
+      ? absencesDuMois({ mois, annee, jours: joursEmp.jours, joursCongeSansSolde: joursEmp.joursCongeSansSolde, joursFeries: joursEmp.joursFeries, dateEmbauche: new Date(employee.dateEmbauche), dateFinContrat: joursEmp.dateFinContrat })
+      : null;
+    const maladie = absences
+      ? { justifies: absences.joursMaladieJustifies, nonJustifies: absences.joursMaladieNonJustifies }
+      : maladieBrigade(joursEmp?.jours ?? []);
 
     const joursPresenceP = codes.filter((c) => c === "P").length;
     const transportUSD =
@@ -203,7 +221,7 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
     const ligne =
       typeContrat === "STAGE"
         ? calculerPaieStage(
-            { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
+            { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD, absences: absences ?? undefined },
             parametres
           )
         : employee.categorie === "BRIGADE"
@@ -220,25 +238,14 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
             parametres
           )
         : calculerPaieBackoffice(
-            { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
+            { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD, absences: absences ?? undefined },
             parametres
           );
 
-    // Signalements (audit du 2026-10-10), jamais un montant changé : le back-office et les stagiaires
-    // sont payés au MOIS ENTIER, sans retenue pour N/S/M ni prorata d'entrée/sortie — la règle attend
-    // la décision de la Direction. L'écran Paie et la confirmation de validation les nomment.
+    // Les absences du back-office et des stagiaires ne sont plus un avertissement : elles sont
+    // RETENUES (décisions Direction 2026-10-12) et imprimées en lignes distinctes du bulletin.
     const avertissementsPaie: AvertissementPaie[] = [
       ...avertissementsReference,
-      ...(employee.categorie === "BRIGADE" && !estStage
-        ? []
-        : avertissementsMoisEntier({
-            mois,
-            annee,
-            presences: datesParEmp.get(employee.id) ?? [],
-            joursCongeSansSolde: joursParEmp.get(employee.id)?.joursCongeSansSolde ?? [],
-            dateEmbauche: new Date(employee.dateEmbauche),
-            dateFinContrat: joursParEmp.get(employee.id)?.dateFinContrat ?? null,
-          })),
       ...(netNonValidable(ligne) ? [avertissementNetNonPositif(ligne)] : []),
     ];
 
@@ -277,6 +284,16 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
         heuresSupp30: estStage ? 0 : ref.hs.hs30,
         heuresSupp60: estStage ? 0 : ref.hs.hs60,
         heuresSupp100: estStage ? 0 : ref.hs.hs100,
+        joursAbsenceRetenus: absences?.joursAbsenceRetenus ?? 0,
+        retenueAbsencesUSD: ligne.retenueAbsencesUSD ?? 0,
+        joursMaladieJustifies: maladie.justifies,
+        joursMaladieNonJustifies: maladie.nonJustifies,
+        retenueMaladieUSD: ligne.retenueMaladieUSD ?? 0,
+        remunerationMaladieJustifieeUSD:
+          estStage || employee.categorie !== "BRIGADE" ? 0 : auCentime(ref.affichage.montantMaladieJustifieeNet * facteur),
+        prorataJoursTravailles: absences?.prorata?.joursTravailles ?? null,
+        // Base du prorata : 26 (paramètre légal), comme la retenue d'absence — imprimé « N j sur 26 ».
+        prorataJoursMois: absences?.prorata ? parametres.joursOuvrablesMois : null,
         joursCongePris,
         indemniteCongesUSD: auCentime(ref.affichage.indemniteCongesNet * facteur),
         // Montants tels que le moteur les a comptés, au centime (jamais la valeur non arrondie

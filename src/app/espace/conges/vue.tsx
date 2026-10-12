@@ -69,9 +69,12 @@ export function VueMesConges({
       <section className="rounded-2xl border bg-card p-4">
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat n={solde.solde} label="Il vous reste" accent />
-          <Stat n={solde.acquis} label="Acquis" />
+          <Stat n={solde.acquis} label={`Droits ${solde.annee} (report compris)`} />
           <Stat n={solde.pris} label={`Pris en ${annee}`} />
         </div>
+        <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+          Acquis en {solde.annee} : {solde.acquisAnnee} j{solde.report !== 0 ? ` · report de ${solde.annee - 1} : ${solde.report} j` : ""}{solde.plafonne ? ` · ${solde.perdu} j perdus : le solde ne dépasse jamais les droits annuels` : ""}.
+        </p>
         {solde.cSansDemande > 0 && (
           <p className="mt-3 border-t pt-3 text-xs text-amber-800">
             Dont {solde.cSansDemande} jour(s) de congé posé(s) directement sur la feuille de présence, sans demande : ils se déduisent aussi.
