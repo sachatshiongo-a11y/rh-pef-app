@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 // L'action de signature importe la base : neutralisée, l'écran n'en appelle aucune au rendu.
 vi.mock("../../signature-actions", () => ({ faireSignerDocument: vi.fn() }));
+vi.mock("../../paie/correction-paiement-actions", () => ({ corrigerPaiementBulletin: vi.fn() }));
 
 import { HistoriquePaie, type LigneHistoriquePaie } from "./historique-paie";
 
@@ -135,5 +136,29 @@ describe("historique de paie — pagination", () => {
 
   it("peu de bulletins : pas de barre", () => {
     expect(rendu({ lignes: LIGNES })).not.toContain('data-pagination=""');
+  });
+});
+
+describe("historique de paie — « Corriger le paiement » (Direction seule, bulletins payés)", () => {
+  const PAYES = [
+    ligne(2026, 10, "PAYE", { datePaiement: "2026-10-03", modePaiement: "VIREMENT" }),
+    ligne(2026, 9, "VALIDE"),
+    ligne(2026, 7, "PAS_VALIDE"),
+    ligne(2026, 6, "PAYE", { datePaiement: "2026-06-30", modePaiement: "ESPECES" }),
+  ];
+  const nb = (html: string) => (html.match(/Corriger le paiement<\/button>/g) ?? []).length;
+
+  it("la Direction : le bouton sur chaque bulletin PAYÉ (de tous les mois), jamais sur un validé ou non validé", () => {
+    const html = rendu({ lignes: PAYES, annee: "toutes", peutCorrigerPaiement: true });
+    expect(nb(html)).toBe(2);
+    expect(html).toContain("Corriger le paiement — octobre 2026");
+    expect(html).toContain("Corriger le paiement — juin 2026");
+  });
+
+  it("sans le droit (RH, consultation) : aucun bouton, mais la date et le moyen restent lisibles", () => {
+    const html = rendu({ lignes: PAYES, annee: "toutes" });
+    expect(nb(html)).toBe(0);
+    expect(texte(html)).toContain("le 03/10/2026 · Virement");
+    expect(texte(html)).toContain("le 30/06/2026 · Espèces");
   });
 });

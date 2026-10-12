@@ -32,6 +32,15 @@ describe("instantaneBulletin", () => {
     const b = empreinteDe(instantaneBulletin({ ...bulletin, salNetUSD: 368.51 } as never));
     expect(a).not.toBe(b);
   });
+  it("la DATE DE VERSEMENT et le MOYEN DE PAIEMENT ne sont PAS signés : « Corriger le paiement » ne rend jamais un bulletin à resigner", () => {
+    // Décision Direction 2026-10-12 : la correction change datePaiement / modePaiement d'un bulletin payé ; si l'un des deux
+    // entrait dans l'empreinte, la signature deviendrait obsolète (comme Rouvrir). Ce test FIGE le contrat inverse :
+    // s'il échoue, la correction doit marquer le bulletin « à resigner » (correction-paiement-actions.ts) et le dire.
+    const paye = { ...bulletin, statutPaiement: "PAYE", datePaiement: new Date("2026-10-03"), modePaiement: "VIREMENT" };
+    const corrige = { ...paye, datePaiement: new Date("2026-10-07"), modePaiement: "ESPECES" };
+    expect(canonique(instantaneBulletin(corrige as never))).toBe(canonique(instantaneBulletin(paye as never)));
+    expect(Object.keys(instantaneBulletin(paye as never))).not.toEqual(expect.arrayContaining(["datePaiement"]));
+  });
   it("le TAUX DE CHANGE fait partie de ce qui est signé : le bulletin en francs en dépend", () => {
     // Le montant en francs n'est pas stocké, il est calculé à l'impression au taux du run.
     // 368,50 $ × 2800 = 1 031 800 FC signés ; × 2900 = 1 068 650 FC imprimés.

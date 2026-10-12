@@ -773,6 +773,7 @@ export default async function FicheEmployePage({
           employeeId={employee.id}
           nomSalarie={employee.nom}
           peutModifier={peutModifier}
+          peutCorrigerPaiement={user.role === "ADMIN"}
           lignes={lignesHistoriquePaie}
           annee={anneeVuePaie}
           anneeCourante={anneeHorloge}
