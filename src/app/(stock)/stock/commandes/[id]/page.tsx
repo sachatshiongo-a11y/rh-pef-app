@@ -63,12 +63,17 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
   const devise = deviseBon(bc);
   const nbSansPrix = compterSansPrixBon(bc.lignes, devise);
   const sym = symboleDevise(devise);
-  // Le bon est en dollars ; une facture en francs ne s'y compare pas (jamais convertie en silence) :
-  // le facturé se dit par devise, l'écart n'est calculé que s'il n'y a que des factures en dollars.
+  // Une facture dans l'autre devise que le bon ne s'y compare pas (jamais convertie en silence) :
+  // le facturé se dit par devise, l'écart n'est calculé que dans la devise du bon.
   const facturesDevises = totalFactures(bc.factures, "montant");
-  const totalFacture = facturesDevises.usd;
-  const ecartFacture = totalFacture - Number(bc.totalUSD ?? 0);
-  const avecFC = facturesDevises.nbCDF > 0;
+  // L'écart ne se calcule que dans UNE devise : celle du bon, avec des factures de cette seule devise, et un bon
+  // dont toutes les lignes sont chiffrées (un total partiel n'est pas comparable à un facturé complet).
+  const bonEnFrancs = devise === "CDF";
+  const ecartFacture = bonEnFrancs ? facturesDevises.cdf - Number(bc.totalCDF ?? 0) : facturesDevises.usd - Number(bc.totalUSD ?? 0);
+  const motifNonComparable = bonEnFrancs && facturesDevises.nbUSD > 0 ? "— (bon en francs, facture en dollars : non comparés)"
+    : !bonEnFrancs && facturesDevises.nbCDF > 0 ? "— (facture en francs, bon en dollars : non comparés)"
+    : null;
+  const nonComparable = motifNonComparable ?? (nbSansPrix > 0 ? "— (bon incomplet : lignes sans prix)" : null);
 
   return (
     <div className="w-full space-y-5">
@@ -235,15 +240,15 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
               <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Commandé</p><p className="font-semibold">{libelleTotalBon(bc, nbSansPrix, bc.lignes.length)}</p></div>
               <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Facturé</p><p className="font-semibold">{libelleTotal(facturesDevises, undefined, usd)}</p></div>
-              {avecFC ? (
+              {nonComparable ? (
                 <div className="rounded-md border p-2">
                   <p className="text-xs text-muted-foreground">Écart</p>
-                  <p className="text-xs text-muted-foreground">— (facture en francs, bon en dollars : non comparés)</p>
+                  <p className="text-xs text-muted-foreground">{nonComparable}</p>
                 </div>
               ) : (
               <div className={`rounded-md border p-2 ${Math.abs(ecartFacture) < 0.01 ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
                 <p className="text-xs text-muted-foreground">Écart</p>
-                <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{usd(ecartFacture)}</p>
+                <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{formaterMontantBon(ecartFacture, devise)}</p>
               </div>
               )}
             </div>

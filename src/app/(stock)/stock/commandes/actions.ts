@@ -239,8 +239,11 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
 /** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
 export const modifierBonCommande = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
-  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true, devise: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
+  // Un bon importé d'un PDF en francs garde ses montants en francs : l'écran de modification ne saisit que des
+  // dollars (il ne convertit jamais en silence) — le réécrire en dollars violerait la contrainte de devise en base.
+  if (bc.devise === "CDF") throw new Error("Ce bon de commande est en francs (importé d'un PDF) : il ne se modifie pas ici (la modification saisit des dollars). Créez un nouveau bon si besoin.");
 
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
   const ids = formData.getAll("ligne_articleId").map(String);
