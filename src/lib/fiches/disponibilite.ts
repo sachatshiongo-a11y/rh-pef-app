@@ -283,13 +283,28 @@ type Eclatement = {
   enCause: string[];
 };
 
+/** Tous les articles du catalogue qu'une sous-recette engage (récursif, gardé contre les cycles). */
+function articlesDeSousFiche(ficheId: string, ctx: ContexteDispo, vus: Set<string>): string[] {
+  if (vus.has(ficheId)) return [];
+  vus.add(ficheId);
+  const f = ctx.fiches.get(ficheId);
+  if (!f) return [];
+  return f.ingredients.flatMap((i) => (i.articleId ? [i.articleId] : i.sousFicheId ? articlesDeSousFiche(i.sousFicheId, ctx, vus) : []));
+}
+
 /**
  * Éclate une ligne jusqu'aux articles de base. `mult` est la part de la fiche parente consommée
  * (1 pour la fiche affichée ; quantité ÷ rendement pour une sous-recette), comme dans `calculerCout`.
  */
 function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: Set<string>, ctx: ContexteDispo): Eclatement {
   const label = chemin ? `${chemin} › ${ing.nom}` : ing.nom;
-  const aVerifier = (motif: MotifDispo): Eclatement => ({ besoins: [], raisons: [{ motif, ingredient: label }], enCause: ing.articleId ? [ing.articleId] : [] });
+  // Articles dont la consommation devient inconnue : l'article de la ligne, ou TOUS ceux que la sous-recette
+  // (développée sans rendement) engage — sinon une vente de plat dont la sauce n'a pas de rendement
+  // laisserait le stock de crème « OK », sans la moindre mention.
+  const aVerifier = (motif: MotifDispo): Eclatement => ({
+    besoins: [], raisons: [{ motif, ingredient: label }],
+    enCause: ing.articleId ? [ing.articleId] : ing.sousFicheId ? articlesDeSousFiche(ing.sousFicheId, ctx, new Set(enCours)) : [],
+  });
 
   // Même règle que le coût (`cout.ts`, QUANTITE_ABSENTE / QUANTITE_INVALIDE — spec A.1.4) : une
   // quantité à 0 n'est pas « n'en consomme pas », c'est une quantité NON RENSEIGNÉE. L'ignorer

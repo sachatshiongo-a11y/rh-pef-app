@@ -120,6 +120,17 @@ describe("fiche incomplète ou inconvertible : « À vérifier », jamais un fau
     expect(aVerifier[0]!.raisons.join(" ")).toMatch(/aucun ingrédient/i);
   });
 
+  it("sous-recette SANS rendement : les articles qu'elle engage (crème) sont « À vérifier », jamais un stock « OK » qui ignore la vente (relecture 2026-10-12)", () => {
+    const sauce = fiche("s1", [ing("Crème", "a2", "200", "g")], { nom: "Sauce", estSousRecette: true, rendementQuantite: null });
+    const seul = fiche("f1", [ing("Sauce", null, "100", "g", "s1")]);
+    const mixte = fiche("f1", [ing("Farine", "a1", "80", "g"), ing("Sauce", null, "100", "g", "s1")]);
+    const articles = [art("a1", "kg"), art("a2", "kg")];
+    for (const f of [seul, mixte]) {
+      const { aVerifier } = consommationDesVentes(vente, new Map([["f1", f], ["s1", sauce]]), new Map(articles.map((a) => [a.id, a])));
+      expect(aVerifier[0]!.articles.map((a) => a.id)).toContain("a2");
+    }
+  });
+
   it("la vente d'une fiche incomplète AVANT le comptage ne dérange pas ; après, si", () => {
     const f = fiche("f1", [ing("Sel", "a1", "0", "g")]);
     expect(stock(entrees({ fiches: [f], ventes: [{ date: "2026-10-04", ficheId: "f1", quantite: 3 }] }), "2026-10-08").ventesAVerifier).toEqual([]);
