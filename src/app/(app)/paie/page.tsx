@@ -2,7 +2,7 @@ import Link from "next/link";
 import { tauxDeLigne } from "@/lib/paie-taux";
 import { prisma } from "@/lib/prisma";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
-import { annonceCloture, libellePeriode } from "@/lib/changement-mois";
+import { annonceCloture, libellePeriode, ligneClotureAnticipee } from "@/lib/changement-mois";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { CLASSES_DANGER, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
@@ -14,7 +14,7 @@ import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { classerContrats, jourMetier, type Classement } from "@/lib/contrats-classement";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
-import { jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
+import { jourCivilKinshasa, jourCourantKinshasaISO, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
@@ -186,6 +186,9 @@ export default async function PaiePage({
   // La clôture valide d'un coup tous les « pas validé » : elle rappelle leurs avertissements,
   // comme la validation d'une ligne ou d'un lot (jamais bloquant).
   const avertissementsCloture = messageConfirmationValidation(rows.filter((r) => r.statutPaiement === "PAS_VALIDE"));
+  // Clôture AVANT le dernier jour du mois (jour de Kinshasa) : permise, mais les jours restants passent en
+  // lecture seule — une ligne de la confirmation le dit (décision Direction 2026-10-12).
+  const ligneAnticipee = ligneClotureAnticipee({ mois, annee }, jourCourantKinshasaISO());
 
   // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
   const remuLignes: LigneRemu[] = run
@@ -386,7 +389,7 @@ export default async function PaiePage({
               <input type="hidden" name="annee" value={annee} />
               <ConfirmSubmitButton
                 variante="approuver"
-                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela approuve d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."} Les bulletins validés restant à payer se paieront ensuite depuis « À valider ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela approuve d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."} Les bulletins validés restant à payer se paieront ensuite depuis « À valider ».${ligneAnticipee ? `\n${ligneAnticipee}` : ""}${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 {nbPasValide > 0 ? `Clôturer la paie (${nbPasValide})` : "Clôturer la paie"}
               </ConfirmSubmitButton>

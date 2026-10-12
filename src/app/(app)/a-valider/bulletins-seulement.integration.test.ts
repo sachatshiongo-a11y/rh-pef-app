@@ -44,6 +44,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
+// Le texte d'une confirmation ne vit que dans le clic (window.confirm) : rendu ici en attribut pour être lu.
+vi.mock("@/components/confirm-submit-button", () => ({
+  ConfirmSubmitButton: ({ message, children }: { message: string; children: React.ReactNode }) => createElement("button", { type: "submit", "data-confirm": message }, children),
+}));
 
 const PAIE = await import("../paie/actions");
 const CHARGEURS = await import("@/lib/a-valider-chargeurs");
@@ -339,5 +343,28 @@ describe("Rouvrir : le bulletin du mois en cours seulement, jamais celui d'un mo
     const l = await prisma.payrollLine.findUniqueOrThrow({ where: { id: sept } });
     expect(l.statutPaiement).toBe("PAYE");
     expect(Number(l.tauxChangeFige)).toBe(2750);
+  });
+});
+
+describe("clôture anticipée : la confirmation de « Clôturer la paie » prévient (décision Direction 2026-10-12)", () => {
+  const LIGNE = /Les jours du (\d\d) au 31\/10 ne pourront plus recevoir de présences ni d&#x27;heures\./;
+  const confirmationCloture = (html: string) => /<button type="submit" data-confirm="([^"]*)">Clôturer la paie/.exec(html)?.[1] ?? null;
+  async function a(iso: string) {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(iso) });
+    try { en("DIR"); return confirmationCloture(await paie()); } finally { vi.useRealTimers(); }
+  }
+  it("avant le dernier jour (Kinshasa) : la ligne est là, du jour même au 31/10", async () => {
+    const msg = await a("2026-10-28T10:00:00Z");
+    expect(msg).not.toBeNull();
+    expect(LIGNE.exec(msg!)?.[1]).toBe("28");
+    // 30/10 à 23 h 30 UTC = 31/10 à 0 h 30 à Kinshasa : déjà le dernier jour → rien
+    expect(await a("2026-10-30T23:30:00Z")).not.toMatch(LIGNE);
+  });
+  it("le dernier jour du mois et après : absente", async () => {
+    for (const iso of ["2026-10-31T09:00:00Z", "2026-11-02T09:00:00Z"]) {
+      const msg = await a(iso);
+      expect(msg, iso).not.toBeNull(); // la confirmation est bien là…
+      expect(msg, iso).not.toMatch(/ne pourront plus recevoir/); // …sans la ligne
+    }
   });
 });

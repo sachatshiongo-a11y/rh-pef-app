@@ -115,6 +115,7 @@ describe("clôture : la confirmation est câblée", () => {
     expect(s).toContain('messageConfirmationValidation(rows.filter((r) => r.statutPaiement === "PAS_VALIDE"))');
     // Le rappel suit la phrase de la clôture (« valide … les N « pas validé ». » ou, tout étant
     // validé, « la paie du mois sera fermée »).
-    expect(s).toMatch(/« pas validé ».` : "Tous les bulletins sont validés[^"]*"\}[^`$]*\$\{avertissementsCloture \? `\\n\\n\$\{avertissementsCloture\}` : ""\}`/);
+    // (Entre les deux, seule la ligne de clôture anticipée est admise — décision Direction 2026-10-12.)
+    expect(s).toMatch(/« pas validé ».` : "Tous les bulletins sont validés[^"]*"\}[^`$]*(\$\{ligneAnticipee \? `\\n\$\{ligneAnticipee\}` : ""\})?\$\{avertissementsCloture \? `\\n\\n\$\{avertissementsCloture\}` : ""\}`/);
   });
 });
