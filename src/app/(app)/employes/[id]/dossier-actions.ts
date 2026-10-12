@@ -17,7 +17,7 @@ import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { changementsProposes } from "@/lib/fiche-sensible";
-import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche } from "@/lib/demandes-fiche";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -221,6 +221,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     // Lus avant la transaction : une saisie illisible s'arrête ici avec son message, rien n'est écrit.
     const heuresHebdo = decSaisi(formData.get("heuresHebdo"), "Heures / semaine");
     const salaireMensuel = decSaisi(formData.get("salaireMensuel"), "Salaire mensuel");
+    const sortie: { demande: Awaited<ReturnType<typeof recopierContratSurFicheTx>> } = { demande: null };
     const cree = await prisma.$transaction(async (tx) => {
       if (cloturerId) {
         // VERROU sur le contrat à clôturer AVANT de relire son statut : un double envoi du
@@ -257,8 +258,8 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
           coutJourUSD: type === "INTERIM" && Number.isFinite(coutJour) && coutJour > 0 ? coutJour : null,
         },
       });
-      // La fiche employé affiche le type du contrat courant.
-      await tx.employee.update({ where: { id: employeeId }, data: { contrat: type } });
+      // La fiche employé affiche le type du contrat courant (hors Direction : demande « À valider »).
+      sortie.demande = await recopierContratSurFicheTx(tx, { employeeId, contrat: type, auteur: { id: user.id, nom: user.nom, role: user.role } });
 
       await journaliser(tx, {
         entite: "Contrat",
@@ -270,6 +271,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
       return nouveau;
     });
 
+    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
     // Le salarié est prévenu qu'un contrat attend sa signature (cloche de l'espace + push).
     await notifierContratASigner(cree.id);
 

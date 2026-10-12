@@ -9,7 +9,7 @@ import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { MAX_MOTIF_REFUS } from "@/lib/conges-liste";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
-import { canonique, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement } from "@/lib/fiche-sensible";
+import { canonique, changementsProposes, libelleChamp, libelleValeur, ligneChangement, lireChangements, versDonnee, type Changement, type ChampSensible } from "@/lib/fiche-sensible";
 
 // DEMANDES DE MODIFICATION DE FICHE SALARIÉ (2026-10-12) — création, approbation, refus.
 //
@@ -43,7 +43,7 @@ const jj = (d: Date) => jourKinshasa(d);
 /** Crée la demande dans la transaction de l'appelant (qui enregistre aussi les champs non sensibles). */
 export async function creerDemandeFicheTx(
   tx: Tx,
-  p: { employeeId: string; changements: Changement[]; origine: "MODIFIER" | "CHANGER_SALAIRE"; motif?: string | null; auteur: Acteur },
+  p: { employeeId: string; changements: Changement[]; origine: "MODIFIER" | "CHANGER_SALAIRE" | "CONTRAT"; motif?: string | null; auteur: Acteur },
 ) {
   if (p.changements.length === 0) throw new Error("Aucun changement à soumettre.");
   await verrouillerFiche(tx, p.employeeId);
@@ -63,6 +63,36 @@ export async function creerDemandeFicheTx(
   });
   await journaliser(tx, { entite: "DemandeModifFiche", entiteId: d.id, champ: "creation", nouvelleValeur: p.changements.map(ligneChangement).join(" ; ").slice(0, 1000), userId: p.auteur.id });
   return d;
+}
+
+/**
+ * Les actions de CONTRAT (ajouter, transformer, corriger) recopient type de contrat / salaire / poste sur
+ * la fiche : c'est un 2e chemin vers les champs sensibles. Direction : écriture directe, comme avant.
+ * Autres rôles : le poste (non sensible) s'écrit, le contrat et le salaire deviennent une demande « À valider »
+ * (relecture du 2026-10-12 : la RH changeait le salaire d'une fiche par « Corriger le contrat »).
+ * Dans la transaction de l'appelant ; renvoie la demande créée (à annoncer APRÈS la transaction) ou null.
+ */
+export async function recopierContratSurFicheTx(
+  tx: Tx,
+  p: { employeeId: string; contrat?: string; salaireMensuel?: number; poste?: string; auteur: Acteur },
+) {
+  if (estDirection(p.auteur)) {
+    const data: Prisma.EmployeeUpdateInput = {};
+    if (p.contrat !== undefined) data.contrat = p.contrat;
+    if (p.salaireMensuel !== undefined) data.salaireMensuel = p.salaireMensuel;
+    if (p.poste !== undefined) data.poste = p.poste;
+    await tx.employee.update({ where: { id: p.employeeId }, data });
+    return null;
+  }
+  if (p.poste !== undefined) await tx.employee.update({ where: { id: p.employeeId }, data: { poste: p.poste } });
+  const fiche = await tx.employee.findUniqueOrThrow({ where: { id: p.employeeId } });
+  const voulus: Partial<Record<ChampSensible, unknown>> = {};
+  if (p.contrat !== undefined) voulus.contrat = p.contrat;
+  if (p.salaireMensuel !== undefined) voulus.salaireMensuel = p.salaireMensuel;
+  const changements = changementsProposes(fiche as unknown as Record<string, unknown>, voulus);
+  if (changements.length === 0) return null;
+  const d = await creerDemandeFicheTx(tx, { employeeId: p.employeeId, changements, origine: "CONTRAT", auteur: p.auteur });
+  return { id: d.id, auteurNom: d.auteurNom, changements: d.changements, nomSalarie: fiche.nom };
 }
 
 /** Cloche + e-mail + push à la Direction, APRÈS la transaction (jamais l'annonce d'une demande annulée). */

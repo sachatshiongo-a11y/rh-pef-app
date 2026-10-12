@@ -22,10 +22,13 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 vi.mock("@/lib/email", () => ({ envoyerEmail: async () => {} }));
-vi.mock("@/lib/contrats-notification", () => ({ notifierContratASigner: async () => {}, notifierSiContratARevoir: async () => {} }));
+vi.mock("@/lib/storage", () => ({ televerserFichier: async (c: string) => `/fichiers/${c}`, lireFichier: async () => null }));
+vi.mock("@/lib/pdf/contrat-buffer", () => ({ genererContratPdf: async () => null }));
+vi.mock("@/lib/contrats-notification", () => ({ notifierContratASigner: async () => {}, notifierSiContratARevoir: async () => {}, etatSignatureContrat: async () => "NON_SIGNE" }));
 
 const RH = await import("@/app/(app)/employes/actions");
 const DOSSIER = await import("@/app/(app)/employes/[id]/dossier-actions");
+const CONTRATS = await import("@/app/(app)/paie/contrat-actions");
 const FICHE = await import("@/app/(app)/a-valider/fiche-actions");
 const { numeroMoisCourantKinshasa, anneeCouranteKinshasa } = await import("@/lib/heure-kinshasa");
 
@@ -153,6 +156,21 @@ describe("la Direction décide", () => {
     expect((await prisma.demandeModifFiche.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   });
 
+  it("la date d'embauche demandée est appliquée au jour près ; compte, banque et Mobile Money suivent l'approbation, pas la demande", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    await url(RH.modifierEmploye(id, await formulaire(id, { dateEmbauche: "2021-12-31", modePaiement: "MOBILE_MONEY", mobileMoney: "0990000000", banque: "BGFI", compteBancaire: "05100-1" })));
+    const avant = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([avant.mobileMoney, avant.banque, avant.compteBancaire, avant.modePaiement]).toEqual([null, null, null, "ESPECES"]);
+    const [d] = await enAttente(id);
+    comme("ADMIN");
+    expect((await FICHE.approuverModifsFiche([d.id])).traitees).toBe(1);
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([e.dateEmbauche.toISOString().slice(0, 10), e.modePaiement, e.mobileMoney, e.banque, e.compteBancaire]).toEqual(["2021-12-31", "MOBILE_MONEY", "0990000000", "BGFI", "05100-1"]);
+    // Rien d'autre n'a bougé.
+    expect([e.nom, e.poste, Number(e.salaireMensuel), e.enfants, e.contrat, e.categorie]).toEqual([avant.nom, avant.poste, 300, 0, "CDI", "BRIGADE"]);
+  });
+
   it("refus : motif obligatoire ; avec motif, la demande est refusée et l'auteur prévenu du motif", async () => {
     comme("MANAGER");
     const id = await emp();
@@ -167,6 +185,19 @@ describe("la Direction décide", () => {
     expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).compteBancaire).toBeNull();
     const n2 = await prisma.notification.findFirstOrThrow({ where: { destinataireUserId: ids.rh, refId: `decision:${d.id}` } });
     expect(n2.message).toContain("est refusée : RIB non fourni");
+  });
+
+  it("deux approbations simultanées de la même demande : appliquée une seule fois (une ligne d'historique)", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    await url(RH.modifierEmploye(id, await formulaire(id, { salaireMensuel: "360", enfants: "2" })));
+    const [d] = await enAttente(id);
+    comme("ADMIN");
+    const [a, b] = await Promise.all([FICHE.approuverModifsFiche([d.id]), FICHE.approuverModifsFiche([d.id])]);
+    expect(a.traitees + b.traitees).toBe(1);
+    expect([...a.echecs, ...b.echecs].join(" ")).toContain("Demande déjà traitée");
+    expect(await prisma.historiqueSalaire.count({ where: { employeeId: id } })).toBe(1);
+    expect(await prisma.journalAudit.count({ where: { entiteId: id, champ: "enfants" } })).toBe(1);
   });
 
   it("la Direction écrit directement (salaire historisé), sans demande", async () => {
@@ -192,5 +223,61 @@ describe("la Direction décide", () => {
     expect(r.avertissements.join(" ")).toContain("est validée : ses bulletins figés ne changent pas");
     expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).salaireMensuel)).toBe(333);
     expect((await prisma.demandeModifFiche.findUniqueOrThrow({ where: { id: d.id } })).noteDecision).toContain("bulletins figés");
+  });
+});
+
+// RELECTURE 2026-10-12 : les actions de CONTRAT recopient contrat / poste / salaire sur la fiche
+// (Employee) — un 2e chemin vers les champs sensibles, ouvert à la RH. Il doit passer par la demande.
+describe("la RH ne contourne pas la validation par les actions de contrat", () => {
+  const contratActif = (employeeId: string, o: { salaire?: number } = {}) =>
+    prisma.contrat.create({ data: { employeeId, type: "CDD", dateDebut: new Date("2029-06-01"), dateFin: new Date("2030-06-30"), heuresHebdo: 48, salaireMensuel: o.salaire ?? 300, devise: "USD", poste: "Commis", statut: "ACTIF" } });
+  const corriger = (contratId: string, o: Record<string, string> = {}) =>
+    CONTRATS.modifierContrat(contratId, fd({ type: "CDD", poste: "Commis", dateDebut: "2029-06-01", dateFin: "2030-06-30", salaireMensuel: "300", heuresHebdo: "48", devise: "USD", retour: "/paie", ...o }));
+
+  it("« Corriger le contrat » par la RH : le salaire de la fiche ne bouge pas, une demande part à la Direction", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    const c = await contratActif(id);
+    expect(await url(corriger(c.id, { salaireMensuel: "9999", poste: "Directeur" }))).toBeNull();
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([Number(e.salaireMensuel), e.contrat]).toEqual([300, "CDI"]);
+    const [d] = await enAttente(id);
+    expect(d.changements).toEqual(expect.arrayContaining([{ champ: "salaireMensuel", avant: "300", apres: "9999" }, { champ: "contrat", avant: "CDI", apres: "CDD" }]));
+    comme("ADMIN");
+    expect((await FICHE.approuverModifsFiche([d.id])).traitees).toBe(1);
+    expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).salaireMensuel)).toBe(9999);
+    expect(await prisma.historiqueSalaire.count({ where: { employeeId: id } })).toBe(1);
+  });
+
+  it("« Transformer le contrat » par la RH : le type de contrat de la fiche attend la Direction", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    const c = await contratActif(id);
+    await url(CONTRATS.transformerContrat(c.id, fd({ type: "CDI", retour: "/paie" })));
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).contrat).toBe("CDI"); // déjà CDI à l'origine : voir la demande
+    const id2 = await emp();
+    await prisma.employee.update({ where: { id: id2 }, data: { contrat: "CDD" } });
+    const c2 = await contratActif(id2);
+    await url(CONTRATS.transformerContrat(c2.id, fd({ type: "STAGE", dateFin: "2031-01-01", retour: "/paie" })));
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: id2 } })).contrat).toBe("CDD");
+    expect((await enAttente(id2))[0].changements).toEqual([{ champ: "contrat", avant: "CDD", apres: "STAGE" }]);
+  });
+
+  it("« Ajouter un contrat » par la RH : le type de contrat de la fiche attend la Direction", async () => {
+    comme("MANAGER");
+    const id = await emp();
+    await url(DOSSIER.ajouterContrat(id, fd({ type: "JOURNALIER", poste: "Commis", dateDebut: "2029-07-01", dateFin: "2030-07-01", heuresHebdo: "48", salaireMensuel: "300", devise: "USD", coutJourUSD: "0" })));
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).contrat).toBe("CDI");
+    expect((await enAttente(id))[0].changements).toEqual([{ champ: "contrat", avant: "CDI", apres: "JOURNALIER" }]);
+  });
+
+  it("la Direction garde l'écriture directe par les actions de contrat", async () => {
+    comme("ADMIN");
+    const id = await emp();
+    const c = await contratActif(id);
+    expect(await url(corriger(c.id, { salaireMensuel: "410" }))).toBeNull();
+    const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
+    expect([Number(e.salaireMensuel), e.contrat]).toEqual([410, "CDD"]);
+    expect(await enAttente(id)).toHaveLength(0);
   });
 });
