@@ -95,6 +95,7 @@ const EXCEPTIONS: Record<string, string> = {
   "(stock)/stock/journalier/actions.ts#saisirCommandeResto": "Quantité commandée du jour : 0 = rien commandé (case de grille).",
   "(stock)/stock/journalier/actions.ts#saisirCommandeLegume": "Idem pour un légume.",
   "(stock)/stock/journalier/ventes-actions.ts#saisirVente": "Quantité vendue du jour : vider la case (journalisé, avant → après).",
+  "(stock)/stock/restaurant/actions.ts#retirerLiensResto": "Détacher une marque d'un article du restaurant : un RATTACHEMENT, pas une donnée (aucun article, comptage ni mouvement n'est effacé) ; ouvert au Stock comme l'ancien « Détacher », journalisé (avant → après) et rattachable à nouveau.",
   "(stock)/stock/restaurant/actions.ts#majComptage": "Comptage du jour au restaurant : vider la case (case de grille).",
   "(app)/planning/actions.ts#definirBesoin": "Effectif requis : 0 = aucun besoin (case de grille).",
   // ── Planning : un brouillon de travail, journalisé case par case (avant → après) ────────────
