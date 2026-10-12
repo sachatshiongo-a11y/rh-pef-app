@@ -1,4 +1,5 @@
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD, type LigneNet } from "@/lib/paie-net";
+import { tauxDeLigne } from "@/lib/paie-taux";
 
 /**
  * LIVRE DE PAIE PAR CATÉGORIE — demande Direction du 2026-09-24 : « séparer back office et
@@ -21,6 +22,8 @@ export type LigneLivre = LigneNet & {
   heuresSupp60: Montant;
   heuresSupp100: Montant;
   employee: { matricule: string; nom: string; categorie: string };
+  /** Taux figé à la validation (paie-taux.ts) ; absent ou nul = taux de la paie du mois. */
+  tauxChangeFige?: Montant | null;
 };
 
 /**
@@ -68,10 +71,12 @@ export type MontantsLivre = {
 };
 
 /**
- * Taux du bulletin (`run.tauxChangeUtilise`) — jamais déduit de salNetCDF / salNetUSD, et le
- * versé CDF au même taux que le net CDF (jamais le taux figé de la ligne).
+ * Francs au taux du BULLETIN : le taux figé à la validation pour une ligne validée ou payée, sinon
+ * celui de la paie du mois (`taux`, `run.tauxChangeUtilise`) — `tauxDeLigne`, décision Direction
+ * 2026-10-12. Jamais déduit de salNetCDF / salNetUSD ; versé CDF au même taux que le net CDF.
  */
-export function montantsDeLigne(l: LigneLivre, taux: number): MontantsLivre {
+export function montantsDeLigne(l: LigneLivre, tauxPaie: number): MontantsLivre {
+  const taux = tauxDeLigne(l, { tauxChangeUtilise: tauxPaie });
   return {
     hsHeures: n(l.heuresSupp30) + n(l.heuresSupp60) + n(l.heuresSupp100),
     hsUSD: n(l.hsValorisee),

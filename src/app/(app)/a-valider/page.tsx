@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { prisma } from "@/lib/prisma";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
@@ -157,7 +158,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     montant: money(salaireNetUSD(l)),
     statutPaiement: l.statutPaiement,
     avertissements: lireAvertissements(l.avertissementsPaie),
-    jeton: jetonLigne(l, l.payrollRun.tauxChangeUtilise), // taux de la paie compris
+    jeton: jetonLigne(l, tauxDeLigne(l, l.payrollRun)), // taux du bulletin compris (figé si validé)
   });
   // Une ligne HORS CALCUL (ligne rouverte d'un salarié sorti du calcul) ne se valide pas : elle est
   // montrée à part sur l'écran Paie, pas ici (paie-hors-calcul.ts).

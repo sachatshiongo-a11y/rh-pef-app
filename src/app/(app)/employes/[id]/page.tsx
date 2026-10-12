@@ -1,4 +1,6 @@
 import { FilAriane } from "@/components/fil-ariane";
+import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { estLibreService } from "@/lib/attestations-donnees";
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -780,7 +782,7 @@ export default async function FicheEmployePage({
                 </td>
                 <td className="px-3 py-2 text-right">{formatMoney(salaireNetUSD(l))}</td>
                 <td className="px-3 py-2 text-right">
-                  {formaterNombre(Math.round(salaireNetCDF(l, Number(l.payrollRun.tauxChangeUtilise))))} CDF
+                  {formaterNombre(Math.round(salaireNetCDF(l, tauxDeLigne(l, l.payrollRun))))} CDF
                 </td>
                 <td className="px-3 py-2 text-right text-muted-foreground">{formatMoney(totalVerseUSD(l))}</td>
                 <td className="px-3 py-2">
@@ -826,13 +828,19 @@ export default async function FicheEmployePage({
                       <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
                     </span>
                   ))}
-                  {l.statutPaiement !== "PAS_VALIDE" && " · "}
-                  {l.statutPaiement !== "PAS_VALIDE" && <ContratViewerButton
+                  {/* Attestation de paie : délivrée une fois le bulletin PAYÉ (décision Direction 2026-10-12). */}
+                  {l.statutPaiement === "PAYE" && " · "}
+                  {l.statutPaiement === "PAYE" && <ContratViewerButton
                     href={`/employes/${employee.id}/attestation-paie/${l.id}`}
                     titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
                     libelle="Attestation"
                     className="text-primary underline"
                   />}
+                  {l.statutPaiement === "VALIDE" && (
+                    <span className="block text-[11px] text-muted-foreground" title={refusAttestationPaie(l.statutPaiement) ?? undefined}>
+                      Attestation : après paiement
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

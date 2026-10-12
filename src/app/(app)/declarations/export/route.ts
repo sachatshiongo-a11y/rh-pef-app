@@ -27,6 +27,7 @@ export async function GET(request: Request) {
       mois,
       annee,
       tauxChange: bordereau.tauxChange,
+      tauxDistincts: bordereau.tauxDistincts,
       entreprise: ent.entreprise,
       logo: ent.logo,
       provisoire: bordereau.provisoire ? { nbNonValides: bordereau.nbNonValides, nbBulletins: bordereau.nbBulletins } : null,

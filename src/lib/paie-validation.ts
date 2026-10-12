@@ -27,7 +27,7 @@ import { netNonValidable, usdSigne } from "@/lib/paie-avertissements-mois";
  * taux de change diffère (mêmes dollars, autres francs), « MONTANTS » dès qu'un montant diffère.
  */
 function verifierJetons(
-  lignes: { id: string; salNetUSD: unknown; salBrutUSD: unknown; netImposableUSD: unknown; payrollRun: { tauxChangeUtilise: unknown } }[],
+  lignes: { id: string; salNetUSD: unknown; salBrutUSD: unknown; netImposableUSD: unknown; tauxChangeFige?: unknown; payrollRun: { tauxChangeUtilise: unknown } }[],
   jetons: Record<string, string | undefined> | undefined,
 ): "TAUX" | "MONTANTS" | null {
   let taux = false;
@@ -182,6 +182,7 @@ export async function controlerLignesAValider(
       heuresContractuelles: true,
       heuresTravaillees: true,
       heuresPayeesNonTravaillees: true,
+      tauxChangeFige: true,
       employee: { select: { nom: true } },
       payrollRun: { select: { mois: true, annee: true, tauxChangeUtilise: true } },
     },

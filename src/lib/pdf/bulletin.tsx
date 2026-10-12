@@ -11,6 +11,7 @@ import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { congesDuBulletin, type CongeBulletin, type CategorieAbsenceBulletin } from "@/lib/conges-bulletin";
 import { MarquePage } from "./provisoire";
+import { tauxDeLigne } from "@/lib/paie-taux";
 
 registerPdfFonts();
 
@@ -260,7 +261,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const estProvisoire = provisoire ?? (!archive && ligne.statutPaiement === "PAS_VALIDE");
   // Bornés au mois du bulletin ; jours ouvrables par `lib/jours-ouvrables.ts` (fériés fournis).
   const conges = congesDuBulletin(congesPeriode, feries, run.mois, run.annee);
-  const tauxChange = Number(run.tauxChangeUtilise);
+  // Taux du BULLETIN : figé à la validation pour un bulletin validé ou payé (décision Direction
+  // 2026-10-12), sinon celui de la paie du mois (bulletin PROVISOIRE).
+  const tauxChange = tauxDeLigne(ligne, run);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
 
   const periode = new Date(run.annee, run.mois - 1).toLocaleDateString("fr-FR", {

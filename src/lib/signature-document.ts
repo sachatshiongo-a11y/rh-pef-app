@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 
 /**
@@ -29,6 +30,8 @@ export function empreinteDe(o: Instantane): string {
 
 type LigneBulletin = {
   payrollRun: { mois: number; annee: number; tauxChangeUtilise: Montant };
+  /** Taux figé à la validation (paie-taux.ts) : celui que le bulletin imprime. */
+  tauxChangeFige?: Montant | null;
   employee: { matricule: string };
   salBrutUSD: Montant; cnssSalarieUSD: Montant; iprCalculeUSD: Montant; transportUSD: Montant;
   primesUSD: Montant; acompteUSD: Montant; retenuePretUSD: Montant; allocFamilialeUSD: Montant;
@@ -46,13 +49,15 @@ type LigneBulletin = {
  * un simple ajustement de taux, sans jamais passer « à resigner » : mesuré, corrigé, et prouvé par
  * `signature.integration.test.ts` (« changer le TAUX DE CHANGE fait basculer le bulletin signé »).
  *
- * Conséquence ASSUMÉE : tout ajustement de taux fait basculer les bulletins signés du mois en
- * « à resigner ». C'est le comportement juste — le montant imprimé en francs a réellement changé.
+ * Depuis le 2026-10-12 (décision Direction), le taux est celui DU BULLETIN (`tauxDeLigne`) : figé à
+ * la validation, il ne bouge plus avec le taux du jour, et un bulletin validé puis signé ne bascule
+ * plus. Une ligne figée avant cette date (taux NULL) suit encore le taux de la paie du mois : un
+ * ajustement de taux la fait basculer en « à resigner », comme avant.
  */
 export function instantaneBulletin(l: LigneBulletin): Instantane {
   return {
     periode: `${l.payrollRun.annee}-${String(l.payrollRun.mois).padStart(2, "0")}`,
-    tauxChange: usd(l.payrollRun.tauxChangeUtilise),
+    tauxChange: usd(tauxDeLigne(l, l.payrollRun)),
     matricule: l.employee.matricule,
     brut: usd(l.salBrutUSD),
     cnss: usd(l.cnssSalarieUSD),

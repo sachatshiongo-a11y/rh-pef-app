@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -83,7 +84,7 @@ export default async function HistoriqueDetailPage({
                 <td className="px-3 py-2 text-right">{money(Number(l.salBrutUSD))}</td>
                 <td className="px-3 py-2 text-right">{money(salaireNetUSD(l))}</td>
                 <td className="px-3 py-2 text-right">
-                  {salaireNetCDF(l, Number(run.tauxChangeUtilise)).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
+                  {salaireNetCDF(l, tauxDeLigne(l, run)).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
                 </td>
                 <td className="px-3 py-2 text-right text-muted-foreground">{money(totalVerseUSD(l))}</td>
                 <td className="px-3 py-2">{l.statutPaiement === "PAYE" ? "PAYÉ" : "EN ATTENTE"}</td>

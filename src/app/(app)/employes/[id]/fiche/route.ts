@@ -1,4 +1,5 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
@@ -105,7 +106,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           year: "numeric",
         }),
         netUSD: usd(salaireNetUSD(l)),
-        netCDF: `${formaterNombre(salaireNetCDF(l, Number(l.payrollRun.tauxChangeUtilise)), { maximumFractionDigits: 0 })} CDF`,
+        netCDF: `${formaterNombre(salaireNetCDF(l, tauxDeLigne(l, l.payrollRun)), { maximumFractionDigits: 0 })} CDF`,
         verseUSD: usd(totalVerseUSD(l)),
         statut: l.statutPaiement === "PAYE" ? "Payé" : "En attente",
       })),

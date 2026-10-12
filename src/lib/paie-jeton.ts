@@ -17,6 +17,8 @@
  *
  * Module PUR : pages (serveur) et contrôles partagent la règle.
  */
+import { tauxDeLigne } from "@/lib/paie-taux";
+
 type MontantsLigne = { salNetUSD: unknown; salBrutUSD: unknown; netImposableUSD: unknown };
 
 const centimes = (v: unknown) => Number(v).toFixed(2);
@@ -26,6 +28,7 @@ export const SELECTION_JETON = {
   salNetUSD: true,
   salBrutUSD: true,
   netImposableUSD: true,
+  tauxChangeFige: true,
   payrollRun: { select: { tauxChangeUtilise: true } },
 } as const;
 
@@ -34,8 +37,10 @@ export function jetonLigne(l: MontantsLigne, tauxChangeCDF: unknown): string {
   return [l.salNetUSD, l.salBrutUSD, l.netImposableUSD, tauxChangeCDF].map(centimes).join("|");
 }
 
-/** Jeton d'une ligne lue avec `SELECTION_JETON`. */
-export const jetonDeLigneLue = (l: MontantsLigne & { payrollRun: { tauxChangeUtilise: unknown } }) => jetonLigne(l, l.payrollRun.tauxChangeUtilise);
+/** Jeton d'une ligne lue avec `SELECTION_JETON` : au taux de SON bulletin (figé à la validation,
+ *  sinon celui de la paie du mois — `tauxDeLigne`, décision Direction 2026-10-12). */
+export const jetonDeLigneLue = (l: MontantsLigne & { tauxChangeFige?: unknown; payrollRun: { tauxChangeUtilise: unknown } }) =>
+  jetonLigne(l, tauxDeLigne(l as { tauxChangeFige?: number | string | null }, l.payrollRun as { tauxChangeUtilise: number | string }));
 
 /**
  * Ce qui sépare le jeton affiché du jeton actuel : rien, le seul taux (mêmes dollars, autres francs),

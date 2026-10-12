@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { libelleTauxPaie } from "@/lib/paie-taux";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { marquerDeclarationForm } from "./actions";
 import type { StatutDeclaration } from "@prisma/client";
@@ -246,8 +247,7 @@ export default async function DeclarationsPage({
             </table>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
-            Taux de change utilisé pour la paie : 1 $ = {bordereau.tauxChange.toLocaleString("fr-FR")}{" "}
-            CDF. Les échéances « à valider » et les taux doivent être confirmés par un comptable
+            Taux de change de la paie : {libelleTauxPaie(bordereau.tauxDistincts)}. Les échéances « à valider » et les taux doivent être confirmés par un comptable
             congolais avant tout dépôt officiel.
           </p>
         </>

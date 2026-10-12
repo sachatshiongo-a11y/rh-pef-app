@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
-// L'attestation de paie mensuelle exige une ligne VALIDE ou PAYE (spec 2026-09-28, §4.3) : un
-// brouillon n'est pas un salaire perçu, il ne s'atteste pas.
+// L'attestation de paie mensuelle exige une ligne PAYÉE (décision Direction 2026-10-12 ; avant :
+// VALIDE ou PAYE, spec 2026-09-28 §4.3).
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
@@ -49,14 +49,19 @@ afterAll(async () => { await fermer?.(); });
 const demander = (ligneId: string) =>
   GET(new Request(`http://local/employes/${empId}/attestation-paie/${ligneId}`), { params: Promise.resolve({ id: empId, ligneId }) });
 
+// Décision de la Direction du 2026-10-12 : délivrée seulement une fois le bulletin PAYÉ.
 describe("attestation de paie mensuelle", () => {
-  it("ligne VALIDE ou PAYE : le PDF", async () => {
-    expect((await demander(lignes.VALIDE)).status).toBe(200);
+  it("ligne PAYÉE : le PDF", async () => {
     expect((await demander(lignes.PAYE)).status).toBe(200);
+  });
+  it("ligne VALIDÉE mais pas payée : refus lisible, aucun PDF", async () => {
+    const res = await demander(lignes.VALIDE);
+    expect(res.status).toBe(409);
+    expect(await res.text()).toBe("Ce bulletin est validé mais pas encore payé : l'attestation de paie se délivre une fois le salaire versé.");
   });
   it("ligne non validée : refus lisible, aucun PDF", async () => {
     const res = await demander(lignes.PAS_VALIDE);
     expect(res.status).toBe(409);
-    expect(await res.text()).toBe("Cette paie n'est pas encore validée : elle ne peut pas être attestée.");
+    expect(await res.text()).toBe("Cette paie n'est pas encore validée ni payée : elle ne peut pas être attestée.");
   });
 });

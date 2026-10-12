@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { tauxDeLigne } from "@/lib/paie-taux";
 import { prisma } from "@/lib/prisma";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
 import { annonceCloture, libellePeriode } from "@/lib/changement-mois";
@@ -114,7 +115,7 @@ export default async function PaiePage({
         categorie: l.employee.categorie,
         salBrutUSD: Number(l.salBrutUSD),
         salaireNetUSD: salaireNetUSD(l),
-        salaireNetCDF: salaireNetCDF(l, Number(run.tauxChangeUtilise)),
+        salaireNetCDF: salaireNetCDF(l, tauxDeLigne(l, run)),
         totalVerseUSD: totalVerseUSD(l),
         statutPaiement: l.statutPaiement,
         modePaiementDefaut: modeDefaut(l.employee),
@@ -132,7 +133,7 @@ export default async function PaiePage({
         sourceReference: l.sourceReference,
         motifReference: l.motifReference,
         avertissements: lireAvertissements(l.avertissementsPaie),
-        jeton: jetonLigne(l, run.tauxChangeUtilise), // taux de la paie : celui des francs affichés
+        jeton: jetonLigne(l, tauxDeLigne(l, run)), // taux du bulletin : celui des francs affichés
       }))
     : (apercu!.lignes).map((l) => ({
         id: `apercu-${l.employee.id}`,
