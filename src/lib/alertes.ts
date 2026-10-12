@@ -1,5 +1,5 @@
 import "server-only";
-import { estEchue } from "@/lib/facture-echue";
+import { estEchue, whereAEcheanceAvant } from "@/lib/facture-echue";
 
 import { libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
@@ -67,7 +67,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     }),
     prisma.factureFournisseur.findMany({
       // Factures en dollars OU en francs (2026-10-09) : reste lu dans la devise de chacune.
-      where: { statut: { not: "REGLEE" }, OR: [{ resteAPayerUSD: { gt: 0 } }, { resteAPayerCDF: { gt: 0 } }], dateEcheance: { not: null, lte: dans7j } },
+      where: whereAEcheanceAvant(dans7j), // statut non réglé + reste en $ OU en FC + échéance ≤ 7 jours (facture-echue.ts)
       select: { devise: true, resteAPayerUSD: true, resteAPayerCDF: true, statut: true, dateEcheance: true },
     }),
   ]);

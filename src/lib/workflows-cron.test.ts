@@ -14,8 +14,22 @@ describe("tâches planifiées GitHub", () => {
   const fichiers = fs.readdirSync(DOSSIER).filter((f) => /\.ya?ml$/.test(f));
   const appels = fichiers.flatMap((f) => [...fs.readFileSync(path.join(DOSSIER, f), "utf8").matchAll(/https:\/\/([a-z0-9.-]+)\/api\/cron\/[\w-]+/g)].map((m) => ({ f, hote: m[1] })));
 
-  it("les deux tâches (rappels quotidiens, rapport mensuel) appellent une route de cron", () => {
-    expect(appels.map((a) => a.f).sort()).toEqual(expect.arrayContaining(["rapport-mensuel.yml", "rappels-quotidiens.yml"]));
+  it("les quatre tâches (rappels quotidiens, rapport mensuel, courriel quotidien et rapport mensuel du Stock) appellent une route de cron", () => {
+    expect(appels.map((a) => a.f).sort()).toEqual(expect.arrayContaining(["rapport-mensuel.yml", "rappels-quotidiens.yml", "stock-mensuel.yml", "stock-quotidien.yml"]));
+  });
+
+  // Chaque tâche appelle la route de SON nom, avec le jeton partagé, à l'heure promise (7 h à Kinshasa = 06:00 UTC).
+  it.each([
+    ["stock-quotidien.yml", "/api/cron/stock-quotidien", '"0 6 * * *"'],
+    ["stock-mensuel.yml", "/api/cron/stock-mensuel", '"0 6 1 * *"'],
+  ])("%s : bonne route, jeton CRON_SECRET, 06:00 UTC", (fichier, route, planning) => {
+    const src = fs.readFileSync(path.join(DOSSIER, fichier), "utf8");
+    expect(src).toContain(`https://gestion.patesenfolie.cd${route}`);
+    expect(src).toContain("Authorization: Bearer ${{ secrets.CRON_SECRET }}");
+    expect(src).toContain(`cron: ${planning}`);
+    expect(src).toContain("workflow_dispatch");
+    // `-f` : un 401/500 de la route fait échouer la tâche (rouge dans GitHub) au lieu de passer pour un succès.
+    expect(src).toMatch(/curl -fsS/);
   });
 
   it.each([["gestion.patesenfolie.cd"]])("toutes appellent %s, jamais une adresse redirigée", (attendu) => {

@@ -14,7 +14,15 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export async function chargerEcartsVentes(lundi: Date, domaine: Domaine): Promise<{ debut: string; fin: string; espaces: ("CUISINE" | "BAR")[]; ecarts: EcartsVentes }> {
   const dimanche = new Date(lundi); dimanche.setUTCDate(dimanche.getUTCDate() + 6);
-  const debut = iso(lundi), fin = iso(dimanche);
+  return chargerEcartsVentesPeriode(iso(lundi), iso(dimanche), domaine);
+}
+
+/**
+ * Le même contrôle sur une PÉRIODE quelconque `[debut, fin]` (dates pures AAAA-MM-JJ, bornes incluses) : la semaine de
+ * l'écran (ci-dessus) ou, depuis le 2026-10-12, le mois écoulé du rapport mensuel du Stock. Même chargement, même calcul
+ * (`ecartsVentesConsommation`) — seule la fenêtre change. Lecture seule.
+ */
+export async function chargerEcartsVentesPeriode(debut: string, fin: string, domaine?: Domaine): Promise<{ debut: string; fin: string; espaces: ("CUISINE" | "BAR")[]; ecarts: EcartsVentes }> {
   const espace = domaine === "NOURRITURE" ? ("CUISINE" as const) : domaine === "BOISSON" ? ("BAR" as const) : undefined;
   const entrees = await chargerEntreesStockResto({ depuis: debut, jusquA: fin, inclureDesactives: true, avecVentes: "periode" });
   const ids = [...new Set(entrees.articles.flatMap((a) => a.rattaches.map((r) => r.id)))];

@@ -1,0 +1,19 @@
+name: Rapport mensuel du Stock
+
+# Envoie le 1er de chaque mois le rapport du Stock sur le mois écoulé (achats par fournisseur, consommation,
+# valeur du stock, écarts ventes / consommation, prix des fournisseurs, factures à payer) par e-mail à la
+# Direction et au rôle Stock, en appelant l'endpoint sécurisé de l'application.
+on:
+  schedule:
+    - cron: "0 6 1 * *" # 06:00 UTC le 1er du mois = 07:00 à Kinshasa (UTC+1)
+  workflow_dispatch: {} # bouton « Run workflow » pour tester manuellement
+
+jobs:
+  stock-mensuel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déclencher le rapport mensuel du Stock
+        run: |
+          curl -fsS --max-time 120 -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://gestion.patesenfolie.cd/api/cron/stock-mensuel
