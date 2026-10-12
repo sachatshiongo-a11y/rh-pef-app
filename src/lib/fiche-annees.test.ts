@@ -60,13 +60,22 @@ describe("totauxAnnuelsPaie — additionner dans la même devise, « — » si i
     const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAS_VALIDE", 999, 0, 2800)]);
     expect(t).toMatchObject({ payes: 1, nonValides: 1, comptes: 1, netUSD: 280, verseUSD: 300, netCDF: 280 * 2800, restantAPayerUSD: 0 });
   });
+  it("un bulletin « hors calcul » est compté à part (ni validé, ni non validé) et jamais additionné", () => {
+    const hors = { ...ligne("PAS_VALIDE", 999, 0, 2800), horsCalcul: true };
+    const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAS_VALIDE", 888, 0, 2800), hors]);
+    expect(t).toMatchObject({ payes: 1, nonValides: 1, horsCalcul: 1, comptes: 1, netUSD: 280, verseUSD: 300 });
+    // Seul hors calcul : aucun montant, « — » et non 0.
+    expect(totauxAnnuelsPaie([hors])).toMatchObject({ nonValides: 0, horsCalcul: 1, comptes: 0, netUSD: null, verseUSD: null });
+    // Le drapeau ne touche que les PAS VALIDÉS : un payé « marqué » reste compté.
+    expect(totauxAnnuelsPaie([{ ...ligne("PAYE", 300, 20, 2800), horsCalcul: true }])).toMatchObject({ payes: 1, horsCalcul: 0, comptes: 1 });
+  });
   it("un taux inconnu sur un bulletin rend le total en francs inconnu — jamais complété, jamais 0", () => {
     const t = totauxAnnuelsPaie([ligne("PAYE", 300, 20, 2800), ligne("PAYE", 300, 20, 0)]);
     expect(t.netCDF).toBeNull();
     expect(t.netUSD).toBe(560); // les dollars n'ont pas besoin du taux
   });
   it("aucun bulletin validé ou payé : tout est inconnu (null), pas 0", () => {
-    expect(totauxAnnuelsPaie([ligne("PAS_VALIDE", 100, 0, 2800)])).toEqual({ payes: 0, valides: 0, nonValides: 1, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 });
+    expect(totauxAnnuelsPaie([ligne("PAS_VALIDE", 100, 0, 2800)])).toEqual({ payes: 0, valides: 0, nonValides: 1, horsCalcul: 0, comptes: 0, netUSD: null, netCDF: null, verseUSD: null, restantAPayerUSD: 0 });
     expect(totauxAnnuelsPaie([])).toMatchObject({ netUSD: null, netCDF: null, verseUSD: null, comptes: 0 });
   });
   it("les centimes ne dérivent pas (flottants)", () => {

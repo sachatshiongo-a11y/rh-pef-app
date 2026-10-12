@@ -27,7 +27,6 @@ const LECTEURS_SANS_FILTRE: Record<string, string> = {
   "lib/attestations.ts": "Une ligne précise (attestation de salaire : dernière ligne VALIDE ou PAYE).",
   "lib/acompte-plafond.ts": "Une ligne précise (plafond d'acompte d'un salarié).",
   "lib/solde-tout-compte.ts": "Solde de tout compte d'UN salarié : ses lignes VALIDÉES ou PAYÉES (une ligne figée compte toujours) — acomptes déjà retenus, bulletin du mois figé ; ni total, ni livre, ni export.",
-  "app/(app)/employes/[id]/page.tsx": "Fiche d'UN salarié : toutes ses lignes, y compris rouvertes, et ses bulletins remis.",
   "app/(app)/employes/[id]/fiche/route.ts": "Fiche PDF d'UN salarié.",
   "app/(app)/documents/page.tsx": "Registre des documents par salarié (un bulletin par ligne, pas un total).",
   "app/espace/documents/page.tsx": "Espace salarié : ses propres bulletins.",

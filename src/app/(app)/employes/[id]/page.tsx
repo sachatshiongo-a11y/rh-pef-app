@@ -17,6 +17,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
 import { HistoriquePaie, ligneHistoriquePaie } from "./historique-paie";
+import { idsLignesHorsCalcul } from "@/lib/paie-hors-calcul";
 import { CongesParAnnee } from "./conges-par-annee";
 import { Avatar } from "@/components/avatar";
 import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical, ajouterAvantageNature, supprimerAvantageNature } from "../../paie/remuneration-actions";
@@ -416,7 +417,9 @@ export default async function FicheEmployePage({
   }
 
   // Historique de paie : tous les bulletins, vus par année (`?annee=`, l'année en cours par défaut ou « toutes »).
-  const lignesHistoriquePaie = payrollLines.map((l) => ligneHistoriquePaie(l, etatSignature(sigBulletins.get(l.id))));
+  // « Hors calcul » : la règle de l'écran Paie (mois passé clôturé, salarié sorti du calcul), jamais redécidée ici.
+  const horsCalculIds = await idsLignesHorsCalcul(prisma, payrollLines);
+  const lignesHistoriquePaie = payrollLines.map((l) => ligneHistoriquePaie(l, etatSignature(sigBulletins.get(l.id)), horsCalculIds.has(l.id)));
   const anneeVuePaie = lireAnneeFiche(sp.annee, anneesAvecDonnees(lignesHistoriquePaie.map((l) => l.annee), anneeHorloge), anneeHorloge, true);
   const pagePaie = lirePagination(sp);
 
@@ -462,7 +465,7 @@ export default async function FicheEmployePage({
       date: new Date(l.payrollRun.annee, l.payrollRun.mois - 1, 28),
       icone: "🧾",
       titre: `Bulletin ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`,
-      detail: l.statutPaiement === "PAYE" ? "payé" : l.statutPaiement === "VALIDE" ? "validé" : "pas validé",
+      detail: l.statutPaiement === "PAYE" ? "payé" : l.statutPaiement === "VALIDE" ? "validé" : horsCalculIds.has(l.id) ? "hors calcul" : "pas validé",
     })),
   ];
 
