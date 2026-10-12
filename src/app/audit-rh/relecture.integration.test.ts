@@ -84,23 +84,25 @@ describe("relecture 2026-10-12 — bornes d'heures de la saisie directe", () => 
   });
 });
 
-describe("relecture — droits : un MANAGER n'envoie pas salaire/embauche/contrat/frais médicaux", () => {
+describe("relecture — droits : un MANAGER qui envoie salaire/embauche/contrat/frais médicaux crée une demande, n'écrit jamais", () => {
   const base = (o: Record<string, string>) => ({
     sexe: "M", etatCivil: "Célibataire", poste: "Commis", secteur: "Cuisine", categorie: "BRIGADE",
     transportJourCDF: "0", transportMoisCDF: "0", transportMoisUSD: "0", cnssMontant: "0", enfants: "0", heuresParJour: "8", heuresHebdomadaires: "48", type: "NATIONAL", ...o,
   });
-  it("appel direct avec chacun des 4 champs : refusé, fiche inchangée ; sans eux : enregistré", async () => {
+  it("appel direct avec chacun des 4 champs : une demande « À valider » chacun, fiche inchangée ; sans eux : enregistré", async () => {
+    // Décision de Sacha (2026-10-12) : la RH saisit, la Direction valide — jamais d'écriture directe.
     comme("MANAGER");
     const id = await emp();
     const e = await prisma.employee.findUniqueOrThrow({ where: { id } });
     for (const extra of [{ salaireMensuel: "9999" }, { dateEmbauche: "2001-01-01" }, { contrat: "CDD" }, { fraisMedicauxMoisCourant: "500" }] as Record<string, string>[]) {
       const r = await url(RH.modifierEmploye(id, fd(base({ matricule: e.matricule, nom: e.nom, ...extra }))));
-      expect(r, JSON.stringify(extra)).toContain("par la Direction seulement");
+      expect(r, JSON.stringify(extra)).toBe(`/employes/${id}`);
     }
     const apres = await prisma.employee.findUniqueOrThrow({ where: { id } });
     expect(Number(apres.salaireMensuel)).toBe(300);
     expect(apres.contrat).toBe("CDI");
     expect(jourPurIso(apres.dateEmbauche)).toBe("2020-01-06");
+    expect(await prisma.demandeModifFiche.count({ where: { employeeId: id, statut: "EN_ATTENTE" } })).toBe(4);
     const ok = await url(RH.modifierEmploye(id, fd(base({ matricule: e.matricule, nom: e.nom, poste: "Chef" }))));
     expect(ok ?? "").not.toContain("erreur");
     expect((await prisma.employee.findUniqueOrThrow({ where: { id } })).poste).toBe("Chef");

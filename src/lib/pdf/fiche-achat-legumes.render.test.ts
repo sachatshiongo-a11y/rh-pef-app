@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderPdfBuffer } from "./fonts";
 import { policesDeRepli, pagesDuPdf } from "@/lib/test/pdf-lecture";
 import { LEGUMES } from "@/app/(stock)/stock/legumes/legumes-data";
-import { FicheAchatLegumesDocument, ficheAchatRemplie, ficheAchatVierge, type AchatDuJour } from "./fiche-achat-legumes";
+import { FicheAchatLegumesDocument, ficheAchatRemplie, ficheAchatVierge, libelleImprime, type AchatDuJour } from "./fiche-achat-legumes";
 
 /**
  * Fiche « Achat de légumes Marché » (modèle de la Direction, 2026-09-28). Les PDF sont RENDUS
@@ -33,7 +33,7 @@ describe("fiche d'achat vierge", () => {
     expect(page.plat).toContain("Achat de légumes Marché");
     expect(page.plat).toContain("Date :");
     expect(page.plat).toMatch(/Désignation Unité QTÉ Montant/);
-    for (const l of LEGUMES) expect(page.lignes, l.nom).toContain(`${l.nom}${l.unite ? ` ${l.unite}` : ""}`);
+    for (const l of LEGUMES) expect(page.lignes, l.nom).toContain(`${libelleImprime(l.nom)}${l.unite ? ` ${l.unite}` : ""}`);
     for (const t of ["Montant donné $", "Montant total CDF", "Montant total $"]) expect(page.plat).toContain(t);
   }, 60_000);
 

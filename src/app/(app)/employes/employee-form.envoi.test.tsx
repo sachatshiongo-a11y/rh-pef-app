@@ -57,7 +57,12 @@ const tri = (l: [string, string][]) => [...l].sort((a, b) => a[0].localeCompare(
 describe("fiche employé : le serveur reçoit exactement les mêmes champs qu'avant la refonte", () => {
   it("modification : mêmes noms et mêmes valeurs (relevés sur l'ancien formulaire)", () => {
     monter(EMPLOYE);
-    expect(tri(envoi(conteneur))).toEqual(tri(AVANT_MODIFICATION));
+    // Seul ajout voulu depuis la refonte : les valeurs d'origine des champs sensibles (formulaire périmé, 2026-10-12).
+    const recu = envoi(conteneur);
+    const origines = recu.find(([nom]) => nom === "originesFiche");
+    expect(origines).toBeDefined();
+    expect(JSON.parse(origines![1])).toMatchObject({ salaireMensuel: "450.5", contrat: expect.any(String), categorie: "BACKOFFICE" });
+    expect(tri(recu.filter(([nom]) => nom !== "originesFiche"))).toEqual(tri(AVANT_MODIFICATION));
   });
 
   it("création : mêmes noms et mêmes valeurs par défaut", () => {

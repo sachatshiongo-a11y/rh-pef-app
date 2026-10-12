@@ -14,6 +14,7 @@ import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
+import { recopierContratSurFicheTx, notifierNouvelleDemandeFiche } from "@/lib/demandes-fiche";
 
 function revalider(employeeId: string) {
   revalidatePath("/paie");
@@ -46,6 +47,7 @@ export async function transformerContrat(id: string, formData: FormData) {
     if (type !== "CDI" && !dateFinStr) throw new Error(`Un ${type} doit avoir une date de fin.`);
 
     const debut = dateDebutStr ? new Date(dateDebutStr) : jourCivilKinshasa(new Date());
+    const sortie: { demande: Awaited<ReturnType<typeof recopierContratSurFicheTx>> } = { demande: null };
     const nouveau = await prisma.$transaction(async (tx) => {
       await tx.contrat.update({ where: { id }, data: { statut: "TRANSFORME" } });
       const cree = await tx.contrat.create({
@@ -61,8 +63,8 @@ export async function transformerContrat(id: string, formData: FormData) {
           poste: contrat.poste,
         },
       });
-      // La fiche employé affiche le type du contrat courant.
-      await tx.employee.update({ where: { id: contrat.employeeId }, data: { contrat: type } });
+      // La fiche employé affiche le type du contrat courant (hors Direction : demande « À valider »).
+      sortie.demande = await recopierContratSurFicheTx(tx, { employeeId: contrat.employeeId, contrat: type, auteur: { id: user.id, nom: user.nom, role: user.role } });
       await journaliser(tx, {
         entite: "Contrat",
         entiteId: contrat.employeeId,
@@ -73,6 +75,7 @@ export async function transformerContrat(id: string, formData: FormData) {
       });
       return cree;
     });
+    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
     await notifierContratASigner(nouveau.id);
     revalider(contrat.employeeId);
   });
@@ -113,6 +116,7 @@ export async function modifierContrat(id: string, formData: FormData) {
     // État de signature AVANT la correction : le salarié n'est prévenu que si un contrat SIGNÉ
     // repasse « à resigner » (spec 2026-09-28, §3.3).
     const etatAvant = await etatSignatureContrat(id);
+    const sortie: { demande: Awaited<ReturnType<typeof recopierContratSurFicheTx>> } = { demande: null };
     await prisma.$transaction(async (tx) => {
       await tx.contrat.update({
         where: { id },
@@ -131,8 +135,9 @@ export async function modifierContrat(id: string, formData: FormData) {
           pdfAccepteObsolete: contrat.pdfAccepteUrl ? true : undefined,
         },
       });
-      // La fiche employé reflète le contrat courant (type, poste, salaire).
-      await tx.employee.update({ where: { id: contrat.employeeId }, data: { contrat: type, poste, salaireMensuel: salaire } });
+      // La fiche employé reflète le contrat courant (type, poste, salaire). Hors Direction : le poste
+      // s'écrit, le type de contrat et le salaire partent en demande « À valider » (lib/fiche-sensible).
+      sortie.demande = await recopierContratSurFicheTx(tx, { employeeId: contrat.employeeId, contrat: type, salaireMensuel: salaire, poste, auteur: { id: user.id, nom: user.nom, role: user.role } });
       await journaliser(tx, {
         entite: "Contrat",
         entiteId: contrat.employeeId,
@@ -142,6 +147,7 @@ export async function modifierContrat(id: string, formData: FormData) {
         userId: user.id,
       });
     });
+    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
     await notifierSiContratARevoir(id, etatAvant);
     revalider(contrat.employeeId);
   });

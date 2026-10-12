@@ -16,6 +16,8 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { peutSupprimer } from "@/lib/suppression-direction";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 import { fichesPourEcran } from "../../fiches-doublon";
+import { demandesFicheEnAttente } from "@/lib/demandes-fiche";
+import { ModifsEnAttente } from "../../modifs-en-attente";
 
 export default async function ModifierEmployePage({
   params,
@@ -68,6 +70,9 @@ export default async function ModifierEmployePage({
       <Link href={`/employes/${employee.id}`} className="text-sm text-primary underline">
         ← Retour à la fiche
       </Link>
+      <div className="mt-3">
+        <ModifsEnAttente demandes={await demandesFicheEnAttente(employee.id)} estDirection={user.role === "ADMIN"} />
+      </div>
 
       {/* En-tête : qui l'on modifie, et sa photo — modifiable uniquement ici (page Modifier). */}
       <div className="mb-4 mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -100,7 +105,7 @@ export default async function ModifierEmployePage({
         parametres={parametres}
         impact={impact}
         doublons={{ fiches: fichesPourEcran(identites), ecartees: [...ecartees], peutReactiver: user.role === "ADMIN" }}
-        champsDirection={user.role === "ADMIN" ? "modifiables" : "lecture"}
+        champsDirection={user.role === "ADMIN" ? "modifiables" : "validation"}
         famille={
           // Composition familiale — modifiable uniquement ici, comme la photo (ses propres formulaires : hors du formulaire principal).
           <CompositionFamiliale

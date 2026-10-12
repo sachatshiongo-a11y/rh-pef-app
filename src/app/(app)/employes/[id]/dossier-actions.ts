@@ -16,6 +16,8 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
+import { canonique, changementsProposes, messagePerime, type Changement } from "@/lib/fiche-sensible";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx, verrouillerFiche } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -219,6 +221,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     // Lus avant la transaction : une saisie illisible s'arrête ici avec son message, rien n'est écrit.
     const heuresHebdo = decSaisi(formData.get("heuresHebdo"), "Heures / semaine");
     const salaireMensuel = decSaisi(formData.get("salaireMensuel"), "Salaire mensuel");
+    const sortie: { demande: Awaited<ReturnType<typeof recopierContratSurFicheTx>> } = { demande: null };
     const cree = await prisma.$transaction(async (tx) => {
       if (cloturerId) {
         // VERROU sur le contrat à clôturer AVANT de relire son statut : un double envoi du
@@ -255,8 +258,8 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
           coutJourUSD: type === "INTERIM" && Number.isFinite(coutJour) && coutJour > 0 ? coutJour : null,
         },
       });
-      // La fiche employé affiche le type du contrat courant.
-      await tx.employee.update({ where: { id: employeeId }, data: { contrat: type } });
+      // La fiche employé affiche le type du contrat courant (hors Direction : demande « À valider »).
+      sortie.demande = await recopierContratSurFicheTx(tx, { employeeId, contrat: type, auteur: { id: user.id, nom: user.nom, role: user.role } });
 
       await journaliser(tx, {
         entite: "Contrat",
@@ -268,6 +271,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
       return nouveau;
     });
 
+    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
     // Le salarié est prévenu qu'un contrat attend sa signature (cloche de l'espace + push).
     await notifierContratASigner(cree.id);
 
@@ -283,20 +287,55 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
 export async function changerSalaire(employeeId: string, formData: FormData) {
   await formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
-    requireRole(user, ["ADMIN"]);
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const nouveauSalaire = decSaisi(formData.get("nouveauSalaire"), "Nouveau salaire");
+    if (!(nouveauSalaire > 0)) throw new Error("Nouveau salaire : un montant supérieur à 0 est attendu.");
     const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
     const motif = String(formData.get("motif") ?? "Ajustement");
 
+    // Formulaire périmé : la valeur d'origine du salaire / du poste est portée par le formulaire ; si la
+    // personne a changé l'un d'eux et que la fiche a bougé depuis l'ouverture, on refuse (rien n'est écrasé).
+    // Relue SOUS le verrou de la fiche, dans la transaction qui écrit.
+    const origineSalaire = formData.get("origineSalaire");
+    const originePoste = formData.get("originePoste");
+    function verifierNonPerime(fiche: { salaireMensuel: { toString(): string }; poste: string }) {
+      const perimes: Changement[] = [];
+      const sal = canonique("salaireMensuel", nouveauSalaire);
+      const salActuel = canonique("salaireMensuel", fiche.salaireMensuel);
+      if (typeof origineSalaire === "string" && origineSalaire !== "" && sal !== origineSalaire && origineSalaire !== salActuel) perimes.push({ champ: "salaireMensuel", avant: origineSalaire, apres: salActuel });
+      if (typeof originePoste === "string" && originePoste !== "" && nouveauPoste !== originePoste && originePoste !== fiche.poste) perimes.push({ champ: "poste", avant: originePoste, apres: fiche.poste });
+      if (perimes.length > 0) throw new Error(messagePerime(perimes));
+    }
+
+    // Hors Direction (RH) : rien n'est appliqué, une demande part à la Direction (2026-10-12).
+    if (!estDirection(user)) {
+      const demande = await prisma.$transaction(async (tx) => {
+        await verrouillerFiche(tx, employeeId);
+        const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+        verifierNonPerime(fiche);
+        const changements = changementsProposes(fiche as unknown as Record<string, unknown>, { salaireMensuel: nouveauSalaire, poste: nouveauPoste });
+        if (changements.length === 0) throw new Error("Ni le salaire ni le poste ne changent : rien à soumettre.");
+        return creerDemandeFicheTx(tx, { employeeId, changements, origine: "CHANGER_SALAIRE", motif, auteur: { id: user.id, nom: user.nom, role: user.role } });
+      });
+      await notifierNouvelleDemandeFiche(demande, employee.nom);
+      revalidatePath(`/employes/${employeeId}`);
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      return;
+    }
+
     // Même chemin que « Modifier » côté Direction (lib/historique-salaire) : historique + fiche + journal.
     await prisma.$transaction(async (tx) => {
+      await verrouillerFiche(tx, employeeId);
+      const fiche = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      verifierNonPerime(fiche);
       await enregistrerChangementSalaire(tx, {
         employeeId,
-        ancienSalaire: employee.salaireMensuel,
+        ancienSalaire: fiche.salaireMensuel,
         nouveauSalaire,
-        ancienPoste: employee.poste,
+        ancienPoste: fiche.poste,
         nouveauPoste,
         motif,
         userId: user.id,
