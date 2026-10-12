@@ -28,17 +28,30 @@ function commeJourISO(d: Date | string): string {
  * (Kinshasa) ; illisible → refus ; dans le futur → refus. `nom` = « paiement » (factures) ou
  * « versement » (salaires) : les messages parlent le langage du geste.
  */
-function lireJourNonFutur(saisie: string | null | undefined, maintenant: Date, nom: "paiement" | "versement"): string {
+function lireJourNonFutur(saisie: string | null | undefined, maintenant: Date, nom: "paiement" | "versement" | "écriture"): string {
   const aujourdHui = jourKinshasaISO(maintenant);
   const s = (saisie ?? "").trim();
   if (!s) return aujourdHui;
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error(`Date de ${nom} invalide.`);
+  const de = nom === "écriture" ? "d'écriture" : `de ${nom}`;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error(`Date ${de} invalide.`);
   const d = new Date(`${s}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error(`Date de ${nom} invalide.`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error(`Date ${de} invalide.`);
 
-  if (s > aujourdHui) throw new Error(`La date de ${nom} ne peut pas être dans le futur.`);
+  if (s > aujourdHui) throw new Error(`La date ${de} ne peut pas être dans le futur.`);
   return s;
+}
+
+/**
+ * DATE D'UNE ÉCRITURE DU JOURNAL DE CAISSE (Exploitation) — même lecture que les règlements : illisible
+ * → refus, future (après aujourd'hui à Kinshasa) → refus (une dépense ne se date pas de 2062). Ici la date
+ * est OBLIGATOIRE : un champ vide est refusé au lieu de se transformer en « aujourd'hui », car une
+ * modification d'écriture ne doit jamais changer de jour sans que personne ne l'ait demandé.
+ * Renvoie `YYYY-MM-DD`.
+ */
+export function lireDateEcriture(saisie: string | null | undefined, maintenant: Date = new Date()): string {
+  if (!(saisie ?? "").trim()) throw new Error("La date de l'écriture est obligatoire.");
+  return lireJourNonFutur(saisie, maintenant, "écriture");
 }
 
 /**

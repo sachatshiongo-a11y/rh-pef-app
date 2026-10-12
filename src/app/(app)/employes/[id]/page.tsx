@@ -25,6 +25,7 @@ import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
+import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD, formaterNombre } from "@/lib/montant";
 import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
@@ -245,6 +246,9 @@ export default async function FicheEmployePage({
     tab === "fin"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
       : [];
+  // Solde de tout compte : reste des prêts, acomptes non retenus, bulletin du mois déjà figé — les
+  // mêmes chiffres que l'action revérifie (lib/solde-tout-compte.ts).
+  const reprisesSolde = tab === "fin" && employee.actif ? await chargerReprisesSolde(prisma, id, { mois, annee }) : null;
   // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
   const joursModele =
     tab === "contrats"
@@ -851,7 +855,9 @@ export default async function FicheEmployePage({
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
-                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
+                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé</>}
+                {plafondAcompte.echeancePretUSD > 0 && <> — {formaterUSD(plafondAcompte.echeancePretUSD)} d&apos;échéance de prêt retenue ce mois</>}
+                {(plafondAcompte.dejaEngageUSD > 0 || plafondAcompte.echeancePretUSD > 0) && <>, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
               </p>
             </form>
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
@@ -1025,6 +1031,7 @@ export default async function FicheEmployePage({
         evaluations={evaluations}
         documents={documents}
         finContrats={finContrats}
+        reprisesSolde={reprisesSolde}
         peutModifier={peutModifier}
         estAdmin={estAdmin}
       />

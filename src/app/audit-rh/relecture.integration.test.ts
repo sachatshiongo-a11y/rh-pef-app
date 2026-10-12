@@ -70,7 +70,7 @@ describe("relecture 2026-10-12 — bornes d'heures de la saisie directe", () => 
   it("saisirHeures : négatif ou > 24 h refusé, rien d'écrit ; 0 vide toujours la case", async () => {
     comme("MANAGER");
     const id = await emp();
-    for (const v of ["-3", "99", "24,5"]) await expect(HEURES.saisirHeures(id, "2026-05-04", v)).rejects.toThrow(/hors bornes/);
+    for (const v of ["-3", "99", "24,5"]) await expect(HEURES.saisirHeures(id, "2026-05-04", v)).rejects.toThrow(/impossibles : une journée compte entre 0 et 24 heures/);
     expect(await prisma.overtimeEntry.count({ where: { employeeId: id } })).toBe(0);
     await HEURES.saisirHeures(id, "2026-05-04", "7,5");
     expect(Number((await prisma.overtimeEntry.findFirstOrThrow({ where: { employeeId: id } })).heuresTravaillees)).toBe(7.5);
@@ -79,7 +79,7 @@ describe("relecture 2026-10-12 — bornes d'heures de la saisie directe", () => 
   });
   it("saisirHeuresEnLot : une valeur hors bornes refuse tout le lot avant la première écriture", async () => {
     const id = await emp();
-    await expect(HEURES.saisirHeuresEnLot([{ employeeId: id, date: "2026-05-04", heures: "8" }, { employeeId: id, date: "2026-05-05", heures: "250" }])).rejects.toThrow(/hors bornes/);
+    await expect(HEURES.saisirHeuresEnLot([{ employeeId: id, date: "2026-05-04", heures: "8" }, { employeeId: id, date: "2026-05-05", heures: "250" }])).rejects.toThrow(/impossibles : une journée compte entre 0 et 24 heures/);
     expect(await prisma.overtimeEntry.count({ where: { employeeId: id } })).toBe(0);
   });
 });

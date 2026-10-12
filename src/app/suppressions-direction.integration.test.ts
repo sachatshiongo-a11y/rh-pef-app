@@ -521,7 +521,8 @@ describe("ce qui reste ouvert au responsable (modifications, pas des suppression
 });
 
 // ── Arbitrages du 2026-10-01 : ce qui fait DISPARAÎTRE sans supprimer est aussi réservé à la Direction ─
-const ficheFd = (o: Record<string, string>) => fd({ nom: "Carbonara", nbPortions: "1", ...o });
+// La TVA doit être saisie (une case vide n'est plus comptée comme 0 %, audit du 10/10/2026) : le formulaire réel l'envoie toujours.
+const ficheFd = (o: Record<string, string>) => fd({ nom: "Carbonara", nbPortions: "1", tauxTVA: "0,16", ...o });
 
 describe("suppressions douces : refusées sans effet hors Direction, permises à la Direction", () => {
   it("bon de commande : l'annuler, ou repasser un bon envoyé en brouillon", async () => {

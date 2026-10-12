@@ -5,6 +5,7 @@ import { pdfColors, formatCDF, entreprise as entrepriseDefaut } from "./theme";
 import type { LigneDeclaration } from "@/lib/declarations";
 import { formaterNombre } from "@/lib/montant";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { MarquePage } from "./provisoire";
 
 registerPdfFonts();
 
@@ -54,6 +55,8 @@ const styles = StyleSheet.create({
   headText: { fontSize: 8.5, fontWeight: 700, color: pdfColors.brownDark },
   detailText: { fontSize: 8, color: pdfColors.textMuted, lineHeight: 1.4 },
   statutText: { fontSize: 8, color: pdfColors.brown },
+  figeText: { fontSize: 7, color: pdfColors.textMuted, fontStyle: "italic", lineHeight: 1.3 },
+  ecartText: { fontSize: 7, color: "#b91c1c", fontWeight: 700, lineHeight: 1.3 },
   echAValider: { fontSize: 7, color: pdfColors.brown, fontStyle: "italic" },
   note: { marginTop: 4, marginBottom: 20, fontSize: 8, color: pdfColors.textMuted, lineHeight: 1.5 },
   fait: { marginTop: 4, marginBottom: 12, fontSize: 8.5, fontStyle: "italic", color: pdfColors.textMuted },
@@ -71,7 +74,10 @@ export function BordereauDeclarationsDocument({
   tauxChange,
   entreprise = entrepriseDefaut,
   logo,
+  provisoire,
 }: {
+  /** Bulletins du mois pas encore validés : le bordereau est marqué PROVISOIRE sur chaque page. */
+  provisoire?: { nbNonValides: number; nbBulletins: number } | null;
   lignes: LigneDeclaration[];
   mois: number;
   annee: number;
@@ -90,6 +96,7 @@ export function BordereauDeclarationsDocument({
   return (
     <Document>
       <Page size="A4" style={styles.page}>
+        {provisoire && <MarquePage detail={`${provisoire.nbNonValides} bulletin(s) sur ${provisoire.nbBulletins} pas encore validé(s)`} />}
         <PdfHeader title="Bordereau de déclarations" subtitle={periode} logo={logo} />
 
         <Text style={styles.intro}>
@@ -113,6 +120,16 @@ export function BordereauDeclarationsDocument({
               <View style={styles.cDetail}>
                 <Text style={styles.detailText}>{l.detail}</Text>
                 <Text style={styles.statutText}>Statut : {LIBELLE_STATUT[l.statut]}</Text>
+                {l.fige && (
+                  <Text style={styles.figeText}>
+                    Montant figé au marquage{l.fige.marqueLe ? ` du ${jourKinshasa(l.fige.marqueLe)}` : ""}.
+                  </Text>
+                )}
+                {l.fige && l.ecartAvecFige && (
+                  <Text style={styles.ecartText}>
+                    La paie recalculée donne aujourd’hui {money(l.recalculUSD)} ({formatCDF(l.recalculCDF)} CDF), différent du montant déclaré.
+                  </Text>
+                )}
               </View>
               <Text style={styles.cUSD}>{money(l.montantUSD)}</Text>
               <Text style={styles.cCDF}>{formatCDF(l.montantCDF)} CDF</Text>

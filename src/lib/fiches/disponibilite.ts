@@ -338,7 +338,10 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   const lu = { ...base, restaurant, dateComptage, recuRestaurant: r?.recu ?? null };
   if (depot === null && restaurant === null) return { ...lu, total: null, motif: "PAS_DE_STOCK" };
   const total = (depot ?? new D(0)).plus(restaurant ?? 0);
-  if (total.isNegative()) return { ...lu, total, motif: "STOCK_NEGATIF" };
+  // Dépôt négatif : une erreur de saisie du dépôt que le stock du restaurant ne doit pas MASQUER
+  // (dépôt −3 + restaurant 10 = 7 « disponible » serait un faux). « À vérifier » dès que l'une des
+  // parts est négative, pas seulement le total (audit du 10/10/2026).
+  if (total.isNegative() || (depot !== null && depot.isNegative()) || (restaurant !== null && restaurant.isNegative())) return { ...lu, total, motif: "STOCK_NEGATIF" };
   // Stock figé : chaque part qui ENTRE dans le calcul doit être à jour. Le dépôt entre dans le
   // calcul dès qu'il a une ligne `Stock` ; le restaurant, dès qu'un comptage rattaché existe. Au
   // restaurant, seule la date du dernier COMPTAGE fait foi : une livraison ne rafraîchit rien.

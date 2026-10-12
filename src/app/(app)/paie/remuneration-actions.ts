@@ -12,6 +12,7 @@ import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-pla
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
+import { BulletinFigeError, exigerBulletinModifiable } from "@/lib/paie-element-fige";
 
 async function periodeCourante() {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -42,15 +43,19 @@ export async function ajouterPrime(employeeId: string, formData: FormData) {
 
     const { mois, annee } = await periodeCourante();
 
-    await prisma.prime.create({
-      data: { employeeId, nom, montantUSD, pourcentageBase, motif, mois, annee, creeParId: user.id },
-    });
-    await journaliser(prisma, {
-      entite: "Prime",
-      entiteId: employeeId,
-      champ: "ajout",
-      nouvelleValeur: `${nom} : ${montantUSD} $${pourcentageBase !== null ? ` (${pourcentageBase} % du salaire de base)` : ""}${motif ? ` — ${motif}` : ""} (${mois}/${annee})`,
-      userId: user.id,
+    // Bulletin du mois déjà validé ou payé : la prime ne figurerait sur aucun bulletin → refus.
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId, mois, annee });
+      await tx.prime.create({
+        data: { employeeId, nom, montantUSD, pourcentageBase, motif, mois, annee, creeParId: user.id },
+      });
+      await journaliser(tx, {
+        entite: "Prime",
+        entiteId: employeeId,
+        champ: "ajout",
+        nouvelleValeur: `${nom} : ${montantUSD} $${pourcentageBase !== null ? ` (${pourcentageBase} % du salaire de base)` : ""}${motif ? ` — ${motif}` : ""} (${mois}/${annee})`,
+        userId: user.id,
+      });
     });
     await recalculerPaieSiCalculee(); // répercute la prime sur le bulletin déjà calculé (non figé)
     revalidatePath(`/employes/${employeeId}`);
@@ -64,17 +69,25 @@ export async function supprimerPrime(id: string) {
   requireRole(user, ["ADMIN"]);
   const prime = await prisma.prime.findUnique({ where: { id } });
   if (!prime) return;
-  await prisma.prime.delete({ where: { id } });
-  await journaliser(prisma, {
-    entite: "Prime",
-    entiteId: prime.employeeId,
-    champ: "suppression",
-    ancienneValeur: `${prime.nom} : ${Number(prime.montantUSD)} $`,
-    userId: user.id,
+  // Refus lisible sur la fiche (`?erreur=`) : un throw nu serait masqué par Next en production.
+  await formulaireLisible(`/employes/${prime.employeeId}`, async () => {
+    // Prime déjà portée par un bulletin validé ou payé : la retirer laisserait un bulletin que plus rien
+    // n'explique. Refus.
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId: prime.employeeId, mois: prime.mois, annee: prime.annee });
+      await tx.prime.delete({ where: { id } });
+      await journaliser(tx, {
+        entite: "Prime",
+        entiteId: prime.employeeId,
+        champ: "suppression",
+        ancienneValeur: `${prime.nom} : ${Number(prime.montantUSD)} $`,
+        userId: user.id,
+      });
+    });
+    await recalculerPaieSiCalculee();
+    revalidatePath(`/employes/${prime.employeeId}`);
+    revalidatePath("/paie");
   });
-  await recalculerPaieSiCalculee();
-  revalidatePath(`/employes/${prime.employeeId}`);
-  revalidatePath("/paie");
 }
 
 /** Supprime un acompte (réservé ADMIN). Tracé au journal d'audit. */
@@ -83,17 +96,24 @@ export async function supprimerAcompte(id: string) {
   requireRole(user, ["ADMIN"]);
   const acompte = await prisma.acompteSalaire.findUnique({ where: { id } });
   if (!acompte) return;
-  await prisma.acompteSalaire.delete({ where: { id } });
-  await journaliser(prisma, {
-    entite: "Acompte",
-    entiteId: acompte.employeeId,
-    champ: "suppression",
-    ancienneValeur: `${acompte.mois}/${acompte.annee} : ${Number(acompte.montantUSD)} $`,
-    userId: user.id,
+  // Refus lisible sur la fiche (`?erreur=`) : un throw nu serait masqué par Next en production.
+  await formulaireLisible(`/employes/${acompte.employeeId}`, async () => {
+    await prisma.$transaction(async (tx) => {
+      // Un acompte APPROUVÉ est déduit du bulletin de son mois : déjà figé, on ne le retire pas.
+      if (acompte.statut === "APPROUVE") await exigerBulletinModifiable(tx, { employeeId: acompte.employeeId, mois: acompte.mois, annee: acompte.annee });
+      await tx.acompteSalaire.delete({ where: { id } });
+      await journaliser(tx, {
+        entite: "Acompte",
+        entiteId: acompte.employeeId,
+        champ: "suppression",
+        ancienneValeur: `${acompte.mois}/${acompte.annee} : ${Number(acompte.montantUSD)} $`,
+        userId: user.id,
+      });
+    });
+    await recalculerPaieSiCalculee();
+    revalidatePath(`/employes/${acompte.employeeId}`);
+    revalidatePath("/paie");
   });
-  await recalculerPaieSiCalculee();
-  revalidatePath(`/employes/${acompte.employeeId}`);
-  revalidatePath("/paie");
 }
 
 /** Téléverse un certificat vers Supabase Storage (bucket employes, préfixe certificats/). */
@@ -123,17 +143,22 @@ export async function ajouterFraisMedical(employeeId: string, formData: FormData
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
 
+    // Refus AVANT de téléverser le certificat (pas de fichier orphelin), revérifié sous verrou ensuite.
+    await exigerBulletinModifiable(prisma, { employeeId, mois, annee });
     let certificatUrl: string | null = null;
     const fichier = formData.get("certificat");
     if (fichier instanceof File && fichier.size > 0) certificatUrl = await televerserCertificat(employeeId, fichier);
 
-    await prisma.fraisMedical.create({ data: { employeeId, montantUSD, mois, annee, motif, certificatUrl, creeParId: user.id } });
-    await journaliser(prisma, {
-      entite: "FraisMedical",
-      entiteId: employeeId,
-      champ: "ajout",
-      nouvelleValeur: `${montantUSD} $ (${mois}/${annee})${certificatUrl ? " + certificat" : ""}`,
-      userId: user.id,
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId, mois, annee });
+      await tx.fraisMedical.create({ data: { employeeId, montantUSD, mois, annee, motif, certificatUrl, creeParId: user.id } });
+      await journaliser(tx, {
+        entite: "FraisMedical",
+        entiteId: employeeId,
+        champ: "ajout",
+        nouvelleValeur: `${montantUSD} $ (${mois}/${annee})${certificatUrl ? " + certificat" : ""}`,
+        userId: user.id,
+      });
     });
     await recalculerPaieSiCalculee();
     revalidatePath(`/employes/${employeeId}`);
@@ -147,11 +172,17 @@ export async function supprimerFraisMedical(id: string) {
   requireRole(user, ["ADMIN"]);
   const fm = await prisma.fraisMedical.findUnique({ where: { id } });
   if (!fm) return;
-  await prisma.fraisMedical.delete({ where: { id } });
-  await journaliser(prisma, { entite: "FraisMedical", entiteId: fm.employeeId, champ: "suppression", ancienneValeur: `${Number(fm.montantUSD)} $`, userId: user.id });
-  await recalculerPaieSiCalculee();
-  revalidatePath(`/employes/${fm.employeeId}`);
-  revalidatePath("/paie");
+  // Refus lisible sur la fiche (`?erreur=`) : un throw nu serait masqué par Next en production.
+  await formulaireLisible(`/employes/${fm.employeeId}`, async () => {
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId: fm.employeeId, mois: fm.mois, annee: fm.annee });
+      await tx.fraisMedical.delete({ where: { id } });
+      await journaliser(tx, { entite: "FraisMedical", entiteId: fm.employeeId, champ: "suppression", ancienneValeur: `${Number(fm.montantUSD)} $`, userId: user.id });
+    });
+    await recalculerPaieSiCalculee();
+    revalidatePath(`/employes/${fm.employeeId}`);
+    revalidatePath("/paie");
+  });
 }
 
 /**
@@ -171,15 +202,19 @@ export async function ajouterAvantageNature(employeeId: string, formData: FormDa
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
 
-    await prisma.avantageNature.create({
-      data: { employeeId, nature, montantUSD, motif, mois, annee, creeParId: user.id },
-    });
-    await journaliser(prisma, {
-      entite: "AvantageNature",
-      entiteId: employeeId,
-      champ: "ajout",
-      nouvelleValeur: `${nature} : ${montantUSD} $ (${mois}/${annee})`,
-      userId: user.id,
+    // Recopié sur le bulletin du mois : un bulletin figé ne le montrerait jamais.
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId, mois, annee });
+      await tx.avantageNature.create({
+        data: { employeeId, nature, montantUSD, motif, mois, annee, creeParId: user.id },
+      });
+      await journaliser(tx, {
+        entite: "AvantageNature",
+        entiteId: employeeId,
+        champ: "ajout",
+        nouvelleValeur: `${nature} : ${montantUSD} $ (${mois}/${annee})`,
+        userId: user.id,
+      });
     });
     // Pas de `recalculerPaieSiCalculee()` : rien à recalculer, l'avantage ne change aucun montant.
     // Le bulletin déjà calculé reprend la valeur au prochain recalcul déclenché par autre chose.
@@ -194,16 +229,22 @@ export async function supprimerAvantageNature(id: string) {
   requireRole(user, ["ADMIN"]);
   const a = await prisma.avantageNature.findUnique({ where: { id } });
   if (!a) return;
-  await prisma.avantageNature.delete({ where: { id } });
-  await journaliser(prisma, {
-    entite: "AvantageNature",
-    entiteId: a.employeeId,
-    champ: "suppression",
-    ancienneValeur: `${a.nature} : ${Number(a.montantUSD)} $`,
-    userId: user.id,
+  // Refus lisible sur la fiche (`?erreur=`) : un throw nu serait masqué par Next en production.
+  await formulaireLisible(`/employes/${a.employeeId}`, async () => {
+    await prisma.$transaction(async (tx) => {
+      await exigerBulletinModifiable(tx, { employeeId: a.employeeId, mois: a.mois, annee: a.annee });
+      await tx.avantageNature.delete({ where: { id } });
+      await journaliser(tx, {
+        entite: "AvantageNature",
+        entiteId: a.employeeId,
+        champ: "suppression",
+        ancienneValeur: `${a.nature} : ${Number(a.montantUSD)} $`,
+        userId: user.id,
+      });
+    });
+    revalidatePath(`/employes/${a.employeeId}`);
+    revalidatePath("/paie");
   });
-  revalidatePath(`/employes/${a.employeeId}`);
-  revalidatePath("/paie");
 }
 
 /** Demande d'acompte sur salaire (à approuver dans les Demandes de validation). */
@@ -215,6 +256,8 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant d'acompte invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
+    // Bulletin du mois déjà figé : l'acompte ne pourrait plus y être déduit.
+    await exigerBulletinModifiable(prisma, { employeeId, mois, annee });
 
     // Un acompte est une avance sur un droit DÉJÀ acquis : plafonné au salaire net du mois
     // précédent (à défaut, au salaire de la fiche), cumul des acomptes du mois compris.
@@ -269,17 +312,27 @@ async function deciderAcompte(
     if (!verdict.ok) return { ok: false, message: verdict.message };
   }
 
-  await prisma.acompteSalaire.update({
-    where: { id },
-    data: { statut, decideParId: user.id, dateDecision: new Date() },
-  });
-  await journaliser(prisma, {
-    entite: "AcompteSalaire",
-    entiteId: a.employeeId,
-    champ: "statut",
-    nouvelleValeur: `${statut} — ${Number(a.montantUSD)} $ (${a.mois}/${a.annee})`,
-    userId: user.id,
-  });
+  // Approuver pour un mois dont le bulletin est déjà validé ou payé : l'acompte ne serait déduit
+  // d'aucun bulletin (versé deux fois). Refusé, dans la même transaction que l'écriture.
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (statut === "APPROUVE") await exigerBulletinModifiable(tx, { employeeId: a.employeeId, mois: a.mois, annee: a.annee });
+      await tx.acompteSalaire.update({
+        where: { id },
+        data: { statut, decideParId: user.id, dateDecision: new Date() },
+      });
+      await journaliser(tx, {
+        entite: "AcompteSalaire",
+        entiteId: a.employeeId,
+        champ: "statut",
+        nouvelleValeur: `${statut} — ${Number(a.montantUSD)} $ (${a.mois}/${a.annee})`,
+        userId: user.id,
+      });
+    });
+  } catch (e) {
+    if (e instanceof BulletinFigeError) return { ok: false, message: e.message };
+    throw e;
+  }
   await supprimerNotificationsPour(id);
   // Le salarié est prévenu (cloche + push), à l'unité comme en lot (le lot passe par ici). Le refId
   // `…:decision` est DISTINCT de l'id : `supprimerNotificationsPour(id)` ne l'efface pas — même

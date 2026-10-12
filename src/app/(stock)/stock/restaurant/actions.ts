@@ -9,6 +9,9 @@ import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/aud
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
+import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
+import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
+import { normaliserUnite } from "@/lib/fiches/conversion";
 
 /** Borne d'un lot du bouton « Rattacher automatiquement » (une semaine d'arriéré en compte ~25). */
 const MAX_RATTACHEMENT_AUTO = 200;
@@ -20,24 +23,39 @@ async function garde() {
   return user;
 }
 
-/** Met à jour le comptage d'un article resto pour une date donnée (upsert ; vide = suppression). */
+/**
+ * Met à jour le comptage d'un article resto pour une date donnée (upsert ; vide = suppression).
+ * Mêmes garanties que la saisie des ventes (audit 2026-10-10) : une période de stock clôturée est en
+ * lecture seule, chaque changement est journalisé (avant → après) et la ligne garde l'auteur et
+ * l'horodatage de sa dernière saisie. Rien ne change (même valeur) : ni écriture, ni journal.
+ */
 export const majComptage = actionLisible(async (articleRestoId: string, dateISO: string, valeur: string) => {
-  await garde();
+  const user = await garde();
   // Un article désactivé ne se compte plus (sinon son stock reviendrait en douce) : refus lisible.
   const article = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { actif: true, designation: true } });
   if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
   if (!article.actif) throw new Error(`« ${article.designation} » est désactivé : la Direction doit le réactiver avant tout comptage.`);
-  const date = new Date(dateISO);
+  const date = lireJourSaisie(dateISO, "de comptage");
   const q = decSaisiOptionnel(valeur, "comptage");
-  if (q === null) {
-    await prisma.comptageResto.deleteMany({ where: { articleRestoId, date } });
-  } else {
-    await prisma.comptageResto.upsert({
-      where: { articleRestoId_date: { articleRestoId, date } },
-      update: { quantite: q },
-      create: { articleRestoId, date, quantite: q },
+  await exigerJourSaisissable(date, "les comptages");
+  await prisma.$transaction(async (tx) => {
+    const avant = await tx.comptageResto.findUnique({ where: { articleRestoId_date: { articleRestoId, date } }, select: { quantite: true } });
+    if (q === null) {
+      if (!avant) return; // rien à retirer : idempotent, pas de journal
+      await tx.comptageResto.deleteMany({ where: { articleRestoId, date } });
+    } else {
+      if (avant && avant.quantite.equals(q)) return; // même valeur : ni écriture, ni journal, l'auteur reste celui de la vraie saisie
+      await tx.comptageResto.upsert({
+        where: { articleRestoId_date: { articleRestoId, date } },
+        update: { quantite: q, saisiParId: user.id, saisiLe: new Date() },
+        create: { articleRestoId, date, quantite: q, saisiParId: user.id, saisiLe: new Date() },
+      });
+    }
+    await journaliser(tx, {
+      entite: "ComptageResto", entiteId: `${articleRestoId}_${dateISO}`, champ: "quantite",
+      ancienneValeur: avant ? avant.quantite.toString() : null, nouvelleValeur: q, userId: user.id,
     });
-  }
+  });
   revalidatePath("/stock/restaurant");
 });
 
@@ -60,9 +78,17 @@ export const creerArticleResto = actionLisible(async (formData: FormData) => {
   revalidatePath("/stock/restaurant");
 });
 
-/** Modifie un champ d'un article resto (désignation, catégorie, unité, base, ordre). */
+/**
+ * Modifie un champ d'un article resto (désignation, catégorie, unité, base, ordre).
+ *
+ * L'UNITÉ est celle de tout l'historique : un comptage ne porte pas la sienne, et les livraisons du
+ * dépôt sont converties dans cette unité. La changer une fois qu'un comptage ou une livraison existe
+ * réinterprète tout le passé sans trace (4,5 kg deviendrait 4,5 g — audit 2026-10-10) : REFUSÉ, avec
+ * le chemin à suivre. Une unité jamais renseignée peut être posée (rien n'est réinterprété). Tout
+ * changement accepté est journalisé (avant → après).
+ */
 export const modifierArticleResto = actionLisible(async (id: string, formData: FormData) => {
-  await garde();
+  const user = await garde();
   const data: Record<string, unknown> = {};
   if (formData.has("designation")) {
     const v = String(formData.get("designation") ?? "").trim();
@@ -70,10 +96,39 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
     data.designation = v;
   }
   if (formData.has("categorie")) data.categorie = String(formData.get("categorie") ?? "").trim() || null;
-  if (formData.has("unite")) data.unite = String(formData.get("unite") ?? "").trim() || null;
+  let changementUnite: { avant: string | null; apres: string | null } | null = null;
+  if (formData.has("unite")) {
+    const apres = String(formData.get("unite") ?? "").trim() || null;
+    const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, articleStockId: true } });
+    if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
+    if (apres !== article.unite) {
+      // Seule une AUTRE unité réinterprète l'historique : « Kg » → « kg », « Litres » → « l » (même unité,
+      // orthographe corrigée, normalisation unique de la conversion) reste permis, et journalisé.
+      if (article.unite !== null && normaliserUnite(apres ?? "") !== normaliserUnite(article.unite)) {
+        const [comptages, livraisons] = await Promise.all([
+          prisma.comptageResto.count({ where: { articleRestoId: id } }),
+          article.articleStockId === null ? 0 : prisma.mouvementStock.count({ where: { articleId: article.articleStockId, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),
+        ]);
+        if (comptages > 0 || livraisons > 0) {
+          const quoi = [comptages > 0 ? `${comptages} comptage(s)` : null, livraisons > 0 ? `${livraisons} livraison(s) du dépôt` : null].filter(Boolean).join(" et ");
+          throw new Error(
+            `L'unité de « ${article.designation} » ne peut plus changer : ${quoi} existent déjà en « ${article.unite} », et les relire dans une autre unité fausserait tout l'historique (par exemple, 4,5 kg deviendrait 4,5 g). ` +
+            "Créez un nouvel article avec la bonne unité, puis demandez à la Direction de désactiver celui-ci.",
+          );
+        }
+      }
+      changementUnite = { avant: article.unite, apres };
+    }
+    data.unite = apres;
+  }
   if (formData.has("stockBaseJournalier")) data.stockBaseJournalier = decSaisiOptionnel(formData.get("stockBaseJournalier"), "stock de base");
   if (formData.has("ordre")) { const n = Number(formData.get("ordre")); if (Number.isFinite(n)) data.ordre = Math.trunc(n); }
-  await prisma.articleResto.update({ where: { id }, data });
+  await prisma.$transaction(async (tx) => {
+    await tx.articleResto.update({ where: { id }, data });
+    if (changementUnite) {
+      await journaliser(tx, { entite: "ArticleResto", entiteId: id, champ: "unite", ancienneValeur: changementUnite.avant, nouvelleValeur: changementUnite.apres, userId: user.id });
+    }
+  });
   revalidatePath("/stock/restaurant");
 });
 

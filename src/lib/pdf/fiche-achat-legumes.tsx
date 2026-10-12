@@ -1,6 +1,7 @@
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { formaterNombre } from "@/lib/montant";
 import { sansAccents } from "@/lib/texte";
+import { normaliserUnite } from "@/lib/fiches/conversion";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
@@ -54,6 +55,9 @@ export type FicheAchat = {
 export const cleLibelle = (s: string | null | undefined) =>
   sansAccents(String(s ?? "")).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+/** Clé de comparaison d'une unité : la normalisation unique de la conversion (« Botte » = « Bottes », « Kg » = « kg »). */
+const cleUnite = (u: string | null | undefined) => normaliserUnite(String(u ?? "").trim().replace(/\.$/, ""));
+
 const somme = (xs: (number | null)[]) => {
   const connus = xs.filter((x): x is number => x !== null);
   return connus.length ? connus.reduce((a, b) => a + b, 0) : null;
@@ -87,10 +91,10 @@ export function ficheAchatRemplie(liste: LegumeListe[], achats: AchatDuJour[], t
     const cle = cleLibelle(a.legume);
     const unites = parLegume.get(cle) ?? parLegume.set(cle, new Map()).get(cle)!;
     const uniteSaisie = (a.unite ?? "").trim();
-    const g = unites.get(cleLibelle(uniteSaisie)) ?? { legume: a.legume.trim(), unite: uniteSaisie, quantite: 0, montants: [] };
+    const g = unites.get(cleUnite(uniteSaisie)) ?? { legume: a.legume.trim(), unite: uniteSaisie, quantite: 0, montants: [] };
     g.quantite += a.quantite;
     g.montants.push(a.montantCDF);
-    unites.set(cleLibelle(uniteSaisie), g);
+    unites.set(cleUnite(uniteSaisie), g);
   }
 
   const lignes: LigneFicheAchat[] = [];
@@ -107,7 +111,7 @@ export function ficheAchatRemplie(liste: LegumeListe[], achats: AchatDuJour[], t
     const groupes = [...unites.values()];
     // Sur la ligne du légume : les achats dans l'unité de la liste ou sans unité saisie ; à
     // défaut, l'unique groupe d'achats (dans son unité à lui). Les autres vont en fin de tableau.
-    const memeUnite = groupes.filter((g) => g.unite === "" || cleLibelle(g.unite) === cleLibelle(l.unite));
+    const memeUnite = groupes.filter((g) => g.unite === "" || cleUnite(g.unite) === cleUnite(l.unite));
     const surLaLigne = memeUnite.length ? memeUnite : groupes.length === 1 ? groupes : [];
     const uniteAffichee = memeUnite.length ? l.unite : surLaLigne[0]?.unite ?? l.unite;
     lignes.push({

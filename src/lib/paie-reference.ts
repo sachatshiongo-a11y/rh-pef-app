@@ -19,7 +19,11 @@ export type CodeAvertissementPaie =
   | "PLANNING_MODIFIE_APRES_HEURES"
   | "CDD_ECHU_POURSUIVI"
   | "CONGE_SANS_SOLDE_RECODE"
-  | "SEMAINE_A_CHEVAL_NON_PLANIFIEE";
+  | "SEMAINE_A_CHEVAL_NON_PLANIFIEE"
+  // Lot audit du 2026-10-10 (paie-batch.ts) : signalements, aucun montant changé par eux.
+  | "ABSENCES_NON_DEDUITES"
+  | "ENTREE_SORTIE_EN_COURS_DE_MOIS"
+  | "NET_NON_POSITIF";
 
 export type AvertissementPaie = { code: CodeAvertissementPaie; message: string };
 
@@ -132,13 +136,20 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     .map((j) => ({ date: j.date, heuresTravaillees: j.heuresFaites }));
 
   const debutMois = new Date(Date.UTC(e.annee, e.mois - 1, 1));
+  // Semaine à cheval sur le mois PRÉCÉDENT (2026-10-10, « bug connu Tier 2 #4 ») : ses jours d'avant
+  // le 1er placent le seuil hebdomadaire des heures supp. (`calculerHeuresSupp`, `joursAvantMois`),
+  // sans être payés ici. Les jours d'après la fin du mois n'y changent rien (attribution chronologique).
+  const avantMois = e.joursHorsMois.filter((j) => j.date.getTime() < debutMois.getTime());
+  const faitsAvantMois = avantMois
+    .filter((j) => j.heuresFaites > 0)
+    .map((j) => ({ date: j.date, heuresTravaillees: j.heuresFaites }));
   const enVigueur = e.referencePlanningDepuis != null && e.annee * 100 + e.mois >= e.referencePlanningDepuis;
-  if (!enVigueur) return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT", null);
+  if (!enVigueur) return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT", null);
 
   // ── Repli : mois d'embauche ─────────────────────────────────────────────────────────────────
   if (e.dateEmbauche.getTime() > debutMois.getTime()) {
     const d = e.dateEmbauche;
-    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI",
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT_REPLI",
       `Embauche le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
   }
 
@@ -148,13 +159,13 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   const finMois = new Date(Date.UTC(e.annee, e.mois, 0));
   if (e.dateFinContrat != null && e.dateFinContrat.getTime() >= debutMois.getTime() && e.dateFinContrat.getTime() < finMois.getTime()) {
     const d = e.dateFinContrat;
-    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI",
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT_REPLI",
       `Fin de contrat le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
   }
 
   // ── Repli : pas d'horaire hebdomadaire au contrat (seuil des HS inconnu → R indéfinie) ───────
   if (!(e.heuresHebdomadaires > 0)) {
-    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI", "Heures hebdomadaires du contrat non renseignées");
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT_REPLI", "Heures hebdomadaires du contrat non renseignées");
   }
 
   // Congé sans solde : la liste des congés sans solde approuvés FAIT FOI pour tous ses jours (décision
@@ -178,7 +189,7 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     vides.push(`semaine du ${jjmm(new Date(lundi + "T00:00:00Z"))} sans créneau`);
   }
   if (vides.length > 0) {
-    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI", `Planning incomplet : ${vides.join(", ")}`);
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT_REPLI", `Planning incomplet : ${vides.join(", ")}`);
   }
 
   // ── Référence R ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +198,9 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
 
   const hsPlan = calculerHeuresSupp({
     jours: e.jours.filter((j) => j.heuresPlanifiees > 0).map((j) => ({ date: j.date, heuresTravaillees: j.heuresPlanifiees })),
+    // Même règle que les heures faites : sinon une semaine planifiée au-delà du contrat, coupée par
+    // le mois, compterait ses heures supp. planifiées dans R et paierait le plan respecté moins que S.
+    joursAvantMois: avantMois.filter((j) => j.heuresPlanifiees > 0).map((j) => ({ date: j.date, heuresTravaillees: j.heuresPlanifiees })),
     heuresParJourContrat: e.heuresParJour,
     heuresHebdoContrat: e.heuresHebdomadaires,
     salaireHoraire: 1,
@@ -275,12 +289,13 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   }
 
   if (R <= 0) {
-    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI", "Aucune heure planifiée ce mois");
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, faitsAvantMois, "CONTRAT_REPLI", "Aucune heure planifiée ce mois");
   }
 
   const t = e.salaireMensuel / R;
   const hs = calculerHeuresSupp({
     jours: joursFaits,
+    joursAvantMois: faitsAvantMois,
     heuresParJourContrat: e.heuresParJour,
     heuresHebdoContrat: e.heuresHebdomadaires,
     salaireHoraire: t0, // décision Direction : HS au taux du CONTRAT
@@ -366,6 +381,7 @@ function ancienneRegle(
   t0: number,
   heuresContrat: number,
   joursFaits: { date: Date; heuresTravaillees: number }[],
+  faitsAvantMois: { date: Date; heuresTravaillees: number }[],
   source: "CONTRAT" | "CONTRAT_REPLI",
   motif: string | null,
 ): ResultatReference {
@@ -380,6 +396,7 @@ function ancienneRegle(
   const salaireJournalier = salaireHoraire * e.heuresParJour;
   const hs = calculerHeuresSupp({
     jours: joursFaits,
+    joursAvantMois: faitsAvantMois,
     heuresParJourContrat: e.heuresParJour,
     heuresHebdoContrat: e.heuresHebdomadaires,
     salaireHoraire: t0,

@@ -72,6 +72,12 @@ describe("fiche d'achat remplie", () => {
     expect(f.lignes.at(-1)).toMatchObject({ designation: "Ail", unite: "Botte", quantite: 3, horsListe: true });
   });
 
+  it("audit 10/10 : « Bottes » et « Botte » sont la même unité (une seule ligne, quantités additionnées)", () => {
+    const f = ficheAchatRemplie(LEGUMES, [achat("Menthe", "Botte", 2, 1000), achat("Menthe", "Bottes", 3, 1500)], 2800);
+    expect(f.lignes.filter((l) => l.designation === "Menthe")).toEqual([{ designation: "Menthe", unite: "Botte", quantite: 5, montantCDF: 2500, horsListe: false }]);
+    expect(f.lignes.some((l) => l.horsListe)).toBe(false);
+  });
+
   it("dollars : la contre-valeur enregistrée prime ; sans elle, taux actuel ANNONCÉ ; sans taux, total incomplet annoncé", () => {
     const f = ficheAchatRemplie(LEGUMES, [achat("Ail", "Kg", 1, 2800, 1.2), achat("Thym", "Botte", 1, 5600, null)], 2800);
     expect(f.totalUSD).toBeCloseTo(1.2 + 2, 6);
