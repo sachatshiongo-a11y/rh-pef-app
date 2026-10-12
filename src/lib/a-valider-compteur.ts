@@ -43,14 +43,17 @@ export type MesDemandesFiche = number;
 /**
  * Ce que le rôle voit dans l'espace RH, à partir des chiffres de TOUTE la file.
  *  - Direction (ADMIN) : toute la file ;
- *  - Responsable RH (MANAGER) : ses propres demandes de fiche + les bulletins validés qu'il PAIE ;
+ *  - Responsable RH (MANAGER) : ses propres demandes de fiche + les deux gestes qu'il avait déjà —
+ *    payer les bulletins validés et acter les échanges / changements de shift (c'est lui qui tient le planning) ;
  *  - tout autre rôle (consultation) : ses propres demandes de fiche (en pratique aucune).
- * Ni congés, ni acomptes, ni attestations, ni shifts : ce sont les demandes des salariés, à la Direction.
+ * Ni congés, ni acomptes, ni attestations, ni bulletins à valider : ce sont les demandes des salariés, à la Direction.
  */
 export function elementsAValiderPour(role: string, toute: ElementsAValider, mesDemandesFiche: MesDemandesFiche): ElementsAValider {
   if (role === "ADMIN") return toute;
   return {
-    conges: 0, fiches: mesDemandesFiche, acomptes: 0, attestations: 0, echanges: 0, changements: 0, bulletinsAValider: 0,
+    conges: 0, fiches: mesDemandesFiche, acomptes: 0, attestations: 0, bulletinsAValider: 0,
+    echanges: role === "MANAGER" ? toute.echanges : 0,
+    changements: role === "MANAGER" ? toute.changements : 0,
     bulletinsAPayer: role === "MANAGER" ? toute.bulletinsAPayer : 0,
   };
 }

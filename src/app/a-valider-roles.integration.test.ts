@@ -241,10 +241,11 @@ describe("pages — chaque rôle lit SES demandes, jamais celles des autres, et 
     for (const marque of ["Employe Marque Deux", "Nouvelle Recrue Marquee", "Employe Marque Trois", "Employe Marque Quatre"]) expect(html, marque).not.toContain(marque);
     expect(html).not.toContain("Aussi en attente"); // rappel croisé : Direction seulement
     // Les rubriques de la file des salariés ne sont ni listées ni même nommées (« Rien d'autre en attente : demandes de congé… »).
-    expect(html).not.toMatch(/congé|acompte|attestation|shift/i);
+    // Les shifts, eux, sont son geste historique (voir le dernier bloc de ce fichier).
+    expect(html).not.toMatch(/congé|acompte|attestation/i);
   });
 
-  it("RH, Responsable RH : aucun bouton de décision ; le seul geste est « Marquer payé » sur les bulletins que la Direction a validés", async () => {
+  it("RH, Responsable RH : aucun bouton de décision sur les fiches ni les bulletins ; ses gestes : « Marquer payé » sur les bulletins validés (et les shifts, plus bas)", async () => {
     en("MGR");
     const html = await page(PAGE_RH);
     expect(html).not.toMatch(/Approuver|Refuser|\bValider\b|✕/);
@@ -423,5 +424,38 @@ describe("sélecteur d'espace — « N à valider » sur les cartes de la Direct
     expect(html).toContain("Stock &amp; Achats");
     expect(html).toContain("Mon espace salarié");
     expect(html).not.toMatch(/à valider/);
+  });
+});
+
+// Les deux gestes historiques du Responsable RH sont des GESTES D'ÉCRAN, pas seulement des actions serveur :
+// les notifications « changement de shift » le mènent ici (`lien: "/a-valider"`), c'est le seul écran où
+// il peut acter un shift. Il doit donc les voir, les compter et pouvoir les décider ; la consultation non.
+describe("Responsable RH — le geste « acter un shift » reste sur l'écran (régression corrigée)", () => {
+  it("il voit, compte et peut décider une demande de changement de shift ; la consultation et la Direction (contre-épreuve) aussi bien servies", async () => {
+    const [sA, sB] = await Promise.all([
+      prisma.shift.create({ data: { nom: "Matin marqué", heureDebut: "07:00", heureFin: "15:00" } }),
+      prisma.shift.create({ data: { nom: "Soir marqué", heureDebut: "15:00", heureFin: "23:00" } }),
+    ]);
+    await prisma.demandeChangementShift.create({ data: { employeeId: S.emp.e2, date: new Date("2026-11-10"), shiftActuelId: sA.id, shiftDemandeId: sB.id, motif: "Motif de shift marqué" } });
+    CHARGEURS.reinitialiserCacheAValider();
+    const badge = async (c: Compte) => (await CHARGEURS.chargerBadgesRH({ id: ids[c], role: COMPTES[c].role }))["/a-valider"];
+    expect(await badge("MGR")).toBe(3); // 2 d'avant + le changement de shift
+    expect(await badge("VIEW")).toBe(0);
+
+    en("MGR");
+    const htmlMgr = await page(PAGE_RH);
+    expect(htmlMgr).toContain("Motif de shift marqué");
+    expect(htmlMgr).toContain("Approuver"); // le geste est là
+    expect(enAttente(htmlMgr)).toBe(3);
+    // …sans révéler le reste de la file des autres.
+    for (const marque of ["Employe Marque Trois", "Employe Marque Quatre", "Employe Marque Cinq"]) expect(htmlMgr, marque).not.toContain(marque);
+
+    en("VIEW");
+    const htmlView = await page(PAGE_RH);
+    expect(htmlView).not.toContain("Motif de shift marqué");
+    expect(aDesBoutonsDeDecision(htmlView)).toBe(false);
+
+    en("DIR");
+    expect(await page(PAGE_RH)).toContain("Motif de shift marqué");
   });
 });

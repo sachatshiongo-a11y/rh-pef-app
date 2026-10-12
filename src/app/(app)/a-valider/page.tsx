@@ -28,11 +28,13 @@ import { chargerMesDemandesFicheTraitees } from "@/lib/mes-demandes-fiche";
 
 /**
  * Les rubriques d'un rôle qui n'est pas la Direction : SES demandes de fiche (le badge du menu compte
- * les mêmes) et, pour le Responsable RH, les bulletins validés qu'il paie. Le reste de la file —
- * congés, acomptes, attestations, shifts, bulletins à valider — est celle des salariés et de la
- * Direction (V1, annexe D : jamais les demandes des autres).
+ * les mêmes) et, pour le Responsable RH, les deux gestes qu'il avait déjà : payer les bulletins validés
+ * et acter les échanges / changements de shift (rien de tout cela pour la consultation). Le reste de
+ * la file — congés, acomptes, attestations, bulletins à valider — est celle des salariés et de la Direction (V1, annexe D : jamais
+ * les demandes des autres).
  */
-const RUBRIQUES_DU_PERSONNEL = new Set(["modifications-fiches", "bulletins-a-payer"]);
+const RUBRIQUES_DU_PERSONNEL = new Set(["modifications-fiches"]);
+const RUBRIQUES_DU_RESPONSABLE_RH = new Set(["bulletins-a-payer", "echanges", "changements"]);
 
 function joursAvant(date: Date): number {
   // Échéances stockées à minuit UTC (jour civil) : l'écart se mesure au jour civil de Kinshasa.
@@ -62,6 +64,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   const peutPayer = user.role === "ADMIN" || user.role === "MANAGER";
   const siPeutPayer = <T,>(requete: () => Promise<T[]>): Promise<T[]> => (peutPayer ? requete() : Promise.resolve([]));
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
+  const siPeutPlanning = <T,>(requete: () => Promise<T[]>): Promise<T[]> => (peutPlanning ? requete() : Promise.resolve([]));
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   // Comme /paie, et par la MÊME fonction : les lignes non figées du mois sont recalculées avant
@@ -99,13 +102,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       orderBy: { dateDemande: "asc" },
     })),
     // Demandes de changement de shift en attente (avec noms de shifts).
-    pourDirection(() => prisma.demandeChangementShift.findMany({
+    siPeutPlanning(() => prisma.demandeChangementShift.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { date: "asc" },
     })),
     // Échanges de créneau en attente (avec noms des deux salariés).
-    pourDirection(() => prisma.echangeCreneau.findMany({
+    siPeutPlanning(() => prisma.echangeCreneau.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { demandeur: { select: { nom: true, photoUrl: true } }, collegue: { select: { nom: true } } },
       orderBy: { createdAt: "desc" },
@@ -255,7 +258,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     ] : []),
   ];
   // La Direction voit toute la file ; un autre rôle, ses demandes (et les bulletins qu'il paie) — pas celles des autres.
-  const rubriques = estDirection ? toutesLesRubriques : toutesLesRubriques.filter((r) => RUBRIQUES_DU_PERSONNEL.has(r.id));
+  const rubriques = estDirection ? toutesLesRubriques : toutesLesRubriques.filter((r) => RUBRIQUES_DU_PERSONNEL.has(r.id) || (peutPayer && RUBRIQUES_DU_RESPONSABLE_RH.has(r.id)));
   // Les autres boîtes de la Direction (Stock, Exploitation) : la ligne « Aussi en attente » (V11).
   const [ailleurs, mesDecisions] = await Promise.all([
     estDirection ? chargerAttenteDirection({ id: user.id, role: user.role }, "rh") : Promise.resolve(null),

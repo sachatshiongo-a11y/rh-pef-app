@@ -43,10 +43,10 @@ describe("compteur « À valider » RH par rôle", () => {
     expect(elementsAValiderPour("ADMIN", file, 0)).toEqual(file);
   });
 
-  it("Responsable RH : ses demandes de fiche + les bulletins qu'il paie — pas les congés, acomptes, attestations, shifts ni les fiches des autres", () => {
-    expect(elementsAValiderPour("MANAGER", file, 2)).toEqual({ ...base, fiches: 2, bulletinsAPayer: 7 });
-    expect(totalAValiderRHPour("MANAGER", file, 2)).toBe(9);
-    expect(totalAValiderRHPour("MANAGER", file, 0)).toBe(7);
+  it("Responsable RH : ses demandes de fiche + ses deux gestes historiques (payer les bulletins validés, acter les shifts) — pas les congés, acomptes, attestations ni les fiches des autres", () => {
+    expect(elementsAValiderPour("MANAGER", file, 2)).toEqual({ ...base, fiches: 2, bulletinsAPayer: 7, echanges: 5, changements: 6 });
+    expect(totalAValiderRHPour("MANAGER", file, 2)).toBe(20);
+    expect(totalAValiderRHPour("MANAGER", file, 0)).toBe(18);
   });
 
   it("consultation (VIEWER) : seulement ses propres demandes (en pratique aucune), aucun bulletin à payer", () => {
