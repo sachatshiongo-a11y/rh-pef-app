@@ -54,7 +54,11 @@ export function ApercuBulletinCard({ apercu, periode, avecAvertissements = true 
               transport → brut imposable (même définition que le bulletin PDF) → allocations et
               retenues → salaire net → + transport → total versé. Avant, les heures supp. n'étaient
               pas listées et « brut imposable » affichait le brut transport compris. */}
-          <Ligne taux={t} label={L.base} usd={Number(l.remuneration100)} />
+          {/* Salaire au mois (back-office, stage) : la base, puis chaque retenue, comme le bulletin PDF
+              (décisions Direction 2026-10-12). Sans retenue : la base seule, comme avant. */}
+          <Ligne taux={t} label={L.base} usd={Number(l.remuneration100) + (l.retenueAbsencesUSD ?? 0) + (l.retenueMaladieUSD ?? 0)} />
+          {(l.retenueAbsencesUSD ?? 0) > 0 && <Ligne taux={t} label="Absences non payées (N, sans solde), 1/26e par jour" usd={l.retenueAbsencesUSD!} signe="-" />}
+          {(l.retenueMaladieUSD ?? 0) > 0 && <Ligne taux={t} label="Maladie sans justificatif (retenue 1/3)" usd={l.retenueMaladieUSD!} signe="-" />}
           {Number(l.remuneration2_3) > 0 && <Ligne taux={t} label={L.maladie} usd={Number(l.remuneration2_3)} />}
           {Number(l.hsValorisee) > 0 && <Ligne taux={t} label={L.hs} usd={Number(l.hsValorisee)} />}
           {/* Primes : une ligne par prime ; rien du tout s'il n'y en a aucune (pas de ligne « 0 »). */}
