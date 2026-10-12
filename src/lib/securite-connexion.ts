@@ -2,27 +2,47 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
-// Sécurité de connexion : anti-force-brute (blocage temporaire après N échecs) et jetons de
+// Sécurité de connexion : anti-force-brute par DÉLAI QUI S'ALLONGE (et non blocage dur) et jetons de
 // réinitialisation de mot de passe (hachés en base, usage unique, expiration courte).
+//
+// Décision de Sacha (2026-10-13) : plus de blocage après 5 échecs. Chaque échec de plus allonge l'attente avant
+// l'essai suivant : 1er échec aucune, 2e 2 s, puis 4, 8, 16… plafonné à 15 min. PAR IDENTIFIANT seulement :
+// aucun blocage par adresse IP (tout le personnel sort par la même IP via le VPN — l'IP reste journalisée).
+// Un succès, ou un mot de passe réinitialisé, remet l'ardoise à zéro ; « Mot de passe oublié » reste toujours possible.
+// Les essais faits PENDANT l'attente sont refusés sans être comptés (attendre ne fait pas monter le délai).
 
-export const MAX_ECHECS = 5;
-export const FENETRE_MIN = 15; // fenêtre d'observation ET durée de blocage (minutes)
+export const PREMIER_DELAI_S = 2; // attente après le 2e échec
+export const ATTENTE_MAX_S = 15 * 60; // plafond : 15 minutes
+export const FENETRE_MIN = 60; // les échecs plus anciens sont oubliés (le délai redescend)
 export const JETON_VALIDITE_MIN = 60;
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const norm = (email: string) => email.trim().toLowerCase();
 
-/** Nombre de minutes restantes de blocage pour cet email (0 = pas bloqué). */
-export async function minutesBlocage(email: string): Promise<number> {
-  const depuis = new Date(Date.now() - FENETRE_MIN * 60_000);
-  const echecs = await prisma.tentativeConnexion.findMany({
-    where: { email: norm(email), createdAt: { gte: depuis } },
-    orderBy: { createdAt: "desc" },
-    take: MAX_ECHECS,
-  });
-  if (echecs.length < MAX_ECHECS) return 0;
-  const plusRecent = echecs[0].createdAt.getTime();
-  return Math.max(1, Math.ceil((plusRecent + FENETRE_MIN * 60_000 - Date.now()) / 60_000));
+/** Attente (secondes) imposée après le n-ième échec consécutif : 0, 2, 4, 8, 16… plafonnée à 15 min. */
+export function delaiApresEchecs(n: number): number {
+  if (n < 2) return 0;
+  return Math.min(ATTENTE_MAX_S, PREMIER_DELAI_S * 2 ** Math.min(n - 2, 20));
+}
+
+/** « 8 secondes », « 1 minute », « 15 minutes » : ce que la personne doit attendre, jamais arrondi vers le bas. */
+export function formaterAttente(secondes: number): string {
+  if (secondes < 60) return `${secondes} seconde${secondes > 1 ? "s" : ""}`;
+  const m = Math.ceil(secondes / 60);
+  return `${m} minute${m > 1 ? "s" : ""}`;
+}
+
+/** Secondes restantes à attendre avant un nouvel essai pour cet identifiant (0 = on peut essayer). */
+export async function secondesAttente(email: string, maintenant: Date = new Date()): Promise<number> {
+  const depuis = new Date(maintenant.getTime() - FENETRE_MIN * 60_000);
+  const where = { email: norm(email), createdAt: { gte: depuis } };
+  const [n, dernier] = await Promise.all([
+    prisma.tentativeConnexion.count({ where }),
+    prisma.tentativeConnexion.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+  ]);
+  if (!dernier) return 0;
+  const reste = dernier.createdAt.getTime() + delaiApresEchecs(n) * 1000 - maintenant.getTime();
+  return Math.max(0, Math.ceil(reste / 1000));
 }
 
 /** Enregistre un échec de connexion. */

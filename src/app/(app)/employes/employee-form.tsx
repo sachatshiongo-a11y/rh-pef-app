@@ -82,6 +82,7 @@ const SECTIONS = [
  */
 export function EmployeeForm({
   employee,
+  reembauche,
   action,
   joursOuvrablesMois,
   postes = [],
@@ -92,6 +93,8 @@ export function EmployeeForm({
   champsDirection = "modifiables",
 }: {
   employee?: Employee;
+  /** RÉEMBAUCHE : formulaire « Nouvel employé » pré-rempli depuis la fiche archivée (sans date d'embauche, ni salaire, ni matricule). */
+  reembauche?: { ancienneFicheId: string; nom: string; matricule: string; modele: Partial<Employee> };
   action: (formData: FormData) => void;
   joursOuvrablesMois: number;
   postes?: string[];
@@ -107,24 +110,26 @@ export function EmployeeForm({
    *  s'appliquent qu'après validation de la Direction ; ils sont marqués, et le formulaire le dit. */
   champsDirection?: "modifiables" | "validation";
 }) {
+  // Valeurs par défaut des champs : la fiche modifiée, ou (réembauche) le modèle tiré de la fiche archivée.
+  const base = employee ?? (reembauche?.modele as Employee | undefined);
   const aValider = champsDirection === "validation";
   // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
   const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
   const [sim, setSim] = useState<ValeursSimulation>({
-    salaireMensuel: Number(employee?.salaireMensuel ?? 0),
-    categorie: employee?.categorie ?? "BRIGADE",
-    contrat: employee?.contrat ?? "CDD",
-    enfants: employee?.enfants ?? 0,
-    heuresHebdomadaires: Number(employee?.heuresHebdomadaires ?? 48),
-    heuresParJour: Number(employee?.heuresParJour ?? 8),
-    transportJourCDF: Number(employee?.transportJourCDF ?? 0),
-    transportMoisUSD: Number(employee?.transportMoisUSD ?? 0),
+    salaireMensuel: Number(base?.salaireMensuel ?? 0),
+    categorie: base?.categorie ?? "BRIGADE",
+    contrat: base?.contrat ?? "CDD",
+    enfants: base?.enfants ?? 0,
+    heuresHebdomadaires: Number(base?.heuresHebdomadaires ?? 48),
+    heuresParJour: Number(base?.heuresParJour ?? 8),
+    transportJourCDF: Number(base?.transportJourCDF ?? 0),
+    transportMoisUSD: Number(base?.transportMoisUSD ?? 0),
     transportMoisCDF: 0,
   });
 
   // Anti-doublon : identité suivie à la frappe ; fiches proches recalculées (règle partagée avec le serveur).
   const initiale = useMemo<IdentiteFiche>(
-    () => ({ nom: employee?.nom ?? "", telephone: employee?.telephone ?? null, dateNaissance: employee?.dateNaissance ?? null }),
+    () => ({ nom: base?.nom ?? "", telephone: base?.telephone ?? null, dateNaissance: base?.dateNaissance ?? null }),
     [employee],
   );
   const [identite, setIdentite] = useState<IdentiteFiche>(initiale);
@@ -135,8 +140,8 @@ export function EmployeeForm({
     if (!doublons) return [];
     // Modification : la question ne se repose que si l'identité change (même règle que le serveur).
     if (employee && !identiteModifiee(initiale, identite)) return [];
-    return fichesProches(identite, doublons.fiches, { exclureId: employee?.id, ecartees: pairesEcartees });
-  }, [doublons, employee, initiale, identite, pairesEcartees]);
+    return fichesProches(identite, doublons.fiches, { exclureId: employee?.id ?? reembauche?.ancienneFicheId, ecartees: pairesEcartees });
+  }, [doublons, employee, reembauche, initiale, identite, pairesEcartees]);
   const idsEcartes = proches.filter((p) => ecartes.has(p.fiche.id)).map((p) => p.fiche.id);
   const nonTranches = proches.length - idsEcartes.length;
 
@@ -183,6 +188,17 @@ export function EmployeeForm({
             }}
             className="space-y-5"
           >
+            {reembauche && (
+              <>
+                <input type="hidden" name="ancienneFicheId" value={reembauche.ancienneFicheId} />
+                <p role="note" className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                  <strong>Réembauche de {reembauche.nom}</strong> (fiche archivée {reembauche.matricule}). C&apos;est une <strong>nouvelle fiche</strong> :
+                  nouvelle date d&apos;embauche, solde de congés à zéro, nouveau matricule ; l&apos;ancienne fiche reste archivée avec tout son
+                  historique. Identité, coordonnées et paiement sont repris : vérifiez-les, puis saisissez la <strong>date d&apos;embauche</strong>{" "}
+                  et le <strong>salaire</strong>.
+                </p>
+              </>
+            )}
             {aValider && !employee && (
               <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Cette fiche sera <strong>envoyée à la Direction pour validation</strong> : elle n&apos;existera (liste des employés,
@@ -207,8 +223,8 @@ export function EmployeeForm({
             </datalist>
 
             <Section id="identite" titre="Identité">
-              <Field label="Nom et prénom" name="nom" defaultValue={employee?.nom} required />
-              <Field label="Matricule (auto si vide)" name="matricule" defaultValue={employee?.matricule} />
+              <Field label="Nom et prénom" name="nom" defaultValue={base?.nom} required />
+              <Field label="Matricule (auto si vide)" name="matricule" defaultValue={base?.matricule} />
               {proches.length > 0 && doublons && (
                 <AlerteDoublons
                   proches={proches}
@@ -223,7 +239,7 @@ export function EmployeeForm({
               <Select
                 label="Sexe"
                 name="sexe"
-                defaultValue={employee?.sexe ?? "M"}
+                defaultValue={base?.sexe ?? "M"}
                 options={[
                   { value: "M", label: "M" },
                   { value: "F", label: "F" },
@@ -232,7 +248,7 @@ export function EmployeeForm({
               <Select
                 label="État civil"
                 name="etatCivil"
-                defaultValue={employee?.etatCivil ?? "Célibataire"}
+                defaultValue={base?.etatCivil ?? "Célibataire"}
                 options={[
                   { value: "Célibataire", label: "Célibataire" },
                   { value: "Marié(e)", label: "Marié(e)" },
@@ -244,12 +260,12 @@ export function EmployeeForm({
                 label="Date de naissance"
                 name="dateNaissance"
                 type="date"
-                defaultValue={toDateInput(employee?.dateNaissance ?? undefined)}
+                defaultValue={toDateInput(base?.dateNaissance ?? undefined)}
               />
               <Select
                 label="Type"
                 name="type"
-                defaultValue={employee?.type ?? "NATIONAL"}
+                defaultValue={base?.type ?? "NATIONAL"}
                 options={[
                   { value: "NATIONAL", label: "National" },
                   { value: "EXPATRIE", label: "Expatrié" },
@@ -258,12 +274,12 @@ export function EmployeeForm({
             </Section>
 
             <Section id="contrat" titre="Contrat & poste">
-              <Field label="Poste" name="poste" defaultValue={employee?.poste} required list="postes-existants" />
-              <Field label="Secteur" name="secteur" defaultValue={employee?.secteur} required />
+              <Field label="Poste" name="poste" defaultValue={base?.poste} required list="postes-existants" />
+              <Field label="Secteur" name="secteur" defaultValue={base?.secteur} required />
               <Select
                 label="Catégorie"
                 name="categorie"
-                defaultValue={employee?.categorie ?? "BRIGADE"}
+                defaultValue={base?.categorie ?? "BRIGADE"}
                 options={[
                   { value: "BRIGADE", label: "Brigade" },
                   { value: "BACKOFFICE", label: "Backoffice" },
@@ -272,13 +288,13 @@ export function EmployeeForm({
               <Select
                 label="Catégorie professionnelle (Code du travail RDC)"
                 name="categorieProfessionnelle"
-                defaultValue={employee?.categorieProfessionnelle ?? ""}
+                defaultValue={base?.categorieProfessionnelle ?? ""}
                 options={[{ value: "", label: "— non définie —" }, ...CATEGORIES_PRO.map((c) => ({ value: c.value, label: c.label }))]}
               />
               <Select
                 label="Contrat"
                 name="contrat"
-                defaultValue={employee?.contrat ?? "CDD"}
+                defaultValue={base?.contrat ?? "CDD"}
                 options={[
                   { value: "CDD", label: "CDD" },
                   { value: "CDI", label: "CDI" },
@@ -291,21 +307,21 @@ export function EmployeeForm({
                 label="Date d'embauche"
                 name="dateEmbauche"
                 type="date"
-                defaultValue={toDateInput(employee?.dateEmbauche)}
+                defaultValue={toDateInput(base?.dateEmbauche)}
                 required
               />
               <Field
                 label="ID pointeuse IVMS (optionnel)"
                 name="idExterneIVMS"
-                defaultValue={employee?.idExterneIVMS ?? ""}
+                defaultValue={base?.idExterneIVMS ?? ""}
               />
             </Section>
 
             <Section id="remuneration" titre="Rémunération">
               <SalaireHoraire
-                salaireMensuelInit={versChamp(employee?.salaireMensuel) ?? ""}
-                heuresHebdoInit={versChamp(employee?.heuresHebdomadaires) ?? "48"}
-                heuresParJourInit={versChamp(employee?.heuresParJour) ?? "8"}
+                salaireMensuelInit={versChamp(base?.salaireMensuel) ?? ""}
+                heuresHebdoInit={versChamp(base?.heuresHebdomadaires) ?? "48"}
+                heuresParJourInit={versChamp(base?.heuresParJour) ?? "8"}
                 joursOuvrablesMois={joursOuvrablesMois}
                 salaireEstNet={parametres?.salairesSaisisEnNet ?? false}
               />
@@ -314,41 +330,41 @@ export function EmployeeForm({
                 name="transportJourCDF"
                 nombre
                 suffixe="CDF"
-                defaultValue={versChamp(employee?.transportJourCDF)}
+                defaultValue={versChamp(base?.transportJourCDF)}
               />
               <Field
                 label="Transport / mois (CDF)"
                 name="transportMoisCDF"
                 nombre
                 suffixe="CDF"
-                defaultValue={versChamp(employee?.transportMoisCDF)}
+                defaultValue={versChamp(base?.transportMoisCDF)}
               />
               <Field
                 label="Transport / mois ($)"
                 name="transportMoisUSD"
                 nombre
                 suffixe="$"
-                defaultValue={versChamp(employee?.transportMoisUSD)}
+                defaultValue={versChamp(base?.transportMoisUSD)}
               />
               <Field
                 label="CNSS $"
                 name="cnssMontant"
                 nombre
                 suffixe="$"
-                defaultValue={versChamp(employee?.cnssMontant)}
+                defaultValue={versChamp(base?.cnssMontant)}
               />
               <Field
                 label="Frais médicaux du mois ($)"
                 name="fraisMedicauxMoisCourant"
                 nombre
                 suffixe="$"
-                defaultValue={versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"}
+                defaultValue={versChamp(base?.fraisMedicauxMoisCourant) ?? "0"}
               />
               <Field
                 label="Enfants à charge (retenus par la paie)"
                 name="enfants"
                 nombre
-                defaultValue={employee?.enfants?.toString() ?? "0"}
+                defaultValue={base?.enfants?.toString() ?? "0"}
               />
               {/* Téléphone : la simulation se replie sous la rémunération (sur ordinateur, elle est collée à droite). */}
               {simulation && (
@@ -363,24 +379,24 @@ export function EmployeeForm({
             </Section>
 
             <Section id="coordonnees" titre="Coordonnées & paiement">
-              <Field label="Téléphone" name="telephone" type="tel" defaultValue={employee?.telephone ?? ""} />
-              <Field label="E-mail" name="email" type="email" defaultValue={employee?.email ?? ""} />
+              <Field label="Téléphone" name="telephone" type="tel" defaultValue={base?.telephone ?? ""} />
+              <Field label="E-mail" name="email" type="email" defaultValue={base?.email ?? ""} />
               <div className="sm:col-span-2">
-                <Field label="Adresse" name="adresse" defaultValue={employee?.adresse ?? ""} />
+                <Field label="Adresse" name="adresse" defaultValue={base?.adresse ?? ""} />
               </div>
               <Select
                 label="Moyen de paiement du salaire"
                 name="modePaiement"
-                defaultValue={employee?.modePaiement ?? "ESPECES"}
+                defaultValue={base?.modePaiement ?? "ESPECES"}
                 options={[
                   { value: "ESPECES", label: "Espèces" },
                   { value: "VIREMENT", label: "Virement bancaire" },
                   { value: "MOBILE_MONEY", label: "Mobile Money" },
                 ]}
               />
-              <Field label="Mobile Money" name="mobileMoney" defaultValue={employee?.mobileMoney ?? ""} />
-              <Field label="Banque" name="banque" defaultValue={employee?.banque ?? ""} />
-              <Field label="Compte bancaire / IBAN" name="compteBancaire" defaultValue={employee?.compteBancaire ?? ""} />
+              <Field label="Mobile Money" name="mobileMoney" defaultValue={base?.mobileMoney ?? ""} />
+              <Field label="Banque" name="banque" defaultValue={base?.banque ?? ""} />
+              <Field label="Compte bancaire / IBAN" name="compteBancaire" defaultValue={base?.compteBancaire ?? ""} />
             </Section>
 
             {/* Fiches proches déclarées « autre personne » : relues par le serveur, qui revérifie. Absent sinon (envoi inchangé). */}

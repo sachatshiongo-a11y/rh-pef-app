@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 
-export type CreationEnAttente = { id: string; nom: string; auteurNom: string; le: string };
+export type CreationEnAttente = { id: string; nom: string; auteurNom: string; le: string; reembauche?: boolean };
 
 /**
  * Encadré à part (jamais mêlé aux salariés) : les fiches saisies par la RH et pas encore validées par la
@@ -19,7 +19,7 @@ export function CreationsEnAttente({ creations, estDirection }: { creations: Cre
         {creations.map((c) => (
           <li key={c.id} className="flex items-center gap-2">
             <Avatar nom={c.nom} taille={28} />
-            <span className="font-medium">{c.nom}</span>
+            <span className="font-medium">{c.nom}</span>{c.reembauche && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">réembauche</span>}
             <span className="text-xs text-amber-800">saisie par {c.auteurNom} le {c.le} — pas encore créée</span>
           </li>
         ))}

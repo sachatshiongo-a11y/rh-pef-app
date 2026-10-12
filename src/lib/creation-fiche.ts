@@ -63,10 +63,30 @@ export async function exigerIdentifiantsLibres(db: Db, p: { matricule: string; i
 
 const SELECT_IDENTITE = { id: true, nom: true, matricule: true, telephone: true, dateNaissance: true, actif: true, poste: true, dateEmbauche: true, photoUrl: true } as const;
 
-/** Fiches proches de la saisie (actives et inactives) qui n'ont pas été tranchées (`vus` = « c'est une autre personne »). */
-export async function doublonsNonTranches(db: Db, saisie: IdentiteFiche, vus: ReadonlySet<string>) {
+/**
+ * Fiches proches de la saisie (actives et inactives) qui n'ont pas été tranchées (`vus` = « c'est une autre personne »).
+ * Réembauche explicite : l'ancienne fiche (celle dont on prend la suite) n'est PAS un doublon.
+ */
+export async function doublonsNonTranches(db: Db, saisie: IdentiteFiche, vus: ReadonlySet<string>, ancienneFicheId?: string | null) {
   const fiches = await db.employee.findMany({ select: SELECT_IDENTITE, orderBy: { nom: "asc" } });
-  return fichesProches(saisie, fiches).filter((p) => !vus.has(p.fiche.id));
+  return fichesProches(saisie, fiches, { exclureId: ancienneFicheId ?? undefined }).filter((p) => !vus.has(p.fiche.id));
+}
+
+/**
+ * RÉEMBAUCHE (décision du 2026-10-12 n°10) : une nouvelle fiche prend la suite d'une fiche ARCHIVÉE. Refus lisibles :
+ * ancienne fiche introuvable, encore ACTIVE (une personne en poste n'est pas « réembauchée »), ou déjà réembauchée
+ * (une seule suite par fiche). Renvoie l'ancienne fiche.
+ */
+export async function verifierReembauche(db: Db, ancienneFicheId: string) {
+  const ancienne = await db.employee.findUnique({
+    where: { id: ancienneFicheId },
+    select: { id: true, nom: true, matricule: true, actif: true, reembauches: { select: { nom: true, matricule: true }, take: 1 } },
+  });
+  if (!ancienne) throw new Error("La fiche à réembaucher n'existe plus. Rien n'a été enregistré.");
+  if (ancienne.actif) throw new Error(`La fiche de « ${ancienne.nom} » (${ancienne.matricule}) est encore ACTIVE : on ne réembauche qu'une personne dont la fiche est archivée (inactive). Rien n'a été enregistré.`);
+  const suite = ancienne.reembauches[0];
+  if (suite) throw new Error(`« ${ancienne.nom} » a déjà été réembauché(e) : voir la fiche ${suite.matricule}. Rien n'a été enregistré.`);
+  return ancienne;
 }
 
 /**
@@ -74,13 +94,18 @@ export async function doublonsNonTranches(db: Db, saisie: IdentiteFiche, vus: Re
  * est vide, unicité, création, doublons écartés tracés, checklist d'intégration. Dans la transaction de l'appelant.
  */
 export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: string[], userId: string) {
-  const data = { ...saisie };
+  const data = { ...saisie, ancienneFicheId: saisie.ancienneFicheId || null };
+  // Réembauche : revérifiée ICI, dans la transaction de création (Direction directe comme approbation).
+  if (data.ancienneFicheId) await verifierReembauche(tx, data.ancienneFicheId);
   if (!data.matricule) {
     const existants = await tx.employee.findMany({ where: { categorie: data.categorie }, select: { matricule: true } });
     data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
   }
   await exigerIdentifiantsLibres(tx, data);
   const nouvel = await tx.employee.create({ data: data as Prisma.EmployeeUncheckedCreateInput });
+  if (data.ancienneFicheId) {
+    await journaliser(tx, { entite: "Employee", entiteId: nouvel.id, champ: "reembauche", nouvelleValeur: `Réembauche : nouvelle fiche, suite de la fiche archivée ${data.ancienneFicheId}`, userId });
+  }
   // Première ligne de l'historique salarial (décision de Sacha, 2026-10-13) : « Salaire d'embauche », à la date d'embauche.
   await enregistrerSalaireEmbauche(tx, { employeeId: nouvel.id, salaire: nouvel.salaireMensuel, poste: nouvel.poste, dateEmbauche: nouvel.dateEmbauche, userId });
   // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
@@ -102,13 +127,15 @@ export async function creerDemandeCreation(p: { donnees: DonneesCreation; ecarte
   return prisma.$transaction(async (tx) => {
     await verrouillerCreations(tx);
     const d = p.donnees;
+    if (d.ancienneFicheId) await verifierReembauche(tx, d.ancienneFicheId);
     // Une même personne ne part pas deux fois : même nom, même matricule ou même identifiant de pointeuse déjà en attente.
     const pendantes = await tx.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE" } });
     for (const x of pendantes) {
       const autre = donneesPourEcriture(x.donnees);
       const memeMat = d.matricule && autre.matricule === d.matricule;
       const memeIvms = d.idExterneIVMS && (autre.idExterneIVMS === d.idExterneIVMS || autre.matricule === d.idExterneIVMS);
-      if (memeMat || memeIvms || memeNom(d.nom, x.nom)) {
+      const memeAncienne = d.ancienneFicheId && autre.ancienneFicheId === d.ancienneFicheId;
+      if (memeMat || memeIvms || memeNom(d.nom, x.nom) || memeAncienne) {
         throw new Error(`Une création de fiche « ${x.nom} » est déjà en attente de validation (demandée par ${x.auteurNom} le ${jourKinshasa(x.createdAt)}). Attendez la décision de la Direction — rien n'a été enregistré.`);
       }
     }
@@ -148,7 +175,7 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
     if (ctrl) throw new Error(`${ctrl} Rien n'a été créé ; refusez la demande.`);
     // Anti-doublon revérifié : une fiche proche apparue depuis la demande (et non tranchée à la saisie) bloque la création.
     const vus = new Set(d.doublonsEcartes.split(",").filter(Boolean));
-    const proches = await doublonsNonTranches(tx, donnees, vus);
+    const proches = await doublonsNonTranches(tx, donnees, vus, donnees.ancienneFicheId);
     if (proches.length > 0) {
       const liste = proches.map((p) => `« ${p.fiche.nom} »${p.fiche.actif === false ? " (inactive)" : ""} — ${p.motifs.map((m) => libelleMotif(m, p.memeNom)).join(", ")}`).join(" ; ");
       throw new Error(`${proches.length > 1 ? "Des fiches proches existent" : "Une fiche proche existe"} : ${liste}. Rien n'a été créé : refusez la demande, ou créez la fiche vous-même depuis « Nouvel employé » en confirmant « C'est une autre personne ».`);
@@ -215,5 +242,17 @@ export async function refuserCreations(ids: string[], motifBrut: unknown, decide
 /** Créations en attente (liste des employés, « À valider »). */
 export async function creationsEnAttente() {
   const ds = await prisma.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE" }, orderBy: { createdAt: "asc" } });
-  return ds.map((d) => ({ id: d.id, nom: d.nom, auteurNom: d.auteurNom, le: jourKinshasa(d.createdAt), lignes: lignesCreation(d.donnees) }));
+  const anciennes = await nomsAnciennesFiches(ds.map((d) => d.donnees));
+  return ds.map((d) => {
+    const ancienneId = (d.donnees as { ancienneFicheId?: string | null }).ancienneFicheId ?? null;
+    return { id: d.id, nom: d.nom, auteurNom: d.auteurNom, le: jourKinshasa(d.createdAt), reembauche: Boolean(ancienneId), lignes: lignesCreation(d.donnees, ancienneId ? anciennes.get(ancienneId) : null) };
+  });
+}
+
+/** Noms des fiches archivées citées par des demandes de réembauche (id → nom). */
+export async function nomsAnciennesFiches(donnees: unknown[]): Promise<Map<string, string>> {
+  const ids = [...new Set(donnees.map((d) => (d as { ancienneFicheId?: string | null } | null)?.ancienneFicheId).filter((x): x is string => Boolean(x)))];
+  if (ids.length === 0) return new Map();
+  const l = await prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, nom: true, matricule: true } });
+  return new Map(l.map((e) => [e.id, `${e.nom} (${e.matricule})`]));
 }

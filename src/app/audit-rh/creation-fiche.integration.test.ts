@@ -29,6 +29,7 @@ vi.mock("@/lib/contrats-notification", () => ({ notifierContratASigner: async ()
 const RH = await import("@/app/(app)/employes/actions");
 const FICHE = await import("@/app/(app)/a-valider/fiche-actions");
 const { creationsEnAttente } = await import("@/lib/creation-fiche");
+const { chargerSoldeCongeSalarie } = await import("@/lib/solde-conge-salarie");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -226,5 +227,101 @@ describe("historique salarial : première ligne « Salaire d'embauche »", () =>
     expect(l).toHaveLength(1);
     expect([Number(l[0].nouveauSalaire), l[0].motif, l[0].decideParId, l[0].date.toISOString().slice(0, 10)]).toEqual([275.5, "Salaire d'embauche", ids.direction, "2026-08-03"]);
     expect(await prisma.historiqueSalaire.count()).toBe(avant + 1);
+  });
+});
+
+// RÉEMBAUCHE (décision du 2026-10-12 n°10) : nouvelle fiche liée à la fiche archivée.
+describe("réembauche : nouvelle fiche, ancienne fiche archivée intacte", () => {
+  let seqR = 0;
+  /** Un ancien salarié : fiche INACTIVE, embauché en 2020, avec contrat résilié et historique. */
+  async function ancien(o: { actif?: boolean } = {}) {
+    seqR++;
+    const e = await prisma.employee.create({ data: {
+      matricule: `ANC${seqR}-PEF`, nom: ["", "Kasongo Mwamba", "Tshibola Ngoy", "Ilunga Kalenga", "Banza Mutombo", "Lubaba Kyungu", "Mulumba Zola", "Nkulu Kabeya"][seqR], sexe: "M", etatCivil: "Marié(e)", poste: "Cuisinier", secteur: "Cuisine", categorie: "BRIGADE",
+      salaireMensuel: 280, dateEmbauche: new Date("2020-01-06"), contrat: "CDI", actif: o.actif ?? false, telephone: `09100000${seqR}`, dateNaissance: new Date(`198${seqR}-0${seqR}-1${seqR}`), banque: "Rawbank", compteBancaire: `RB-${seqR}`,
+    } });
+    await prisma.contrat.create({ data: { employeeId: e.id, type: "CDI", dateDebut: new Date("2020-01-06"), heuresHebdo: 48, salaireMensuel: 280, devise: "USD", poste: "Cuisinier", statut: "RESILIE" } });
+    await prisma.historiqueSalaire.create({ data: { employeeId: e.id, ancienSalaire: 250, nouveauSalaire: 280, motif: "Ajustement" } });
+    return e;
+  }
+  const memeIdentite = (a: { nom: string; telephone: string | null; dateNaissance: Date | null }, o: Record<string, string> = {}) =>
+    nouveau({ nom: a.nom, telephone: a.telephone ?? "", dateNaissance: a.dateNaissance!.toISOString().slice(0, 10), sexe: "M", etatCivil: "Marié(e)", poste: "Cuisinier", dateEmbauche: "2026-10-12", salaireMensuel: "300", banque: "Rawbank", ...o });
+
+  it("Direction : nouvelle fiche liée à l'ancienne (nouveau matricule, solde de congés à zéro, ligne « Salaire d'embauche »), ancienne intacte", async () => {
+    comme("ADMIN");
+    const a = await ancien();
+    const avant = await prisma.employee.findUniqueOrThrow({ where: { id: a.id } });
+    const soldeAvant = await chargerSoldeCongeSalarie(prisma as never, a.id, new Date("2026-10-13T08:00:00Z"));
+    expect(soldeAvant.acquis).toBeGreaterThan(0);
+    expect(await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id })))).toBe("/employes");
+    const n = await prisma.employee.findFirstOrThrow({ where: { ancienneFicheId: a.id } });
+    expect([n.actif, n.nom, n.ancienneFicheId, Number(n.salaireMensuel), n.dateEmbauche.toISOString().slice(0, 10)]).toEqual([true, a.nom, a.id, 300, "2026-10-12"]);
+    expect(n.matricule).not.toBe(a.matricule);
+    const soldeN = await chargerSoldeCongeSalarie(prisma as never, n.id, new Date("2026-10-13T08:00:00Z"));
+    expect([soldeN.acquis, soldeN.report, soldeN.pris]).toEqual([0, 0, 0]);
+    const h = await prisma.historiqueSalaire.findMany({ where: { employeeId: n.id } });
+    expect(h.map((x) => x.motif)).toEqual(["Salaire d'embauche"]);
+    // L'ancienne fiche n'a pas bougé (inactive, mêmes valeurs, même historique, même contrat, même solde).
+    const apres = await prisma.employee.findUniqueOrThrow({ where: { id: a.id } });
+    expect([apres.actif, apres.matricule, Number(apres.salaireMensuel), apres.updatedAt.getTime()]).toEqual([false, avant.matricule, 280, avant.updatedAt.getTime()]);
+    expect(await prisma.historiqueSalaire.count({ where: { employeeId: a.id } })).toBe(1);
+    expect(await prisma.contrat.count({ where: { employeeId: a.id, statut: "RESILIE" } })).toBe(1);
+    expect((await chargerSoldeCongeSalarie(prisma as never, a.id, new Date("2026-10-13T08:00:00Z"))).acquis).toBe(soldeAvant.acquis);
+    expect(await prisma.journalAudit.count({ where: { entiteId: n.id, champ: "reembauche" } })).toBe(1);
+  });
+
+  it("RH : une demande « Nouvelle fiche (réembauche) », rien n'est créé ; la Direction approuve : fiche liée", async () => {
+    comme("MANAGER");
+    const a = await ancien();
+    const avant = await nbEmployes();
+    expect(await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id })))).toBe("/employes?creation=envoyee");
+    expect(await nbEmployes()).toBe(avant);
+    const [d] = (await enAttente()).filter((x) => x.nom === a.nom);
+    expect((await creationsEnAttente()).find((c) => c.id === d.id)).toMatchObject({ reembauche: true });
+    expect((await creationsEnAttente()).find((c) => c.id === d.id)!.lignes[0]).toContain(`Réembauche de : ${a.nom} (${a.matricule})`);
+    comme("ADMIN");
+    expect((await FICHE.approuverModifsFiche([d.id])).traitees).toBe(1);
+    const n = await prisma.employee.findFirstOrThrow({ where: { ancienneFicheId: a.id } });
+    expect([n.actif, n.matricule === a.matricule]).toEqual([true, false]);
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: a.id } })).actif).toBe(false);
+  });
+
+  it("ancienne fiche encore ACTIVE : refus (Direction comme RH) ; réactivée entre la demande et l'approbation : refus à l'approbation", async () => {
+    const act = await ancien({ actif: true });
+    const avant = await nbEmployes();
+    comme("ADMIN");
+    expect(await url(RH.creerEmploye(memeIdentite(act, { ancienneFicheId: act.id })))).toContain("encore ACTIVE");
+    comme("MANAGER");
+    expect(await url(RH.creerEmploye(memeIdentite(act, { ancienneFicheId: act.id })))).toContain("encore ACTIVE");
+    expect(await nbEmployes()).toBe(avant);
+    // Demande légitime, puis la Direction réactive l'ancienne fiche avant d'approuver.
+    const a = await ancien();
+    await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id })));
+    const d = (await enAttente()).find((x) => x.nom === a.nom)!;
+    await prisma.employee.update({ where: { id: a.id }, data: { actif: true } });
+    comme("ADMIN");
+    const r = await FICHE.approuverModifsFiche([d.id]);
+    expect(r.traitees).toBe(0);
+    expect(r.echecs.join(" ")).toContain("encore ACTIVE");
+    expect(await prisma.employee.count({ where: { ancienneFicheId: a.id } })).toBe(0);
+  });
+
+  it("sans réembauche explicite, la même identité reste un doublon refusé ; une fiche réembauchée ne l'est pas deux fois", async () => {
+    comme("ADMIN");
+    const a = await ancien();
+    expect(await url(RH.creerEmploye(memeIdentite(a)))).toContain("fiche proche existe déjà");
+    expect(await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id })))).toBe("/employes");
+    expect(await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id, dateEmbauche: "2026-11-01" })))).toContain("déjà été réembauché");
+    expect(await prisma.employee.count({ where: { ancienneFicheId: a.id } })).toBe(1);
+  });
+
+  it("« Modifier » n'efface jamais le lien de réembauche", async () => {
+    comme("ADMIN");
+    const a = await ancien();
+    await url(RH.creerEmploye(memeIdentite(a, { ancienneFicheId: a.id })));
+    const n = await prisma.employee.findFirstOrThrow({ where: { ancienneFicheId: a.id } });
+    const f = fd({ matricule: n.matricule, nom: n.nom, sexe: n.sexe, etatCivil: n.etatCivil, poste: "Chef", secteur: n.secteur, categorie: "BRIGADE" });
+    await url(RH.modifierEmploye(n.id, f));
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: n.id } })).ancienneFicheId).toBe(a.id);
   });
 });

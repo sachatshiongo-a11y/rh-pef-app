@@ -13,6 +13,8 @@ export type DonneesCreation = {
   idExterneIVMS: string | null; dateNaissance: Date | string | null; telephone: string | null; email: string | null; adresse: string | null;
   banque: string | null; compteBancaire: string | null; mobileMoney: string | null;
   modePaiement: "ESPECES" | "VIREMENT" | "MOBILE_MONEY";
+  /** RÉEMBAUCHE : la fiche archivée (inactive) dont cette nouvelle fiche prend la suite. */
+  ancienneFicheId?: string | null;
 };
 
 /** Contrôles de la saisie (les mêmes à la demande et à l'approbation) : message lisible ou null. */
@@ -41,10 +43,11 @@ const AUTRES: [keyof DonneesCreation, string][] = [
 ];
 
 /** Toutes les valeurs saisies, une ligne chacune (« Salaire mensuel : 350,00 $ »). Les champs vides sont omis. */
-export function lignesCreation(json: unknown): string[] {
+export function lignesCreation(json: unknown, ancienneNom?: string | null): string[] {
   let d: DonneesCreation;
   try { d = donneesPourEcriture(json); } catch { return ["Demande illisible : refusez-la."]; }
   const out: string[] = [];
+  if (d.ancienneFicheId) out.push(`Réembauche de : ${ancienneNom ?? "ancienne fiche"} (la fiche archivée reste intacte ; solde de congés à zéro)`);
   out.push(d.matricule ? `Matricule : ${d.matricule}` : "Matricule : attribué à l'approbation");
   for (const [k, lib] of AUTRES) {
     if (k === "matricule") continue;

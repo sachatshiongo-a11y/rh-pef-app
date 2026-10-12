@@ -19,6 +19,8 @@ export type FicheDoublonClient = {
   poste: string;
   dateEmbauche: string;
   photoUrl: string | null;
+  /** Départ constaté (contrat résilié / expiré) : on propose la RÉEMBAUCHE (nouvelle fiche), jamais la réactivation. */
+  parti?: boolean;
 };
 
 const dateFr = (iso: string) => {
@@ -101,7 +103,12 @@ export function AlerteDoublons({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Link href={`/employes/${f.id}`} className={CLASSES_NEUTRE}>Ouvrir la fiche existante</Link>
-              {!f.actif && peutReactiver && (
+              {/* Réactiver = désactivation par ERREUR (aucun départ constaté). Un ancien salarié parti revient par une
+                  RÉEMBAUCHE : nouvelle fiche, nouvelle date d'embauche, solde de congés à zéro (décision du 2026-10-12). */}
+              {!f.actif && f.parti && !modification && (
+                <Link href={`/employes/nouveau?reembauche=${f.id}`} className={CLASSES_NEUTRE}>Réembaucher (nouvelle fiche)</Link>
+              )}
+              {!f.actif && !f.parti && peutReactiver && (
                 <BoutonValider type="button" disabled={enCours} onClick={() => reactiver(f.id)}>Réactiver</BoutonValider>
               )}
             </div>

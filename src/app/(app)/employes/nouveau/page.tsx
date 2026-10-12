@@ -8,10 +8,12 @@ import { chargerPostes } from "@/lib/postes";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
+import type { Employee } from "@prisma/client";
+import { verifierReembauche } from "@/lib/creation-fiche";
 import { chargerFichesIdentite } from "@/lib/employe-doublon-serveur";
 import { fichesPourEcran } from "../fiches-doublon";
 
-export default async function NouvelEmployePage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
+export default async function NouvelEmployePage({ searchParams }: { searchParams: Promise<{ erreur?: string; reembauche?: string }> }) {
   const user = await exigerPageRH();
   requireRole(user, ["ADMIN", "MANAGER"]);
   const sp = await searchParams;
@@ -38,12 +40,36 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
         }
       : null;
 
+  // RÉEMBAUCHE : le formulaire est pré-rempli depuis la fiche archivée (jamais la date d'embauche ni le salaire).
+  let reembauche: { ancienneFicheId: string; nom: string; matricule: string; modele: Partial<Employee> } | undefined;
+  let refusReembauche: string | null = null;
+  if (sp.reembauche) {
+    try {
+      await verifierReembauche(prisma, sp.reembauche);
+      const a = await prisma.employee.findUniqueOrThrow({ where: { id: sp.reembauche } });
+      reembauche = {
+        ancienneFicheId: a.id, nom: a.nom, matricule: a.matricule,
+        modele: {
+          nom: a.nom, sexe: a.sexe, etatCivil: a.etatCivil, poste: a.poste, secteur: a.secteur, categorie: a.categorie,
+          categorieProfessionnelle: a.categorieProfessionnelle, type: a.type, dateNaissance: a.dateNaissance, telephone: a.telephone,
+          email: a.email, adresse: a.adresse, banque: a.banque, compteBancaire: a.compteBancaire, mobileMoney: a.mobileMoney,
+          modePaiement: a.modePaiement, enfants: a.enfants, heuresParJour: a.heuresParJour, heuresHebdomadaires: a.heuresHebdomadaires,
+          transportJourCDF: a.transportJourCDF, transportMoisCDF: a.transportMoisCDF, transportMoisUSD: a.transportMoisUSD, cnssMontant: a.cnssMontant,
+        },
+      };
+    } catch (e) {
+      refusReembauche = e instanceof Error ? e.message.replace(" Rien n'a été enregistré.", "") : "Réembauche impossible.";
+    }
+  }
+
   return (
     <div>
+      {refusReembauche && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{refusReembauche}</p>}
       {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
-      <h1 className="mb-6 text-xl font-semibold sm:text-2xl">Nouvel employé</h1>
+      <h1 className="mb-6 text-xl font-semibold sm:text-2xl">{reembauche ? `Réembaucher ${reembauche.nom}` : "Nouvel employé"}</h1>
       <EmployeeForm
         action={creerEmploye}
+        reembauche={reembauche}
         joursOuvrablesMois={parametres.joursOuvrablesMois}
         postes={postes}
         parametres={parametres}

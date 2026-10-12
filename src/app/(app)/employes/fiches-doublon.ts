@@ -13,5 +13,6 @@ export function fichesPourEcran(fiches: FicheIdentiteLue[]): FicheDoublonClient[
     poste: f.poste,
     dateEmbauche: f.dateEmbauche.toISOString().slice(0, 10),
     photoUrl: f.photoUrl,
+    parti: f.contrats.length > 0,
   }));
 }

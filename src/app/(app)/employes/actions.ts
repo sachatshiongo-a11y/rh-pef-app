@@ -17,7 +17,7 @@ import {
 } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 import { controlerDonneesCreation } from "@/lib/creation-fiche-donnees";
-import { creerDemandeCreation, creerFicheTx, exigerIdentifiantsLibres, lisibleSiDoublon, notifierNouvelleCreation } from "@/lib/creation-fiche";
+import { creerDemandeCreation, creerFicheTx, exigerIdentifiantsLibres, lisibleSiDoublon, notifierNouvelleCreation, verifierReembauche } from "@/lib/creation-fiche";
 
 // Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
 // lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
@@ -91,12 +91,16 @@ export async function creerEmploye(formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
-    const data = toEmployeeInput(formData);
+    // RÉEMBAUCHE (décision du 2026-10-12 n°10) : nouvelle fiche liée à une fiche ARCHIVÉE. Hors de `toEmployeeInput`,
+    // partagé avec « Modifier » (qui écraserait le lien).
+    const ancienneFicheId = String(formData.get("ancienneFicheId") ?? "").trim() || null;
+    if (ancienneFicheId) await verifierReembauche(prisma, ancienneFicheId);
+    const data = { ...toEmployeeInput(formData), ancienneFicheId };
     // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
     const modeBrut = formData.get("modePaiement");
     const ctrl = controlerDonneesCreation({ ...data, ...(modeBrut !== null ? { modePaiement: String(modeBrut) as typeof data.modePaiement } : {}) });
     if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
-    const ecartes = await exigerDoublonsTranches(data, formData);
+    const ecartes = await exigerDoublonsTranches(data, formData, ancienneFicheId ?? undefined);
 
     // Hors Direction : RIEN n'est créé (aucune fiche visible nulle part) ; une demande part à la Direction.
     // Les contrôles de la saisie (matricule et pointeuse libres) s'appliquent dès maintenant, puis sont refaits à l'approbation.

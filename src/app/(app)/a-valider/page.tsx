@@ -11,6 +11,7 @@ import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
 import { FichesInbox, type FicheRow } from "./fiches-inbox";
 import { lireChangements, ligneChangement } from "@/lib/fiche-sensible";
 import { lignesCreation } from "@/lib/creation-fiche-donnees";
+import { nomsAnciennesFiches } from "@/lib/creation-fiche";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { Avatar } from "@/components/avatar";
@@ -105,10 +106,15 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     // Créations de fiches saisies par la RH : rien n'existe encore dans les employés.
     prisma.demandeCreationFiche.findMany({ where: { statut: "EN_ATTENTE" }, orderBy: { createdAt: "asc" } }),
   ]);
-  const creationRows: FicheRow[] = creationsFiche.map((d) => ({
-    id: d.id, employeeId: null, creation: true, nom: d.nom, photoUrl: null, lignes: lignesCreation(d.donnees),
-    auteurNom: d.auteurNom, demandeLe: jourKinshasa(d.createdAt), motif: null,
-  }));
+  const anciennes = await nomsAnciennesFiches(creationsFiche.map((d) => d.donnees));
+  const creationRows: FicheRow[] = creationsFiche.map((d) => {
+    const ancienneId = (d.donnees as { ancienneFicheId?: string | null }).ancienneFicheId ?? null;
+    return {
+      id: d.id, employeeId: null, creation: true, reembauche: Boolean(ancienneId), nom: d.nom, photoUrl: null,
+      lignes: lignesCreation(d.donnees, ancienneId ? anciennes.get(ancienneId) : null),
+      auteurNom: d.auteurNom, demandeLe: jourKinshasa(d.createdAt), motif: null,
+    };
+  });
   const ficheRows: FicheRow[] = [...creationRows, ...modifsFiche.map((d) => {
     let lignes: string[];
     try { lignes = lireChangements(d.changements).map(ligneChangement); } catch { lignes = ["Demande illisible : refusez-la."]; }

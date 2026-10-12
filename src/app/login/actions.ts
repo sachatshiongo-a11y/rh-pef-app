@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { envoyerEmail } from "@/lib/email";
 import {
-  minutesBlocage, enregistrerEchec, effacerEchecs,
+  secondesAttente, formaterAttente, enregistrerEchec, effacerEchecs,
   genererJetonReinitialisation, verifierJeton, consommerJeton, changerMotDePasseAdmin,
 } from "@/lib/securite-connexion";
 import { emailInterneMatricule, estMatricule, espaceEmployeActif } from "@/lib/espace-employe";
@@ -34,10 +34,10 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   // et la RH gardent la connexion par e-mail. (Domaine .salarie.local = clé, jamais un vrai e-mail.)
   const email = estMatricule(saisi) ? emailInterneMatricule(saisi) : saisi.toLowerCase();
 
-  // Anti-force-brute : après 5 échecs en 15 min, blocage temporaire de l'identifiant.
-  const attente = await minutesBlocage(email);
+  // Anti-force-brute : un délai qui s'allonge à chaque échec (2 s, 4 s, 8 s… plafonné à 15 min), par identifiant.
+  const attente = await secondesAttente(email);
   if (attente > 0) {
-    return { error: `Trop de tentatives. Réessayez dans ${attente} min, ou utilisez « Mot de passe oublié ».` };
+    return { error: `Trop de tentatives. Réessayez dans ${formaterAttente(attente)}, ou utilisez « Mot de passe oublié ».` };
   }
 
   const supabase = await createClient();

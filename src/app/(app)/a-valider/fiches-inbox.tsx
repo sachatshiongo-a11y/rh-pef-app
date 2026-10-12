@@ -13,6 +13,8 @@ export type FicheRow = {
   /** null pour une création : la fiche n'existe pas encore. */
   employeeId: string | null;
   creation?: boolean;
+  /** Création qui prend la suite d'une fiche archivée (réembauche). */
+  reembauche?: boolean;
   nom: string;
   photoUrl?: string | null;
   lignes: string[]; // « Salaire mensuel : 300,00 $ → 350,00 $ »
@@ -90,14 +92,14 @@ export function FichesInbox({ rows, peutValider }: { rows: FicheRow[]; peutValid
         {rows.map((d) => (
           <div key={d.id} className={`rounded-xl border bg-card ${selection.has(d.id) ? "ring-1 ring-primary" : ""}`}>
             <div className="flex items-start gap-3 p-3">
-              {peutValider && <input type="checkbox" className="mt-2" checked={selection.has(d.id)} onChange={() => toggle(d.id)} aria-label={d.creation ? `Sélectionner la nouvelle fiche de ${d.nom}` : `Sélectionner la modification de ${d.nom}`} />}
+              {peutValider && <input type="checkbox" className="mt-2" checked={selection.has(d.id)} onChange={() => toggle(d.id)} aria-label={d.creation ? `Sélectionner la nouvelle fiche${d.reembauche ? " (réembauche)" : ""} de ${d.nom}` : `Sélectionner la modification de ${d.nom}`} />}
               <Avatar nom={d.nom} photoUrl={d.photoUrl} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm">
                   {d.employeeId ? (
                     <Link href={`/employes/${d.employeeId}`} className="font-semibold hover:underline">{d.nom}</Link>
                   ) : (
-                    <span className="font-semibold">Nouvelle fiche : {d.nom}</span>
+                    <span className="font-semibold">Nouvelle fiche{d.reembauche ? " (réembauche)" : ""} : {d.nom}</span>
                   )}{" "}
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">À valider</span>
                 </p>

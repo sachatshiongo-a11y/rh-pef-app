@@ -9,7 +9,9 @@ import { JOURNAL_DOUBLON_ECARTE, pairesEcartees } from "@/lib/employe-doublon";
  */
 export async function chargerFichesIdentite() {
   return prisma.employee.findMany({
-    select: { id: true, nom: true, matricule: true, telephone: true, dateNaissance: true, actif: true, poste: true, dateEmbauche: true, photoUrl: true },
+    select: { id: true, nom: true, matricule: true, telephone: true, dateNaissance: true, actif: true, poste: true, dateEmbauche: true, photoUrl: true,
+      // Départ constaté (contrat résilié ou expiré) : la fiche se REÇOIT par une réembauche, pas par une réactivation.
+      contrats: { where: { statut: { in: ["RESILIE", "EXPIRE"] } }, select: { id: true }, take: 1 } },
     orderBy: { nom: "asc" },
   });
 }

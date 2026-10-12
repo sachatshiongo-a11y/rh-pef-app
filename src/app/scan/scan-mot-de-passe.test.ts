@@ -64,7 +64,8 @@ vi.mock("@/lib/prisma", () => {
   return { prisma };
 });
 vi.mock("@/lib/securite-connexion", () => ({
-  minutesBlocage: async () => 0,
+  secondesAttente: async () => 0,
+  formaterAttente: (s: number) => `${s} s`,
   enregistrerEchec: async () => {},
   effacerEchecs: async () => {},
   genererJetonReinitialisation: async () => "",

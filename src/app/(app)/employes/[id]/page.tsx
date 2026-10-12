@@ -89,6 +89,14 @@ export default async function FicheEmployePage({
 
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
+  // Réembauche = nouvelle fiche : lien vers la fiche archivée dont celle-ci prend la suite, et vers sa suite éventuelle.
+  const liensReembauche = await prisma.employee.findUnique({
+    where: { id },
+    select: {
+      ancienneFiche: { select: { id: true, nom: true, matricule: true } },
+      reembauches: { select: { id: true, nom: true, matricule: true, dateEmbauche: true }, orderBy: { dateEmbauche: "asc" } },
+    },
+  });
 
   const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets, tachesOnboarding] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
@@ -483,6 +491,16 @@ export default async function FicheEmployePage({
               📁 {documents.length} document{documents.length > 1 ? "s" : ""}
             </Link>
           </div>
+          {liensReembauche?.ancienneFiche && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Réembauche — <Link href={`/employes/${liensReembauche.ancienneFiche.id}`} className="font-medium text-primary underline">ancienne fiche : {liensReembauche.ancienneFiche.nom} ({liensReembauche.ancienneFiche.matricule})</Link>
+            </p>
+          )}
+          {(liensReembauche?.reembauches ?? []).map((r) => (
+            <p key={r.id} className="mt-2 text-xs text-muted-foreground">
+              Fiche archivée — réembauché(e) le {r.dateEmbauche.toISOString().slice(0, 10).split("-").reverse().join("/")} : <Link href={`/employes/${r.id}`} className="font-medium text-primary underline">nouvelle fiche {r.matricule}</Link>
+            </p>
+          ))}
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <TelechargerLien
@@ -491,6 +509,14 @@ export default async function FicheEmployePage({
           >
             Exporter (PDF)
           </TelechargerLien>
+          {peutModifier && !employee.actif && (liensReembauche?.reembauches.length ?? 0) === 0 && (
+            <Link
+              href={`/employes/nouveau?reembauche=${employee.id}`}
+              className="flex-1 rounded-md border border-primary px-3 py-1.5 text-center text-sm font-medium text-primary hover:bg-accent sm:flex-none sm:px-4 sm:py-2"
+            >
+              Réembaucher
+            </Link>
+          )}
           <Link
             href={`/employes/${employee.id}/modifier`}
             className="flex-1 rounded-md bg-primary px-3 py-1.5 text-center text-sm font-medium text-primary-foreground sm:flex-none sm:px-4 sm:py-2"
