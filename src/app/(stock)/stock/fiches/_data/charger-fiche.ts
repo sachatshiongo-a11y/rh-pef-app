@@ -77,6 +77,7 @@ export async function chargerFichesVues(): Promise<FicheVue[]> {
 const SELECT_ARTICLE = {
   id: true,
   designation: true,
+  marque: true,
   unite: true,
   devisePrix: true,
   prixUnitaireUSD: true,
@@ -87,7 +88,7 @@ const SELECT_ARTICLE = {
 } satisfies Prisma.ArticleStockSelect;
 
 type ArticleBrut = {
-  id: string; designation: string; unite: string | null; actif: boolean;
+  id: string; designation: string; marque?: string | null; unite: string | null; actif: boolean;
   devisePrix: DevisePrix; prixUnitaireUSD: { toString(): string } | null; prixUnitaireCDF: { toString(): string } | null;
   contenance: { toString(): string } | null; contenanceUnite: string | null;
 };
@@ -100,6 +101,7 @@ type ArticleBrut = {
 const versOption = (a: ArticleBrut, taux: number | null): ArticleOption => ({
   id: a.id,
   designation: a.designation,
+  marque: a.marque,
   unite: s(a.unite),
   prixUnitaireUSD: prixArticleEnUSDTexte(a, taux)?.valeur ?? null,
   ...(a.devisePrix === "CDF" ? { prixApprox: true, prixSaisi: prixSaisi(a) } : {}),

@@ -87,7 +87,8 @@ function avecMarque(designation: string, marque: string | null): string {
   if (!marque || nomPorteLaMarque(designation, marque)) return designation;
   const pos = positionContenanceDansNom(designation);
   if (pos === null) return designation.trimEnd() ? `${designation.trimEnd()} ${marque}` : marque;
-  const avant = designation.slice(0, pos).trimEnd();
+  // « Vodka-70cl » : le tiret de liaison tombe, la marque prend sa place (« Vodka Pernod 70cl »).
+  const avant = designation.slice(0, pos).replace(/[\s\-–—]+$/u, "");
   return `${avant ? `${avant} ` : ""}${marque} ${designation.slice(pos)}`;
 }
 

@@ -171,7 +171,7 @@ function libelle(ingredient: IngredientCalc, index: number): string {
  * de consommation, on convertit la quantité de consommation vers l'unité d'achat — d'où
  * `facteur(uniteConsommee → uniteAchat)`. (200 g d'un article à 2,99 $/kg = 200 × 0,00299.)
  */
-function prixParUniteDeConsommation(
+export function prixParUniteDeConsommation(
   article: ArticleCalc,
   uniteConsommee: string,
 ): { prix: Decimal } | { motif: MotifSansPrix } {

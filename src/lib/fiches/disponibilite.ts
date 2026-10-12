@@ -34,7 +34,7 @@ const UN = new D(1);
 // ─── Entrées (dénormalisées par l'appelant) ──────────────────────────────────
 
 export type ArticleDispo = {
-  id: string; designation: string; unite: string;
+  id: string; designation: string; /** Marque : fait partie du nom affiché (`libelleArticle`). */ marque?: string | null; unite: string;
   /** Contenance d'une unité comptée à l'unité (bouteille de 75 cl) — cf. `facteurVersArticle`. */
   contenance?: Decimal.Value | null; contenanceUnite?: string | null;
 };
