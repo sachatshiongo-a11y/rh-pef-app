@@ -37,13 +37,20 @@ export function UsersAdmin({
   const [erreur, setErreur] = useState<string | null>(null);
   const [ouvertMdp, setOuvertMdp] = useState<string | null>(null);
 
-  function action(fn: () => Promise<unknown>) {
+  function action(fn: () => Promise<unknown>, apres?: () => void) {
     setErreur(null);
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
+      else apres?.();
     });
   }
+  /** Envoi par onSubmit (jamais `action={…}`, que React remet à zéro même sur un refus) : le formulaire n'est vidé qu'une fois la demande ACCEPTÉE. */
+  const surEnvoi = (fn: (fd: FormData) => Promise<unknown>) => (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    action(() => fn(new FormData(form)), () => form.reset());
+  };
 
   return (
     <div className="space-y-4">
@@ -137,7 +144,7 @@ export function UsersAdmin({
                   </div>
                   {ouvertMdp === u.id && (
                     <form
-                      action={(fd) => action(() => reinitialiserMotDePasse(u.id, fd))}
+                      onSubmit={surEnvoi((fd) => reinitialiserMotDePasse(u.id, fd))}
                       className="mt-2 flex items-center justify-end gap-2"
                     >
                       <input name="password" type="text" placeholder="Nouveau mot de passe" minLength={8} required className="rounded border border-input bg-background px-2 py-1 text-xs" />
@@ -153,7 +160,7 @@ export function UsersAdmin({
 
       {/* Création */}
       <form
-        action={(fd) => action(() => creerUtilisateur(fd))}
+        onSubmit={surEnvoi((fd) => creerUtilisateur(fd))}
         className="grid grid-cols-2 gap-3 rounded-lg border p-4 md:grid-cols-5"
       >
         <input name="nom" placeholder="Nom complet" required className={inputCls} />
