@@ -72,4 +72,22 @@ describe("fusionnerArticles — choix de l'article à conserver", () => {
     expect(lignes[0]!.articleId).toBe(garder.id);
     expect(Number(lignes[0]!.quantite)).toBe(2); // quantité intacte
   }, 60_000);
+  it("liens vers les articles du RESTAURANT : ils suivent l'article conservé, sans doubler un couple déjà posé", async () => {
+    // Un article du restaurant rattaché au doublon (lien reporté) ; un autre rattaché aux DEUX (un seul lien reste) ;
+    // un troisième rattaché à l'article conservé et à une autre marque (non touchée).
+    const garder = await prisma.articleStock.create({ data: { designation: "Beurre Président", domaine: "NOURRITURE", unite: "kg" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "BEURRE PRESIDENT", domaine: "NOURRITURE", unite: "kg" } });
+    const autre = await prisma.articleStock.create({ data: { designation: "Beurre Lurpak", domaine: "NOURRITURE", unite: "kg" } });
+    const r1 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", liens: { create: { articleStockId: doublon.id } } } });
+    const r2 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre de cuisson", unite: "kg", liens: { create: [{ articleStockId: garder.id }, { articleStockId: doublon.id }] } } });
+    const r3 = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre doux", unite: "kg", liens: { create: [{ articleStockId: garder.id }, { articleStockId: autre.id }] } } });
+
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+
+    const liens = async (restoId: string) => (await prisma.articleRestoStock.findMany({ where: { articleRestoId: restoId } })).map((l) => l.articleStockId).sort();
+    expect(await liens(r1.id)).toEqual([garder.id]); // reporté : le rattachement n'a pas disparu avec le doublon
+    expect(await liens(r2.id)).toEqual([garder.id]); // un seul couple, jamais deux fois le même
+    expect(await liens(r3.id)).toEqual([autre.id, garder.id].sort());
+    expect(await prisma.articleRestoStock.count({ where: { articleStockId: doublon.id } })).toBe(0);
+  }, 60_000);
 });

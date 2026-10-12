@@ -37,7 +37,7 @@ describe("5. une seule normalisation d'unités (accents, « (s) », pluriel, cas
 
   it("livraison du dépôt : « Bouteille(s) » au catalogue et « bouteilles » au restaurant s'additionnent", () => {
     expect(convertirDepuisUniteArticle("6", { unite: "Bouteille(s)" }, "bouteilles")).toBe("6");
-    const vin: ArticleRestoSR = { id: "v", designation: "Vin", espace: "BAR", unite: "bouteilles", articleStockId: "cat-vin", uniteCatalogue: "Bouteille(s)" };
+    const vin: ArticleRestoSR = { id: "v", designation: "Vin", espace: "BAR", unite: "bouteilles", rattaches: [{ id: "cat-vin", unite: "Bouteille(s)" }] };
     const e: EntreesStockResto = {
       articles: [vin],
       comptages: [{ articleRestoId: "v", date: "2026-09-20", quantite: "4" }],
@@ -65,7 +65,7 @@ describe("5. une seule normalisation d'unités (accents, « (s) », pluriel, cas
 });
 
 describe("3. consommation sur plusieurs jours : « depuis le JJ/MM (N jours) » et « ≈ »", () => {
-  const farine: ArticleRestoSR = { id: "f", designation: "Farine", espace: "CUISINE", unite: "kg", articleStockId: null };
+  const farine: ArticleRestoSR = { id: "f", designation: "Farine", espace: "CUISINE", unite: "kg", rattaches: [] };
   const e: EntreesStockResto = {
     articles: [farine],
     comptages: [
@@ -112,7 +112,7 @@ describe("3. consommation sur plusieurs jours : « depuis le JJ/MM (N jours) » 
   });
 
   it("comparaison : le consommé de plusieurs jours est marqué « ≈ » (jamais comparé comme celui d'un jour)", () => {
-    const x: EntreesStockResto = { ...e, articles: [{ ...farine, articleStockId: "cat-farine", uniteCatalogue: "kg" }] };
+    const x: EntreesStockResto = { ...e, articles: [{ ...farine, rattaches: [{ id: "cat-farine", unite: "kg" }] }] };
     const jours = ["2026-10-08", "2026-10-09"];
     const approx = consoApproximativeParArticleCatalogue(x, jours);
     expect(approx.get("cat-farine")).toEqual(["depuis le 05/10 (3 jours)", null]);

@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, memo, useCallback, useState, useTransition } from "react";
-import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto, rattacherArticleResto, changerActivationArticlesResto } from "./actions";
+import { Fragment, memo, useCallback, useMemo, useState, useTransition } from "react";
+import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto, ajouterLiensResto, retirerLiensResto, changerActivationArticlesResto } from "./actions";
 import type { JourResto } from "./semaine";
 import { estErreur } from "@/lib/action-lisible";
-import { ChoixArticleCatalogue, type OptionCatalogue } from "./choix-article";
+import type { OptionChoix } from "@/lib/recherche-options";
+import { ChoixArticleCatalogue, optionsCatalogue, type ArticleRattache, type OptionCatalogue } from "./choix-article";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { useJourAffiche } from "@/components/selecteur-jour";
@@ -25,8 +26,8 @@ export type LigneResto = {
   /** Désactivé : affiché seulement sur « Afficher les désactivés », grisé, sans saisie. */
   actif?: boolean; categorie: string | null; designation: string; unite: string | null;
   base: string; comptages: Record<string, string>; // iso → quantité
-  /** Article du catalogue rattaché (disponibilité des plats) — posé par la Direction, jamais deviné. */
-  articleStockId: string | null; articleStockDesignation: string | null;
+  /** Articles du catalogue rattachés (une ou plusieurs marques ; disponibilité des plats, livraisons) — posés par un geste, jamais devinés. */
+  articlesStock: ArticleRattache[];
   /** Reçu du dépôt par jour (iso → quantité, unité du restaurant) : LECTURE SEULE, dérivé des sorties. */
   recus: Record<string, string>;
   /** Livraisons du jour non additionnées (à répartir, unité incompatible), en clair. */
@@ -83,11 +84,18 @@ export function RestaurantGrille({
     if (estErreur(r)) setErreur(r.erreur);
     return r;
   };
-  const rattacher = async (id: string, articleStockId: string | null) => {
+  const ajouterLiens = async (id: string, articleStockIds: string[]) => {
     setErreur(null);
-    const r = await rattacherArticleResto(id, articleStockId);
+    const r = await ajouterLiensResto(id, articleStockIds);
     if (estErreur(r)) setErreur(r.erreur);
   };
+  const retirerLiens = async (id: string, articleStockIds: string[]) => {
+    setErreur(null);
+    const r = await retirerLiensResto(id, articleStockIds);
+    if (estErreur(r)) setErreur(r.erreur);
+  };
+  // Liste de recherche des articles du catalogue : calculée UNE fois, partagée par toutes les lignes.
+  const optionsArt = useMemo(() => optionsCatalogue(catalogue), [catalogue]);
   const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); }); };
 
   return (
@@ -153,7 +161,7 @@ export function RestaurantGrille({
                 </th>
               )}
               <th className={`max-lg:sticky max-lg:z-20 max-lg:bg-muted ${estDirection ? "max-lg:left-8" : "max-lg:left-0"}`}>Désignation</th>
-              <th className="min-w-44">Article du catalogue</th>
+              <th className="min-w-44">Articles du catalogue</th>
               <th className="w-24">Unité</th>
               <th className="text-right">Stock base</th>
               {jours.map((j) => <th key={j.iso} className="text-center">{j.label}<br /><span className="font-normal text-muted-foreground">{j.num}</span></th>)}
@@ -169,7 +177,7 @@ export function RestaurantGrille({
                 )}
                 <LigneR ligne={l} jours={jours} estDirection={estDirection} catalogue={catalogue}
                   selectionne={selection.has(l.id)} onSelection={basculer} onActiver={(id, actif) => activer([id], actif)}
-                  onSave={save} onSaveComptage={saveComptage} onRattacher={rattacher} onDelete={(id) => run(() => supprimerArticleResto(id))} />
+                  onSave={save} onSaveComptage={saveComptage} onAjouterLiens={ajouterLiens} onRetirerLiens={retirerLiens} options={optionsArt} onDelete={(id) => run(() => supprimerArticleResto(id))} />
               </Fragment>
             ))}
             {lignes.length === 0 && <tr><td colSpan={nbCol} className="px-3 py-6 text-center text-muted-foreground">Aucun article. Ajoutez-en avec « + Ajouter un article ».</td></tr>}
@@ -183,12 +191,13 @@ export function RestaurantGrille({
   );
 }
 
-const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, selectionne, onSelection, onActiver, onSave, onSaveComptage, onRattacher, onDelete }: {
-  ligne: LigneResto; jours: Jour[]; estDirection: boolean; catalogue: OptionCatalogue[];
+const LigneR = memo(function LigneR({ ligne, jours, estDirection, options, selectionne, onSelection, onActiver, onSave, onSaveComptage, onAjouterLiens, onRetirerLiens, onDelete }: {
+  ligne: LigneResto; jours: Jour[]; estDirection: boolean; options: OptionChoix[];
   selectionne: boolean; onSelection: (id: string) => void; onActiver: (id: string, actif: boolean) => void;
   onSave: (id: string, name: string, value: string) => Promise<unknown>;
   onSaveComptage: (id: string, iso: string, value: string) => Promise<unknown>;
-  onRattacher: (id: string, articleStockId: string | null) => Promise<void>;
+  onAjouterLiens: (id: string, articleStockIds: string[]) => Promise<void>;
+  onRetirerLiens: (id: string, articleStockIds: string[]) => Promise<void>;
   onDelete: (id: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -204,10 +213,11 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, sel
       </td>
       <td>
         <ChoixArticleCatalogue
-          articleStockId={ligne.articleStockId}
-          designation={ligne.articleStockDesignation}
-          catalogue={catalogue}
-          onChoisir={(id) => { setBusy(true); onRattacher(ligne.id, id).finally(() => setBusy(false)); }}
+          rattaches={ligne.articlesStock}
+          options={options}
+          nomLigne={ligne.designation}
+          onAjouter={(ids) => { setBusy(true); onAjouterLiens(ligne.id, ids).finally(() => setBusy(false)); }}
+          onRetirer={(ids) => { setBusy(true); onRetirerLiens(ligne.id, ids).finally(() => setBusy(false)); }}
         />
       </td>
       <td>

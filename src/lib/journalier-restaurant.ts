@@ -3,7 +3,7 @@ import { convertirVersUniteArticle } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { normaliserUnite } from "@/lib/fiches/conversion";
-import { articleCatalogue, consoApproximative, consommationReelle, mentionDepuis, MOTIF_LIVRAISON_RESTAURANT, type ConsommationReelle, type EntreesStockResto } from "@/lib/stock-restaurant";
+import { articleCatalogueLie, consoApproximative, consommationReelle, mentionDepuis, MOTIF_LIVRAISON_RESTAURANT, type ConsommationReelle, type EntreesStockResto } from "@/lib/stock-restaurant";
 
 // Conso. journalière (onglets Consommation et Comparaison) : fonctions PURES partagées par l'écran
 // et ses exports PDF / Excel. Rien n'est écrit ; « — » pour l'inconnu, jamais 0.
@@ -87,21 +87,34 @@ export function texteConso(c: ConsommationReelle): string {
 }
 
 /**
+ * Articles du restaurant rattachés à chaque article du catalogue. `partage` : l'un d'eux est rattaché à
+ * PLUSIEURS articles du catalogue (plusieurs marques de beurre) — sa consommation ne se range pas sous
+ * une marque plutôt qu'une autre : la comparaison par article du catalogue ne l'attribue à aucune (« — »),
+ * elle se lit par article du restaurant (onglet Consommation).
+ */
+function restosParCatalogue(e: EntreesStockResto): Map<string, typeof e.articles> {
+  const parCatalogue = new Map<string, typeof e.articles>();
+  for (const a of e.articles) for (const l of a.rattaches) parCatalogue.set(l.id, [...(parCatalogue.get(l.id) ?? []), a]);
+  return parCatalogue;
+}
+const consoPartagee = (restos: readonly { rattaches: readonly unknown[] }[]) => restos.some((r) => r.rattaches.length > 1);
+
+/**
  * Consommation réelle par article du CATALOGUE, jour par jour, dans l'unité du catalogue (pour la
  * mettre à côté du commandé et du livré). Somme des articles du restaurant rattachés ; null (« — »)
  * dès que l'un d'eux est inconnu ce jour-là ou d'unité non convertible — jamais une somme partielle.
  */
 export function consommationParArticleCatalogue(e: EntreesStockResto, jours: string[]): Map<string, (string | null)[]> {
   const res = new Map<string, (string | null)[]>();
-  const parCatalogue = new Map<string, typeof e.articles>();
-  for (const a of e.articles) if (a.articleStockId) parCatalogue.set(a.articleStockId, [...(parCatalogue.get(a.articleStockId) ?? []), a]);
+  const parCatalogue = restosParCatalogue(e);
   for (const [cat, restos] of parCatalogue) {
+    if (consoPartagee(restos)) { res.set(cat, jours.map(() => null)); continue; }
     res.set(cat, jours.map((j) => {
       let total = new D(0);
       for (const r of restos) {
         const c = consommationReelle(e, r.id, j);
         if (c.etat !== "CONNUE") return null;
-        const converti = convertirVersUniteArticle(c.quantite, r.unite ?? "", articleCatalogue(r));
+        const converti = convertirVersUniteArticle(c.quantite, r.unite ?? "", articleCatalogueLie(r.rattaches.find((l) => l.id === cat)!));
         if (converti === null) return null;
         total = total.plus(converti);
       }
@@ -118,9 +131,9 @@ export function consommationParArticleCatalogue(e: EntreesStockResto, jours: str
  */
 export function consoApproximativeParArticleCatalogue(e: EntreesStockResto, jours: string[]): Map<string, (string | null)[]> {
   const res = new Map<string, (string | null)[]>();
-  const parCatalogue = new Map<string, typeof e.articles>();
-  for (const a of e.articles) if (a.articleStockId) parCatalogue.set(a.articleStockId, [...(parCatalogue.get(a.articleStockId) ?? []), a]);
+  const parCatalogue = restosParCatalogue(e);
   for (const [cat, restos] of parCatalogue) {
+    if (consoPartagee(restos)) { res.set(cat, jours.map(() => null)); continue; }
     res.set(cat, jours.map((j) => {
       let mention: string | null = null;
       for (const r of restos) {

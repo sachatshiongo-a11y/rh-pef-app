@@ -9,6 +9,7 @@ import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/aud
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
+import { libelleArticle } from "@/lib/libelle-article";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
 import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { normaliserUnite } from "@/lib/fiches/conversion";
@@ -99,7 +100,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
   let changementUnite: { avant: string | null; apres: string | null } | null = null;
   if (formData.has("unite")) {
     const apres = String(formData.get("unite") ?? "").trim() || null;
-    const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, articleStockId: true } });
+    const article = await prisma.articleResto.findUnique({ where: { id }, select: { designation: true, unite: true, liens: { select: { articleStockId: true } } } });
     if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
     if (apres !== article.unite) {
       // Seule une AUTRE unité réinterprète l'historique : « Kg » → « kg », « Litres » → « l » (même unité,
@@ -107,7 +108,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
       if (article.unite !== null && normaliserUnite(apres ?? "") !== normaliserUnite(article.unite)) {
         const [comptages, livraisons] = await Promise.all([
           prisma.comptageResto.count({ where: { articleRestoId: id } }),
-          article.articleStockId === null ? 0 : prisma.mouvementStock.count({ where: { articleId: article.articleStockId, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),
+          article.liens.length === 0 ? 0 : prisma.mouvementStock.count({ where: { articleId: { in: article.liens.map((l) => l.articleStockId) }, type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT } }),
         ]);
         if (comptages > 0 || livraisons > 0) {
           const quoi = [comptages > 0 ? `${comptages} comptage(s)` : null, livraisons > 0 ? `${livraisons} livraison(s) du dépôt` : null].filter(Boolean).join(" et ");
@@ -169,36 +170,74 @@ export const changerActivationArticlesResto = actionLisible(async (ids: string[]
 });
 
 // ─── Rattachement au catalogue (disponibilité des plats) ─────────────────────
-// Un rattachement n'est jamais DEVINÉ : soit un geste (choix d'un article, propositions cochées), soit
-// le rattachement AUTOMATIQUE des livraisons (lib/rattachement-auto.ts), dont la règle exige un seul
-// candidat. Chaque écriture de `articleStockId` journalise l'avant → après.
+// Un article du restaurant peut être rattaché à PLUSIEURS articles du catalogue (plusieurs marques de
+// beurre) : table de liaison `ArticleRestoStock`. Un rattachement n'est jamais DEVINÉ : soit un geste
+// (choix d'articles, propositions cochées), soit le rattachement AUTOMATIQUE des livraisons
+// (lib/rattachement-auto.ts), dont la règle exige un seul candidat. Chaque ajout ou retrait de lien est
+// journalisé (le libellé de l'article du catalogue, avant → après). Mêmes droits qu'avant : l'espace Stock.
 
 const revaliderRattachement = () => {
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/fiches");
 };
 
-/** Rattache (ou détache, avec `null`) un article du restaurant à un article actif du catalogue. */
-export const rattacherArticleResto = actionLisible(async (articleRestoId: string, articleStockId: string | null) => {
-  const user = await garde();
-  const resto = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { id: true, articleStockId: true } });
-  if (!resto) return { erreur: "Article du restaurant introuvable : rechargez la page." };
-  if (articleStockId !== null) {
-    const article = await prisma.articleStock.findUnique({ where: { id: articleStockId }, select: { actif: true } });
-    if (!article) return { erreur: "Article du catalogue introuvable : rechargez la page." };
-    if (!article.actif) return { erreur: "Cet article du catalogue est désactivé : choisissez un article actif." };
-  }
-  if (resto.articleStockId === articleStockId) return { n: 0 };
+const CHAMP_LIEN = "lien article du catalogue";
+const MAX_LIENS_PAR_GESTE = 50;
+const idsDistincts = (ids: unknown): string[] => (Array.isArray(ids) ? [...new Set(ids.map(String).filter(Boolean))] : []);
 
+/**
+ * Rattache un article du restaurant à un ou PLUSIEURS articles ACTIFS du catalogue (lot). Un couple déjà
+ * rattaché est ignoré. Refusé, nommément et sans rien écrire : un article du catalogue déjà rattaché à un
+ * AUTRE article du restaurant du MÊME espace (ses livraisons seraient « à répartir » entre les deux) —
+ * Cuisine et Bar peuvent chacun avoir le leur, l'espace se lit au domaine de l'article.
+ */
+export const ajouterLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
+  const user = await garde();
+  const ids = idsDistincts(articleStockIds);
+  if (ids.length === 0) return { erreur: "Choisissez au moins un article du catalogue." };
+  if (ids.length > MAX_LIENS_PAR_GESTE) return { erreur: `Trop d'articles d'un coup (${ids.length}) : ${MAX_LIENS_PAR_GESTE} au plus.` };
+  const resto = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { id: true, espace: true, designation: true, liens: { select: { articleStockId: true } } } });
+  if (!resto) return { erreur: "Article du restaurant introuvable : rechargez la page." };
+  const articles = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, contenance: true, contenanceUnite: true, actif: true } });
+  if (articles.length !== ids.length) return { erreur: "Article du catalogue introuvable : rechargez la page." };
+  const inactif = articles.find((a) => !a.actif);
+  if (inactif) return { erreur: `« ${libelleArticle(inactif)} » est désactivé au catalogue : choisissez un article actif.` };
+  const dejaLies = new Set(resto.liens.map((l) => l.articleStockId));
+  const nouveaux = articles.filter((a) => !dejaLies.has(a.id));
+  if (nouveaux.length === 0) return { n: 0 };
+  const ailleurs = await prisma.articleRestoStock.findMany({
+    where: { articleStockId: { in: nouveaux.map((a) => a.id) }, articleRestoId: { not: resto.id }, articleResto: { espace: resto.espace } },
+    select: { articleStockId: true, articleResto: { select: { designation: true } } },
+  });
+  if (ailleurs.length > 0) {
+    const nom = new Map(articles.map((a) => [a.id, libelleArticle(a)]));
+    const detail = ailleurs.map((x) => `« ${nom.get(x.articleStockId)} » est déjà rattaché à « ${x.articleResto.designation} » (${resto.espace === "BAR" ? "Bar" : "Cuisine"})`).join(" ; ");
+    return { erreur: `${detail}. Détachez-le d'abord de cet article du restaurant : ses livraisons iraient sinon aux deux. Rien n'a été rattaché.` };
+  }
   await prisma.$transaction(async (tx) => {
-    await tx.articleResto.update({ where: { id: resto.id }, data: { articleStockId } });
-    await journaliser(tx, {
-      entite: "ArticleResto", entiteId: resto.id, champ: "articleStockId",
-      ancienneValeur: resto.articleStockId, nouvelleValeur: articleStockId, userId: user.id,
-    });
+    await tx.articleRestoStock.createMany({ data: nouveaux.map((a) => ({ articleRestoId: resto.id, articleStockId: a.id })), skipDuplicates: true });
+    await journaliserPlusieurs(tx, nouveaux.map((a) => ({ entite: "ArticleResto", entiteId: resto.id, champ: CHAMP_LIEN, ancienneValeur: null, nouvelleValeur: libelleArticle(a), userId: user.id })));
   });
   revaliderRattachement();
-  return { n: 1 };
+  return { n: nouveaux.length };
+});
+
+/** Détache d'un article du restaurant un ou PLUSIEURS articles du catalogue (lot). Un lien absent est ignoré. */
+export const retirerLiensResto = actionLisible(async (articleRestoId: string, articleStockIds: string[]) => {
+  const user = await garde();
+  const ids = idsDistincts(articleStockIds);
+  if (ids.length === 0) return { erreur: "Choisissez au moins un article à détacher." };
+  const liens = await prisma.articleRestoStock.findMany({
+    where: { articleRestoId, articleStockId: { in: ids } },
+    select: { articleStockId: true, articleStock: { select: { designation: true, contenance: true, contenanceUnite: true } } },
+  });
+  if (liens.length === 0) return { n: 0 };
+  await prisma.$transaction(async (tx) => {
+    await tx.articleRestoStock.deleteMany({ where: { articleRestoId, articleStockId: { in: liens.map((l) => l.articleStockId) } } });
+    await journaliserPlusieurs(tx, liens.map((l) => ({ entite: "ArticleResto", entiteId: articleRestoId, champ: CHAMP_LIEN, ancienneValeur: libelleArticle(l.articleStock), nouvelleValeur: null, userId: user.id })));
+  });
+  revaliderRattachement();
+  return { n: liens.length };
 });
 
 /**
@@ -210,10 +249,10 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   const user = await garde();
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
-    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, articleStockId: true, unite: true } }),
+    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, unite: true, liens: { select: { articleStockId: true } } } }),
     prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
   ]);
-  const propositions = proposerRattachements(restos, catalogue);
+  const propositions = proposerRattachements(restos.map((r) => ({ id: r.id, designation: r.designation, unite: r.unite, articleStockIds: r.liens.map((l) => l.articleStockId) })), catalogue);
   if (propositions.length === 0) {
     return { erreur: "Aucune des lignes cochées n'est encore une proposition valable (déjà rattachée ou renommée). Rechargez la page." };
   }
@@ -221,11 +260,10 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   const entrees: EntreeJournal[] = [];
   await prisma.$transaction(async (tx) => {
     for (const p of propositions) {
-      // Garde « encore libre » dans la requête même : un rattachement posé entre-temps n'est pas écrasé.
-      const r = await tx.articleResto.updateMany({ where: { id: p.articleRestoId, articleStockId: null }, data: { articleStockId: p.articleStockId } });
-      if (r.count === 1) {
-        entrees.push({ entite: "ArticleResto", entiteId: p.articleRestoId, champ: "articleStockId", ancienneValeur: null, nouvelleValeur: p.articleStockId, userId: user.id });
-      }
+      // Garde « encore libre » relue dans la transaction : un rattachement posé entre-temps n'est pas doublé.
+      if ((await tx.articleRestoStock.count({ where: { articleRestoId: p.articleRestoId } })) > 0) continue;
+      await tx.articleRestoStock.create({ data: { articleRestoId: p.articleRestoId, articleStockId: p.articleStockId } });
+      entrees.push({ entite: "ArticleResto", entiteId: p.articleRestoId, champ: CHAMP_LIEN, ancienneValeur: null, nouvelleValeur: p.designationCatalogue, userId: user.id });
     }
     await journaliserPlusieurs(tx, entrees);
   });

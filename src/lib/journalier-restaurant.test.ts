@@ -26,8 +26,8 @@ describe("sortiesParMotif", () => {
   });
 });
 
-const farine: ArticleRestoSR = { id: "f", designation: "Farine", espace: "CUISINE", unite: "g", articleStockId: "cat-farine", uniteCatalogue: "kg" };
-const vin: ArticleRestoSR = { id: "v", designation: "Vin", espace: "BAR", unite: "bouteille", articleStockId: "cat-vin", uniteCatalogue: "bouteille" };
+const farine: ArticleRestoSR = { id: "f", designation: "Farine", espace: "CUISINE", unite: "g", rattaches: [{ id: "cat-farine", unite: "kg" }] };
+const vin: ArticleRestoSR = { id: "v", designation: "Vin", espace: "BAR", unite: "bouteille", rattaches: [{ id: "cat-vin", unite: "bouteille" }] };
 const e: EntreesStockResto = {
   articles: [farine, vin],
   comptages: [

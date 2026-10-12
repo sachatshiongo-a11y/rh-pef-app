@@ -19,7 +19,7 @@ vi.mock("./actions", () => ({ rattacherLivraisonsAutomatiquement: rattacher }));
 const { BandeauLivraisons } = await import("./bandeau-livraisons");
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const R = (id: string, unite: string | null, articleStockId: string, espace: "CUISINE" | "BAR" = "CUISINE"): ArticleRestoSR => ({ id, designation: id, espace, unite, articleStockId });
+const R = (id: string, unite: string | null, articleStockId: string, espace: "CUISINE" | "BAR" = "CUISINE"): ArticleRestoSR => ({ id, designation: id, espace, unite, rattaches: [{ id: articleStockId, unite: null }] });
 const L = (id: string, articleStockId: string, uniteCatalogue: string | null): LivraisonSR => ({
   id, articleStockId, designation: `Cat ${articleStockId}`, uniteCatalogue, date: "2026-09-22", quantite: "2", categorieSortie: "LIVRAISON_RESTAURANT",
 });

@@ -186,6 +186,15 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
     const cumul = losers.reduce((t, l) => (l.stock ? t.plus(l.stock.quantite) : t), new Prisma.Decimal(0));
     if (!cumul.isZero()) await variationsStockTx(tx, [{ articleId: keep.id, delta: cumul }], { verbe: "à retirer (stock négatif des doublons)" });
     for (const l of losers) {
+      // Articles du restaurant rattachés au doublon (disponibilité des plats, rattachement des livraisons) : leur lien
+      // SUIT l'article conservé, au lieu de disparaître avec le doublon (cascade). Un article du restaurant déjà
+      // rattaché à l'article conservé garde son seul lien : jamais deux fois le même couple.
+      const liens = await tx.articleRestoStock.findMany({ where: { articleStockId: l.id }, select: { id: true, articleRestoId: true } });
+      if (liens.length > 0) {
+        const dejaSurGarde = new Set((await tx.articleRestoStock.findMany({ where: { articleStockId: keep.id, articleRestoId: { in: liens.map((x) => x.articleRestoId) } }, select: { articleRestoId: true } })).map((x) => x.articleRestoId));
+        const aRepointer = liens.filter((x) => !dejaSurGarde.has(x.articleRestoId)).map((x) => x.id);
+        if (aRepointer.length > 0) await tx.articleRestoStock.updateMany({ where: { id: { in: aRepointer } }, data: { articleStockId: keep.id } });
+      }
       await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneFacture.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });

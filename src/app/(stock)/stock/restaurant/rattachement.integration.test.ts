@@ -3,7 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
 // Rattachement « article du restaurant → article du catalogue » : toujours un geste, jamais une
-// déduction ; seules les cases cochées sont écrites ; chaque changement est journalisé.
+// déduction ; seules les cases cochées sont écrites ; chaque changement est journalisé. Un article du
+// restaurant peut être rattaché à PLUSIEURS articles du catalogue (plusieurs marques de beurre).
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN", nom: "Testeur" } }));
 vi.mock("@/lib/prisma", () => ({
@@ -17,7 +18,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { rattacherArticleResto, accepterPropositions } = await import("./actions");
+const { ajouterLiensResto, retirerLiensResto, accepterPropositions } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -33,6 +34,7 @@ afterAll(async () => { await fermer?.(); });
 
 beforeEach(async () => {
   await prisma.journalAudit.deleteMany();
+  await prisma.articleRestoStock.deleteMany();
   await prisma.articleResto.deleteMany();
   await prisma.articleStock.deleteMany();
 });
@@ -43,7 +45,9 @@ const erreurDe = (r: unknown): string => {
 };
 const article = (designation: string, actif = true) => prisma.articleStock.create({ data: { designation, domaine: "NOURRITURE", unite: "kg", actif } });
 const resto = (designation: string) => prisma.articleResto.create({ data: { espace: "CUISINE", designation, unite: "kg" } });
-const rattache = async (id: string) => (await prisma.articleResto.findUniqueOrThrow({ where: { id } })).articleStockId;
+/** L'article du catalogue rattaché s'il n'y en a qu'un (null : aucun) ; la liste complète via `rattaches`. */
+const rattaches = async (id: string) => (await prisma.articleRestoStock.findMany({ where: { articleRestoId: id }, orderBy: { createdAt: "asc" } })).map((l) => l.articleStockId);
+const rattache = async (id: string) => (await rattaches(id))[0] ?? null;
 
 describe("rattachement au catalogue", () => {
   it("un rattachement n'est jamais créé sans action : ouvrir la page Restaurant n'écrit rien", async () => {
@@ -51,7 +55,7 @@ describe("rattachement au catalogue", () => {
     await resto("Beurre");
     const { default: RestaurantPage } = await import("./page");
     await RestaurantPage({ searchParams: Promise.resolve({}) });
-    expect(await prisma.articleResto.count({ where: { articleStockId: { not: null } } })).toBe(0);
+    expect(await prisma.articleRestoStock.count()).toBe(0);
     expect(await prisma.journalAudit.count()).toBe(0);
   }, 60_000);
 
@@ -68,7 +72,7 @@ describe("rattachement au catalogue", () => {
 
     const journal = await prisma.journalAudit.findMany({ orderBy: { entiteId: "asc" } });
     expect(journal.map((j) => [j.entite, j.entiteId, j.champ, j.ancienneValeur, j.nouvelleValeur]).sort()).toEqual(
-      [["ArticleResto", rb.id, "articleStockId", null, beurre.id], ["ArticleResto", rf.id, "articleStockId", null, farine.id]].sort(),
+      [["ArticleResto", rb.id, "lien article du catalogue", null, "Beurre"], ["ArticleResto", rf.id, "lien article du catalogue", null, "Farine"]].sort(),
     );
   }, 60_000);
 
@@ -87,24 +91,49 @@ describe("rattachement au catalogue", () => {
     expect(await rattache(r.id)).toBe(agneau.id);
   }, 60_000);
 
-  it("rattacher, changer, détacher : trois gestes, trois entrées au journal", async () => {
-    const [a1, a2] = await Promise.all([article("Huile"), article("Huile de palme")]);
-    const r = await resto("Huile rouge");
-    expect(await rattacherArticleResto(r.id, a1.id)).toEqual({ n: 1 });
-    expect(await rattacherArticleResto(r.id, a1.id)).toEqual({ n: 0 }); // inchangé : rien d'écrit
-    expect(await rattacherArticleResto(r.id, a2.id)).toEqual({ n: 1 });
-    expect(await rattacherArticleResto(r.id, null)).toEqual({ n: 1 });
-    expect(await rattache(r.id)).toBeNull();
+  it("rattacher PLUSIEURS marques, en retirer une : chaque ajout et chaque retrait est au journal, rien n'est écrit pour un lien déjà posé", async () => {
+    const [p, l, v] = await Promise.all([article("Beurre Président 250 g"), article("Beurre Lurpak 500 g"), article("Beurre Vache qui rit")]);
+    const r = await resto("Beurre");
+    expect(await ajouterLiensResto(r.id, [p.id])).toEqual({ n: 1 });
+    expect(await ajouterLiensResto(r.id, [p.id])).toEqual({ n: 0 }); // déjà rattaché : rien d'écrit
+    expect(await ajouterLiensResto(r.id, [l.id, v.id, p.id])).toEqual({ n: 2 }); // un lot
+    expect(await rattaches(r.id)).toHaveLength(3);
+    expect(await retirerLiensResto(r.id, [l.id])).toEqual({ n: 1 });
+    expect(await retirerLiensResto(r.id, [l.id])).toEqual({ n: 0 }); // déjà retiré
+    expect((await rattaches(r.id)).sort()).toEqual([p.id, v.id].sort());
     const journal = await prisma.journalAudit.findMany({ where: { entiteId: r.id } });
     expect(journal.map((j) => `${j.ancienneValeur}→${j.nouvelleValeur}`).sort()).toEqual(
-      [`null→${a1.id}`, `${a1.id}→${a2.id}`, `${a2.id}→null`].sort(),
+      ["null→Beurre Président 250 g", "null→Beurre Lurpak 500 g", "null→Beurre Vache qui rit", "Beurre Lurpak 500 g→null"].sort(),
     );
+    expect(journal.every((j) => j.champ === "lien article du catalogue")).toBe(true);
+  }, 60_000);
+
+  it("un article du catalogue déjà rattaché à un AUTRE article du restaurant du même espace est refusé, nommément ; un autre espace passe", async () => {
+    const beurre = await article("Beurre Président");
+    const r1 = await resto("Beurre");
+    const r2 = await resto("Beurre de cuisson");
+    const bar = await prisma.articleResto.create({ data: { espace: "BAR", designation: "Beurre (bar)", unite: "kg" } });
+    expect(await ajouterLiensResto(r1.id, [beurre.id])).toEqual({ n: 1 });
+    const e = erreurDe(await ajouterLiensResto(r2.id, [beurre.id]));
+    expect(e).toContain("« Beurre Président » est déjà rattaché à « Beurre » (Cuisine)");
+    expect(e).toContain("Rien n'a été rattaché");
+    expect(await rattaches(r2.id)).toEqual([]);
+    expect(await ajouterLiensResto(bar.id, [beurre.id])).toEqual({ n: 1 }); // Cuisine et Bar : l'espace se lit au domaine
+  }, 60_000);
+
+  it("retirer un article du catalogue du lien fait retomber la proposition : l'article du restaurant sans lien redevient proposable", async () => {
+    const beurre = await article("Beurre");
+    const r = await resto("Beurre");
+    await ajouterLiensResto(r.id, [beurre.id]);
+    expect(erreurDe(await accepterPropositions([r.id]))).toContain("Aucune des lignes cochées"); // déjà rattaché
+    await retirerLiensResto(r.id, [beurre.id]);
+    expect(await accepterPropositions([r.id])).toEqual({ n: 1, ignores: 0 });
   }, 60_000);
 
   it("refuse un article du catalogue désactivé, par un message lisible", async () => {
     const vieux = await article("Margarine", false);
     const r = await resto("Margarine");
-    expect(erreurDe(await rattacherArticleResto(r.id, vieux.id))).toContain("désactivé");
+    expect(erreurDe(await ajouterLiensResto(r.id, [vieux.id]))).toContain("désactivé");
     expect(await rattache(r.id)).toBeNull();
   }, 60_000);
 });

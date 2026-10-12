@@ -77,7 +77,7 @@ describe("4. Commande : l'unité sur chaque ligne, un total par unité", () => {
 
 describe("4. Consommation : unité sur les lignes livrées, totaux par unité, ≈ et « depuis le » sur la consommation", () => {
   const e: EntreesStockResto = {
-    articles: [{ id: "f", designation: "Farine", espace: "CUISINE", unite: "kg", articleStockId: null }],
+    articles: [{ id: "f", designation: "Farine", espace: "CUISINE", unite: "kg", rattaches: [] }],
     comptages: [
       { articleRestoId: "f", date: "2026-10-02", quantite: "10" },
       { articleRestoId: "f", date: "2026-10-06", quantite: "4" }, // veille (05) non comptée : 6 kg sur 4 jours

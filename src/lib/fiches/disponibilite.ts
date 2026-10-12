@@ -82,7 +82,16 @@ export type StockRestaurant =
  * rattaché ; `dernierMouvement` = date (AAAA-MM-JJ) du plus récent `MouvementStock` de l'article,
  * tous types, inventaire compris (null : jamais mouvementé).
  */
-export type StockArticle = { depot: string | null; restaurant: StockRestaurant | null; dernierMouvement: string | null };
+export type StockArticle = {
+  depot: string | null; restaurant: StockRestaurant | null; dernierMouvement: string | null;
+  /**
+   * Plusieurs articles du catalogue sont rattachés au même article du restaurant (marques de beurre) :
+   * `depot` est alors la SOMME de leurs stocks, convertie dans l'unité de cet article. `depotNegatif` :
+   * l'un d'eux est négatif (la somme le masquerait) ; `depotInconvertibles` : marques dont l'unité ne se
+   * ramène pas à la sienne (non additionnées) — dans les deux cas « À vérifier », jamais un chiffre.
+   */
+  depotNegatif?: boolean; depotInconvertibles?: string[];
+};
 
 export type ContexteDispo = {
   fiches: Map<string, FicheDispo>;
@@ -99,6 +108,7 @@ export type MotifDispo =
   | "RESTAURANT_DESACTIVE_AVEC_STOCK"
   | "UNITE_NON_CONVERTIBLE"
   | "UNITE_NON_CONVERTIBLE_RESTAURANT"
+  | "UNITE_NON_CONVERTIBLE_ARTICLE_LIE"
   | "LIVRAISON_RESTAURANT_A_REPARTIR"
   | "STOCK_RESTAURANT_ESTIME"
   | "STOCK_NEGATIF"
@@ -167,6 +177,7 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   RESTAURANT_DESACTIVE_AVEC_STOCK: "article du restaurant désactivé avec du stock compté",
   UNITE_NON_CONVERTIBLE: "unité non convertible",
   UNITE_NON_CONVERTIBLE_RESTAURANT: "unité non convertible (restaurant)",
+  UNITE_NON_CONVERTIBLE_ARTICLE_LIE: "unité non convertible (une autre marque rattachée au même article du restaurant)",
   LIVRAISON_RESTAURANT_A_REPARTIR: "livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)",
   STOCK_RESTAURANT_ESTIME: "stock du restaurant estimé : aucun comptage",
   STOCK_NEGATIF: "stock négatif",
@@ -319,6 +330,9 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   const dernierMouvement = s?.dernierMouvement ?? null;
   const r = s?.restaurant ?? null;
   const base = { depot, dernierMouvement, depuis: null, recuRestaurant: null, restaurantEstime: false };
+  if (s?.depotInconvertibles && s.depotInconvertibles.length > 0) {
+    return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_ARTICLE_LIE" };
+  }
   if (r !== null && r.etat === "UNITE_NON_CONVERTIBLE") {
     return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
   }
@@ -341,7 +355,7 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   // Dépôt négatif : une erreur de saisie du dépôt que le stock du restaurant ne doit pas MASQUER
   // (dépôt −3 + restaurant 10 = 7 « disponible » serait un faux). « À vérifier » dès que l'une des
   // parts est négative, pas seulement le total (audit du 10/10/2026).
-  if (total.isNegative() || (depot !== null && depot.isNegative()) || (restaurant !== null && restaurant.isNegative())) return { ...lu, total, motif: "STOCK_NEGATIF" };
+  if (total.isNegative() || s?.depotNegatif === true || (depot !== null && depot.isNegative()) || (restaurant !== null && restaurant.isNegative())) return { ...lu, total, motif: "STOCK_NEGATIF" };
   // Stock figé : chaque part qui ENTRE dans le calcul doit être à jour. Le dépôt entre dans le
   // calcul dès qu'il a une ligne `Stock` ; le restaurant, dès qu'un comptage rattaché existe. Au
   // restaurant, seule la date du dernier COMPTAGE fait foi : une livraison ne rafraîchit rien.

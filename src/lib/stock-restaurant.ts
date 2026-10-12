@@ -24,17 +24,32 @@ export const MOTIF_LIVRAISON_RESTAURANT = "LIVRAISON_RESTAURANT";
 // ─── Entrées (dénormalisées par le chargeur) ─────────────────────────────────
 
 /**
- * Article du restaurant ACTIF. `unite` : unité de comptage ; `articleStockId` : rattachement ;
- * `uniteCatalogue` : unité de l'article rattaché (disponibilité des plats).
+ * Un article du catalogue rattaché à un article du restaurant (plusieurs marques de beurre pour un
+ * « Beurre ») : son unité et sa contenance servent à convertir ses livraisons, et le comptage du
+ * restaurant, dans SON unité.
+ */
+export type ArticleCatalogueLie = {
+  id: string; unite: string | null;
+  /** Contenance de l'article (bouteille de 75 cl, beurre de 250 g) : un comptage en cl ou en g s'y convertit. */
+  contenance?: string | null; contenanceUnite?: string | null;
+  /** Nom affiché (contenance comprise), pour les messages ; absent, l'identifiant ne se lit pas. */
+  designation?: string;
+  /** Domaine du catalogue : dit l'espace (Cuisine / Bar) quand l'article est rattaché aux deux. */
+  domaine?: string | null;
+};
+
+/**
+ * Article du restaurant ACTIF. `unite` : unité de comptage ; `rattaches` : les articles du catalogue
+ * qui l'alimentent (zéro, un ou PLUSIEURS — disponibilité des plats, livraisons).
  */
 export type ArticleRestoSR = {
-  id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; articleStockId: string | null;
-  uniteCatalogue?: string | null;
-  /** Contenance de l'article rattaché (bouteille de 75 cl) : un comptage en cl s'y convertit. */
-  contenanceCatalogue?: string | null; contenanceUniteCatalogue?: string | null;
+  id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; rattaches: ArticleCatalogueLie[];
   /** Désactivé depuis (chargé seulement pour une période passée où il a un comptage ou une livraison). */
   inactif?: boolean;
 };
+
+/** L'article du restaurant est-il rattaché à cet article du catalogue ? */
+export const estRattacheA = (a: ArticleRestoSR, articleStockId: string) => a.rattaches.some((r) => r.id === articleStockId);
 /** Comptage saisi au restaurant (dates PURES AAAA-MM-JJ, quantités en texte pleine précision). */
 export type ComptageSR = { articleRestoId: string; date: string; quantite: string };
 /** Sortie du dépôt, dans l'unité de l'article du catalogue. */
@@ -140,7 +155,7 @@ export type EtatLivraison = EtatRattachement["etat"];
 export function etatRattachementLivraison(
   articleStockId: string, catalogue: UniteArticle, articles: ArticleRestoSR[], domaine?: string | null,
 ): EtatRattachement {
-  const candidats = articles.filter((a) => a.articleStockId === articleStockId);
+  const candidats = articles.filter((a) => estRattacheA(a, articleStockId));
   if (candidats.length === 0) return { etat: "NON_RATTACHE" };
   let r = candidats[0]!;
   if (candidats.length > 1) {
@@ -351,7 +366,7 @@ export function mentionDepuis(c: Connue): string | null {
 // ─── Part du restaurant dans la disponibilité des plats ──────────────────────
 
 /**
- * Stock théorique du restaurant par article du CATALOGUE, dans l'unité de l'article (décision du
+ * Stock théorique du restaurant par article du CATALOGUE rattaché (chacun de ceux d'un article du restaurant), dans l'unité de cet article (décision du
  * 2026-09-24 : le stock qui fait foi est dépôt + restaurant). Pour chaque article du restaurant
  * rattaché : dernier comptage converti + livraisons reçues depuis, prises TELLES QU'ELLES SONT SORTIES
  * du dépôt (déjà dans l'unité de l'article) — une livraison retire du dépôt exactement ce qu'elle
@@ -368,35 +383,91 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
   // Ordre de gravité : une part inexploitable l'emporte sur une part estimée, qui l'emporte sur OK.
   const gravite = (x: StockRestaurant | undefined) => (x === undefined ? -1 : x.etat === "OK" ? 0 : x.etat === "ESTIME" ? 1 : 2);
   for (const a of e.articles) {
-    const cat = a.articleStockId;
-    if (!cat) continue;
+    if (a.rattaches.length === 0) continue;
     const s = parArticle.get(a.id)!;
     if (s.stock === null && s.signalements.length === 0) continue; // ni comptage ni livraison : n'apporte rien
-    const deja = res.get(cat);
-    if (gravite(deja) === 2) continue;
-    if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
-    const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", articleCatalogue(a));
-    if (compte === null || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
-      res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
-      continue;
+    // UNE part par article du catalogue rattaché : le stock du restaurant (en unité du restaurant) ramené à
+    // l'unité de CET article. Les marques d'un même article du restaurant partagent donc le même stock.
+    for (const lie of a.rattaches) {
+      const cat = lie.id;
+      const deja = res.get(cat);
+      if (gravite(deja) === 2) continue;
+      if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
+      const article = articleCatalogueLie(lie);
+      const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", article);
+      // Livraisons reçues : celles de CET article telles que sorties du dépôt (déjà dans son unité, sans
+      // aller-retour) ; celles d'une autre marque, converties via l'unité du restaurant.
+      const recuesConverties = s.livraisonsDepuis.map((l) => (l.articleStockId === cat ? l.quantiteCatalogue : convertirVersUniteArticle(l.quantiteResto, a.unite ?? "", article)));
+      if (compte === null || recuesConverties.some((q) => q === null) || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
+        res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
+        continue;
+      }
+      const recu = s.livraisonsDepuis.length === 0 ? null : recuesConverties.reduce<InstanceType<typeof D>>((t, q) => t.plus(q!), new D(0));
+      const quantite = new D(compte).plus(recu ?? 0);
+      const cumul = (x: string | null | undefined, y: InstanceType<typeof D> | null) => (x == null && y === null ? null : new D(x ?? 0).plus(y ?? 0).toString());
+      if (deja === undefined) {
+        res.set(cat, s.dernierComptage === null
+          ? { etat: "ESTIME", quantite: quantite.toString(), recu: recu === null ? null : recu.toString() }
+          : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString() });
+        continue;
+      }
+      if (deja.etat !== "OK" && deja.etat !== "ESTIME") continue;
+      const somme = new D(deja.quantite).plus(quantite).toString();
+      if (deja.etat === "ESTIME" || s.dernierComptage === null) {
+        res.set(cat, { etat: "ESTIME", quantite: somme, recu: cumul(deja.recu, recu) });
+      } else {
+        const date = deja.dateComptage < s.dernierComptage.date ? deja.dateComptage : s.dernierComptage.date;
+        res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu) });
+      }
     }
-    const recu = s.livraisonsDepuis.length === 0 ? null : s.livraisonsDepuis.reduce((t, l) => t.plus(l.quantiteCatalogue), new D(0));
-    const quantite = new D(compte).plus(recu ?? 0);
-    const cumul = (x: string | null | undefined, y: InstanceType<typeof D> | null) => (x == null && y === null ? null : new D(x ?? 0).plus(y ?? 0).toString());
-    if (deja === undefined) {
-      res.set(cat, s.dernierComptage === null
-        ? { etat: "ESTIME", quantite: quantite.toString(), recu: recu === null ? null : recu.toString() }
-        : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString() });
-      continue;
+  }
+  return res;
+}
+
+/** L'article du catalogue rattaché tel que la conversion le voit (unité + contenance). */
+export const articleCatalogueLie = (l: ArticleCatalogueLie): UniteArticle => ({ unite: l.unite, contenance: l.contenance ?? null, contenanceUnite: l.contenanceUnite ?? null });
+
+/**
+ * Dépôt « mutualisé » des articles du catalogue rattachés à un même article du restaurant (plusieurs
+ * marques de beurre) : pour chaque article rattaché, la SOMME des stocks du dépôt de toutes les
+ * marques de son article du restaurant, ramenée à SON unité (en passant par l'unité du restaurant :
+ * 250 g d'une marque et 500 g d'une autre se comptent en kg). Rien n'est deviné :
+ *  - `negatif` : l'un des stocks du dépôt est NÉGATIF — la somme ne doit pas le masquer ;
+ *  - `inconvertibles` : marques dont l'unité ne se ramène pas à celle de l'article — non additionnées,
+ *    annoncées (le calcul en tient compte : « À vérifier »).
+ * Un article rattaché seul garde son dépôt tel quel ; un article sans ligne de stock et sans marque
+ * soeur n'a pas d'entrée (dépôt inconnu, « — »). `depots` : `Stock.quantite` par article, en texte.
+ */
+export type DepotMutualise = { depot: string | null; negatif: boolean; inconvertibles: string[] };
+export function depotsMutualises(articles: ArticleRestoSR[], depots: ReadonlyMap<string, string>): Map<string, DepotMutualise> {
+  // Les marques sœurs d'un article du catalogue : celles de TOUS les articles du restaurant auxquels il est rattaché.
+  const soeurs = new Map<string, Map<string, { lie: ArticleCatalogueLie; uniteResto: string | null }>>();
+  for (const a of articles) {
+    for (const lie of a.rattaches) {
+      const m = soeurs.get(lie.id) ?? new Map();
+      for (const autre of a.rattaches) if (!m.has(autre.id)) m.set(autre.id, { lie: autre, uniteResto: a.unite });
+      soeurs.set(lie.id, m);
     }
-    if (deja.etat !== "OK" && deja.etat !== "ESTIME") continue;
-    const somme = new D(deja.quantite).plus(quantite).toString();
-    if (deja.etat === "ESTIME" || s.dernierComptage === null) {
-      res.set(cat, { etat: "ESTIME", quantite: somme, recu: cumul(deja.recu, recu) });
-    } else {
-      const date = deja.dateComptage < s.dernierComptage.date ? deja.dateComptage : s.dernierComptage.date;
-      res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu) });
+  }
+  const res = new Map<string, DepotMutualise>();
+  for (const [cat, marques] of soeurs) {
+    const moi = marques.get(cat)!;
+    let total: InstanceType<typeof D> | null = null;
+    let negatif = false;
+    const inconvertibles: string[] = [];
+    for (const [id, { lie, uniteResto }] of marques) {
+      const brut = depots.get(id);
+      if (brut === undefined) continue;
+      const q = new D(brut);
+      if (q.isNegative() && !q.isZero()) negatif = true;
+      if (id === cat) { total = (total ?? new D(0)).plus(q); continue; }
+      // Marque sœur : son stock → unité du restaurant → unité de l'article.
+      const enResto = convertirDepuisUniteArticle(brut, articleCatalogueLie(lie), uniteResto ?? "");
+      const enMoi = enResto === null ? null : convertirVersUniteArticle(enResto, uniteResto ?? "", articleCatalogueLie(moi.lie));
+      if (enMoi === null) { inconvertibles.push(lie.designation ?? id); continue; }
+      total = (total ?? new D(0)).plus(enMoi);
     }
+    res.set(cat, { depot: total === null ? null : total.toString(), negatif, inconvertibles });
   }
   return res;
 }

@@ -16,7 +16,8 @@ import { convertirVersUniteArticle } from "./disponibilite";
 import { uniteManquante, type UniteArticle } from "./conversion";
 import { sansAccents } from "@/lib/texte";
 
-export type RestoPourProposition = { id: string; designation: string; articleStockId: string | null; unite: string | null };
+/** `articleStockIds` : articles du catalogue déjà rattachés (une proposition ne vise que les articles LIBRES, sans aucun). */
+export type RestoPourProposition = { id: string; designation: string; articleStockIds: readonly string[]; unite: string | null };
 export type CataloguePourProposition = {
   id: string; designation: string; actif: boolean; unite: string | null;
   /** Nom court (fiche « Commande journalière ») : vaut la désignation pour le rapprochement. */
@@ -87,7 +88,7 @@ export function proposerRattachements(restos: RestoPourProposition[], catalogue:
   }
   const propositions: Proposition[] = [];
   for (const r of restos) {
-    if (r.articleStockId !== null) continue;
+    if (r.articleStockIds.length > 0) continue;
     const candidats = parCle.get(cleRattachement(r.designation)) ?? [];
     if (candidats.length !== 1) continue;
     const a = candidats[0]!;
@@ -112,8 +113,9 @@ export type CibleAuto = {
 /** Article du restaurant, ACTIF OU NON (un désactivé homonyme bloque la création d'un doublon). */
 export type RestoAuto = {
   id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; actif: boolean;
-  articleStockId: string | null;
-  /** Désignation de l'article du catalogue auquel il est rattaché (pour dire « rattaché à … »). */
+  /** Articles du catalogue rattachés (plusieurs marques possibles) ; vide : LIBRE. */
+  articleStockIds: string[];
+  /** Désignation(s) de l'article du catalogue auquel il est rattaché (pour dire « rattaché à … »). */
   rattacheA: string | null;
 };
 
@@ -162,10 +164,10 @@ export function planifierRattachementsAuto(
     for (const cle of clesCatalogue(a)) porteurs.set(cle, [...(porteurs.get(cle) ?? []), a]);
   }
   for (const c of cibles) {
-    if (etat.some((r) => r.actif && r.articleStockId === c.id)) continue; // déjà rattaché : rien à faire
+    if (etat.some((r) => r.actif && r.articleStockIds.includes(c.id))) continue; // déjà rattaché : rien à faire
     const laisser = (motif: MotifLaisse, raison: string) => decisions.push({ action: "LAISSER", articleStockId: c.id, motif, raison });
     if (!c.actif) { laisser("CATALOGUE_INACTIF", "article du catalogue désactivé : réactivez-le au catalogue avant tout rattachement"); continue; }
-    const desactives = etat.filter((r) => !r.actif && r.articleStockId === c.id);
+    const desactives = etat.filter((r) => !r.actif && r.articleStockIds.includes(c.id));
     if (desactives.length > 0) {
       laisser("RATTACHE_DESACTIVE", `${guillemets(desactives.map((r) => r.designation))} lui est rattaché mais désactivé au restaurant : réactivez-le, ou rattachez un autre article`);
       continue;
@@ -180,7 +182,7 @@ export function planifierRattachementsAuto(
     }
     const homonymes = etat.filter((r) => cles.has(cleRattachement(r.designation)));
     const espace = espaceDeDomaine(c.domaine);
-    let libres = homonymes.filter((r) => r.actif && r.articleStockId === null);
+    let libres = homonymes.filter((r) => r.actif && r.articleStockIds.length === 0);
     if (libres.length > 1 && espace) {
       const dansEspace = libres.filter((r) => r.espace === espace);
       if (dansEspace.length === 1) libres = dansEspace;
@@ -196,7 +198,7 @@ export function planifierRattachementsAuto(
         laisser("UNITES", `« ${r.designation} » (${NOM_ESPACE[r.espace]}) porte ce nom, mais ${alerte === "UNITE_MANQUANTE" ? "une unité manque" : "les unités ne se convertissent pas"} (restaurant : ${r.unite?.trim() || "—"}, catalogue : ${c.unite?.trim() || "—"}) : vérifiez puis rattachez à la main`);
         continue;
       }
-      r.articleStockId = c.id;
+      r.articleStockIds.push(c.id);
       r.rattacheA = c.designation;
       decisions.push({ action: "RATTACHER", articleStockId: c.id, articleRestoId: r.id, designationResto: r.designation, espace: r.espace });
       continue;
@@ -210,7 +212,7 @@ export function planifierRattachementsAuto(
     }
     if (uniteManquante(c.unite)) { laisser("UNITE_CATALOGUE", "unité du catalogue non renseignée : renseignez-la sur la fiche de l'article, l'article du restaurant sera créé ensuite"); continue; }
     const designation = c.nomCourt?.trim() || c.designation.trim();
-    const cree = { id: `nouveau:${c.id}`, designation, espace, unite: c.unite!.trim(), actif: true, articleStockId: c.id, rattacheA: c.designation };
+    const cree = { id: `nouveau:${c.id}`, designation, espace, unite: c.unite!.trim(), actif: true, articleStockIds: [c.id], rattacheA: c.designation };
     etat.push(cree);
     decisions.push({ action: "CREER", articleStockId: c.id, designation, unite: cree.unite, categorie: c.categorie?.trim() || CATEGORIE_A_CLASSER, espace });
   }

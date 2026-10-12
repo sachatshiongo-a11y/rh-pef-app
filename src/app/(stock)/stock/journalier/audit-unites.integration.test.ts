@@ -36,7 +36,7 @@ beforeAll(async () => {
   await sortie(farine.id, 10, "2026-10-05"); await sortie(vin.id, 5, "2026-10-05"); await sortie(sel.id, 1, "2026-10-05");
   await prisma.commandeResto.createMany({ data: [{ articleId: farine.id, date: le("2026-10-05"), quantite: 10 }, { articleId: vin.id, date: le("2026-10-05"), quantite: 5 }] });
   // Farine au restaurant : comptée le 02/10, puis le 06/10 (veille 05 non comptée), puis le 07/10.
-  const rf = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "kg", ordre: 1, articleStockId: farine.id } });
+  const rf = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Farine", unite: "kg", ordre: 1, liens: { create: { articleStockId: farine.id } } } });
   for (const [d, q] of [["2026-10-02", 20], ["2026-10-06", 14], ["2026-10-07", 13]] as const) await prisma.comptageResto.create({ data: { articleRestoId: rf.id, date: le(d), quantite: q } });
   // Légumes : commande en Kg (unité de la liste), achat en Sac le même jour.
   await prisma.commandeLegumeResto.create({ data: { legume: "Ail", date: le("2026-10-05"), quantite: 5 } });

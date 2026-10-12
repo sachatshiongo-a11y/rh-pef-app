@@ -49,7 +49,7 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
     }),
     client.articleResto.findMany({
       orderBy: [{ espace: "asc" }, { ordre: "asc" }, { designation: "asc" }],
-      select: { id: true, designation: true, espace: true, unite: true, actif: true, articleStockId: true, articleStock: { select: { designation: true } } },
+      select: { id: true, designation: true, espace: true, unite: true, actif: true, liens: { select: { articleStock: { select: { id: true, designation: true } } } } },
     }),
     client.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true } }),
   ]);
@@ -59,7 +59,7 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
       id: a.id, designation: a.designation, nomCourt: a.nomCourt, actif: a.actif, domaine: a.domaine, unite: a.unite,
       contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite, categorie: a.categorie?.nom ?? null,
     })),
-    restos: restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, actif: r.actif, articleStockId: r.articleStockId, rattacheA: r.articleStock?.designation ?? null })),
+    restos: restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, actif: r.actif, articleStockIds: r.liens.map((l) => l.articleStock.id), rattacheA: r.liens.length > 0 ? r.liens.map((l) => l.articleStock.designation).join(", ") : null })),
   };
 }
 
@@ -107,16 +107,17 @@ export async function rattacherAutomatiquement(
         const designationCatalogue = nom.get(d.articleStockId) ?? "";
         if (d.action === "LAISSER") { out.laisses.push({ designationCatalogue, raison: d.raison }); continue; }
         if (d.action === "RATTACHER") {
-          // Garde « encore libre et actif » dans la requête même (comme accepterPropositions).
-          const r = await tx.articleResto.updateMany({ where: { id: d.articleRestoId, articleStockId: null, actif: true }, data: { articleStockId: d.articleStockId } });
-          if (r.count !== 1) { out.laisses.push({ designationCatalogue, raison: `« ${d.designationResto} » a changé entre-temps : rechargez la page` }); continue; }
-          journal.push({ entite: "ArticleResto", entiteId: d.articleRestoId, champ: "articleStockId (automatique)", ancienneValeur: null, nouvelleValeur: d.articleStockId, userId: auteur.id });
+          // Garde « encore libre et actif » relue SOUS le verrou (comme accepterPropositions) : un lien posé entre-temps n'est pas doublé.
+          const libre = await tx.articleResto.count({ where: { id: d.articleRestoId, actif: true, liens: { none: {} } } });
+          if (libre !== 1) { out.laisses.push({ designationCatalogue, raison: `« ${d.designationResto} » a changé entre-temps : rechargez la page` }); continue; }
+          await tx.articleRestoStock.create({ data: { articleRestoId: d.articleRestoId, articleStockId: d.articleStockId } });
+          journal.push({ entite: "ArticleResto", entiteId: d.articleRestoId, champ: "lien article du catalogue (automatique)", ancienneValeur: null, nouvelleValeur: d.articleStockId, userId: auteur.id });
           out.rattaches.push({ designationResto: d.designationResto, designationCatalogue, espace: d.espace });
           continue;
         }
         // Stock de base VIDE (null, « — ») : jamais 0, la Direction le fixera.
         const cree = await tx.articleResto.create({
-          data: { espace: d.espace, designation: d.designation, unite: d.unite, categorie: d.categorie, stockBaseJournalier: null, articleStockId: d.articleStockId, ordre: await ordreSuivant(d.espace) },
+          data: { espace: d.espace, designation: d.designation, unite: d.unite, categorie: d.categorie, stockBaseJournalier: null, ordre: await ordreSuivant(d.espace), liens: { create: { articleStockId: d.articleStockId } } },
           select: { id: true },
         });
         journal.push({

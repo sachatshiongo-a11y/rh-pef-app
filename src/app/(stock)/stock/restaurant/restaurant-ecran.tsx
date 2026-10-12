@@ -135,7 +135,7 @@ export function RestaurantEcran({
       <div id="grille-restaurant" />
       <RestaurantGrille
         espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection}
-        catalogue={catalogue.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite ?? "" }))}
+        catalogue={catalogue}
       />
     </div>
     </JourMobileProvider>

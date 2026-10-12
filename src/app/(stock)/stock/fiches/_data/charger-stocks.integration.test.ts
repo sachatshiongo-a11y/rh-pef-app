@@ -29,7 +29,7 @@ afterAll(async () => { await fermer?.(); });
 const article = (designation: string, unite: string) =>
   prisma.articleStock.create({ data: { designation, domaine: "NOURRITURE", unite } });
 const resto = (designation: string, unite: string, articleStockId: string | null, actif = true) =>
-  prisma.articleResto.create({ data: { espace: "CUISINE", designation, unite, articleStockId, actif } });
+  prisma.articleResto.create({ data: { espace: "CUISINE", designation, unite, actif, ...(articleStockId ? { liens: { create: { articleStockId } } } : {}) } });
 const compter = (articleRestoId: string, date: string, quantite: string) =>
   prisma.comptageResto.create({ data: { articleRestoId, date: new Date(date), quantite } });
 

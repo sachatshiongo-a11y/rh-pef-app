@@ -8,7 +8,7 @@ import { formaterNombre } from "@/lib/montant";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
 import { planRattachementAuto } from "@/lib/rattachement-auto";
 import { LIBELLE_SIGNALEMENT, recuDuDepot, stockRestaurantTheorique, type SignalementLivraison } from "@/lib/stock-restaurant";
-import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { CHAMPS_LIBELLE, libelleArticle, rechercheContenance } from "@/lib/libelle-article";
 
 const q3 = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
 const jjmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -39,7 +39,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
       include: {
         comptages: { where: { date: { gte: debut, lte: fin } } },
-        articleStock: { select: CHAMPS_LIBELLE },
+        liens: { select: { articleStock: { select: { id: true, unite: true, ...CHAMPS_LIBELLE } } }, orderBy: { createdAt: "asc" } },
       },
     }),
     // Livraisons au restaurant (sorties de stock « Livraison restaurant ») de la semaine affichée.
@@ -61,7 +61,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   // l'affichage). Les propositions déjà couvertes par lui ne sont pas montrées une seconde fois.
   const planAuto = await planRattachementAuto([...new Set(nonRattachees.map((l) => l.articleStockId))]);
   const couverts = new Set(planAuto.filter((d) => d.action !== "LAISSER").map((d) => d.articleStockId));
-  const propositions = proposerRattachements(articles.filter((a) => a.actif), catalogue).filter((p) => !couverts.has(p.articleStockId));
+  const propositions = proposerRattachements(articles.filter((a) => a.actif).map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, articleStockIds: a.liens.map((l) => l.articleStock.id) })), catalogue).filter((p) => !couverts.has(p.articleStockId));
 
   // Nom AFFICHÉ des articles du catalogue (contenance comprise) : les propositions se décident sur la désignation brute.
   const libelleCatalogue = new Map(catalogue.map((a) => [a.id, libelleArticle(a)]));
@@ -90,8 +90,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
       id: a.id, actif: a.actif, categorie: a.categorie, designation: a.designation, unite: a.unite,
       base: a.stockBaseJournalier !== null ? Number(a.stockBaseJournalier).toString() : "",
       comptages,
-      articleStockId: a.articleStockId,
-      articleStockDesignation: a.articleStock ? libelleArticle(a.articleStock) : null,
+      articlesStock: a.liens.map((l) => ({ id: l.articleStock.id, designation: libelleArticle(l.articleStock), unite: l.articleStock.unite })),
       recus, signauxJour,
       theorique: {
         stock: t?.stock ?? null,
@@ -108,7 +107,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   return (
     <RestaurantEcran
       espace={espace} jours={jours} aujourdhui={aujourdhui} estDirection={estDirection} afficherDesactives={afficherDesactives}
-      lignes={lignes} categories={categories} catalogue={catalogue.map((a) => ({ id: a.id, designation: libelleArticle(a), unite: a.unite ?? "" }))}
+      lignes={lignes} categories={categories} catalogue={catalogue.map((a) => ({ id: a.id, designation: libelleArticle(a), unite: a.unite ?? "", recherche: [a.nomCourt, ...rechercheContenance(a)] }))}
       livraisonsParJour={livraisonsParJour} nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} planAuto={planAuto}
       articlesResto={entrees.articles} propositions={propositions.map((p) => ({ ...p, designationCatalogue: libelleCatalogue.get(p.articleStockId) ?? p.designationCatalogue }))}
     />

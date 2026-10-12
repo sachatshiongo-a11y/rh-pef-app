@@ -95,7 +95,7 @@ const article = async (designation: string, o: { unite?: string | null; domaine?
   return a.id;
 };
 const resto = (designation: string, o: { espace?: "CUISINE" | "BAR"; unite?: string | null; articleStockId?: string; actif?: boolean } = {}) =>
-  prisma.articleResto.create({ data: { espace: o.espace ?? "CUISINE", designation, unite: o.unite === undefined ? "Paquet" : o.unite, articleStockId: o.articleStockId ?? null, actif: o.actif ?? true } });
+  prisma.articleResto.create({ data: { espace: o.espace ?? "CUISINE", designation, unite: o.unite === undefined ? "Paquet" : o.unite, actif: o.actif ?? true, ...(o.articleStockId ? { liens: { create: { articleStockId: o.articleStockId } } } : {}) } });
 /** Arriéré : une sortie « Livraison restaurant » déjà en base (avant la règle). */
 const livraisonPassee = (articleId: string, quantite: number, date = DATE) =>
   prisma.mouvementStock.create({ data: { articleId, type: "SORTIE", quantite, date: jour(date), categorieSortie: "LIVRAISON_RESTAURANT", origine: "Livraison restaurant" } });
@@ -106,7 +106,7 @@ const sortie = (articleId: string, quantite: number, categorieSortie = "LIVRAISO
   f.append("articleId", articleId); f.append("quantite", ecrireSaisieNombre(quantite));
   return f;
 };
-const rattacheA = async (articleStockId: string) => prisma.articleResto.findMany({ where: { articleStockId }, orderBy: { designation: "asc" } });
+const rattacheA = async (articleStockId: string) => prisma.articleResto.findMany({ where: { liens: { some: { articleStockId } } }, orderBy: { designation: "asc" } });
 const journal = () => prisma.journalAudit.findMany({ where: { entite: "ArticleResto" }, orderBy: { date: "asc" } });
 const message = (r: unknown) => (r as { message: string }).message;
 
@@ -138,7 +138,7 @@ describe("à la sortie « Livraison restaurant » (après la transaction, jamais
     await mouvementManuel(sortie(eau, 6));
     expect((await rattacheA(eau)).map((x) => x.id)).toEqual([r1.id]);
     expect(await prisma.articleResto.count()).toBe(1);
-    expect(await journal()).toMatchObject([{ entiteId: r1.id, champ: "articleStockId (automatique)", ancienneValeur: null, nouvelleValeur: eau, userId: U.dir.id }]);
+    expect(await journal()).toMatchObject([{ entiteId: r1.id, champ: "lien article du catalogue (automatique)", ancienneValeur: null, nouvelleValeur: eau, userId: U.dir.id }]);
   }, 60_000);
 
   it("(c) plusieurs candidats : rien n'est écrit, la sortie le dit", async () => {
@@ -178,7 +178,7 @@ describe("à la sortie « Livraison restaurant » (après la transaction, jamais
     await livraisonPassee(sel, 1); await livraisonPassee(riz, 1);
     PANNE.journalAutomatique = true;
     expect(await rattacherLivraisonsAutomatiquement([sel, riz])).toMatchObject({ erreur: expect.stringContaining("rien n'a été écrit") });
-    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: rs.id } })).articleStockId).toBeNull();
+    expect(await prisma.articleRestoStock.count({ where: { articleRestoId: rs.id } })).toBe(0);
     expect(await prisma.articleResto.count()).toBe(1);
   }, 60_000);
 
@@ -235,8 +235,8 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     expect((await rattacheA(beurre)).map((x) => x.id)).toEqual([rb.id]);
     expect(await rattacheA(citron)).toEqual([]);
     expect(await rattacheA(jamaisLivre)).toEqual([]);
-    expect(await prisma.articleResto.findUniqueOrThrow({ where: { id: rv.id } })).toMatchObject({ unite: "bouteille", articleStockId: vin });
-    expect((await journal()).map((j) => j.champ).sort()).toEqual(["articleStockId (automatique)", "creation (automatique)"]);
+    expect(await prisma.articleResto.findUniqueOrThrow({ where: { id: rv.id } })).toMatchObject({ unite: "bouteille" });
+    expect((await journal()).map((j) => j.champ).sort()).toEqual(["creation (automatique)", "lien article du catalogue (automatique)"]);
 
     // Relancé : plus rien à faire pour les écrits, les laissés restent laissés (idempotent).
     const bis = await rattacherLivraisonsAutomatiquement([beurre, farfalle, citron]);

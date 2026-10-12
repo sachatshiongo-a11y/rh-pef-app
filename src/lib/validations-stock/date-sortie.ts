@@ -124,13 +124,13 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
   let avertissement: string | undefined;
   if (livraisons.length > 0) {
     const comptesResto = await tx.comptageResto.findMany({
-      where: { date: { gte: lo, lte: hi }, article: { articleStockId: { in: [...new Set(livraisons.map((m) => m.articleId))] } } },
-      select: { date: true, article: { select: { articleStockId: true } } },
+      where: { date: { gte: lo, lte: hi }, article: { liens: { some: { articleStockId: { in: [...new Set(livraisons.map((m) => m.articleId))] } } } } },
+      select: { date: true, article: { select: { liens: { select: { articleStockId: true } } } } },
       orderBy: { date: "asc" },
     });
     const touchees = livraisons.flatMap((m) => {
       const [a, b] = bornesDe(m);
-      const c = comptesResto.find((x) => x.article.articleStockId === m.articleId && x.date >= a && x.date <= b);
+      const c = comptesResto.find((x) => x.article.liens.some((l) => l.articleStockId === m.articleId) && x.date >= a && x.date <= b);
       return c ? [`${sortieNommee(m)} (compté au restaurant le ${jjmm(c.date)})`] : [];
     });
     if (touchees.length > 0) {
