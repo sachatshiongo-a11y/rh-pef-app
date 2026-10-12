@@ -171,7 +171,7 @@ export function DossierEmploye({
   peutModifier,
   estAdmin,
 }: {
-  vue: "contrats" | "fin" | "dossier";
+  vue: "contrats" | "dossier";
   employeeId: string;
   poste: string;
   fichePosteExiste?: boolean;
@@ -673,6 +673,63 @@ export function DossierEmploye({
           </details>
       </Section>
       )}
+
+      {/* Fin de contrat & solde de tout compte — ancien onglet « Fin de contrat » (plan d'ergonomie V12) ;
+          l'ancre #fin-de-contrat reçoit les anciens liens (?tab=fin). */}
+      <Section id="fin-de-contrat" title="Fin de contrat & solde de tout compte">
+        {finContrats.length > 0 && (
+          <div className="mb-4 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
+              <thead className="text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="py-1">Date</th>
+                  <th className="py-1">Motif</th>
+                  <th className="py-1 text-right">Prorata</th>
+                  <th className="py-1 text-right">Congés</th>
+                  <th className="py-1 text-right">Préavis</th>
+                  <th className="py-1 text-right">Licenciement</th>
+                  <th className="py-1 text-right">Total</th>
+                  <th className="py-1 text-right">Repris</th>
+                  <th className="py-1 text-right">Net versé</th>
+                </tr>
+              </thead>
+              <tbody>
+                {finContrats.map((f) => (
+                  <tr key={f.id} className="border-t">
+                    <td className="py-1.5">{d(f.dateFin)}</td>
+                    <td className="py-1.5">{MOTIF_FIN[f.motif] ?? f.motif}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.salaireProrataUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.indemniteCongesUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.indemnitePreavisUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.indemniteLicenciementUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.totalUSD))}</td>
+                    <td className="py-1.5 text-right">{money(Number(f.reprisePretUSD) + Number(f.repriseAcomptesUSD))}</td>
+                    <td className="py-1.5 text-right font-semibold">{money(Number(f.totalUSD) - Number(f.reprisePretUSD) - Number(f.repriseAcomptesUSD))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {estAdmin && actif ? (
+          <FinContratForm
+            employeeId={employeeId}
+            salaireJournalier={salaireJournalier}
+            soldeCongesInit={soldeConges}
+            joursPresence={joursPresence}
+            ancienneteMois={ancienneteMois}
+            preavisDemission={preavisDemission}
+            preavisLicenciement={preavisLicenciement}
+            indemniteLicenciementJoursParAn={indemniteLicenciementJoursParAn}
+            reprises={reprisesSolde}
+          />
+        ) : !actif ? (
+          <p className="text-sm text-muted-foreground">Cet employé n&apos;est plus actif (contrat terminé).</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Seule la Direction peut clôturer un contrat.</p>
+        )}
+      </Section>
       </>
         );
       })()}
@@ -1020,70 +1077,13 @@ export function DossierEmploye({
       </>
       )}
 
-      {/* Fin de contrat & solde de tout compte */}
-      {vue === "fin" && (
-      <Section title="Fin de contrat & solde de tout compte">
-        {finContrats.length > 0 && (
-          <div className="mb-4 overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="py-1">Date</th>
-                  <th className="py-1">Motif</th>
-                  <th className="py-1 text-right">Prorata</th>
-                  <th className="py-1 text-right">Congés</th>
-                  <th className="py-1 text-right">Préavis</th>
-                  <th className="py-1 text-right">Licenciement</th>
-                  <th className="py-1 text-right">Total</th>
-                  <th className="py-1 text-right">Repris</th>
-                  <th className="py-1 text-right">Net versé</th>
-                </tr>
-              </thead>
-              <tbody>
-                {finContrats.map((f) => (
-                  <tr key={f.id} className="border-t">
-                    <td className="py-1.5">{d(f.dateFin)}</td>
-                    <td className="py-1.5">{MOTIF_FIN[f.motif] ?? f.motif}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.salaireProrataUSD))}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.indemniteCongesUSD))}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.indemnitePreavisUSD))}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.indemniteLicenciementUSD))}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.totalUSD))}</td>
-                    <td className="py-1.5 text-right">{money(Number(f.reprisePretUSD) + Number(f.repriseAcomptesUSD))}</td>
-                    <td className="py-1.5 text-right font-semibold">{money(Number(f.totalUSD) - Number(f.reprisePretUSD) - Number(f.repriseAcomptesUSD))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {estAdmin && actif ? (
-          <FinContratForm
-            employeeId={employeeId}
-            salaireJournalier={salaireJournalier}
-            soldeCongesInit={soldeConges}
-            joursPresence={joursPresence}
-            ancienneteMois={ancienneteMois}
-            preavisDemission={preavisDemission}
-            preavisLicenciement={preavisLicenciement}
-            indemniteLicenciementJoursParAn={indemniteLicenciementJoursParAn}
-            reprises={reprisesSolde}
-          />
-        ) : !actif ? (
-          <p className="text-sm text-muted-foreground">Cet employé n&apos;est plus actif (contrat terminé).</p>
-        ) : (
-          <p className="text-sm text-muted-foreground">Seule la Direction peut clôturer un contrat.</p>
-        )}
-      </Section>
-      )}
     </>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <div className="mb-6 rounded-lg border p-5">
+    <div id={id} className="mb-6 scroll-mt-20 rounded-lg border p-5">
       <h2 className="mb-4 text-base font-semibold">{title}</h2>
       {children}
     </div>

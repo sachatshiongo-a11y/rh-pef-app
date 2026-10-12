@@ -2,12 +2,10 @@ import { FilAriane } from "@/components/fil-ariane";
 import { LIBELLE_STATUT_CONGE, type StatutConge } from "@/lib/conges-liste";
 import { libelleCategorie } from "@/lib/livre-paie";
 import { libelleTypeSanction } from "@/lib/libelles-espace";
-import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
-import { tauxDeLigne } from "@/lib/paie-taux";
 import { estLibreService } from "@/lib/attestations-donnees";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ancienneteEnMois, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { ChampNombre } from "@/components/champ-nombre";
@@ -18,13 +16,13 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
-import { BulletinViewerButton } from "./bulletin-viewer";
-import { ContratViewerButton } from "./contrat-viewer";
+import { HistoriquePaie, ligneHistoriquePaie } from "./historique-paie";
+import { CongesParAnnee } from "./conges-par-annee";
 import { Avatar } from "@/components/avatar";
 import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical, ajouterAvantageNature, supprimerAvantageNature } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
-import { AbsencesCard, HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
+import { HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { lundiDe } from "@/lib/dates-fr";
@@ -34,20 +32,18 @@ import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
-import { formaterUSD, formaterNombre } from "@/lib/montant";
+import { formaterUSD } from "@/lib/montant";
 import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
-import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { construireEcheancier } from "@/lib/prets";
 import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
-import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
+import { chargerSoldeCongeSalarie, chargerCongesParAnnee } from "@/lib/solde-conge-salarie";
+import { anneesAvecDonnees, anneesDeConges, lireAnneeFiche, redirectionAncienOnglet } from "@/lib/fiche-annees";
+import { lirePagination } from "@/lib/pagination";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
 import { jourKinshasa, jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
-import { BoutonSigner } from "@/components/bouton-signer";
-import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
-import { faireSignerDocument } from "../../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
 import { demandesFicheEnAttente } from "@/lib/demandes-fiche";
 import { ModifsEnAttente } from "../modifs-en-attente";
@@ -84,7 +80,7 @@ export default async function FicheEmployePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; erreur?: string }>;
+  searchParams: Promise<{ tab?: string; erreur?: string; annee?: string; page?: string; par?: string }>;
 }) {
   const user = await exigerPageRH();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
@@ -93,6 +89,10 @@ export default async function FicheEmployePage({
   const modifsEnAttente = await demandesFicheEnAttente(id);
   const sp = await searchParams;
   const tab = sp.tab ?? "apercu";
+  // L'ancien onglet « Fin de contrat » est une section de « Contrats » (plan d'ergonomie V12) : les liens,
+  // favoris et notifications d'avant arrivent à la bonne place.
+  const ancienOnglet = redirectionAncienOnglet(tab);
+  if (ancienOnglet) redirect(`/employes/${id}?${ancienOnglet}`);
 
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
@@ -261,14 +261,19 @@ export default async function FicheEmployePage({
   const totalPrevuSemaine = Math.round(joursSemaine.reduce((a, j) => a + j.prevuHeures, 0) * 100) / 100;
   const totalRealiseSemaine = Math.round(joursSemaine.reduce((a, j) => a + (j.realise ?? 0), 0) * 100) / 100;
   const labelSemaine = `${lundiSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} → ${dimancheSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })}`;
+  // Onglet « Congés & absences » : le bilan de CHAQUE année civile depuis l'embauche et toutes les demandes
+  // (même source que le solde d'en-tête, lib/solde-conge-salarie).
+  const anneeHorloge = anneeCouranteKinshasa();
+  const congesAnnees = tab === "conges" ? await chargerCongesParAnnee(prisma, id) : null;
+  const anneeVueConges = congesAnnees ? lireAnneeFiche(sp.annee, anneesDeConges(congesAnnees.bilans, congesAnnees.demandes, anneeHorloge), anneeHorloge) as number : anneeHorloge;
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
-    tab === "fin"
+    tab === "contrats"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
       : [];
   // Solde de tout compte : reste des prêts, acomptes non retenus, bulletin du mois déjà figé — les
   // mêmes chiffres que l'action revérifie (lib/solde-tout-compte.ts).
-  const reprisesSolde = tab === "fin" && employee.actif ? await chargerReprisesSolde(prisma, id, { mois, annee }) : null;
+  const reprisesSolde = tab === "contrats" && employee.actif ? await chargerReprisesSolde(prisma, id, { mois, annee }) : null;
   // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
   const joursModele =
     tab === "contrats"
@@ -316,7 +321,7 @@ export default async function FicheEmployePage({
   // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
   // Exercice ACTIF seulement : avec un second exercice en base, la clé existerait deux fois.
   const paramsDepart =
-    tab === "fin"
+    tab === "contrats"
       ? await prisma.parametreLegal.findMany({
           where: {
             cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "indemnite_licenciement_jours_par_an"] },
@@ -369,7 +374,7 @@ export default async function FicheEmployePage({
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
-  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges, cSansDemande, report: reportConges, acquisAnnee: congesAcquisAnnee, plafonne: congesPlafonnes, annee: anneeConges } = soldeConge;
+  const soldeConges = soldeConge.solde;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
@@ -402,6 +407,11 @@ export default async function FicheEmployePage({
   if (congesEnAttente > 0) {
     notifications.push(`${congesEnAttente} demande(s) de congé en attente`);
   }
+
+  // Historique de paie : tous les bulletins, vus par année (`?annee=`, l'année en cours par défaut ou « toutes »).
+  const lignesHistoriquePaie = payrollLines.map((l) => ligneHistoriquePaie(l, etatSignature(sigBulletins.get(l.id))));
+  const anneeVuePaie = lireAnneeFiche(sp.annee, anneesAvecDonnees(lignesHistoriquePaie.map((l) => l.annee), anneeHorloge), anneeHorloge, true);
+  const pagePaie = lirePagination(sp);
 
   // Chronologie (G) : tous les événements datés de l'employé, du plus récent au plus ancien.
   const evenements: EvenementTimeline[] = [
@@ -543,7 +553,6 @@ export default async function FicheEmployePage({
             { cle: "conges", label: "Congés & absences" },
             { cle: "paie", label: "Paie" },
             { cle: "contrats", label: "Contrats" },
-            { cle: "fin", label: "Fin de contrat" },
             { cle: "dossier", label: "Dossier" },
           ].map((o) => ({ href: `/employes/${employee.id}?tab=${o.cle}`, label: o.label, actif: tab === o.cle }))}
         />
@@ -735,7 +744,7 @@ export default async function FicheEmployePage({
         </>
       )}
 
-      {tab === "conges" && (
+      {tab === "conges" && congesAnnees && (
       <Section
         title="Congés et absences"
         action={
@@ -744,37 +753,15 @@ export default async function FicheEmployePage({
           </Link>
         }
       >
-        <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-          <Stat label={`Droits ${anneeConges} (report compris)`} value={congesAcquis} />
-          <Stat label={`Congés pris en ${anneeConges}`} value={congesPrisAnnee} />
-          <Stat label="Solde de congé annuel" value={soldeConges} />
-        </div>
-        {/* Année civile (décision Direction 2026-10-12) : les droits = report de l'an dernier + acquis
-            de l'année, plafonnés aux droits annuels. Le détail se lit ici. */}
-        <p className="-mt-2 mb-4 text-xs text-muted-foreground">
-          Acquis en {anneeConges} : {congesAcquisAnnee} j
-          {reportConges !== 0 ? ` · report ${anneeConges - 1} : ${reportConges} j` : ""}
-          {congesPlafonnes ? ` · ${soldeConge.perdu} j perdus au plafond (le solde ne dépasse jamais les droits annuels)` : ""}
-        </p>
-        {cSansDemande > 0 && (
-          // Régularisation dans la grille : payée comme congé par la paie, donc décomptée — et dite.
-          <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">C sans demande</span>
-            {cSansDemande} jour(s) C posé(s) sans demande dans la grille Présences cette année : décompté(s) des congés pris.
-            Pour les régulariser, enregistrez la demande correspondante (elle remplace ces jours, sans double décompte).
-          </p>
-        )}
-
-        <AbsencesCard
-          absences={leaveRequests.map((l) => ({
-            id: l.id,
-            type: l.type,
-            dateDebut: new Date(l.dateDebut),
-            dateFin: new Date(l.dateFin),
-            nbJours: Number(l.nbJours),
-            statut: l.statut,
-            motifRefus: l.motifRefus,
-          }))}
+        {/* Année civile (décisions Direction 2026-10-12) : report de l'année précédente, acquis, pris, perdus
+            au plafond, solde — chaque année vient de la source du solde (lib/solde-conge-salarie), comme l'en-tête. */}
+        <CongesParAnnee
+          employeeId={employee.id}
+          annee={anneeVueConges}
+          anneeCourante={anneeHorloge}
+          bilans={congesAnnees.bilans}
+          demandes={congesAnnees.demandes}
+          sansConges={congesAnnees.sansConges}
         />
       </Section>
       )}
@@ -782,102 +769,16 @@ export default async function FicheEmployePage({
       {tab === "paie" && (
       <>
       <Section title="Historique de paie">
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[42rem] text-sm">
-          <thead className="bg-muted text-left">
-            <tr>
-              <th className="px-3 py-2">Période</th>
-              <th className="px-3 py-2 text-right">Salaire net $</th>
-              <th className="px-3 py-2 text-right">Salaire net CDF</th>
-              <th className="px-3 py-2 text-right">Total versé $</th>
-              <th className="px-3 py-2">Paiement</th>
-              <th className="px-3 py-2">Signature</th>
-              <th className="px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {payrollLines.map((l) => (
-              <tr key={l.id} className="border-t">
-                <td className="px-3 py-2">
-                  {new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", {
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </td>
-                <td className="px-3 py-2 text-right">{formatMoney(salaireNetUSD(l))}</td>
-                <td className="px-3 py-2 text-right">
-                  {formaterNombre(Math.round(salaireNetCDF(l, tauxDeLigne(l, l.payrollRun))))} CDF
-                </td>
-                <td className="px-3 py-2 text-right text-muted-foreground">{formatMoney(totalVerseUSD(l))}</td>
-                <td className="px-3 py-2">
-                  <PaiementBadge statut={l.statutPaiement} />
-                </td>
-                <td className="whitespace-nowrap px-3 py-2">
-                  {l.statutPaiement === "PAS_VALIDE" ? (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  ) : peutModifier ? (
-                    <BoutonSigner
-                      cible="BULLETIN"
-                      cibleId={l.id}
-                      nomSalarie={employee.nom}
-                      libelleDocument={`Bulletin ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — ${employee.nom}`}
-                      cote="DIRECTION"
-                      action={faireSignerDocument}
-                      {...etatSignature(sigBulletins.get(l.id))}
-                    />
-                  ) : (
-                    <EtatSignatureLecture {...etatSignature(sigBulletins.get(l.id))} />
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <BulletinViewerButton
-                    payrollLineId={l.id}
-                    nom={`${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
-                  />
-                  {" · "}
-                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline">
-                    $
-                  </TelechargerLien>
-                  {" · "}
-                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
-                    CDF
-                  </TelechargerLien>
-                  {/* Bulletins remis antérieurs (ligne rouverte, recalculée ou réinitialisée depuis) : l'archive
-                      figée, jamais le bulletin recalculé. Le dernier remis d'une ligne validée = le bulletin ci-dessus. */}
-                  {(l.statutPaiement === "PAS_VALIDE" ? l.versionsBulletin : l.versionsBulletin.slice(0, -1)).map((v) => (
-                    <span key={v.numeroVersion} className="block text-[11px] text-muted-foreground">
-                      Remis v{v.numeroVersion} ({new Date(v.genereLe).toLocaleDateString("fr-FR")}) :{" "}
-                      <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>
-                      {" · "}
-                      <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
-                    </span>
-                  ))}
-                  {/* Attestation de paie : délivrée une fois le bulletin PAYÉ (décision Direction 2026-10-12). */}
-                  {l.statutPaiement === "PAYE" && " · "}
-                  {l.statutPaiement === "PAYE" && <ContratViewerButton
-                    href={`/employes/${employee.id}/attestation-paie/${l.id}`}
-                    titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
-                    libelle="Attestation"
-                    className="text-primary underline"
-                  />}
-                  {l.statutPaiement === "VALIDE" && (
-                    <span className="block text-[11px] text-muted-foreground" title={refusAttestationPaie(l.statutPaiement) ?? undefined}>
-                      Attestation : après paiement
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {payrollLines.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-3 py-4 text-center text-muted-foreground">
-                  Aucune paie calculée pour cet employé pour le moment.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        </div>
+        <HistoriquePaie
+          employeeId={employee.id}
+          nomSalarie={employee.nom}
+          peutModifier={peutModifier}
+          lignes={lignesHistoriquePaie}
+          annee={anneeVuePaie}
+          anneeCourante={anneeHorloge}
+          page={pagePaie.page}
+          par={pagePaie.par}
+        />
       </Section>
 
       <Section title="Primes & acompte de la période en cours">
@@ -1041,7 +942,7 @@ export default async function FicheEmployePage({
         />
       )}
 
-      {(tab === "contrats" || tab === "fin" || tab === "dossier") && (
+      {(tab === "contrats" || tab === "dossier") && (
       <DossierEmploye
         vue={tab}
         employeeId={employee.id}
@@ -1127,23 +1028,5 @@ function Stat({ label, value }: { label: string; value: number }) {
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
     </div>
-  );
-}
-
-function PaiementBadge({ statut }: { statut: string }) {
-  const styles: Record<string, string> = {
-    PAYE: "bg-green-100 text-green-800",
-    VALIDE: "bg-blue-100 text-blue-800",
-    PAS_VALIDE: "bg-amber-100 text-amber-800",
-  };
-  const labels: Record<string, string> = {
-    PAYE: "Payé",
-    VALIDE: "Validé",
-    PAS_VALIDE: "Pas validé",
-  };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles[statut] ?? ""}`}>
-      {labels[statut] ?? statut}
-    </span>
   );
 }

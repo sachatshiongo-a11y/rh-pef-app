@@ -45,6 +45,8 @@ export type AbsenceItem = {
   statut: string;
   /** Motif d'un refus ; null sur une demande refusée avant que le motif existe (« — »). */
   motifRefus?: string | null;
+  /** Précision sous le nombre de jours (« à cheval : 4 j en 2026 », « non décompté du solde »). */
+  detail?: string | null;
 };
 
 const LIBELLE_STATUT: Record<string, { texte: string; classe: string }> = {
@@ -54,9 +56,9 @@ const LIBELLE_STATUT: Record<string, { texte: string; classe: string }> = {
 };
 
 /** Liste graphique des absences (barre de couleur + type + jours + plage de dates). */
-export function AbsencesCard({ absences }: { absences: AbsenceItem[] }) {
+export function AbsencesCard({ absences, messageVide = "Aucune demande de congé enregistrée." }: { absences: AbsenceItem[]; messageVide?: string }) {
   if (absences.length === 0) {
-    return <EtatVide message="Aucune demande de congé enregistrée." />;
+    return <EtatVide message={messageVide} />;
   }
   return (
     <div className="space-y-2">
@@ -72,7 +74,7 @@ export function AbsencesCard({ absences }: { absences: AbsenceItem[] }) {
                 <span className={`text-sm font-semibold ${c.texte}`}>{a.type}</span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${st.classe}`}>{st.texte}</span>
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">{a.nbJours} jour(s)</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{a.nbJours} jour(s){a.detail ? ` · ${a.detail}` : ""}</p>
               {a.statut === "REFUSE" && <p className="mt-0.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">Motif du refus :</span> {a.motifRefus ?? "—"}</p>}
             </div>
             <div className="flex items-center gap-2 pr-3">
