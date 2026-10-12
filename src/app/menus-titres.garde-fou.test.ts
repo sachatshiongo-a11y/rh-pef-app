@@ -81,12 +81,6 @@ function titresDe(dossier: string): string[] {
   return titres;
 }
 
-/**
- * Les trois « Tableau de bord » s'ouvrent sur une salutation (« Bonjour {prénom} ») : exception NOMMÉE.
- * Leur renommage en « Accueil » relève du lot 4 du plan ; la salutation reste leur titre.
- */
-const ACCUEILS_AVEC_SALUTATION = new Set(["/accueil", "/stock", "/exploitation"]);
-
 const MENUS = [
   { espace: "RH", groupes: NAV_RH },
   { espace: "Stock", groupes: NAV_STOCK },
@@ -97,7 +91,6 @@ describe("menus — le libellé de chaque entrée est le titre de la page qu'ell
   for (const { espace, groupes } of MENUS) {
     for (const g of groupes) {
       for (const entree of g.items) {
-        if (ACCUEILS_AVEC_SALUTATION.has(entree.href)) continue;
         it(`${espace} · « ${entree.label} » (${entree.href})`, () => {
           const r = routeDe(entree.href);
           expect(r, `aucune page pour ${entree.href}`).toBeTruthy();
@@ -115,11 +108,12 @@ describe("menus — le libellé de chaque entrée est le titre de la page qu'ell
     }
   });
 
-  it("les exceptions nommées s'ouvrent bien sur une salutation (sinon elles n'ont plus lieu d'être)", () => {
-    for (const href of ACCUEILS_AVEC_SALUTATION) {
+  it("les trois accueils s'intitulent « Accueil » et gardent leur salutation en sous-titre (V6)", () => {
+    for (const href of ["/accueil", "/stock", "/exploitation"]) {
       const r = routeDe(href)!;
-      const src = readdirSync(r.dossier).filter((n) => /\.tsx$/.test(n)).map((n) => readFileSync(path.join(r.dossier, n), "utf8")).join("\n");
-      expect(src, href).toMatch(/Bonjour \{prenom\}/);
+      const src = readdirSync(r.dossier).filter((n) => /\.tsx$/.test(n) && !/\.test\.tsx$/.test(n)).map((n) => readFileSync(path.join(r.dossier, n), "utf8")).join("\n");
+      expect(titresDe(r.dossier), href).toContain("Accueil");
+      expect(src, href).toMatch(/<p[^>]*>Bonjour \{prenom\}<\/p>/);
     }
   });
 });

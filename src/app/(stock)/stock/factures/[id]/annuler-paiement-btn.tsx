@@ -10,7 +10,7 @@ export function AnnulerPaiementBtn({ paiementId, libelle, resteApres }: { paieme
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const annuler = () => {
-    if (!confirm(`Annuler ce ${libelle} ?\n\nLa ligne de paiement sera supprimée et le reste à payer de la facture passera à ${resteApres} (la facture n'est plus « réglée » si elle l'était). L'opération est journalisée.`)) return;
+    if (!confirm(`Annuler ce ${libelle} ?\n\nLa ligne de paiement sera supprimée et le reste à payer de la facture passera à ${resteApres} (la facture n'est plus « payée » si elle l'était). L'opération est journalisée.`)) return;
     setErreur(null);
     start(async () => {
       const r = await annulerPaiementFacture(paiementId);

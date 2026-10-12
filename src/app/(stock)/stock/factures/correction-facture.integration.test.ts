@@ -76,8 +76,8 @@ describe("modifierEnteteFacture", () => {
     expect(Number(apres.montantCDF)).toBe(300000);
     expect(Number(apres.resteAPayerCDF)).toBe(200000);
     expect(apres.montantUSD).toBeNull();
-    // Montant inférieur au déjà réglé : refus.
-    expect(await modifierEnteteFacture(libre.id, { montant: "50000" })).toMatchObject({ erreur: expect.stringMatching(/inférieur au déjà réglé/) });
+    // Montant inférieur au déjà payé : refus.
+    expect(await modifierEnteteFacture(libre.id, { montant: "50000" })).toMatchObject({ erreur: expect.stringMatching(/inférieur au déjà payé/) });
 
     const detaillee = await prisma.factureFournisseur.create({ data: { ...base, fournisseurNom: "D", montantUSD: 10, resteAPayerUSD: 10, montantRegleUSD: 0, lignes: { create: [{ designation: "Farine", quantite: 1, prixUnitaireUSD: 10, totalLigneUSD: 10 }] } } });
     expect(await modifierEnteteFacture(detaillee.id, { montant: "12" })).toMatchObject({ erreur: expect.stringMatching(/somme de ses lignes[\s\S]*1 ligne\(s\) d'articles[\s\S]*supprimez la facture/) });

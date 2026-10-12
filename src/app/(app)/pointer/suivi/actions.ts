@@ -51,6 +51,6 @@ export const marquerVerifies = actionLisible(async (pointageIds: string[]): Prom
     return aVerifier.length;
   });
 
-  revalidatePath("/pointer/suivi");
+  revalidatePath("/pointer");
   return { scansVerifies };
 });

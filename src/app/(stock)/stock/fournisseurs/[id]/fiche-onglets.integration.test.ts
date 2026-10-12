@@ -7,7 +7,7 @@ import { creerBaseTest } from "@/lib/test/db";
 // une base éphémère. Ce qu'on tient ici :
 //  - onglet par défaut (Factures) et valeur inconnue ; l'onglet et le filtre viennent de l'URL ;
 //  - seules les données de l'onglet affiché sont lues (espionnage des requêtes, pas du markup) ;
-//  - filtres À régler / Payées / Toutes et En cours / Reçus / Tous ;
+//  - filtres À payer / Payées / Toutes et En cours / Reçus / Tous ;
 //  - regroupement par mois, le plus récent ouvert ;
 //  - la pastille « Paiement demandé » reste sur sa facture ;
 //  - les liens vers une facture / un bon portent le retour vers le bon onglet.
@@ -101,11 +101,11 @@ afterAll(async () => { await fermer(); });
 afterEach(() => { vi.restoreAllMocks(); A.user.role = "ADMIN"; });
 
 describe("onglet par défaut et valeur inconnue", () => {
-  it("sans ?onglet : Factures est l'onglet actif, filtre À régler", async () => {
+  it("sans ?onglet : Factures est l'onglet actif, filtre À payer", async () => {
     const html = await rendre();
     const t = texte(html);
     expect(html).toMatch(/aria-current="page"[^>]*>Factures \(4\)</);
-    expect(t).toContain("À régler (3)"); // F-SEPT-1, F-SEPT-2, F-JUIL-1 ; G-UNIQUE appartient à un autre fournisseur
+    expect(t).toContain("À payer (3)"); // F-SEPT-1, F-SEPT-2, F-JUIL-1 ; G-UNIQUE appartient à un autre fournisseur
     expect(t).toContain("N° F-SEPT-1");
     expect(t).not.toContain("F-AOUT-1"); // payée : hors du filtre par défaut
     expect(t).not.toContain("G-UNIQUE");
@@ -125,7 +125,7 @@ describe("onglet par défaut et valeur inconnue", () => {
     for (const onglet of ["factures", "bons", "achats", "articles", "coordonnees"]) {
       const t = texte(await rendre({ onglet }));
       expect(t, onglet).toContain("Total facturé 380,00 $"); // 100 + 50 + 200 + 30
-      expect(t, onglet).toContain("Réglé 200,00 $");
+      expect(t, onglet).toContain("Payé 200,00 $");
       expect(t, onglet).toContain("Impayé (3) 180,00 $");
       expect(t, onglet).toContain("Échu (1) 50,00 $");
     }
@@ -163,7 +163,7 @@ describe("seules les données de l'onglet affiché sont lues", () => {
 });
 
 describe("onglet Factures : filtres, mois, pastilles", () => {
-  it("Payées : seulement les réglées", async () => {
+  it("Payées : seulement les payées", async () => {
     const t = texte(await rendre({ onglet: "factures", filtre: "payees" }));
     expect(t).toContain("N° F-AOUT-1");
     expect(t).not.toContain("F-SEPT-1");
@@ -176,7 +176,7 @@ describe("onglet Factures : filtres, mois, pastilles", () => {
     expect(t).toContain("Août 2026");
     expect(t).toContain("Juillet 2026");
   });
-  it("filtre inconnu → À régler", async () => {
+  it("filtre inconnu → À payer", async () => {
     const t = texte(await rendre({ onglet: "factures", filtre: "bidon" }));
     expect(t).toContain("N° F-SEPT-1");
     expect(t).not.toContain("F-AOUT-1");
@@ -187,10 +187,11 @@ describe("onglet Factures : filtres, mois, pastilles", () => {
     expect(details.map((x) => x.titre)).toEqual(["Septembre 2026", "Août 2026", "Juillet 2026"]);
     expect(details.map((x) => x.ouvert)).toEqual([true, false, false]);
   });
-  it("À régler : tous les mois déroulés (comme les impayés de l'écran Factures) ; Payées et Toutes : le plus récent seul", async () => {
+  it("À payer : tous les mois déroulés (comme les impayés de l'écran Factures) ; Payées et Toutes : le plus récent seul", async () => {
     const ouverts = (html: string) => [...html.matchAll(/<details([^>]*)>\s*<summary/g)].map((m) => /\bopen\b/.test(m[1]));
     expect(ouverts(await rendre({ onglet: "factures" }))).toEqual([true, true]); // septembre et juillet
-    expect(ouverts(await rendre({ onglet: "factures", filtre: "a-regler" }))).toEqual([true, true]);
+    expect(ouverts(await rendre({ onglet: "factures", filtre: "a-payer" }))).toEqual([true, true]);
+    expect(ouverts(await rendre({ onglet: "factures", filtre: "a-regler" }))).toEqual([true, true]); // ancien nom du filtre (favoris)
     expect(ouverts(await rendre({ onglet: "factures", filtre: "toutes" }))).toEqual([true, false, false]);
     expect(ouverts(await rendre({ onglet: "factures", filtre: "payees" }))).toEqual([true]);
   });
@@ -208,10 +209,10 @@ describe("onglet Factures : filtres, mois, pastilles", () => {
     expect(html).toContain("Tout sélectionner");
     expect(html).not.toContain(`href="/stock/fournisseurs/${idF}" class="truncate`);
   });
-  it("À régler vide mais des payées : l'écran le dit et propose Toutes", async () => {
+  it("À payer vide mais des payées : l'écran le dit et propose Toutes", async () => {
     await prisma.factureFournisseur.updateMany({ where: { fournisseurId: idG }, data: { statut: "REGLEE", resteAPayerUSD: 0 } });
     const t = texte(await rendre({ onglet: "factures" }, idG));
-    expect(t).toContain("Aucune facture à régler : tout est payé.");
+    expect(t).toContain("Aucune facture à payer : tout est payé.");
     expect(t).toContain("Voir toutes les factures (1)");
     await prisma.factureFournisseur.updateMany({ where: { fournisseurId: idG }, data: { statut: "A_REGLER", resteAPayerUSD: 999 } });
   });

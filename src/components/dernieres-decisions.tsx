@@ -11,7 +11,7 @@ export type DecisionVue = {
 };
 
 const STATUT_DECISION: Record<string, { texte: string; cls: string }> = {
-  VALIDEE: { texte: "Validée", cls: "bg-emerald-100 text-emerald-800" },
+  VALIDEE: { texte: "Approuvée", cls: "bg-emerald-100 text-emerald-800" },
   REFUSEE: { texte: "Refusée", cls: "bg-red-100 text-red-800" },
   ANNULEE: { texte: "Retirée", cls: "bg-muted text-muted-foreground" },
 };

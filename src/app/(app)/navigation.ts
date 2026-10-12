@@ -6,35 +6,41 @@ export const NAV_GROUPS: GroupeMenu[] = [
   {
     titre: "Pilotage",
     items: [
-      { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
+      { href: "/accueil", label: "Accueil", icone: "accueil" },
       // « À valider » : même nom, même place (2e ligne) dans les trois espaces, VISIBLE PAR TOUS LES RÔLES
       // (plan d'ergonomie, V1) — la Direction y décide, les autres y suivent leurs demandes.
       { href: "/a-valider", label: "À valider", icone: "valider" },
     ],
   },
   {
-    titre: "Les essentiels",
+    titre: "Équipe",
     items: [
       { href: "/employes", label: "Employés", icone: "employes" },
       { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
+    ],
+  },
+  {
+    // Les déclarations découlent de la paie du mois : elles vivent à côté d'elle.
+    titre: "Paie",
+    items: [
       { href: "/paie", label: "Paie", icone: "billet" },
+      { href: "/declarations", label: "Déclarations", icone: "recu" },
     ],
   },
   {
     titre: "Temps de travail",
     items: [
-      { href: "/pointer", label: "Pointer", icone: "horloge" },
       { href: "/planning", label: "Planning", icone: "calendrier" },
       { href: "/presences", label: "Présences & heures", icone: "presence" },
       { href: "/conges", label: "Congés & absences", icone: "parasol" },
+      // « Pointages » garde l'adresse /pointer : la Direction et la RH y lisent le SUIVI (bouton « Pointer
+      // moi-même » pour leur propre pointage) ; un compte en consultation y trouve son pointage personnel.
+      { href: "/pointer", label: "Pointages", icone: "horloge" },
     ],
   },
   {
-    titre: "Finances & archives",
-    items: [
-      { href: "/declarations", label: "Déclarations", icone: "recu" },
-      { href: "/documents", label: "Documents", icone: "dossier" },
-    ],
+    titre: "Archives",
+    items: [{ href: "/documents", label: "Documents & archives", icone: "dossier" }],
   },
   {
     titre: "Configuration",
@@ -43,7 +49,7 @@ export const NAV_GROUPS: GroupeMenu[] = [
 ];
 
 /**
- * Barre du bas (téléphone) — les gestes quotidiens de la RH d'un restaurant : le tableau de bord,
+ * Barre du bas (téléphone) — les gestes quotidiens de la RH d'un restaurant : l'accueil,
  * la saisie des présences (chaque jour, elle alimente la paie), le planning de la brigade, puis la
  * pile de demandes à trancher (congés, acomptes, changements de shift — badge rouge). Ce bouton est
  * celui de la DIRECTION seule (V10) : un Responsable RH ou une personne en consultation reçoit à la
@@ -57,7 +63,7 @@ export const BARRE_DU_BAS: CandidatBarre[] = [
   { href: "/conges", court: "Congés" },
 ];
 
-/** État actif (menu et barre) : le tableau de bord sur son adresse exacte, le reste sur le préfixe. */
+/** État actif (menu et barre) : l'accueil sur son adresse exacte, le reste sur le préfixe. */
 export function lienActif(href: string, pathname: string): boolean {
   return href === "/accueil" ? pathname === href : pathname.startsWith(href);
 }

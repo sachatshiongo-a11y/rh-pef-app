@@ -75,8 +75,8 @@ const styles = StyleSheet.create({
 
 const STATUT_LABEL: Record<string, string> = {
   EN_ATTENTE: "EN ATTENTE",
-  APPROUVE: "APPROUVÉ",
-  REFUSE: "REFUSÉ",
+  APPROUVE: "APPROUVÉE",
+  REFUSE: "REFUSÉE",
 };
 
 function Ligne({ label, value }: { label: string; value: string }) {
@@ -160,13 +160,13 @@ export function DemandeCongeDocument({
         <View style={styles.section}>
           <PdfSectionHeader>Décision de la direction</PdfSectionHeader>
           <View style={styles.checkboxRow}>
-            <Text style={styles.checkboxLabel}>Autorisé</Text>
+            <Text style={styles.checkboxLabel}>Approuvée</Text>
             <View style={styles.checkbox}>
               {demande.statut === "APPROUVE" && <Text style={styles.checkboxMark}>X</Text>}
             </View>
           </View>
           <View style={styles.checkboxRow}>
-            <Text style={styles.checkboxLabel}>Refusé</Text>
+            <Text style={styles.checkboxLabel}>Refusée</Text>
             <View style={styles.checkbox}>
               {demande.statut === "REFUSE" && <Text style={styles.checkboxMark}>X</Text>}
             </View>
@@ -195,7 +195,7 @@ export function DemandeCongeDocument({
             </Text>
           </View>
           {/* La décision est celle de LA DIRECTION, sans le nom de la personne qui a cliqué (décision 2026-10-09). */}
-          <Ligne label="Décision" value={demande.statut === "APPROUVE" ? "Approuvé par la Direction" : demande.statut === "REFUSE" ? "Refusé par la Direction" : "En attente de décision"} />
+          <Ligne label="Décision" value={demande.statut === "APPROUVE" ? "Approuvée par la Direction" : demande.statut === "REFUSE" ? "Refusée par la Direction" : "En attente de décision"} />
           {demande.statut === "REFUSE" && <Ligne label="Motif du refus" value={demande.motifRefus ?? "—"} />}
         </View>
 

@@ -158,7 +158,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
       {/* KPIs factures — au-dessus des onglets, visibles quel que soit l'onglet : le solde dû au fournisseur est ce qu'on vient chercher sur sa fiche. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Total facturé" valeur={lib(total)} sous={eq(total)} />
-        <Kpi label="Réglé" valeur={lib(regle)} sous={eq(regle)} accent="green" />
+        <Kpi label="Payé" valeur={lib(regle)} sous={eq(regle)} accent="green" />
         <Kpi label={`Impayé (${nbARegler})`} valeur={lib(impaye)} sous={eq(impaye)} accent={du(impaye) ? "amber" : undefined} />
         <Kpi label={`Échu (${nbEchu})`} valeur={lib(echu)} sous={eq(echu)} accent={du(echu) ? "red" : undefined} />
       </div>
@@ -168,7 +168,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
         onglets={onglets.map(({ o, label }) => ({ href: lienOnglet(o), label, actif: o === onglet }))}
       />
 
-      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-regler": nbARegler, payees: nbPayees, toutes: nbFactures }} taux={taux ?? 0} />}
+      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-payer": nbARegler, payees: nbPayees, toutes: nbFactures }} taux={taux ?? 0} />}
       {bonsDb && <OngletBons id={id} nom={f.nom} filtre={filtreBons} estDirection={estDirection} bons={bonsDb} effectifs={{ "en-cours": nbBonsEnCours, recus: nbBonsRecus, tous: nbBons }} />}
       {achatsDirects && <OngletAchats nbAchatsDirects={nbAchatsDirects} achatsDirects={achatsDirects} />}
       {articles && <OngletArticles articles={articles} taux={taux} />}
@@ -205,7 +205,7 @@ function Pastilles<T extends string>({ valeurs, actif, effectifs, lien, libelle 
   );
 }
 
-// ─── Onglet Factures : filtre À régler / Payées / Toutes, regroupées par mois, actions groupées ───
+// ─── Onglet Factures : filtre À payer / Payées / Toutes, regroupées par mois, actions groupées ───
 function OngletFactures({ id, filtre, estDirection, factures, enAttente, effectifs, taux }: {
   id: string; filtre: FiltreFactures; estDirection: boolean; factures: FactureFournisseur[]; enAttente: Set<string>; effectifs: Record<FiltreFactures, number>; taux: number;
 }) {
@@ -215,16 +215,16 @@ function OngletFactures({ id, filtre, estDirection, factures, enAttente, effecti
     <section className="space-y-3">
       <Pastilles
         libelle="Filtrer les factures" actif={filtre} effectifs={effectifs} lien={lien}
-        valeurs={[["a-regler", "À régler"], ["payees", "Payées"], ["toutes", "Toutes"]] as const}
+        valeurs={[["a-payer", "À payer"], ["payees", "Payées"], ["toutes", "Toutes"]] as const}
       />
       {effectifs[filtre] > factures.length && <p className="text-xs text-muted-foreground">Les {factures.length} plus récentes sont affichées.</p>}
       {factures.length === 0 ? (
         <EtatVide
-          message={filtre === "a-regler" ? (effectifs.toutes > 0 ? "Aucune facture à régler : tout est payé." : "Aucune facture.") : filtre === "payees" ? "Aucune facture payée." : "Aucune facture."}
+          message={filtre === "a-payer" ? (effectifs.toutes > 0 ? "Aucune facture à payer : tout est payé." : "Aucune facture.") : filtre === "payees" ? "Aucune facture payée." : "Aucune facture."}
           action={filtre !== "toutes" && effectifs.toutes > 0 ? <Link href={lien("toutes")} className="text-primary underline">Voir toutes les factures ({effectifs.toutes})</Link> : undefined}
         />
       ) : (
-        <FacturesUI key={filtre} moisPlats={moisPlats} ouvert={filtre === "a-regler"} sansFournisseur estDirection={estDirection} taux={taux} suffixeRetour={suffixeRetour(lien(filtre))} />
+        <FacturesUI key={filtre} moisPlats={moisPlats} ouvert={filtre === "a-payer"} sansFournisseur estDirection={estDirection} taux={taux} suffixeRetour={suffixeRetour(lien(filtre))} />
       )}
     </section>
   );

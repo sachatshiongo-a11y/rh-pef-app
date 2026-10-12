@@ -3,7 +3,7 @@ import { choisirBarreDuBas, entreesVisibles, type GroupeMenu } from "./navigatio
 
 const GROUPES: GroupeMenu[] = [
   { titre: "A", items: [
-    { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
+    { href: "/accueil", label: "Accueil", icone: "accueil" },
     { href: "/a-valider", label: "Demandes", icone: "valider", adminOnly: true },
   ] },
   { titre: "B", items: [

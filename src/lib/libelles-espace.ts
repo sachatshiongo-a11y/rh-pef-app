@@ -9,7 +9,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 /** Statut d'une DEMANDE (congé, acompte, échange, changement de shift) — d'où le féminin. */
 export const STATUT_DEMANDE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
-  APPROUVE: { label: "Acceptée", classe: "bg-emerald-100 text-emerald-800" },
+  APPROUVE: { label: "Approuvée", classe: "bg-emerald-100 text-emerald-800" },
   REFUSE: { label: "Refusée", classe: "bg-red-100 text-red-800" },
   ANNULE: { label: "Annulée", classe: "bg-muted text-muted-foreground" },
 };
@@ -72,6 +72,6 @@ export const PAGE_CIBLE_SIGNATURE: Record<string, string> = {
 export function messageDecisionAcompte(montantUSD: number, mois: number, annee: number, accepte: boolean): string {
   const periode = `${MOIS_FR[mois - 1] ?? ""} ${annee}`.trim();
   return accepte
-    ? `Votre demande d'acompte de ${formaterUSD(montantUSD)} (${periode}) a été acceptée ✅. Le montant sera déduit de votre salaire.`
+    ? `Votre demande d'acompte de ${formaterUSD(montantUSD)} (${periode}) a été approuvée ✅. Le montant sera déduit de votre salaire.`
     : `Votre demande d'acompte de ${formaterUSD(montantUSD)} (${periode}) a été refusée.`;
 }

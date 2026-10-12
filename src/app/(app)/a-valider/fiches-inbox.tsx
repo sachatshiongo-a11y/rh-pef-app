@@ -50,7 +50,7 @@ export function FichesInbox({ rows, peutValider }: { rows: FicheRow[]; peutValid
     startTransition(async () => {
       const r = await approuverModifsFiche(ids);
       setSelection(new Set());
-      compteRendu(r, "appliquée(s)");
+      compteRendu(r, "approuvée(s)");
     });
   }
   function confirmerRefus(motif: string) {

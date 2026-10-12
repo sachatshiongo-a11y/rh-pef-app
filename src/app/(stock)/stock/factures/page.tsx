@@ -202,8 +202,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Total facturé" valeur={libelleTotal(t(kpi.total, kpi.totalCDF), undefined, usd)} sous={`${kpi.nbTotal} facture(s)${equivalent(t(kpi.total, kpi.totalCDF))}`} href={lien({ statut: "" })} />
-        <Kpi label="Réglé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sous={`${kpi.nbReglees} réglée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} accent="green" href={lien({ statut: "REGLEE" })} />
-        <Kpi label="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sous={`${kpi.nbDues} à régler${equivalent(t(kpi.du, kpi.duCDF))}`} accent={kpi.du > 0 || kpi.duCDF > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
+        <Kpi label="Payé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sous={`${kpi.nbReglees} payée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} accent="green" href={lien({ statut: "REGLEE" })} />
+        <Kpi label="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sous={`${kpi.nbDues} à payer${equivalent(t(kpi.du, kpi.duCDF))}`} accent={kpi.du > 0 || kpi.duCDF > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
         <Kpi label="Échu" valeur={libelleTotal(t(kpi.echu, kpi.echuCDF), undefined, usd)} sous={`${kpi.nbEchues} échue(s)${equivalent(t(kpi.echu, kpi.echuCDF))}`} accent={kpi.echu > 0 || kpi.echuCDF > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
       </div>
 
@@ -238,8 +238,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         </div>
       ) : vue === "echeancier" ? (
         <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non réglées). Le cumul aide à planifier la trésorerie.</p>
-          {echeancier.length === 0 && <EtatVide message="Aucune facture à payer : tout est réglé." />}
+          <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non payées). Le cumul aide à planifier la trésorerie.</p>
+          {echeancier.length === 0 && <EtatVide message="Aucune facture à payer : tout est payé." />}
           {(() => { let cumul = totalVide(); return echeancier.map((g) => { cumul = additionnerTotaux(cumul, g.sousTotal); const cum = cumul; return (
             <div key={g.cle} className={`overflow-hidden rounded-lg border ${g.retard ? "border-red-300" : ""}`}>
               <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-sm font-semibold ${g.retard ? "bg-red-50 text-red-800" : "bg-muted/50"}`}>
@@ -267,7 +267,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <div className="flex flex-wrap gap-1.5">
-              {[["", "Toutes"], ["du", "À payer"], ["ECHUE_NON_REGLEE", "Échues"], ["REGLEE", "Réglées"]].map(([k, label]) => (
+              {[["", "Toutes"], ["du", "À payer"], ["ECHUE_NON_REGLEE", "Échues"], ["REGLEE", "Payées"]].map(([k, label]) => (
                 <LienGardantTaille doux={false} key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</LienGardantTaille>
               ))}
             </div>

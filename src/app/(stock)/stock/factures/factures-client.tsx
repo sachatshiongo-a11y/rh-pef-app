@@ -26,7 +26,7 @@ export type FactureRow = {
   numero: string | null;
   date: string | null;
   echeance: string | null;
-  joursRestants: number | null; // null si réglée ou sans échéance
+  joursRestants: number | null; // null si payée ou sans échéance
   datePaiement: string | null;
   /** Devise de la facture (2026-10-09) : `montant` et `reste` sont dans cette devise. Absente = USD. */
   devise?: DeviseFacture;
@@ -54,7 +54,7 @@ const fmt = (f: { devise?: DeviseFacture }, n: number | string) => ((f.devise ??
 const fmtTotal = (t: TotalDevises) => libelleTotal(t, undefined, usd);
 const nonNul = (t: TotalDevises) => aDesFrancs(t) || t.usd > 0;
 
-// Pastille d'échéance : verte > 10 j, jaune ≤ 10 j, rouge en retard, verte « payée » une fois réglée.
+// Pastille d'échéance : verte > 10 j, jaune ≤ 10 j, rouge en retard, verte « payée » une fois payée.
 function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
   if (f.statut === "REGLEE") return { texte: `Payée le ${f.datePaiement ?? "—"}`, cls: "bg-emerald-100 text-emerald-800" };
   if (f.joursRestants === null) return null;
@@ -68,13 +68,13 @@ const BADGE_DEMANDE = "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium
 
 const sommaireCls = "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden";
 
-// « 3 factures réglées sur 4 sélectionnées : 1 était déjà réglée. » — le règlement en lot est
+// « 3 factures payées sur 4 sélectionnées : 1 était déjà payée. » — le règlement en lot est
 // verrouillé ligne par ligne côté serveur (voir marquerPayeesEnLot) : si une facture sélectionnée
-// a été réglée entre-temps par ailleurs, elle est simplement exclue, jamais réglée deux fois. On
+// a été payée entre-temps par ailleurs, elle est simplement exclue, jamais payée deux fois. On
 // le DIT plutôt que de vider la sélection comme si tout était passé.
 function messageEcartLot(reglees: number, demandees: number): string {
   const manquantes = demandees - reglees;
-  return `${reglees} facture${reglees > 1 ? "s" : ""} réglée${reglees > 1 ? "s" : ""} sur ${demandees} sélectionnée${demandees > 1 ? "s" : ""} : ${manquantes} était${manquantes > 1 ? "ent" : ""} déjà réglée${manquantes > 1 ? "s" : ""}.`;
+  return `${reglees} facture${reglees > 1 ? "s" : ""} payée${reglees > 1 ? "s" : ""} sur ${demandees} sélectionnée${demandees > 1 ? "s" : ""} : ${manquantes} était${manquantes > 1 ? "ent" : ""} déjà payée${manquantes > 1 ? "s" : ""}.`;
 }
 
 /**
@@ -142,7 +142,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
   // Seulement ce qui est À L'ÉCRAN : après un changement de filtre, une case cochée avant ne doit
   // ni se compter, ni se supprimer, ni s'exporter sans qu'on la voie.
   const selIds = [...sel].filter((id) => toutes.some((f) => f.id === id));
-  // À régler = ni réglée, ni déjà en attente d'une décision de la Direction (jamais demandée deux fois).
+  // À payer = ni payée, ni déjà en attente d'une décision de la Direction (jamais demandée deux fois).
   const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE" && !f.paiementDemande));
   const selDejaDemandees = selIds.filter((id) => toutes.some((f) => f.id === id && f.paiementDemande)).length;
   // Hors Direction, « Marquer payée » DEMANDE le paiement : les mots le disent.
@@ -358,14 +358,14 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
       ) : (
         <>
           {(groupes ?? []).filter((g) => surPage(g.factures).length > 0).map((g) => {
-            // Par devise : réglé = montant − reste, dans chaque devise.
+            // Par devise : payé = montant − reste, dans chaque devise.
             const total = sumMontant(g.factures), du = sumReste(g.factures);
             const regle: TotalDevises = { ...total, usd: Math.round((total.usd - du.usd) * 100) / 100, cdf: Math.round((total.cdf - du.cdf) * 100) / 100 };
             return (
               <details key={g.titre} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s){noteAffichees(g.factures)}</span></span>
-                  <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{fmtTotal(regle)}</b> / {fmtTotal(total)}</span>
+                  <span className="text-xs font-normal">Payé <b className="text-emerald-700">{fmtTotal(regle)}</b> / {fmtTotal(total)}</span>
                 </summary>
                 {liste(g.factures)}
               </details>

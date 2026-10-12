@@ -19,9 +19,9 @@ export function ModifsEnAttente({ demandes, estDirection }: { demandes: ModifEnA
           <p className="text-xs text-amber-800">Demandée par {d.auteurNom} le {d.le}{d.motif ? ` — motif : ${d.motif}` : ""}</p>
         </div>
       ))}
-      {estDirection && (
-        <Link href="/a-valider#modifications-fiches" className="mt-1 inline-block text-xs font-medium text-primary underline">Décider dans « À valider » →</Link>
-      )}
+      <Link href="/a-valider#modifications-fiches" className="mt-1 inline-block text-xs font-medium text-primary underline">
+        {estDirection ? "Décider" : "Voir"} dans « À valider » →
+      </Link>
     </div>
   );
 }

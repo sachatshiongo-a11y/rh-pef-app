@@ -1010,7 +1010,7 @@ export default async function FicheEmployePage({
                 <td className="px-3 py-2">{a.motif ?? "—"}</td>
                 <td className="px-3 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${a.statut === "APPROUVE" ? "bg-green-100 text-green-800" : a.statut === "REFUSE" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>
-                    {a.statut === "APPROUVE" ? "Approuvé" : a.statut === "REFUSE" ? "Refusé" : "En attente"}
+                    {a.statut === "APPROUVE" ? "Approuvée" : a.statut === "REFUSE" ? "Refusée" : "En attente"}
                   </span>
                 </td>
                 {estAdmin && (

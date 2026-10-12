@@ -136,7 +136,7 @@ describe("une ligne par demande", () => {
     expect(cellules[2]).toBe("Congé annuel");
     expect(cellules[3]).toBe("5 oct. → 12 oct."); // l'année est omise : on est en 2026
     expect(cellules[4]).toBe("5 j");
-    expect(cellules[5]).toBe("Approuvé");
+    expect(cellules[5]).toBe("Approuvée");
     expect(cellules[6]).toContain("Signé le 08/10/2026");
     expect(tableau().querySelector('[data-conge="v1"] td:nth-child(7)')?.textContent).toContain("À signer");
   });
@@ -148,8 +148,8 @@ describe("une ligne par demande", () => {
 
   it("qui a décidé est écrit EN TOUTES LETTRES sous la pastille (tableau et cartes), pas seulement en infobulle", () => {
     monter("ADMIN", { passesOuvertParDefaut: true });
-    expect(tableau().querySelector('[data-conge="p1"] td:nth-child(6)')?.textContent).toBe("Approuvépar Sacha Tshiongo");
-    expect(tableau().querySelector('[data-conge="p2"] td:nth-child(6)')?.textContent).toBe("Refuséepar Sacha Tshiongo".replace("Refuséepar", "Refusépar"));
+    expect(tableau().querySelector('[data-conge="p1"] td:nth-child(6)')?.textContent).toBe("Approuvéepar Sacha Tshiongo");
+    expect(tableau().querySelector('[data-conge="p2"] td:nth-child(6)')?.textContent).toBe("Refuséepar Sacha Tshiongo");
     expect(cartes().querySelector('[data-conge="p1"]')?.textContent).toContain("par Sacha Tshiongo");
     expect(tableau().querySelector('[data-conge="a1"] td:nth-child(6)')?.textContent).toBe("En attente"); // pas encore décidée : personne
   });

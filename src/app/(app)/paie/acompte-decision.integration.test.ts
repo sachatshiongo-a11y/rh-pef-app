@@ -58,7 +58,7 @@ beforeAll(async () => {
 afterAll(async () => { await fermer?.(); });
 
 describe("décision sur un acompte → le salarié est prévenu", () => {
-  it("acceptée à l'unité : cloche + push, lien vers « Ma paie », qui survit au ménage de la décision", async () => {
+  it("approuvée à l'unité : cloche + push, lien vers « Ma paie », qui survit au ménage de la décision", async () => {
     const a = await acompte(50);
     // La notification « à valider » de la Direction, effacée par la décision.
     await prisma.notification.create({ data: { domaine: "RH", type: "ACOMPTE", message: "Demande d'acompte", refId: a.id } });
@@ -68,7 +68,7 @@ describe("décision sur un acompte → le salarié est prévenu", () => {
 
     const n = await cloche(a.id);
     expect(n).toHaveLength(1);
-    expect(n[0].message).toBe("Votre demande d'acompte de 50,00 $ (septembre 2026) a été acceptée ✅. Le montant sera déduit de votre salaire.");
+    expect(n[0].message).toBe("Votre demande d'acompte de 50,00 $ (septembre 2026) a été approuvée ✅. Le montant sera déduit de votre salaire.");
     expect(n[0].lien).toBe("/espace/paie");
     expect(P.push).toEqual([{ ids: [userId], body: n[0].message }]);
     expect(await prisma.notification.count({ where: { refId: a.id } }), "la notification Direction est bien effacée").toBe(0);

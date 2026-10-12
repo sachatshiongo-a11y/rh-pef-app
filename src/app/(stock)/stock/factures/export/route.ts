@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Factures",
-      entete: ["Fournisseur", "N° facture", "Date", "Échéance", "Date paiement", "Montant USD", "Réglé USD", "Reste USD", ...(avecFC ? ["Montant CDF", "Réglé CDF", "Reste CDF"] : []), "Statut", "Mode de paiement"],
+      entete: ["Fournisseur", "N° facture", "Date", "Échéance", "Date paiement", "Montant USD", "Payé USD", "Reste USD", ...(avecFC ? ["Montant CDF", "Payé CDF", "Reste CDF"] : []), "Statut", "Mode de paiement"],
       lignes,
     }],
   });

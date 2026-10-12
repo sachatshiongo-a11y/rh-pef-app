@@ -120,7 +120,7 @@ afterAll(async () => { vi.useRealTimers(); await fermer?.(); });
 // Texte de l'ANCIENNE page (sans sélecteur, 90133f9) rendue sur ce même jeu de données au 30/09/2026 :
 // relevé avant la modification. La nouvelle page, au mois courant, doit le redonner à l'identique,
 // au titre du sélecteur près.
-const AVANT = " ST Bonjour Sacha Direction · mercredi 30 septembre 2026 · Stock & Achats Taux du jour 1 USD = 2 800 CDF Articles 3 Alertes urgentes 1 À réapprovisionner 1 Valeur du stock 37,00 $ Factures à payer 200,00 $ 2 facture(s) Commandes du mois 1 À régler cette semaine 120,00 $ 1 facture(s) Factures échues 80,00 $ 1 facture(s) Légumes frais du mois 15,50 $ 1 achat(s) Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $ Articles au seuil minimum (2) Tout voir Beurre 0 Sel 3 Derniers bons de commande Tout voir 001/PEF/SEPT/26 · — Validé 009/PEF/AOUT/26 · — Validé Dernières factures Tout voir Fourn. Sept · 120,00 $ À régler Fourn. Reglee · 500,00 $ Réglée Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières entrées & sorties Tout voir Farine · 29/09/2026 −2 Farine · 28/09/2026 −4 Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations récentes (ajustements) Tout voir Sel · 25/08/2026 2 Derniers comptages Tout voir 29/09/2026 · 2 article(s) 0 écart(s) 31/08/2026 · 3 article(s) 0 écart(s) Pertes récentes Tout voir Sel · 18/08/2026 −1 Sel humide août Articles les plus commandés Tout voir Aucune commande enregistrée. Fournisseurs les plus sollicités Tout voir Aucun bon de commande. 0 fournisseurs · 3 articles au catalogue. ";
+const AVANT = " ST Accueil Bonjour Sacha Direction · mercredi 30 septembre 2026 · Stock & Achats Taux du jour 1 USD = 2 800 CDF Articles 3 Alertes urgentes 1 À réapprovisionner 1 Valeur du stock 37,00 $ Factures à payer 200,00 $ 2 facture(s) Commandes du mois 1 À payer cette semaine 120,00 $ 1 facture(s) Factures échues 80,00 $ 1 facture(s) Légumes frais du mois 15,50 $ 1 achat(s) Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $ Articles au seuil minimum (2) Tout voir Beurre 0 Sel 3 Derniers bons de commande Tout voir 001/PEF/SEPT/26 · — Validé 009/PEF/AOUT/26 · — Validé Dernières factures Tout voir Fourn. Sept · 120,00 $ À payer Fourn. Reglee · 500,00 $ Payée Fourn. Aout · 60,00 $ Payée Fourn. Echue · 80,00 $ Échue non payée Dernières entrées & sorties Tout voir Farine · 29/09/2026 −2 Farine · 28/09/2026 −4 Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations récentes (ajustements) Tout voir Sel · 25/08/2026 2 Derniers comptages Tout voir 29/09/2026 · 2 article(s) 0 écart(s) 31/08/2026 · 3 article(s) 0 écart(s) Pertes récentes Tout voir Sel · 18/08/2026 −1 Sel humide août Articles les plus commandés Tout voir Aucune commande enregistrée. Fournisseurs les plus sollicités Tout voir Aucun bon de commande. 0 fournisseurs · 3 articles au catalogue. ";
 
 describe("accueil Stock — mois courant inchangé", () => {
   it("sans ?mois= : exactement le texte d'avant, au titre du sélecteur et aux cartes « Entrées de stock » près", async () => {
@@ -193,7 +193,7 @@ describe("accueil Stock — un mois passé", () => {
     expect(t).toContain("Conso. du mois (sorties) ≈ 11,50 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 4,00 $ · sans motif 7,50 $");
     expect(t).toContain("Derniers bons de commande · août 2026 Tout voir 009/PEF/AOUT/26");
     expect(t).not.toContain("001/PEF/SEPT/26");
-    expect(t).toContain("Dernières factures · août 2026 Tout voir Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières");
+    expect(t).toContain("Dernières factures · août 2026 Tout voir Fourn. Aout · 60,00 $ Payée Fourn. Echue · 80,00 $ Échue non payée Dernières");
     expect(t).toContain("Dernières entrées & sorties · août 2026 Tout voir Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations");
     expect(t).toContain("Réconciliations récentes (ajustements) · août 2026 Tout voir Sel · 25/08/2026 2 Derniers");
     expect(t).toContain("Derniers comptages · août 2026 Tout voir 31/08/2026 · 3 article(s) 0 écart(s) Pertes");
@@ -213,7 +213,7 @@ describe("accueil Stock — un mois passé", () => {
     expect(t).toContain("À réapprovisionner 1 aujourd'hui");
     expect(t).toContain("Valeur du stock 52,50 $ stock au 30/09/2026 à 11:00 (figé à la clôture d'août 2026)");
     expect(t).toContain("Factures à payer 200,00 $ 2 facture(s) · aujourd'hui");
-    expect(t).toContain("À régler cette semaine 120,00 $ 1 facture(s) · semaine en cours");
+    expect(t).toContain("À payer cette semaine 120,00 $ 1 facture(s) · semaine en cours");
     expect(t).toContain("Factures échues 80,00 $ 1 facture(s) · aujourd'hui");
     expect(t).toContain("Articles au seuil minimum (2) · aujourd'hui");
     expect(t).toContain("Articles les plus commandés · tous mois confondus");

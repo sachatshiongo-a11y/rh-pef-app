@@ -82,7 +82,7 @@ describe("VueMesConges", () => {
     expect(t).toContain("Pris en 2026");
     expect(t).toContain("Se déduisent de votre solde : Congé annuel.");
     expect(t).toContain("En attente");
-    expect(t).toContain("Acceptée");
+    expect(t).toContain("Approuvée");
     expect(t).toContain("Refusée");
     expect(t).toContain("Voir le document");
     expect(t).not.toMatch(CODES_BRUTS);

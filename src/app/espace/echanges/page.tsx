@@ -61,7 +61,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
         <p className="text-sm text-muted-foreground">Donnez un de vos shifts à un collègue contre l&apos;un des siens, ou demandez à la Direction un autre horaire.</p>
       </div>
 
-      {sp.propose && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Proposition envoyée. L&apos;échange se fera quand votre collègue ET la Direction auront accepté.</p>}
+      {sp.propose && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Proposition envoyée. L&apos;échange se fera quand votre collègue ET la Direction auront approuvé.</p>}
       {sp.echange && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Demande envoyée à la Direction. Vous serez prévenu(e) de sa réponse.</p>}
       {sp.erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
@@ -180,7 +180,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
                   {e.statut === "EN_ATTENTE" && (
                     <p className="text-xs text-muted-foreground">
                       {attenteCollegue ? "Votre collègue n'a pas encore répondu" : "Votre collègue a accepté"} ·{" "}
-                      {attenteDir ? "la Direction n'a pas encore répondu" : "la Direction a accepté"}
+                      {attenteDir ? "la Direction n'a pas encore répondu" : "la Direction a approuvé"}
                     </p>
                   )}
                   {e.statut === "EN_ATTENTE" && <AnnulerEchange id={e.id} />}

@@ -200,7 +200,7 @@ export async function approuverDemandesFiche(ids: string[], decideur: Acteur, ma
       r.traitees++;
       if (note) r.avertissements.push(`${d.employee.nom} : ${note}`);
       await supprimerNotificationsPour(id);
-      await notifierAuteur(d, `Votre modification de la fiche de ${d.employee.nom} est validée : ${ch.map(ligneChangement).join(" ; ")}.`);
+      await notifierAuteur(d, `Votre modification de la fiche de ${d.employee.nom} est approuvée : ${ch.map(ligneChangement).join(" ; ")}.`);
     } catch (e) {
       const nom = (await prisma.demandeModifFiche.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } }))?.employee.nom ?? "Demande";
       r.echecs.push(`${nom} : ${messageLisible(e)}`);

@@ -3,40 +3,47 @@ import { prisma } from "@/lib/prisma";
 import { CompteNonLie } from "@/components/pointage/compte-non-lie";
 import { PointerClient } from "./pointer-client";
 import { chargerPointageDuJour } from "./pointage-du-jour";
+import { EcranSuivi } from "./ecran-suivi";
 import { exigerPageRH } from "@/lib/garde-page";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 
-export default async function PointerPage() {
+// « Pointages » (menu RH). La Direction et la RH y lisent le SUIVI de la brigade ; leur propre pointage est un
+// bouton (« Pointer moi-même », /pointer?moi=1). Un compte en consultation n'a pas le suivi : l'écran reste
+// son pointage personnel. Même adresse pour tous, l'ancienne /pointer/suivi renvoie ici.
+export default async function PointagesPage({ searchParams }: { searchParams: Promise<{ moi?: string; date?: string }> }) {
   const user = await exigerPageRH();
+  const sp = await searchParams;
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
+
+  if (peutGerer && !sp.moi) return <EcranSuivi date={sp.date} />;
+
   const u = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
 
-  const lienSuivi = peutGerer ? (
-    <div className="mx-auto mb-3 max-w-md text-right">
-      <Link href="/pointer/suivi" className="text-sm text-primary underline">Suivi des pointages (Direction) →</Link>
+  const entete = (
+    <div className="mx-auto mb-3 flex max-w-md flex-wrap items-center justify-between gap-2">
+      <h1 className="text-xl font-semibold sm:text-2xl">Pointages</h1>
+      {peutGerer && <Link href="/pointer" className="text-sm text-primary underline">← Suivi de la brigade</Link>}
     </div>
-  ) : null;
+  );
 
   // Le pointage par l'affiche suit l'interrupteur de l'espace salarié (le serveur refuse aussi le scan).
   if (!(await espaceEmployeActif())) {
     return (
-      <div className="mx-auto max-w-md">
-        {lienSuivi}
-        <h1 className="mb-3 text-xl font-semibold sm:text-2xl">Pointer</h1>
-        <div className="rounded-2xl border border-dashed bg-card p-6 text-sm text-muted-foreground">
+      <>
+        {entete}
+        <div className="mx-auto max-w-md rounded-2xl border border-dashed bg-card p-6 text-sm text-muted-foreground">
           Le pointage par l&apos;affiche est fermé : l&apos;espace salarié est désactivé (Paramètres). Les présences se saisissent dans « Présences &amp; heures ».
         </div>
-      </div>
+      </>
     );
   }
 
   if (!u?.employeeId) {
     return (
-      <div className="mx-auto max-w-md">
-        {lienSuivi}
-        <h1 className="mb-3 text-xl font-semibold sm:text-2xl">Pointer</h1>
-        <CompteNonLie />
-      </div>
+      <>
+        {entete}
+        <div className="mx-auto max-w-md"><CompteNonLie /></div>
+      </>
     );
   }
 
@@ -44,7 +51,7 @@ export default async function PointerPage() {
 
   return (
     <>
-      {lienSuivi}
+      {entete}
       <PointerClient
         nom={jour.nom ?? "—"}
         photoUrl={jour.photoUrl}

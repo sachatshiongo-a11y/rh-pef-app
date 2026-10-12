@@ -84,7 +84,7 @@ describe("pastilles d'état et de type", () => {
   it("les anciennes cartes deviennent des pastilles chiffrées, cliquables, dans l'ordre", () => {
     monter();
     expect(pastilles("etat").map((a) => a.textContent?.replace(/\s+/g, " "))).toEqual([
-      "Tous (80)", "En attente (10)", "En congé aujourd'hui (3)", "À venir (30 j) (3)", "Approuvés (64)", "Refusés (6)",
+      "Tous (80)", "En attente (10)", "En congé aujourd'hui (3)", "À venir (30 j) (3)", "Approuvées (64)", "Refusées (6)",
     ]);
     expect(pastilles("etat").map((a) => a.getAttribute("href"))).toEqual([
       "/conges", "/conges?statut=EN_ATTENTE", "/conges?statut=APPROUVE&quand=en-cours", "/conges?statut=APPROUVE&quand=a-venir", "/conges?statut=APPROUVE", "/conges?statut=REFUSE",

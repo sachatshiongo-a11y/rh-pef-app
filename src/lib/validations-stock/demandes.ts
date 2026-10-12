@@ -138,7 +138,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
     // Ordre de la sélection (jamais l'ordre physique de la base) : le résumé se relit à l'identique.
     const facs = (await tx.factureFournisseur.findMany({ where: { id: { in: ids } } })).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     const aRegler = facs.filter((f) => f.statut !== "REGLEE" && resteFacture(f) > 0.001);
-    if (aRegler.length === 0) throw new Error(ids.length > 1 ? "Aucune de ces factures n'est à régler." : "Cette facture est déjà réglée.");
+    if (aRegler.length === 0) throw new Error(ids.length > 1 ? "Aucune de ces factures n'est à payer." : "Cette facture est déjà payée.");
     const maintenant = new Date();
     for (const f of aRegler) {
       try { lireDatePaiement(s.dateStr, f.date, maintenant); } catch (e) {
@@ -214,7 +214,7 @@ async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: stri
     if (!existe) throw new ConflitDemande(`La ${nomFacture(f)} a été supprimée depuis la demande`);
     const cur = await verrouillerFacture(tx, f.id);
     const m = montantsFacture(cur);
-    if (cur.statut === "REGLEE" || m.reste <= 0.001) throw new ConflitDemande(`La ${nomFacture(f)} a déjà été réglée depuis la demande`);
+    if (cur.statut === "REGLEE" || m.reste <= 0.001) throw new ConflitDemande(`La ${nomFacture(f)} a déjà été payée depuis la demande`);
     // Jeton : la devise et le reste VUS par le demandeur, dans la devise de la facture.
     const deviseVue = f.devise === "CDF" ? "CDF" : "USD";
     const resteVu = f.devise === "CDF" ? f.resteCDF : f.resteUSD;
@@ -233,7 +233,7 @@ async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: stri
   if (c.mode === "LOT") {
     const verse: VerseLot = c.saDevise ? "SA_DEVISE" : c.enFrancs ? "CDF" : "USD";
     const regs = await reglerLotTx(tx, decideur.id, c.factures.map((f) => f.id), date, `Marquée payée (lot${c.enFrancs ? " en francs" : c.saDevise ? " dans la devise de chaque facture" : ""} — ${trace})`, { verse });
-    if (regs.length !== c.factures.length) throw new ConflitDemande("Une facture du lot n'est plus à régler");
+    if (regs.length !== c.factures.length) throw new ConflitDemande("Une facture du lot n'est plus à payer");
     return regs;
   }
   const r = c.reglement!;
@@ -634,7 +634,7 @@ async function verrouillerDemande(tx: Tx, id: string, version: string | null) {
   await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${id} FOR UPDATE`;
   const d = await tx.demandeValidationStock.findUnique({ where: { id } });
   if (!d) throw new Error("Demande introuvable.");
-  if (d.statut !== "EN_ATTENTE") throw new Error(`Cette demande a déjà été ${d.statut === "VALIDEE" ? "validée" : d.statut === "REFUSEE" ? "refusée" : "retirée"}.`);
+  if (d.statut !== "EN_ATTENTE") throw new Error(`Cette demande a déjà été ${d.statut === "VALIDEE" ? "approuvée" : d.statut === "REFUSEE" ? "refusée" : "retirée"}.`);
   // Jeton de version : la Direction décide de ce qu'elle a VU. Une retouche de l'auteur après
   // l'ouverture de sa page (fusion d'une proposition) change `updatedAt` : décision refusée.
   // `version` null : retrait par son auteur (il retire SA demande, quel que soit son état de retouche).
@@ -717,12 +717,12 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
   } else if (d.nature === "RECONCILIATION" && r.comptage) {
     await apresComptage({ sessionId: r.comptage.sessionId, nbHorsTol: r.comptage.nbHorsTol, articleIds: r.comptage.articleIds, niveauxAvant: r.comptage.niveauxAvant });
     await journaliser(prisma, { entite: "SessionComptage", entiteId: r.comptage.sessionId, champ: "comptage", nouvelleValeur: `${r.comptage.nbEcarts} écart(s), ${r.comptage.nbHorsTol} hors tolérance (demande validée)`, userId: decideur.id });
-    await notifierDemandeur(d, `Réconciliation validée par la Direction — ${d.resume}`, `/stock/archives/${r.comptage.sessionId}`);
+    await notifierDemandeur(d, `Réconciliation approuvée par la Direction — ${d.resume}`, `/stock/archives/${r.comptage.sessionId}`);
   } else if (d.nature === "MOUVEMENT_MANUEL" && r.mouvement) {
     await apresMouvements(r.mouvement.saisi, r.mouvement.niveauxAvant);
-    await notifierDemandeur(d, `Mouvement validé par la Direction — ${d.resume}`, "/stock/mouvements");
+    await notifierDemandeur(d, `Mouvement approuvé par la Direction — ${d.resume}`, "/stock/mouvements");
   } else {
-    await notifierDemandeur(d, `Modification validée par la Direction — ${d.resume}`, lienCible(d.nature, d.charge));
+    await notifierDemandeur(d, `Modification approuvée par la Direction — ${d.resume}`, lienCible(d.nature, d.charge));
   }
   });
   return { id, nature: d.nature, resume: d.resume };

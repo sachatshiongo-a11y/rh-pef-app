@@ -153,7 +153,7 @@ export async function corrigerEnteteFactureTx(tx: Tx, userId: string, id: string
     }
     const nouveau = arr2(patch.montant);
     if (!(nouveau > 0)) throw new Error("Le montant d'une facture doit être supérieur à 0.");
-    if (nouveau < m.regle - 0.001) throw new Error(`Le nouveau montant (${formaterMontantFacture(nouveau, dev)}) est inférieur au déjà réglé (${formaterMontantFacture(m.regle, dev)}) : annulez d'abord le paiement en trop.`);
+    if (nouveau < m.regle - 0.001) throw new Error(`Le nouveau montant (${formaterMontantFacture(nouveau, dev)}) est inférieur au déjà payé (${formaterMontantFacture(m.regle, dev)}) : annulez d'abord le paiement en trop.`);
     reste = Math.max(0, arr2(nouveau - m.regle));
     noter("montant", formaterMontantFacture(m.montant, dev), formaterMontantFacture(nouveau, dev));
     Object.assign(data, dev === "CDF" ? { montantCDF: nouveau, resteAPayerCDF: reste } : { montantUSD: nouveau, resteAPayerUSD: reste });

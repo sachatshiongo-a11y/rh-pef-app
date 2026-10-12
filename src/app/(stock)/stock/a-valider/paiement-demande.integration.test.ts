@@ -228,7 +228,7 @@ describe("Refus, retrait, conflits, droits", () => {
     await prisma.factureFournisseur.update({ where: { id: f.id }, data: { montantRegleUSD: 100, resteAPayerUSD: 0, statut: "REGLEE" } });
     en("dir");
     const r = await validerDemandes([d.id], {}, await v([d.id]));
-    expect(r).toMatchObject({ traitees: [], echecs: [{ id: d.id, erreur: expect.stringMatching(/déjà été réglée depuis la demande.*rien n'a été écrit/) }] });
+    expect(r).toMatchObject({ traitees: [], echecs: [{ id: d.id, erreur: expect.stringMatching(/déjà été payée depuis la demande.*rien n'a été écrit/) }] });
     expect(await paiements(f.id)).toEqual([]);
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   }, 60_000);

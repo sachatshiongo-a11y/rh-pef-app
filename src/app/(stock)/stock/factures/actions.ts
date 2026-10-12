@@ -222,16 +222,16 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const dateStr = String(formData.get("date") ?? "").trim() || null;
   const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
   // « Déjà réglé », dans la devise de la facture (ancien nom du champ : montantRegleUSD).
-  const montantRegle = decSaisi(formData.get("montantRegle") ?? formData.get("montantRegleUSD"), "montant déjà réglé");
+  const montantRegle = decSaisi(formData.get("montantRegle") ?? formData.get("montantRegleUSD"), "montant déjà payé");
   // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
   // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
   if (montantRegle !== 0 && !estDirection(user)) {
-    throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
+    throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant payé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
   // Un réglé SUPÉRIEUR au montant est refusé (avant : ramené à 0 reste en silence, l'excédent s'évaporait).
-  if (montantRegle < 0) throw new Error("Le montant déjà réglé ne peut pas être négatif.");
+  if (montantRegle < 0) throw new Error("Le montant déjà payé ne peut pas être négatif.");
   if (montantRegle > montant + 0.001) {
-    throw new Error(`Le montant déjà réglé (${formaterMontantFacture(montantRegle, devise)}) dépasse le montant de la facture (${formaterMontantFacture(montant, devise)}). Rien n'a été enregistré.`);
+    throw new Error(`Le montant déjà payé (${formaterMontantFacture(montantRegle, devise)}) dépasse le montant de la facture (${formaterMontantFacture(montant, devise)}). Rien n'a été enregistré.`);
   }
   const reste = Math.max(0, Math.round((montant - montantRegle) * 100) / 100);
   // Les entrées en stock portent la date de la FACTURE : sans date, c'est le jour (Kinshasa), jamais l'échéance
@@ -373,7 +373,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
           factureId: f.id, type: "PAIEMENT", devise, date: new Date(datePaiementISO),
           ...(devise === "USD" ? { montantUSD: montantRegle } : { montantCDF: montantRegle }),
           modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
-          note: "Déjà réglé à la saisie de la facture", creeParId: user.id,
+          note: "Déjà payé à la saisie de la facture", creeParId: user.id,
         },
       });
     }
@@ -409,7 +409,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     entreeEnStock: entrerEnStock, nbEntrees: entrerEnStock ? lignes.filter((l) => l.articleId).length : 0,
   });
 
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montant} ${devise} (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}${datePaiementISO ? ` · déjà réglé ${montantRegle} ${devise} le ${datePaiementISO}` : ""}${doublonFacture ? " · créée malgré une facture ressemblante (confirmé)" : ""}`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montant} ${devise} (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}${datePaiementISO ? ` · déjà payé ${montantRegle} ${devise} le ${datePaiementISO}` : ""}${doublonFacture ? " · créée malgré une facture ressemblante (confirmé)" : ""}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");

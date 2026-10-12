@@ -112,14 +112,14 @@ describe("Congés — pastilles et compteurs (sur tout l'ensemble)", () => {
     expect(pastille(html, "En attente")).toBe("3");
     expect(pastille(html, "En congé aujourd'hui")).toBe("2");
     expect(pastille(html, "À venir (30 j)")).toBe("1");
-    expect(pastille(html, "Approuvés")).toBe("134");
-    expect(pastille(html, "Refusés")).toBe("4");
+    expect(pastille(html, "Approuvées")).toBe("134");
+    expect(pastille(html, "Refusées")).toBe("4");
   });
 
   it("filtrer par statut ne change pas les compteurs des autres pastilles ; la liste ne garde que ce statut", async () => {
     const html = await rendre({ statut: "REFUSE" });
     expect(pastille(html, "En attente")).toBe("3");
-    expect(pastille(html, "Refusés")).toBe("4");
+    expect(pastille(html, "Refusées")).toBe("4");
     expect(sections(html)).toEqual(["PASSES"]); // les refusés sont tous « passés »
     expect(lignes(html).sort()).toEqual(["Salarié 008", "Salarié 009", "Salarié 010", "Salarié 011"]);
   });

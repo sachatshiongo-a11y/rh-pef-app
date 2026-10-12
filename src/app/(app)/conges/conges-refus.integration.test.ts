@@ -5,7 +5,7 @@ import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
 /**
  * LE MOTIF DE REFUS (décision Direction 2026-10-09) : obligatoire (≤ 500 caractères) pour tout refus, à
  * l'unité comme en lot ; stocké ; au journal d'audit ; repris dans la notification au salarié ; imprimé sur
- * le PDF — qui dit « Approuvé par la Direction » SANS le nom de la personne. Le vrai `requireRole`.
+ * le PDF — qui dit « Approuvée par la Direction » SANS le nom de la personne. Le vrai `requireRole`.
  */
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN", nom: "Sacha Tshiongo" } as { id: string; role: string; nom: string } }));
@@ -146,22 +146,22 @@ describe("refus en lot : un même motif pour la sélection", () => {
 });
 
 describe("PDF de la demande", () => {
-  it("refusée : « Refusé par la Direction » et le motif imprimé, sans le nom de la personne", async () => {
+  it("refusée : « Refusée par la Direction » et le motif imprimé, sans le nom de la personne", async () => {
     const id = await demande("EN_ATTENTE", "2026-12-01");
     await refuserConge(id, "Effectif insuffisant");
     const t = await textePdf(id);
-    expect(t).toContain("Refusé par la Direction");
+    expect(t).toContain("Refusée par la Direction");
     expect(t).toContain("Motif du refus");
     expect(t).toContain("Effectif insuffisant");
     expect(t).not.toContain("Sacha");
     expect(t).not.toContain("Traité par");
   });
 
-  it("approuvée : « Approuvé par la Direction », jamais le nom de la personne qui a cliqué", async () => {
+  it("approuvée : « Approuvée par la Direction », jamais le nom de la personne qui a cliqué", async () => {
     const id = await demande("EN_ATTENTE", "2026-12-08");
     await approuverConge(id);
     const t = await textePdf(id);
-    expect(t).toContain("Approuvé par la Direction");
+    expect(t).toContain("Approuvée par la Direction");
     expect(t).not.toContain("Sacha");
     expect(t).not.toContain("Motif du refus");
   });

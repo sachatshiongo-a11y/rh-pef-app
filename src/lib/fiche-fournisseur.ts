@@ -12,9 +12,12 @@ export const ONGLETS_FOURNISSEUR = ["factures", "bons", "achats", "articles", "c
 export type OngletFournisseur = (typeof ONGLETS_FOURNISSEUR)[number];
 export const ONGLET_PAR_DEFAUT: OngletFournisseur = "factures";
 
-export const FILTRES_FACTURES = ["a-regler", "payees", "toutes"] as const;
+export const FILTRES_FACTURES = ["a-payer", "payees", "toutes"] as const;
 export type FiltreFactures = (typeof FILTRES_FACTURES)[number];
-export const FILTRE_FACTURES_PAR_DEFAUT: FiltreFactures = "a-regler";
+export const FILTRE_FACTURES_PAR_DEFAUT: FiltreFactures = "a-payer";
+
+/** Ancien nom d'un filtre (liens enregistrés, favoris) → son nom actuel. « À régler » est devenu « À payer » (V6). */
+const ANCIENS_FILTRES_FACTURES: Record<string, FiltreFactures> = { "a-regler": "a-payer" };
 
 export const FILTRES_BONS = ["en-cours", "recus", "tous"] as const;
 export type FiltreBons = (typeof FILTRES_BONS)[number];
@@ -31,6 +34,7 @@ export function lireOnglet(v: string | string[] | undefined): OngletFournisseur 
 
 export function lireFiltreFactures(v: string | string[] | undefined): FiltreFactures {
   const x = premier(v);
+  if (x && ANCIENS_FILTRES_FACTURES[x]) return ANCIENS_FILTRES_FACTURES[x];
   return (FILTRES_FACTURES as readonly string[]).includes(x ?? "") ? (x as FiltreFactures) : FILTRE_FACTURES_PAR_DEFAUT;
 }
 
@@ -40,8 +44,8 @@ export function lireFiltreBons(v: string | string[] | undefined): FiltreBons {
 }
 
 /**
- * « À régler » = les MÊMES statuts que le filtre « À payer » de l'écran Factures (`?statut=du`) :
- * ni réglée, ni rien d'autre — une facture échue non réglée est à régler. Source unique : l'écran
+ * « À payer » = les MÊMES statuts que le filtre « À payer » de l'écran Factures (`?statut=du`) :
+ * ni payée, ni rien d'autre — une facture échue non payée est à payer. Source unique : l'écran
  * Factures importe cette constante.
  */
 export const STATUTS_FACTURE_A_REGLER: StatutFacture[] = ["A_REGLER", "ECHUE_NON_REGLEE"];
@@ -51,7 +55,7 @@ export const STATUTS_BC_EN_COURS: StatutBonCommande[] = ["BROUILLON", "VALIDE", 
 
 /** Statuts retenus par un filtre de factures ; `undefined` = pas de restriction (Toutes). */
 export function statutsFactures(filtre: FiltreFactures): StatutFacture[] | undefined {
-  if (filtre === "a-regler") return STATUTS_FACTURE_A_REGLER;
+  if (filtre === "a-payer") return STATUTS_FACTURE_A_REGLER;
   if (filtre === "payees") return ["REGLEE"];
   return undefined;
 }
@@ -84,7 +88,8 @@ export function lireRetourFiche(retour: string | string[] | undefined, fournisse
   const q = new URLSearchParams(r.slice(attendu.length));
   const onglet = q.get("onglet");
   if (!onglet || !(ONGLETS_FOURNISSEUR as readonly string[]).includes(onglet)) return null;
-  const filtre = q.get("filtre");
+  const filtreBrut = q.get("filtre");
+  const filtre = filtreBrut !== null && onglet === "factures" ? (ANCIENS_FILTRES_FACTURES[filtreBrut] ?? filtreBrut) : filtreBrut;
   const valides: readonly string[] = onglet === "factures" ? FILTRES_FACTURES : onglet === "bons" ? FILTRES_BONS : [];
   if (filtre !== null && !valides.includes(filtre)) return null;
   // Reconstruit : on renvoie ce qu'on sait être sain, pas la chaîne d'origine.

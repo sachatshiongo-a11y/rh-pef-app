@@ -220,8 +220,8 @@ export default async function DocumentsPage({
       : onglet === "conges"
         ? [
             { v: "EN_ATTENTE", label: "En attente" },
-            { v: "APPROUVE", label: "Approuvé" },
-            { v: "REFUSE", label: "Refusé" },
+            { v: "APPROUVE", label: "Approuvée" },
+            { v: "REFUSE", label: "Refusée" },
           ]
         : onglet === "attestations"
           ? (["DEMANDEE", "DELIVREE", "REFUSEE"] as const).map((v) => ({ v, label: LIBELLE_STATUT_ATTESTATION[v] }))
@@ -257,7 +257,7 @@ export default async function DocumentsPage({
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-xl font-semibold sm:text-2xl">Documents</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Documents &amp; archives</h1>
         <p className="text-sm text-muted-foreground">Tous les bulletins, contrats, documents et demandes</p>
       </div>
 

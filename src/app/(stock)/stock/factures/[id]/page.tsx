@@ -145,13 +145,13 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[statut]}`}>{STATUT_FACTURE_LABEL[statut]}</span>
         </div>
         <Info label="Montant" val={fm(m.montant)} sous={enFC ? libelleAutreDevise(m.montant, "CDF", tauxCDF) + " au taux du jour" : undefined} />
-        <Info label="Réglé" val={fm(m.regle)} />
+        <Info label="Payé" val={fm(m.regle)} />
         <Info label="Reste à payer" val={fm(m.reste)} accent={m.reste > 0} sous={enFC && m.reste > 0 ? libelleAutreDevise(m.reste, "CDF", tauxCDF) + " au taux du jour" : undefined} />
         <Info label="Mode de paiement" val={facture.modePaiement ?? "—"} />
         {enFC && (
           <div className="col-span-2 sm:col-span-4">
             <p className="text-xs text-muted-foreground">
-              Facture <b>en francs (FC)</b> : montant, réglé et reste tenus en francs, sans conversion.
+              Facture <b>en francs (FC)</b> : montant, payé et reste tenus en francs, sans conversion.
               {facture.tauxChangeUtilise !== null ? <> Taux du jour à l&apos;enregistrement : {formaterNombre(Number(facture.tauxChangeUtilise))} FC/$ (valorise l&apos;entrée en stock en dollars).</> : null}
             </p>
           </div>

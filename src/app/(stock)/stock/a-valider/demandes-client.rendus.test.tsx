@@ -70,7 +70,7 @@ describe("File de la Direction", () => {
     await clic(cases[0]); await clic(cases[2]);
     await clic(boutons("Valider (2)")[0]);
     expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" }, { p1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" }, {}); // la version VUE part avec la décision
-    expect(conteneur.textContent).toContain("1 demande validée.");
+    expect(conteneur.textContent).toContain("1 demande approuvée.");
     expect(conteneur.textContent).toContain("« « Riz » : Prix unitaire USD 2 → 3 » : Prix changé — rien n'a été écrit");
   });
 

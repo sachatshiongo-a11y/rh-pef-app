@@ -7,7 +7,7 @@ export const NAV_GROUPS: GroupeMenu[] = [
   {
     titre: "Pilotage",
     items: [
-      { href: "/stock", label: "Tableau de bord", icone: "accueil" },
+      { href: "/stock", label: "Accueil", icone: "accueil" },
       // Visible par tous les rôles du Stock : la Direction décide, les autres suivent leurs demandes (V1).
       { href: "/stock/a-valider", label: "À valider", icone: "valider" },
       { href: "/stock/archives", label: "Archives", icone: "archives" },

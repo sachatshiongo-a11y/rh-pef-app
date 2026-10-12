@@ -24,9 +24,10 @@ describe("onglet de la fiche fournisseur (?onglet=)", () => {
 });
 
 describe("filtres (?filtre=)", () => {
-  it("factures : À régler par défaut, valeur inconnue → À régler", () => {
-    expect(lireFiltreFactures(undefined)).toBe("a-regler");
-    expect(lireFiltreFactures("en-cours")).toBe("a-regler"); // un filtre de l'autre onglet n'a pas de sens ici
+  it("factures : À payer par défaut, valeur inconnue → À payer ; l'ancien nom « a-regler » mène au même filtre", () => {
+    expect(lireFiltreFactures(undefined)).toBe("a-payer");
+    expect(lireFiltreFactures("a-regler")).toBe("a-payer");
+    expect(lireFiltreFactures("en-cours")).toBe("a-payer"); // un filtre de l'autre onglet n'a pas de sens ici
     expect(lireFiltreFactures("payees")).toBe("payees");
     expect(lireFiltreFactures("toutes")).toBe("toutes");
   });
@@ -39,9 +40,9 @@ describe("filtres (?filtre=)", () => {
 });
 
 describe("ce que veulent dire les filtres", () => {
-  it("« À régler » = tout sauf Réglée (les statuts du filtre « À payer » de l'écran Factures)", () => {
+  it("« À payer » = tout sauf Payée (les statuts du filtre « À payer » de l'écran Factures)", () => {
     expect([...STATUTS_FACTURE_A_REGLER].sort()).toEqual(Object.values(StatutFacture).filter((s) => s !== "REGLEE").sort());
-    expect(statutsFactures("a-regler")).toEqual(["A_REGLER", "ECHUE_NON_REGLEE"]);
+    expect(statutsFactures("a-payer")).toEqual(["A_REGLER", "ECHUE_NON_REGLEE"]);
     expect(statutsFactures("payees")).toEqual(["REGLEE"]);
     expect(statutsFactures("toutes")).toBeUndefined();
   });
@@ -60,7 +61,7 @@ describe("ce que veulent dire les filtres", () => {
 describe("adresses stables", () => {
   it("l'onglet est toujours explicite ; le filtre n'apparaît que s'il n'est pas le défaut", () => {
     expect(lienFiche(ID, "factures")).toBe(`/stock/fournisseurs/${ID}?onglet=factures`);
-    expect(lienFiche(ID, "factures", "a-regler")).toBe(`/stock/fournisseurs/${ID}?onglet=factures`);
+    expect(lienFiche(ID, "factures", "a-payer")).toBe(`/stock/fournisseurs/${ID}?onglet=factures`);
     expect(lienFiche(ID, "factures", "payees")).toBe(`/stock/fournisseurs/${ID}?onglet=factures&filtre=payees`);
     expect(lienFiche(ID, "bons", "tous")).toBe(`/stock/fournisseurs/${ID}?onglet=bons&filtre=tous`);
     expect(lienFiche(ID, "articles")).toBe(`/stock/fournisseurs/${ID}?onglet=articles`);
@@ -71,6 +72,9 @@ describe("lien de retour d'une facture / d'un bon (?retour=)", () => {
   it("retrouve l'onglet et le filtre d'où l'on vient", () => {
     expect(lireRetourFiche(lienFiche(ID, "factures", "payees"), ID)).toBe(`/stock/fournisseurs/${ID}?onglet=factures&filtre=payees`);
     expect(lireRetourFiche(lienFiche(ID, "bons"), ID)).toBe(`/stock/fournisseurs/${ID}?onglet=bons`);
+  });
+  it("un lien de retour enregistré avec l'ancien filtre « a-regler » retombe sur « À payer »", () => {
+    expect(lireRetourFiche(`/stock/fournisseurs/${ID}?onglet=factures&filtre=a-regler`, ID)).toBe(`/stock/fournisseurs/${ID}?onglet=factures`);
   });
   it("revient de l'aller-retour par l'URL (suffixeRetour encode, la page décode)", () => {
     const lien = lienFiche(ID, "factures", "toutes");

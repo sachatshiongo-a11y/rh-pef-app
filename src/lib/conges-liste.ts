@@ -9,7 +9,7 @@ import { paramsSansPage } from "@/lib/pagination";
 
 export const STATUTS_CONGE = ["EN_ATTENTE", "APPROUVE", "REFUSE"] as const;
 export type StatutConge = (typeof STATUTS_CONGE)[number];
-export const LIBELLE_STATUT_CONGE: Record<StatutConge, string> = { APPROUVE: "Approuvé", REFUSE: "Refusé", EN_ATTENTE: "En attente" };
+export const LIBELLE_STATUT_CONGE: Record<StatutConge, string> = { APPROUVE: "Approuvée", REFUSE: "Refusée", EN_ATTENTE: "En attente" };
 
 /** Fenêtre de la pastille « À venir » : les congés approuvés qui commencent dans les 30 jours. */
 export const JOURS_A_VENIR = 30;
@@ -223,8 +223,8 @@ export const ETATS: { cle: CleEtat; libelle: string; change: { statut?: StatutCo
   { cle: "EN_ATTENTE", libelle: "En attente", change: { statut: "EN_ATTENTE" } },
   { cle: "en-cours", libelle: "En congé aujourd'hui", change: { statut: "APPROUVE", quand: "en-cours" } },
   { cle: "a-venir", libelle: `À venir (${JOURS_A_VENIR} j)`, change: { statut: "APPROUVE", quand: "a-venir" } },
-  { cle: "APPROUVE", libelle: "Approuvés", change: { statut: "APPROUVE" } },
-  { cle: "REFUSE", libelle: "Refusés", change: { statut: "REFUSE" } },
+  { cle: "APPROUVE", libelle: "Approuvées", change: { statut: "APPROUVE" } },
+  { cle: "REFUSE", libelle: "Refusées", change: { statut: "REFUSE" } },
 ];
 
 /** La pastille d'état allumée par les filtres courants. */

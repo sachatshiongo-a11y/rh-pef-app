@@ -49,8 +49,8 @@ export type AbsenceItem = {
 
 const LIBELLE_STATUT: Record<string, { texte: string; classe: string }> = {
   EN_ATTENTE: { texte: "En attente", classe: "bg-amber-100 text-amber-800" },
-  APPROUVE: { texte: "Approuvé", classe: "bg-emerald-100 text-emerald-800" },
-  REFUSE: { texte: "Refusé", classe: "bg-red-100 text-red-800" },
+  APPROUVE: { texte: "Approuvée", classe: "bg-emerald-100 text-emerald-800" },
+  REFUSE: { texte: "Refusée", classe: "bg-red-100 text-red-800" },
 };
 
 /** Liste graphique des absences (barre de couleur + type + jours + plage de dates). */

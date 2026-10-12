@@ -59,9 +59,9 @@ export const DOMAINE_LABEL: Record<string, string> = {
 };
 
 export const STATUT_FACTURE_LABEL: Record<string, string> = {
-  A_REGLER: "À régler",
-  REGLEE: "Réglée",
-  ECHUE_NON_REGLEE: "Échue non réglée",
+  A_REGLER: "À payer",
+  REGLEE: "Payée",
+  ECHUE_NON_REGLEE: "Échue non payée",
 };
 
 export const STATUT_FACTURE_CLASSE: Record<string, string> = {

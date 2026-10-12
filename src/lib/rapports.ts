@@ -112,8 +112,8 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     const avecFC = rows.some((r) => r.devise === "CDF");
     let prev: number | null = null;
     const lignes = mois.map(({ annee, mois: m }) => { const v = parMois.get(cle(annee, m)) ?? 0; const l = [labelMois(annee, m), arr(v), ...(avecFC ? [arr(parMoisFC.get(cle(annee, m)) ?? 0)] : []), variation(v, prev)]; prev = v; return l; });
-    if (avecFC) return { titre, entete: ["Mois", "Échu non réglé USD", "Échu non réglé CDF", "Variation USD"], lignes, largeurs: ["30%", "25%", "25%", "20%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
-    return { titre, entete: ["Mois", "Échu non réglé USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1], sommables: [1], variationCol: 2 };
+    if (avecFC) return { titre, entete: ["Mois", "Échu non payé USD", "Échu non payé CDF", "Variation USD"], lignes, largeurs: ["30%", "25%", "25%", "20%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
+    return { titre, entete: ["Mois", "Échu non payé USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1], sommables: [1], variationCol: 2 };
   }
 
   if (type === "ACHATS") {

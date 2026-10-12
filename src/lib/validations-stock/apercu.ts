@@ -97,7 +97,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         const resteVu = f.devise === "CDF" ? f.resteCDF : f.resteUSD;
         const m = a ? montantsFacture(a) : null;
         if (!a || !m) base.alertes.push(`${nom} : facture supprimée depuis la demande.`);
-        else if (a.statut === "REGLEE" || m.reste <= 0.001) base.alertes.push(`${nom} : déjà réglée depuis la demande.`);
+        else if (a.statut === "REGLEE" || m.reste <= 0.001) base.alertes.push(`${nom} : déjà payée depuis la demande.`);
         else if (m.devise !== devise) base.alertes.push(`${nom} : la devise de la facture a changé depuis la demande.`);
         else if (!new Decimal(m.resteTexte).equals(new Decimal(resteVu))) base.alertes.push(`${nom} : le reste à payer a changé depuis la demande.`);
         return { id: f.id, nom: f.fournisseurNom, numero: f.numero, resteDemande: Number(resteVu), resteActuel: m ? m.reste : null, reglee: a ? a.statut === "REGLEE" : false, ...(devise === "CDF" ? { devise } : {}) };

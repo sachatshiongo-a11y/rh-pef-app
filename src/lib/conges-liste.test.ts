@@ -98,7 +98,7 @@ describe("pastilles d'état et compteurs", () => {
     expect(etatActif(lireFiltresConges({ statut: "APPROUVE", quand: "a-venir" }))).toBe("a-venir");
     expect(etatActif(lireFiltresConges({ statut: "REFUSE" }))).toBe("REFUSE");
   });
-  it("l'ordre des pastilles : anciennes cartes d'abord (En attente, En congé aujourd'hui, À venir, Approuvés)", () => {
+  it("l'ordre des pastilles : anciennes cartes d'abord (En attente, En congé aujourd'hui, À venir, Approuvées)", () => {
     expect(ETATS.map((e) => e.cle)).toEqual(["tous", "EN_ATTENTE", "en-cours", "a-venir", "APPROUVE", "REFUSE"]);
   });
 });

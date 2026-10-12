@@ -223,7 +223,7 @@ export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr
   const detail = toutUSD
     ? (verseLot === "CDF" ? ` en francs (${totalCDFVerse.toLocaleString("fr-FR")} FC au taux de ${taux})` : "")
     : ` — ${libelleTotal(lignes.reduce((t, l) => ajouterAuTotal(t, l.f.devise, l.reste), totalVide()))}${taux !== null ? ` (conversions au taux de ${taux})` : ""}`;
-  await journaliser(tx, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${facs.length} facture(s) réglée(s)${detail}`, userId });
+  await journaliser(tx, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${facs.length} facture(s) payée(s)${detail}`, userId });
   return lignes.map(({ f, reste, autre }) => ({
     factureId: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, ...(f.devise === "CDF" ? { devise: "CDF" as const } : {}),
     montant: reste, type: "PAIEMENT" as const, date: dateISO, solde: true, reste: 0,

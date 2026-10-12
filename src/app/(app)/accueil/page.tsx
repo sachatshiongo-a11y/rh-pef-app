@@ -145,7 +145,8 @@ export default async function AccueilPage() {
         <div className="flex items-center gap-4">
           <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />
           <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Bonjour {prenom}</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Accueil</h1>
+            <p className="text-sm font-medium">Bonjour {prenom}</p>
             <p className="text-sm capitalize text-muted-foreground">
               {user.role === "ADMIN" ? "Direction" : user.role === "MANAGER" ? "Responsable RH" : "Consultation"} ·{" "}
               {dateDuJour} · Paie de{" "}
@@ -314,7 +315,7 @@ export default async function AccueilPage() {
           </div>
 
           <div className="space-y-2">
-            <LienCarte href="/documents" titre="Documents" desc="Contrats, bulletins, congés" />
+            <LienCarte href="/documents" titre="Documents & archives" desc="Contrats, bulletins, congés" />
             <LienCarte href="/conges?vue=calendrier" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
             <LienCarte href="/paie?vue=historique" titre="Historique de paie" desc="Masse salariale par mois" />
           </div>

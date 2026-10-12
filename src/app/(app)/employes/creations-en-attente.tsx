@@ -24,9 +24,9 @@ export function CreationsEnAttente({ creations, estDirection }: { creations: Cre
           </li>
         ))}
       </ul>
-      {estDirection && (
-        <Link href="/a-valider#modifications-fiches" className="mt-2 inline-block text-xs font-medium text-primary underline">Décider dans « À valider » →</Link>
-      )}
+      <Link href="/a-valider#modifications-fiches" className="mt-2 inline-block text-xs font-medium text-primary underline">
+        {estDirection ? "Décider" : "Voir"} dans « À valider » →
+      </Link>
     </section>
   );
 }

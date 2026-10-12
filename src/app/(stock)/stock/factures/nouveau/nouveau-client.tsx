@@ -358,16 +358,16 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
           <span className="text-muted-foreground">Échéance (auto selon délai)</span>
           <input name="dateEcheance" type="date" value={echeance} onChange={(e) => setEcheance(e.target.value)} className={inp} />
         </label>
-        {/* Un montant déjà réglé est un paiement : Direction seulement (ailleurs, il se demande depuis la fiche). */}
+        {/* Un montant déjà payé est un paiement : Direction seulement (ailleurs, il se demande depuis la fiche). */}
         {estDirection && (
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Déjà réglé ({devise === "USD" ? "$" : "FC"})</span>
+            <span className="text-muted-foreground">Déjà payé ({devise === "USD" ? "$" : "FC"})</span>
             <input name="montantRegle" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
           </label>
         )}
         {estDirection && (
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Date du paiement (si déjà réglé)</span>
+            <span className="text-muted-foreground">Date du paiement (si déjà payé)</span>
             <input name="datePaiement" type="date" max={jourCourantKinshasaISO()} title="Vide : la date de la facture" className={inp} />
             <span className="text-[11px] text-muted-foreground">Vide : date de la facture. Un Paiement daté est créé.</span>
           </label>

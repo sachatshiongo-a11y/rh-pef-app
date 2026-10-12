@@ -114,7 +114,8 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
         <div className="flex items-center gap-4">
           <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />
           <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Bonjour {prenom}</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Accueil</h1>
+            <p className="text-sm font-medium">Bonjour {prenom}</p>
             <p className="text-sm capitalize text-muted-foreground">{user.role === "ADMIN" ? "Direction" : "Responsable stock"} · {dateDuJour} · Stock &amp; Achats</p>
           </div>
         </div>
@@ -143,7 +144,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           {/* Factures en francs (2026-10-09) : leur reste s'affiche à part, jamais additionné aux dollars. */}
           <Kpi label="Factures à payer" valeur={libelleSomme(facturesAPayer.montant, facturesAPayer.montantCDF, usd)} sous={avecEtiquette([`${facturesAPayer.nb} facture(s)`, equivalentSomme(facturesAPayer.montant, facturesAPayer.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 || (facturesAPayer.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
-          <Kpi label="À régler cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sous={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+          <Kpi label="À payer cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sous={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Factures échues" valeur={libelleSomme(facturesEchues.montant, facturesEchues.montantCDF, usd)} sous={avecEtiquette([`${facturesEchues.nb} facture(s)`, equivalentSomme(facturesEchues.montant, facturesEchues.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
           <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
           <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} accent={consoMois.nbSansPrix > 0 ? "amber" : undefined} sous={detailConso(consoMois, usd, ind.consoFrancsSansTaux)} href={lienMouvements} />

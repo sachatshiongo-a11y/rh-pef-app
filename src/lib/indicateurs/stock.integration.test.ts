@@ -67,7 +67,7 @@ describe("accueil Stock — mêmes chiffres avant et après l'extraction", () =>
     expect(t).toContain("À réapprovisionner 1");
     expect(t).toContain("Valeur du stock 37,00 $");
     expect(t).toContain("Factures à payer 200,00 $ 2 facture(s)");
-    expect(t).toContain("À régler cette semaine 120,00 $ 1 facture(s)");
+    expect(t).toContain("À payer cette semaine 120,00 $ 1 facture(s)");
     expect(t).toContain("Factures échues 80,00 $ 1 facture(s)");
     expect(t).toContain("Légumes frais du mois 15,50 $ 1 achat(s)");
     expect(t).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisée(s) · livraisons restaurant 0,00 $ · pertes 0,00 $ · sans motif 17,00 $");

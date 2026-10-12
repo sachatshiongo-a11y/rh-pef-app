@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     `🛒 ACHATS — ${labelMois}`,
     "",
     `• Liste d'achat (sans facture) : ${usd(totalListe)} (${achatsListe.length} ligne(s) valorisée(s))`,
-    `• Factures fournisseurs : ${lib(facDevises)} sur ${factures.length} facture(s), réglé ${lib(regleDevises)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
+    `• Factures fournisseurs : ${lib(facDevises)} sur ${factures.length} facture(s), payé ${lib(regleDevises)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
     `• Total achats du mois : ${lib({ ...facDevises, usd: totalListe + totalFacturesUSD })}`,
   ].join("\n");
 

@@ -83,10 +83,10 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
         )}
       </Section>
 
-      {/* Les demandes de congé acceptées se lisent et se signent à UN endroit : « Mes congés ».
+      {/* Les demandes de congé approuvées se lisent et se signent à UN endroit : « Mes congés ».
           Elles étaient aussi listées ici, en double (lot 6). */}
       <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
-        Vos demandes de congé acceptées se lisent et se signent dans{" "}
+        Vos demandes de congé approuvées se lisent et se signent dans{" "}
         <Link href="/espace/conges" className="text-primary underline">Mes congés</Link>. Vos contrats sont dans{" "}
         <Link href="/espace/contrats" className="text-primary underline">Mes contrats</Link>, vos attestations dans{" "}
         <Link href="/espace/attestations" className="text-primary underline">Mes attestations</Link>.

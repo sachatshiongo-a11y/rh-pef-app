@@ -208,7 +208,7 @@ export async function approuverCreations(ids: string[], decideur: Acteur, mainte
       const { d, nouvel } = await approuverUne(id, decideur, maintenant);
       r.traitees++;
       await supprimerNotificationsPour(id);
-      await notifierAuteur(d, `Votre création de la fiche de ${nouvel.nom} est validée (matricule ${nouvel.matricule}).`, `/employes/${nouvel.id}`);
+      await notifierAuteur(d, `Votre création de la fiche de ${nouvel.nom} est approuvée (matricule ${nouvel.matricule}).`, `/employes/${nouvel.id}`);
     } catch (e) {
       const nom = (await prisma.demandeCreationFiche.findUnique({ where: { id }, select: { nom: true } }))?.nom ?? "Demande";
       r.echecs.push(`Nouvelle fiche ${nom} : ${messageLisible(e)}`);
