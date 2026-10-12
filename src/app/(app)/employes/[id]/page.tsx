@@ -41,6 +41,8 @@ import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
+import { demandesFicheEnAttente } from "@/lib/demandes-fiche";
+import { ModifsEnAttente } from "../modifs-en-attente";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -79,6 +81,7 @@ export default async function FicheEmployePage({
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;
+  const modifsEnAttente = await demandesFicheEnAttente(id);
   const sp = await searchParams;
   const tab = sp.tab ?? "apercu";
 
@@ -432,6 +435,7 @@ export default async function FicheEmployePage({
   return (
     <div className="max-w-5xl">
       {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
+      <ModifsEnAttente demandes={modifsEnAttente} estDirection={estAdmin} />
       {notifications.length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="mb-1 font-semibold">Notifications</p>

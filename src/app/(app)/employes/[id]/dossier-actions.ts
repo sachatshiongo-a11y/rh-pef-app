@@ -16,6 +16,8 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
+import { changementsProposes } from "@/lib/fiche-sensible";
+import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -283,12 +285,27 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
 export async function changerSalaire(employeeId: string, formData: FormData) {
   await formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
-    requireRole(user, ["ADMIN"]);
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const nouveauSalaire = decSaisi(formData.get("nouveauSalaire"), "Nouveau salaire");
+    if (!(nouveauSalaire > 0)) throw new Error("Nouveau salaire : un montant supérieur à 0 est attendu.");
     const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
     const motif = String(formData.get("motif") ?? "Ajustement");
+
+    // Hors Direction (RH) : rien n'est appliqué, une demande part à la Direction (2026-10-12).
+    if (!estDirection(user)) {
+      const changements = changementsProposes(employee as unknown as Record<string, unknown>, { salaireMensuel: nouveauSalaire, poste: nouveauPoste });
+      if (changements.length === 0) throw new Error("Ni le salaire ni le poste ne changent : rien à soumettre.");
+      const demande = await prisma.$transaction((tx) =>
+        creerDemandeFicheTx(tx, { employeeId, changements, origine: "CHANGER_SALAIRE", motif, auteur: { id: user.id, nom: user.nom, role: user.role } }),
+      );
+      await notifierNouvelleDemandeFiche(demande, employee.nom);
+      revalidatePath(`/employes/${employeeId}`);
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      return;
+    }
 
     // Même chemin que « Modifier » côté Direction (lib/historique-salaire) : historique + fiche + journal.
     await prisma.$transaction(async (tx) => {

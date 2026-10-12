@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import type { Employee } from "@prisma/client";
 import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
 import type { ParametresPaie } from "@/lib/payroll";
@@ -11,6 +11,16 @@ import { SimulationSalaire, lireValeursSimulation, type ValeursSimulation } from
 import { SommaireSections, SECTION_ANCREE } from "@/components/sommaire-sections";
 import { fichesProches, identiteModifiee, CHAMP_DOUBLONS_ECARTES, type IdentiteFiche } from "@/lib/employe-doublon";
 import { AlerteDoublons, type FicheDoublonClient } from "./alerte-doublons";
+import { estChampSensible } from "@/lib/fiche-sensible";
+
+/** Mode « validation » (hors Direction) : les champs sensibles portent la pastille « à valider ». */
+const ModeValidation = createContext(false);
+/** Pastille d'un champ sensible en mode validation (couleur + libellé, jamais la couleur seule). */
+function PastilleAValider({ name }: { name: string }) {
+  const actif = useContext(ModeValidation) && estChampSensible(name);
+  if (!actif) return null;
+  return <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800" title="S'applique après validation de la Direction">à valider</span>;
+}
 
 /** Nombre d'une colonne Decimal/Int de la base, écrit pour un champ (virgule décimale) ; undefined si absent. */
 function versChamp(v: { toString(): string } | number | null | undefined): string | undefined {
@@ -92,11 +102,12 @@ export function EmployeeForm({
   doublons?: { fiches: FicheDoublonClient[]; ecartees: string[]; peutReactiver: boolean };
   /** Section « Famille » (page Modifier), hors du formulaire. */
   famille?: ReactNode;
-  /** « lecture » (Modifier, hors Direction) : salaire, date d'embauche, contrat et frais médicaux
-   *  sont AFFICHÉS sans être envoyés (le serveur les refuserait) — ils se changent par la Direction. */
-  champsDirection?: "modifiables" | "lecture";
+  /** « validation » (Modifier, hors Direction — décision du 2026-10-12) : tous les champs restent
+   *  saisissables, mais les champs SENSIBLES (paie, contrat, versement — lib/fiche-sensible) ne
+   *  s'appliquent qu'après validation de la Direction ; ils sont marqués, et le formulaire le dit. */
+  champsDirection?: "modifiables" | "validation";
 }) {
-  const verrou = champsDirection === "lecture";
+  const aValider = champsDirection === "validation";
   // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
   const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
   const [sim, setSim] = useState<ValeursSimulation>({
@@ -133,6 +144,7 @@ export function EmployeeForm({
   const sections = famille ? [...SECTIONS, { id: "famille", label: "Famille" }] : SECTIONS;
 
   return (
+    <ModeValidation.Provider value={aValider}>
     <div>
       <SommaireSections sections={sections} libelle="Sections de la fiche employé">
         <button type="submit" form={FORMULAIRE_FICHE_EMPLOYE} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -147,8 +159,7 @@ export function EmployeeForm({
             action={action}
             onInput={(e) => {
               const fd = new FormData(e.currentTarget);
-              // Champs verrouillés (non envoyés) : la simulation garde les valeurs de la fiche.
-              if (parametres) setSim({ ...lireValeursSimulation(fd), ...(verrou ? { salaireMensuel: Number(employee?.salaireMensuel ?? 0), contrat: employee?.contrat ?? "CDD" } : {}) });
+              if (parametres) setSim(lireValeursSimulation(fd));
               if (doublons) {
                 setIdentite({ nom: String(fd.get("nom") ?? ""), telephone: String(fd.get("telephone") ?? ""), dateNaissance: String(fd.get("dateNaissance") ?? "") });
                 setDoublonBloque(false);
@@ -172,6 +183,14 @@ export function EmployeeForm({
             }}
             className="space-y-5"
           >
+            {aValider && (
+              <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Les champs marqués <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">à valider</span>{" "}
+                (salaire, heures, transport, frais médicaux, enfants, CNSS, embauche, contrat, catégories, versement) ne
+                s&apos;appliquent qu&apos;après validation de la Direction : leur changement part dans « À valider ». Les autres
+                champs s&apos;enregistrent tout de suite.
+              </p>
+            )}
             <datalist id="postes-existants">
               {postes.map((p) => (
                 <option key={p} value={p} />
@@ -247,33 +266,25 @@ export function EmployeeForm({
                 defaultValue={employee?.categorieProfessionnelle ?? ""}
                 options={[{ value: "", label: "— non définie —" }, ...CATEGORIES_PRO.map((c) => ({ value: c.value, label: c.label }))]}
               />
-              {verrou ? (
-                <LectureDirection label="Contrat" valeur={employee?.contrat ?? "—"} />
-              ) : (
-                <Select
-                  label="Contrat"
-                  name="contrat"
-                  defaultValue={employee?.contrat ?? "CDD"}
-                  options={[
-                    { value: "CDD", label: "CDD" },
-                    { value: "CDI", label: "CDI" },
-                    { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
-                    { value: "JOURNALIER", label: "Journalier" },
-                    { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
-                  ]}
-                />
-              )}
-              {verrou ? (
-                <LectureDirection label="Date d'embauche" valeur={employee?.dateEmbauche ? toDateInput(employee.dateEmbauche).split("-").reverse().join("/") : "—"} />
-              ) : (
-                <Field
-                  label="Date d'embauche"
-                  name="dateEmbauche"
-                  type="date"
-                  defaultValue={toDateInput(employee?.dateEmbauche)}
-                  required
-                />
-              )}
+              <Select
+                label="Contrat"
+                name="contrat"
+                defaultValue={employee?.contrat ?? "CDD"}
+                options={[
+                  { value: "CDD", label: "CDD" },
+                  { value: "CDI", label: "CDI" },
+                  { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
+                  { value: "JOURNALIER", label: "Journalier" },
+                  { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
+                ]}
+              />
+              <Field
+                label="Date d'embauche"
+                name="dateEmbauche"
+                type="date"
+                defaultValue={toDateInput(employee?.dateEmbauche)}
+                required
+              />
               <Field
                 label="ID pointeuse IVMS (optionnel)"
                 name="idExterneIVMS"
@@ -288,7 +299,6 @@ export function EmployeeForm({
                 heuresParJourInit={versChamp(employee?.heuresParJour) ?? "8"}
                 joursOuvrablesMois={joursOuvrablesMois}
                 salaireEstNet={parametres?.salairesSaisisEnNet ?? false}
-                salaireVerrouille={verrou}
               />
               <Field
                 label="Transport / jour (CDF)"
@@ -318,17 +328,13 @@ export function EmployeeForm({
                 suffixe="$"
                 defaultValue={versChamp(employee?.cnssMontant)}
               />
-              {verrou ? (
-                <LectureDirection label="Frais médicaux du mois ($)" valeur={`${versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"} $`} />
-              ) : (
-                <Field
-                  label="Frais médicaux du mois ($)"
-                  name="fraisMedicauxMoisCourant"
-                  nombre
-                  suffixe="$"
-                  defaultValue={versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"}
-                />
-              )}
+              <Field
+                label="Frais médicaux du mois ($)"
+                name="fraisMedicauxMoisCourant"
+                nombre
+                suffixe="$"
+                defaultValue={versChamp(employee?.fraisMedicauxMoisCourant) ?? "0"}
+              />
               <Field
                 label="Enfants à charge (retenus par la paie)"
                 name="enfants"
@@ -401,6 +407,7 @@ export function EmployeeForm({
         )}
       </div>
     </div>
+    </ModeValidation.Provider>
   );
 }
 
@@ -429,7 +436,6 @@ function SalaireHoraire({
   heuresParJourInit,
   joursOuvrablesMois,
   salaireEstNet,
-  salaireVerrouille = false,
 }: {
   salaireMensuelInit: string;
   heuresHebdoInit: string;
@@ -438,8 +444,6 @@ function SalaireHoraire({
   /** true si les salaires saisis sont interprétés comme des NETS (flag `salaires_saisis_en_net`) :
       les libellés le reflètent alors, sinon on garde les libellés historiques (montant = brut). */
   salaireEstNet: boolean;
-  /** Hors Direction : le salaire s'affiche sans être envoyé ; le taux horaire (qui le recalculerait) est figé. */
-  salaireVerrouille?: boolean;
 }) {
   // Les champs sont des textes à la française (« 1 250,5 ») : on les lit avec `lireNombreSaisi` (illisible ou vide → 0,
   // le calcul dérivé se tait), on les réécrit avec `versSaisie` (virgule décimale).
@@ -485,19 +489,11 @@ function SalaireHoraire({
   return (
     <>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="salaireMensuel" className="text-sm font-medium">{salaireEstNet ? "Salaire NET mensuel $" : "Salaire mensuel $"}</label>
-        {salaireVerrouille ? (
-          <>
-            {/* Sans `name` : jamais envoyé. Le changement passe par la Direction (« Changer le salaire », historisé). */}
-            <input id="salaireMensuel" readOnly value={`${mensuel} $`} className={`${champCls} bg-muted text-muted-foreground`} />
-            <span className="text-xs text-muted-foreground">Réservé à la Direction (« Changer le salaire », sur la fiche).</span>
-          </>
-        ) : (
-          <ChampNombre id="salaireMensuel" name="salaireMensuel" suffixe="$" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} classeConteneur="w-full" />
-        )}
+        <label htmlFor="salaireMensuel" className="text-sm font-medium">{salaireEstNet ? "Salaire NET mensuel $" : "Salaire mensuel $"}<PastilleAValider name="salaireMensuel" /></label>
+        <ChampNombre id="salaireMensuel" name="salaireMensuel" suffixe="$" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} classeConteneur="w-full" />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="heuresHebdomadaires" className="text-sm font-medium">Heures / semaine</label>
+        <label htmlFor="heuresHebdomadaires" className="text-sm font-medium">Heures / semaine<PastilleAValider name="heuresHebdomadaires" /></label>
         <ChampNombre id="heuresHebdomadaires" name="heuresHebdomadaires" suffixe="h" alerteMilliers value={hebdo} onChange={(e) => onHebdo(e.target.value)} className={champCls} classeConteneur="w-full" />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -506,7 +502,7 @@ function SalaireHoraire({
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="tauxHoraire" className="text-sm font-medium">{salaireEstNet ? "Taux horaire NET $/h (modifiable)" : "Taux horaire $/h (modifiable)"}</label>
-        <ChampNombre id="tauxHoraire" suffixe="$/h" value={taux} readOnly={salaireVerrouille} onChange={(e) => onTaux(e.target.value)} className={`${champCls} ${salaireVerrouille ? "bg-muted text-muted-foreground" : ""}`} classeConteneur="w-full" />
+        <ChampNombre id="tauxHoraire" suffixe="$/h" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} classeConteneur="w-full" />
       </div>
       <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" nombre suffixe="h" alerteMilliers defaultValue={heuresParJourInit} />
       <details className="group -mt-1 text-xs text-muted-foreground sm:col-span-2">
@@ -530,17 +526,6 @@ function SalaireHoraire({
         </p>
       </details>
     </>
-  );
-}
-
-/** Valeur réservée à la Direction, affichée sans être envoyée (pas de `name`). */
-function LectureDirection({ label, valeur }: { label: string; valeur: string }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium">{label}</span>
-      <span className={`${champCls} bg-muted text-muted-foreground`}>{valeur}</span>
-      <span className="text-xs text-muted-foreground">Modifiable par la Direction seulement.</span>
-    </div>
   );
 }
 
@@ -570,6 +555,7 @@ function Field({
     <div className="flex flex-col gap-1.5">
       <label htmlFor={name} className="text-sm font-medium">
         {label}
+        <PastilleAValider name={name} />
       </label>
       {nombre ? (
         <ChampNombre
@@ -612,6 +598,7 @@ function Select({
     <div className="flex flex-col gap-1.5">
       <label htmlFor={name} className="text-sm font-medium">
         {label}
+        <PastilleAValider name={name} />
       </label>
       <select
         id={name}

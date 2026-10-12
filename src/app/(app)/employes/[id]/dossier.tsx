@@ -834,9 +834,14 @@ export function DossierEmploye({
             })}
           </ol>
         )}
-        {estAdmin && (
+        {peutModifier && (
           <form action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
-            <p className="w-full text-sm font-medium">Changer le salaire / poste (tracé à l&apos;historique)</p>
+            <p className="w-full text-sm font-medium">
+              Changer le salaire / poste (tracé à l&apos;historique)
+              {!estAdmin && (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">à valider par la Direction</span>
+              )}
+            </p>
             <ChampNombre name="nouveauSalaire" suffixe="$" placeholder="Nouveau salaire $" aria-label="Nouveau salaire en dollars" defaultValue={versSaisie(salaireMensuel)} className={inputCls} required />
             <input name="nouveauPoste" placeholder="Nouveau poste (optionnel)" defaultValue={poste} className={inputCls} />
             <select name="motif" className={inputCls} defaultValue="Ajustement">
@@ -844,7 +849,7 @@ export function DossierEmploye({
               <option>Promotion</option>
               <option>Sanction</option>
             </select>
-            <SubmitBtn>Enregistrer le changement</SubmitBtn>
+            <SubmitBtn>{estAdmin ? "Enregistrer le changement" : "Envoyer à la Direction"}</SubmitBtn>
           </form>
         )}
       </Section>
