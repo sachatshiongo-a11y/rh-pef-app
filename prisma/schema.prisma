@@ -143,6 +143,9 @@ model User {
   employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
   motDePasseTemporaire Boolean @default(false) // compte salarié : forcer le changement à la 1re connexion
   accesStock Boolean @default(false) // compte salarié qui a AUSSI accès à l'espace Stock (cumul de rôles)
+  // Toute session ouverte AVANT cet instant est refusée (réinitialisation du mot de passe,
+  // désactivation) — src/lib/sessions-revoquees.ts. Null = aucune révocation.
+  sessionsRevoqueesLe DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

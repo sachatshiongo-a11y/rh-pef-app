@@ -1,9 +1,10 @@
 import Image from "next/image";
 import { retourValide } from "@/lib/retour-connexion";
+import { MOTIF_SESSION_FERMEE } from "@/lib/sessions-revoquees";
 import { LoginForm } from "./login-form";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reinitialise?: string; retour?: string | string[] }> }) {
-  const { reinitialise, retour: retourBrut } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reinitialise?: string; motif?: string; retour?: string | string[] }> }) {
+  const { reinitialise, motif, retour: retourBrut } = await searchParams;
   // Seul le retour vers le scan de l'affiche est honoré (src/lib/retour-connexion.ts).
   const retour = retourValide(retourBrut);
   return (
@@ -22,6 +23,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </p>
         {reinitialise && (
           <p className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-center text-sm text-emerald-800">Mot de passe changé — connectez-vous.</p>
+        )}
+        {motif === MOTIF_SESSION_FERMEE && !reinitialise && (
+          <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-center text-sm text-amber-900">Votre session a été fermée. Reconnectez-vous.</p>
         )}
         <LoginForm retour={retour} />
         <p className="mt-6 text-center text-xs text-muted-foreground">

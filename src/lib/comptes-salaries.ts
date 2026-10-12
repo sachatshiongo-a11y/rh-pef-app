@@ -3,6 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import { journaliser } from "@/lib/audit";
 import { emailInterneMatricule, genererMotDePasseTemporaire } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin, creerUtilisateurAuth, supprimerUtilisateurAuth } from "@/lib/securite-connexion";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
+import { invaliderProfil } from "@/lib/auth";
 
 // Le SEUL chemin de création d'un compte de l'espace salarié, et le SEUL chemin de
 // réinitialisation de son mot de passe : la fiche employé (« Créer un compte », « Réinitialiser le
@@ -144,7 +146,9 @@ export async function reinitialiserCompteSalarie(
   // L'Auth d'abord : si elle échoue, rien n'a changé côté application.
   await changerMotDePasseAdmin(compte.id, motDePasse);
   try {
-    await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true } });
+    // Nouveau mot de passe = sessions ouvertes avec l'ancien fermées (audit 10/10/2026, sécurité 5).
+    await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true, ...donneesRevocationSessions() } });
+    invaliderProfil(compte.id);
     await journaliser(client, {
       entite: "User",
       entiteId: compte.id,
