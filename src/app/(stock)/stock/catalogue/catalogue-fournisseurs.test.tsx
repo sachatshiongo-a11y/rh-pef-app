@@ -12,9 +12,11 @@ import { champChoix, choisirEnTapant, libellesOuverts, ouvrirChoix } from "@/lib
 
 const modifierArticle = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 const enMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const ajouterEnMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const retirerEnMasse = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 vi.mock("./actions", () => ({
   creerArticle: vi.fn(), modifierArticle: (...a: unknown[]) => modifierArticle(...a), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: (...a: unknown[]) => enMasse(...a), definirSeuilEnMasse: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: (...a: unknown[]) => enMasse(...a), ajouterFournisseurEnMasse: (...a: unknown[]) => ajouterEnMasse(...a), retirerFournisseurEnMasse: (...a: unknown[]) => retirerEnMasse(...a), definirSeuilEnMasse: vi.fn(),
   corrigerStocksNegatifs: vi.fn(),
 }));
 
@@ -32,7 +34,7 @@ let conteneur: HTMLDivElement;
 let racine: Root;
 beforeEach(() => {
   modifierArticle.mockClear();
-  enMasse.mockClear();
+  enMasse.mockClear(); ajouterEnMasse.mockClear(); retirerEnMasse.mockClear();
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -77,7 +79,7 @@ describe("Inventaire — fournisseur choisi en tapant (action groupée)", () => 
     const champ = champChoix(conteneur, "Fournisseur de l'action groupée");
     expect(champ).toBeTruthy();
     await choisirEnTapant(champ, "nord");
-    const appliquer = [...conteneur.querySelectorAll("button")].filter((b) => b.textContent === "Appliquer")[1]!;
+    const appliquer = [...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Définir habituel")!;
     expect(appliquer.disabled).toBe(false);
     await act(async () => appliquer.click());
     expect(enMasse).toHaveBeenCalledTimes(1);

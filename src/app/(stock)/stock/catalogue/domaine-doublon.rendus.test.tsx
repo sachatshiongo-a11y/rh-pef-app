@@ -15,7 +15,7 @@ const A = vi.hoisted(() => ({
 }));
 vi.mock("./actions", () => ({
   creerArticle: A.creerArticle, changerDomaineEnMasse: A.changerDomaineEnMasse, modifierArticle: vi.fn(), categoriserEnMasse: vi.fn(), fusionnerArticles: vi.fn(),
-  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(), corrigerStocksNegatifs: vi.fn(),
+  basculerActifArticles: vi.fn(), basculerFicheCommande: vi.fn(), definirFournisseurEnMasse: vi.fn(), ajouterFournisseurEnMasse: vi.fn(), retirerFournisseurEnMasse: vi.fn(), definirSeuilEnMasse: vi.fn(), corrigerStocksNegatifs: vi.fn(),
 }));
 
 const { CatalogueTable } = await import("./catalogue-table");

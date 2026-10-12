@@ -89,6 +89,18 @@ const EXCEPTIONS: Record<string, string> = {
   "pointage/actions.ts#annulerPointage": "Le salarié annule SON scan dans les 5 minutes : le scan est marqué annulé (jamais effacé) ; seules les présences posées par ce scan reviennent à leur état d'avant.",
   // ── Conséquence d'une décision de la Direction ──────────────────────────────────────────────
   "(app)/conges/actions.ts#demanderConge": "Les codes congé ne sont posés (et les heures pré-remplies retirées) que si l'auteur est la Direction (congé auto-validé).",
+  // ── Fournisseurs d'un article (2026-10-16) : retirer un fournisseur de la liste d'un article ──────────────
+  // Principe de la Direction : un autre rôle PROPOSE, la Direction valide. Hors Direction, ces gestes ne retirent
+  // RIEN : ils créent une proposition « À valider » (avant → après) ; le lien n'est supprimé que par la Direction,
+  // en direct ou à l'approbation (appliquerPatchArticleTx). Test d'intégration : article-fournisseurs.integration.test.ts.
+  "(stock)/stock/catalogue/actions.ts#modifierArticle": "Modifier un article : hors Direction = proposition ; la liste des fournisseurs de l'article (champ « Fournisseurs ») n'est réécrite — liens retirés compris — que par la Direction ou à son approbation.",
+  "(stock)/stock/catalogue/actions.ts#changerDomaineEnMasse": "Changement de domaine : hors Direction = proposition ; l'écriture du patch (qui peut réécrire la liste des fournisseurs) n'est faite que par la Direction.",
+  "(stock)/stock/catalogue/actions.ts#definirFournisseurEnMasse": "Fournisseur habituel en lot : hors Direction = proposition ; seul « plus d'habituel » écrit, par la Direction, sans retirer de lien.",
+  "(stock)/stock/catalogue/actions.ts#ajouterFournisseurEnMasse": "Ajout d'un fournisseur en lot : hors Direction = proposition (aucun retrait de toute façon).",
+  "(stock)/stock/catalogue/actions.ts#retirerFournisseurEnMasse": "Retrait d'un fournisseur en lot : hors Direction = PROPOSITION (rien n'est retiré avant la décision de la Direction), journalisée.",
+  "(stock)/stock/catalogue/actions.ts#definirFournisseurHabituel": "Fiche article : fournisseur habituel ; hors Direction = proposition.",
+  "(stock)/stock/catalogue/actions.ts#ajouterFournisseursArticle": "Fiche article : ajout de fournisseurs ; hors Direction = proposition (aucun retrait de toute façon).",
+  "(stock)/stock/catalogue/actions.ts#retirerFournisseursArticle": "Fiche article : retrait de fournisseurs ; hors Direction = PROPOSITION (rien n'est retiré avant la décision de la Direction), journalisée.",
   // ── Modification d'une saisie de grille (0 / vide = « rien ce jour-là »), pas une suppression ─
   "(app)/heures-supp/actions.ts#saisirHeures": "Heures du jour : vider la case = 0 heure (quantité), modification de la grille.",
   "(app)/heures-supp/actions.ts#saisirHeuresEnLot": "Idem en lot (Appliquer des heures). « Supprimer » du lot est réservé à la Direction côté présences.",

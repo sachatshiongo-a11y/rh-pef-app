@@ -18,6 +18,7 @@ import { libelleArticle } from "@/lib/libelle-article";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { decisionFournisseur } from "@/lib/fournisseur-doublon";
 import { prixReferenceNouvelArticle } from "@/lib/prix-article";
+import { alimenterFournisseursTx } from "@/lib/article-fournisseurs";
 
 /**
  * Résultat d'une Liste d'achat enregistrée : nouveaux articles créés au catalogue, nouveaux
@@ -261,6 +262,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
 
     // Articles créés par CETTE liste, par nom exact : deux lignes du même nouveau nom → un seul article.
     const creesParCle = new Map<string, string>();
+    // Fournisseur de chaque achat → liste des fournisseurs de l'article (2026-10-16) : un FAIT constaté, ajouté
+    // sans validation dans la même transaction (l'achat annulé n'ajoute rien), sans jamais marquer d'habituel.
+    const achetes: { articleId: string; fournisseurId: string }[] = [];
     for (const l of lignes) {
       let articleId = l.articleId || l.rattache || null;
       const fournisseurId = await resoudreFournisseur(l);
@@ -301,7 +305,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
         },
       });
       await entrerEnStockTx(tx, [{ articleId, quantite: l.quantite }]); // porte unique (stock-positif.ts)
+      if (fournisseurId) achetes.push({ articleId, fournisseurId });
     }
+    await alimenterFournisseursTx(tx, achetes, "LISTE_ACHAT", user.id);
   });
 
   // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une

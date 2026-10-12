@@ -14,6 +14,8 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { Pagination } from "@/components/pagination";
 import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { bornesGroupe } from "@/lib/groupes-periode";
+import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
+import { liensParArticle } from "@/lib/fournisseurs-article";
 
 type SP = { periode?: string; page?: string; par?: string };
 
@@ -28,7 +30,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const nbAchats = await prisma.mouvementStock.count({ where: WHERE_ACHATS_LISTE });
   const fen = fenetrePage(nbAchats, demande.page, demande.par, PLAFOND_TOUT);
 
-  const [articles, mouvements, config, fournisseurs] = await Promise.all([
+  const [articles, mouvements, config, fournisseurs, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, contenance: true, contenanceUnite: true } }),
     prisma.mouvementStock.findMany({
       // Les achats saisis ICI, et eux seuls : ni les entrées par facture ou par réception de bon
@@ -42,7 +44,9 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
     }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
     prisma.fournisseur.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    chargerLiensFournisseurs(), // fournisseurs connus de chaque article : proposés en tête au choix du fournisseur de la ligne
   ]);
+  const fournisseursDe = liensParArticle(liens);
   const taux = config ? Number(config.tauxChangeCDF) : 0;
 
   // Groupement par période
@@ -101,7 +105,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       </div>
 
       <ListeAchatForm
-        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, ...contenancePourClient(a) }))}
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, fournisseurs: fournisseursDe.get(a.id) ?? [], ...contenancePourClient(a) }))}
         fournisseurs={fournisseurs}
         aujourdhui={jourKinshasaISO()}
         taux={taux}

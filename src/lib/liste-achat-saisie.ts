@@ -16,7 +16,9 @@ import { cleArticleExacte, cleArticleMarque, doublonsDansListe, erreurDlc, type 
 import { prochesDansListe } from "@/lib/article-proche";
 
 /** `prix` : prix de référence du catalogue dans SA devise (`devisePrix`, absente = USD). */
-export type Art = { id: string; designation: string; marque?: string | null; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise; contenance?: string | null; contenanceUnite?: string | null };
+export type Art = { id: string; designation: string; marque?: string | null; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise; contenance?: string | null; contenanceUnite?: string | null;
+  /** Fournisseurs connus de l'article (2026-10-16), l'habituel marqué : proposés en tête au choix du fournisseur de la ligne. */
+  fournisseurs?: { fournisseurId: string; habituel: boolean }[] };
 export type Fourn = { id: string; nom: string };
 export type Devise = "USD" | "CDF";
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";

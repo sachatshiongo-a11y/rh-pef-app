@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { creerArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
+import { creerArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, ajouterFournisseurEnMasse, retirerFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
@@ -56,7 +56,10 @@ export type ArticleRow = {
   surFicheCommande?: boolean;
   domaine: Domaine;
   categorieId: string | null;
+  /** Fournisseur HABITUEL (colonne Fournisseur). */
   fournisseurId: string | null;
+  /** Nombre de fournisseurs de l'article, habituel compris (2026-10-16). */
+  nbFournisseurs?: number;
   unite: string | null;
   /** Prix de référence en dollars (article en $) ; null pour un article en francs. */
   prix: string | null;
@@ -455,7 +458,10 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <button disabled={isPending || !bulkCat} onClick={() => run(async () => { const r = await categoriserEnMasse([...sel], bulkCat); if (!estErreur(r)) { setSel(new Set()); setBulkCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
           <span className="text-muted-foreground">· fournisseur :</span>
           <ChoixRecherche options={optionsFour} value={bulkFour} vide="Choisir un fournisseur…" onChange={setBulkFour} aria-label="Fournisseur de l'action groupée" className="w-52 rounded border border-input bg-background px-2 py-1 text-xs" />
-          <button disabled={isPending || !bulkFour} onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
+          {/* Un article a PLUSIEURS fournisseurs (2026-10-16) : en lot, on en fait l'habituel, on l'ajoute à la liste, ou on l'en retire. */}
+          <button disabled={isPending || !bulkFour} title="Ce fournisseur devient l'habituel des articles cochés (il rejoint leur liste ; l'ancien habituel y reste)" onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Définir habituel" : "Proposer habituel"}</button>
+          <button disabled={isPending || !bulkFour} title="Ajoute ce fournisseur à la liste des articles cochés, sans changer leur habituel" onClick={() => run(async () => { const r = await ajouterFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">{estDirection ? "Ajouter" : "Proposer l'ajout"}</button>
+          <button disabled={isPending || !bulkFour} title="Retire ce fournisseur de la liste des articles cochés (s'il était l'habituel, l'article reste sans habituel)" onClick={() => run(async () => { const r = await retirerFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md border border-destructive/50 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">{estDirection ? "Retirer" : "Proposer le retrait"}</button>
           {/* Domaine (2026-10-09) : Nourriture ↔ Boissons ↔ Autre. La catégorie suit : même nom dans le
               nouveau domaine si elle existe, sinon « à classer » — ou une catégorie du nouveau domaine choisie ici. */}
           <span className="text-muted-foreground">· domaine :</span>
@@ -651,8 +657,10 @@ function ThTri({ col, tri, onTri, align, className, title, children }: {
 }
 
 /** Fournisseur en lecture : son nom mène à sa fiche (même lien que les autres écrans du module) ; « — » sans fournisseur. */
-function LienFournisseur({ f }: { f: Four | null }) {
-  return f ? <Link href={`/stock/fournisseurs/${f.id}`} className="text-primary hover:underline">{f.nom}</Link> : <>—</>;
+function LienFournisseur({ f, nb = 0 }: { f: Four | null; nb?: number }) {
+  // L'habituel, avec « +2 » quand l'article a d'autres fournisseurs (la liste complète est sur sa fiche) ; sans habituel mais avec des fournisseurs : on le dit.
+  if (f) return <><Link href={`/stock/fournisseurs/${f.id}`} className="text-primary hover:underline">{f.nom}</Link>{nb > 1 && <span title={`${nb - 1} autre(s) fournisseur(s) de cet article — voir sa fiche`} className="ml-1 rounded bg-muted px-1 py-0.5 text-[10px] font-semibold text-muted-foreground">+{nb - 1}</span>}</>;
+  return nb > 0 ? <span className="text-xs text-muted-foreground" title="Aucun fournisseur habituel désigné — voir la fiche de l'article">{nb} fournisseur{nb > 1 ? "s" : ""}, sans habituel</span> : <>—</>;
 }
 
 /**
@@ -683,7 +691,7 @@ const LigneArticle = memo(function LigneArticle({
       <td className="whitespace-nowrap">{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
       <td className="whitespace-nowrap text-right tabular-nums" title="Seuil minimum (alerte de réappro)">{nombreOuTiret(a.stockMinimum)}</td>
       <td className={categorie ? "" : "text-muted-foreground"}>{categorie ?? "—"}</td>
-      <td><LienFournisseur f={fournisseur} /></td>
+      <td><LienFournisseur f={fournisseur} nb={a.nbFournisseurs} /></td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">{texteValeur(a)}</td>
       <td className="whitespace-nowrap text-right tabular-nums">
         {/* Prix dans SA devise de saisie ; l'autre devise « ≈ » au taux du jour, en petit dessous. */}
@@ -781,7 +789,7 @@ export const CarteArticle = memo(function CarteArticle({
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm [&_dd]:min-w-0 [&_dd]:break-words">
             <div><dt className={champLabel}>Code article</dt><dd>{texteOuTiret(a.code)}</dd></div>
             <div><dt className={champLabel}>Catégorie</dt><dd>{categorie ?? "—"}</dd></div>
-            <div><dt className={champLabel}>Fournisseur</dt><dd><LienFournisseur f={fournisseur} /></dd></div>
+            <div><dt className={champLabel}>Fournisseur</dt><dd><LienFournisseur f={fournisseur} nb={a.nbFournisseurs} /></dd></div>
             <div><dt className={champLabel}>Unité</dt><dd>{texteOuTiret(a.unite)}</dd></div>
             <div><dt className={champLabel}>Stock min.</dt><dd className="tabular-nums">{nombreOuTiret(a.stockMinimum)}</dd></div>
             <div><dt className={champLabel}>Prix {a.devisePrix === "CDF" ? "FC" : "$"}</dt><dd className="tabular-nums">{prixTexte(a)}{a.prixAutre && <span className="ml-1 text-[11px] text-muted-foreground">{a.prixAutre}</span>}</dd></div>

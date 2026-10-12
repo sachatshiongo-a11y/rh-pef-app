@@ -7,12 +7,12 @@ export default async function FournisseursImprimerPage() {
   await exigerPageStock();
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
-    include: { _count: { select: { articles: true, factures: true } } },
+    include: { _count: { select: { liensArticles: true, factures: true } } },
   });
 
   const lignes = fournisseurs.map((f) => [
     f.nom, f.contactNom ?? "", f.telephone ?? "", f.ville ?? "", f.rccm ?? "", f.idNational ?? "",
-    f.delaiPaiement ?? "", f.modePaiement ?? "", f._count.articles, f._count.factures,
+    f.delaiPaiement ?? "", f.modePaiement ?? "", f._count.liensArticles, f._count.factures,
   ] as (string | number)[]);
 
   return (

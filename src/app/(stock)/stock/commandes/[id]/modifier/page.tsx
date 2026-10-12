@@ -6,15 +6,17 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouveauBonForm } from "../../nouveau/nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 
 export default async function ModifierBonPage({ params }: { params: Promise<{ id: string }> }) {
   await exigerPageStock();
   const { id } = await params;
-  const [bc, articles, taux, fournisseurs] = await Promise.all([
+  const [bc, articles, taux, fournisseurs, liens] = await Promise.all([
     prisma.bonDeCommande.findUnique({ where: { id }, include: { lignes: true } }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    chargerLiensFournisseurs(),
   ]);
   if (!bc) notFound();
   if (bc.statut !== "BROUILLON") redirect(`/stock/commandes/${id}`); // seuls les brouillons sont modifiables
@@ -45,6 +47,7 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
       <NouveauBonForm
         articles={arts}
         fournisseurs={fournisseurs}
+        liens={liens}
         initial={{
           bcId: bc.id,
           fournisseurId: bc.fournisseurId,

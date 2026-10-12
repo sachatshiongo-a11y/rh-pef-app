@@ -10,7 +10,8 @@ import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
 import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { ChoixRecherche } from "@/components/choix-recherche";
-import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
+import { optionsArticles } from "@/lib/recherche-options";
+import { liensParArticle, optionsFournisseursPourArticles } from "@/lib/fournisseurs-article";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -33,14 +34,18 @@ export type BonInitial = {
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix: "", uniteParCarton: "" });
 
-export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean }) {
+export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false, liens = [] }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean; /** Fournisseurs connus de chaque article (2026-10-16), l'habituel marqué. */ liens?: { articleId: string; fournisseurId: string; habituel: boolean }[] }) {
   // Le brouillon vient de la base en notation anglaise (« 2.125 ») : écrit à la française dans les cases.
   const [lignes, setLignes] = useState<Ligne[]>(() => initial?.lignes.length
     ? initial.lignes.map((l) => ({ ...l, quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prix), uniteParCarton: canoniqueVersSaisie(l.uniteParCarton) }))
     : [vide(), vide(), vide()]);
   // Une liste d'options par écran, partagée par toutes les lignes (recherche par désignation, nom court, code).
   const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
-  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
+  // Fournisseurs proposés d'abord : ceux qui fournissent les articles déjà choisis sur les lignes (« 3 sur 4 articles ») ; tous les autres restent dans la liste.
+  const liensDe = useMemo(() => liensParArticle(liens), [liens]);
+  const cleArticles = lignes.map((l) => l.articleId).join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des articles choisis suffit
+  const optionsFour = useMemo(() => optionsFournisseursPourArticles(fournisseurs, liensDe, cleArticles.split("|")), [fournisseurs, liensDe, cleArticles]);
   const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
   const [erreur, setErreur] = useState<string | null>(null);
   const [isPending, start] = useTransition();

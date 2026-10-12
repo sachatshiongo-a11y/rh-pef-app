@@ -506,13 +506,14 @@ export async function annulerImport(batchId: string, userId?: string, opts: { re
       // Ne supprime un fournisseur créé que s'il n'est plus référencé (sécurité).
       // Les achats DIRECTS de la Liste d'achat (MouvementStock.fournisseurId) comptent aussi : sinon
       // ils perdraient leur fournisseur en silence (FK SET NULL).
-      const [nbArt, nbBC, nbFac, nbMvt] = await Promise.all([
+      const [nbArt, nbBC, nbFac, nbMvt, nbLiens] = await Promise.all([
         tx.articleStock.count({ where: { fournisseurId: o.entiteId } }),
         tx.bonDeCommande.count({ where: { fournisseurId: o.entiteId } }),
         tx.factureFournisseur.count({ where: { fournisseurId: o.entiteId } }),
         tx.mouvementStock.count({ where: { fournisseurId: o.entiteId } }),
+        tx.articleFournisseur.count({ where: { fournisseurId: o.entiteId } }), // un fournisseur déjà listé sur un article (2026-10-16) n'est pas supprimé
       ]);
-      if (nbArt === 0 && nbBC === 0 && nbFac === 0 && nbMvt === 0) await tx.fournisseur.deleteMany({ where: { id: o.entiteId } });
+      if (nbArt === 0 && nbBC === 0 && nbFac === 0 && nbMvt === 0 && nbLiens === 0) await tx.fournisseur.deleteMany({ where: { id: o.entiteId } });
     }
     for (const o of updates) {
       const av = o.avant as Record<string, string | null> | null;

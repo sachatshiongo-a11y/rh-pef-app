@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     prisma.articleStock.findMany({
       where: domaine ? { domaine } : {},
       orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }],
-      include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
+      include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true, _count: { select: { fournisseurs: true } } }, // fournisseur = l'HABITUEL ; le compte sert au filtre « sans fournisseur »
     }),
     chargerHausses(domaine),
     tauxDuJour(),

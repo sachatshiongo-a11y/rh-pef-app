@@ -5,13 +5,15 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouveauBonForm } from "./nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 
 export default async function NouveauBonPage() {
   const user = await exigerPageStock();
-  const [articles, taux, fournisseurs] = await Promise.all([
+  const [articles, taux, fournisseurs, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    chargerLiensFournisseurs(),
   ]);
 
   const arts = articles.map((a) => ({
@@ -35,7 +37,7 @@ export default async function NouveauBonPage() {
         <span>Nouveau</span>
       </div>
       <h1 className="text-xl font-semibold sm:text-2xl">Nouveau bon de commande</h1>
-      <NouveauBonForm articles={arts} fournisseurs={fournisseurs} estDirection={user.role === "ADMIN"} />
+      <NouveauBonForm articles={arts} fournisseurs={fournisseurs} liens={liens} estDirection={user.role === "ADMIN"} />
     </div>
   );
 }

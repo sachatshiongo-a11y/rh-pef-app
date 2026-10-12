@@ -36,6 +36,7 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "app/(stock)/stock/fournisseurs/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Fusion de fournisseurs (réaffecte les articles) : garde ADMIN du fichier." },
   "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import d'inventaire : appelé seulement par imports/actions.ts (gardeDirection)." },
   "lib/import-mouvements.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import de mouvements : appelé seulement par imports/actions.ts (gardeDirection)." },
+  "lib/article-fournisseurs.ts": { sort: "COEUR_PARTAGE", pourquoi: "Fournisseurs d'un article (liaison + copie de compatibilité ArticleStock.fournisseurId du fournisseur habituel) : alimentation automatique par un achat réel (fait constaté, sans validation, jamais d'habituel) ; gestes manuels appelés par article.ts (proposition validée) et par les actions de catalogue/actions.ts (Direction = direct, autre rôle = proposition) ; reports de fusion d'articles et de fournisseurs (Direction seule)." },
   "lib/validations-stock/article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un patch d'article : geste direct de la Direction ou proposition validée." },
   "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour tout compte Stock et notifiées à la Direction (décision du 2026-10-07) ; validation des ANCIENNES demandes MOUVEMENT_MANUEL encore en attente." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
@@ -117,7 +118,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement", "variationsStockTx", "sortirDuStockTx", "entrerEnStockTx", "poserStocksTx"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement", "alimenterFournisseursTx", "definirHabituelTx", "remplacerFournisseursTx", "definirHabituelEnMasseTx", "ajouterFournisseursEnMasseTx", "retirerFournisseursEnMasseTx", "reporterFournisseursDesDoublonsTx", "reporterArticlesDuFournisseurTx", "variationsStockTx", "sortirDuStockTx", "entrerEnStockTx", "poserStocksTx"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {

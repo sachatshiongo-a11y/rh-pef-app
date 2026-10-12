@@ -27,7 +27,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
   const [articles, categories, fournisseurs, haussePct, enAttente, taux] = await Promise.all([
-    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
+    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true, _count: { select: { fournisseurs: true } } } }),
     prisma.categorieStock.findMany({ orderBy: [{ ordre: "asc" }, { nom: "asc" }], select: { id: true, nom: true, domaine: true, actif: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     // Hausses du dernier prix d'achat (badge 📈) : le MÊME calcul que les exports de l'Inventaire.
@@ -47,7 +47,8 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       surFicheCommande: a.surFicheCommande,
       domaine: a.domaine,
       categorieId: a.categorieId,
-      fournisseurId: a.fournisseurId,
+      fournisseurId: a.fournisseurId, // l'HABITUEL (colonne Fournisseur de l'Inventaire)
+      nbFournisseurs: a._count.fournisseurs,
       unite: a.unite,
       prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
       // Prix en francs (2026-10-08) : la devise de saisie fait foi, l'autre « ≈ » au taux du jour.

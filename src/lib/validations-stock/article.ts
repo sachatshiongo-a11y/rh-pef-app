@@ -14,8 +14,9 @@ import { libelleArticle } from "@/lib/libelle-article";
 import { decisionArticle } from "@/lib/article-proche";
 import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import type { ArticleCandidat } from "@/lib/achats-doublons";
+import { definirHabituelTx, remplacerFournisseursTx } from "@/lib/article-fournisseurs";
 import {
-  CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, estDomaineArticle, libelleValeur, texteDecimal, valeursEgales,
+  CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, estDomaineArticle, idsDeValeurListe, libelleListeFournisseurs, libelleValeur, texteDecimal, valeurListeIds, valeursEgales,
   type ChampArticle, type Changement, type DomaineArticle, type Valeur,
 } from "./charge";
 
@@ -54,11 +55,22 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   }
   if (formData.has("categorieId")) p.categorieId = String(formData.get("categorieId")).trim() || null;
   if (formData.has("fournisseurId")) p.fournisseurId = String(formData.get("fournisseurId")).trim() || null;
+  // Tous les fournisseurs : ids séparés par une virgule (la liste complète après le geste).
+  if (formData.has("fournisseursIds")) p.fournisseursIds = valeurListeIds(String(formData.get("fournisseursIds")).split(","));
   if (formData.has("stockMinimum")) p.stockMinimum = decTexte(formData.get("stockMinimum"), "stock minimum") ?? "0";
   if (formData.has("seuilUrgent")) p.seuilUrgent = decTexte(formData.get("seuilUrgent"), "seuil urgent") ?? "0";
   if (formData.has("quantite")) p.quantite = decTexte(formData.get("quantite"), "quantité") ?? "0";
   exigerBornes(p);
+  exigerHabituelDansLaListe(p);
   return p;
+}
+
+/** Liste ET habituel dans le même geste : l'habituel doit en faire partie (jamais un habituel retiré par le même geste). */
+function exigerHabituelDansLaListe(p: PatchArticle) {
+  if (!p.fournisseurId || !("fournisseursIds" in p)) return;
+  if (!idsDeValeurListe(p.fournisseursIds ?? null).includes(String(p.fournisseurId))) {
+    throw new Error("Le fournisseur habituel doit faire partie des fournisseurs de l'article : ajoutez-le à la liste, ou choisissez-en un autre.");
+  }
 }
 
 /**
@@ -252,12 +264,16 @@ export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: Pa
   for (const champ of champsDe(patch)) {
     const v = patch[champ] ?? null;
     if (champ === "categorieId") data.categorie = v ? { connect: { id: String(v) } } : { disconnect: true };
-    else if (champ === "fournisseurId") data.fournisseur = v ? { connect: { id: String(v) } } : { disconnect: true };
+    else if (champ === "fournisseurId" || champ === "fournisseursIds") continue; // liaison article ↔ fournisseurs : écrite plus bas (article-fournisseurs.ts)
     else if (champ === "quantite") quantite = String(v ?? "0");
     else if (CHAMPS_ARTICLE[champ].porte === "stock") (stock as Record<string, unknown>)[champ] = v ?? "0";
     else (data as Record<string, unknown>)[champ] = v;
   }
   if (Object.keys(data).length > 0) await tx.articleStock.update({ where: { id }, data });
+  // Fournisseurs (2026-10-16) : la liste d'abord, puis l'habituel — qui rejoint la liste s'il n'y était pas. Retirer
+  // l'habituel de la liste le retire en même temps ; la copie `ArticleStock.fournisseurId` suit (article-fournisseurs.ts).
+  if ("fournisseursIds" in patch) await remplacerFournisseursTx(tx, id, idsDeValeurListe(patch.fournisseursIds ?? null));
+  if ("fournisseurId" in patch) await definirHabituelTx(tx, id, patch.fournisseurId ? String(patch.fournisseurId) : null);
   // Quantité saisie sur la fiche : posée par la porte unique (stock-positif.ts), jamais négative.
   if (quantite !== null) await poserStocksTx(tx, [{ articleId: id, quantite }], { quoi: "quantité en stock" });
   if (Object.keys(stock).length > 0) {
@@ -289,7 +305,7 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
   }
   const arts = await tx.articleStock.findMany({
     where: { id: { in: ids } },
-    include: { stock: true, categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } } },
+    include: { stock: true, categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, fournisseurs: { select: { fournisseurId: true } } },
   });
   const dec = (d: Prisma.Decimal | null | undefined) => (d === null || d === undefined ? null : d.toString());
   return new Map(arts.map((a) => [a.id, {
@@ -301,7 +317,7 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
       code: a.code, designation: a.designation, nomCourt: a.nomCourt, marque: a.marque, domaine: a.domaine, unite: a.unite,
       contenance: dec(a.contenance), contenanceUnite: a.contenanceUnite,
       devisePrix: a.devisePrix, prixUnitaireUSD: dec(a.prixUnitaireUSD), prixUnitaireCDF: dec(a.prixUnitaireCDF), uniteParCarton: dec(a.uniteParCarton),
-      categorieId: a.categorieId, fournisseurId: a.fournisseurId,
+      categorieId: a.categorieId, fournisseurId: a.fournisseurId, fournisseursIds: valeurListeIds(a.fournisseurs.map((l) => l.fournisseurId)),
       actif: a.actif, surFicheCommande: a.surFicheCommande,
       // Sans ligne Stock, la fiche affiche 0 : c'est la valeur que le demandeur a vue.
       stockMinimum: dec(a.stock?.stockMinimum) ?? "0", seuilUrgent: dec(a.stock?.seuilUrgent) ?? "0", quantite: dec(a.stock?.quantite) ?? "0",
@@ -326,7 +342,8 @@ export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { ca
   const libelle = (champ: ChampArticle, v: Valeur) =>
     champ === "categorieId" ? (v ? nomCategorie(String(v)) : "— à classer —")
       : champ === "fournisseurId" ? (v ? noms.fournisseurs.get(String(v)) ?? "(fournisseur inconnu)" : "—")
-        : libelleValeur(champ, v);
+        : champ === "fournisseursIds" ? libelleListeFournisseurs(v, noms.fournisseurs)
+          : libelleValeur(champ, v);
   // `inclure` : champs déjà proposés (même auteur) — gardés même s'ils reviennent à la valeur de
   // l'article, pour que la fusion les RETIRE de la proposition au lieu de les y laisser.
   patch = harmoniserPrix(etat.valeurs.devisePrix === "CDF" ? "CDF" : "USD", patch);

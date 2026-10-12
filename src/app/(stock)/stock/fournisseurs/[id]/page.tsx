@@ -48,7 +48,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
   // effectifs des filtres (agrégats SQL, aucune ligne rapatriée). Le CONTENU, lui, n'est lu que pour
   // l'onglet affiché : plus de 500 factures + 300 bons + 300 achats à chaque ouverture.
   const [f, statsFactures, statsBons, nbAchatsDirects, taux, statsEchues] = await Promise.all([
-    prisma.fournisseur.findUnique({ where: { id }, include: { _count: { select: { articles: true } } } }),
+    prisma.fournisseur.findUnique({ where: { id }, include: { _count: { select: { liensArticles: true } } } }),
     prisma.factureFournisseur.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true, montantCDF: true }, _sum: { montantUSD: true, resteAPayerUSD: true, montantCDF: true, resteAPayerCDF: true } }),
     prisma.bonDeCommande.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true } }),
     // Le VRAI total des achats DIRECTS (la liste de l'onglet est plafonnée).
@@ -114,8 +114,9 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
       : null,
     onglet === "articles"
       ? prisma.articleStock.findMany({
-          where: { fournisseurId: id }, orderBy: { designation: "asc" },
-          include: { stock: true, categorie: { select: { nom: true } } },
+          // TOUS les articles qu'il fournit (2026-10-16) : habituel ou non — la liaison, plus la seule colonne habituelle.
+          where: { fournisseurs: { some: { fournisseurId: id } } }, orderBy: { designation: "asc" },
+          include: { stock: true, categorie: { select: { nom: true } }, fournisseurs: { where: { fournisseurId: id }, select: { habituel: true } } },
         })
       : null,
   ]);
@@ -125,7 +126,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
     { o: "factures", label: `Factures (${nbFactures})` },
     { o: "bons", label: `Bons de commande (${nbBons})` },
     { o: "achats", label: `Achats directs (${nbAchatsDirects})` },
-    { o: "articles", label: `Articles (${f._count.articles})` },
+    { o: "articles", label: `Articles (${f._count.liensArticles})` },
     { o: "coordonnees", label: "Coordonnées" },
   ];
 
@@ -144,7 +145,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">{f.nom}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {f._count.articles} article(s) · {nbBonsValides} bon(s) de commande validé(s) · {nbFactures} facture(s) · {nbAchatsDirects} achat(s) direct(s)
+            {f._count.liensArticles} article(s) · {nbBonsValides} bon(s) de commande validé(s) · {nbFactures} facture(s) · {nbAchatsDirects} achat(s) direct(s)
           </p>
         </div>
         {estDirection && <EditerFournisseur f={{
@@ -297,7 +298,7 @@ function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: num
 }
 
 // ─── Onglet Articles fournis : contenu inchangé ───
-type ArticleFourni = Prisma.ArticleStockGetPayload<{ include: { stock: true; categorie: { select: { nom: true } } } }>;
+type ArticleFourni = Prisma.ArticleStockGetPayload<{ include: { stock: true; categorie: { select: { nom: true } }; fournisseurs: { select: { habituel: true } } } }>;
 
 function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: number | null }) {
   return (
@@ -309,6 +310,7 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
             <tr>
               <th className="px-3 py-2">Désignation</th>
               <th className="px-3 py-2">Catégorie</th>
+              <th className="px-3 py-2">Pour cet article</th>
               <th className="px-3 py-2 text-right">Prix</th>
               <th className="px-3 py-2 text-right">Stock</th>
               <th className="px-3 py-2">Alerte</th>
@@ -321,13 +323,16 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
                 <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                   <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{libelleArticle(a)}</Link></td>
                   <td className="px-3 py-2 text-muted-foreground">{a.categorie?.nom ?? "—"}</td>
+                  <td className="px-3 py-2">{a.fournisseurs.some((l) => l.habituel)
+                    ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Habituel</span>
+                    : <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Occasionnel</span>}</td>
                   <td className="px-3 py-2 text-right">{(() => { const l = libellesPrix(a, taux); return <>{l.principal}{l.autre && <span className="block text-[11px] text-muted-foreground">{l.autre}</span>}</>; })()}</td>
                   <td className="px-3 py-2 text-right">{a.stock ? qte(a.stock.quantite) : "—"}</td>
                   <td className="px-3 py-2">{niv && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[niv]}`}>{ALERTE_LABEL[niv]}</span>}</td>
                 </tr>
               );
             })}
-            {articles.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucun article rattaché. Rattachez-en depuis le catalogue.</td></tr>}
+            {articles.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun article rattaché. Il s&apos;ajoute tout seul à un article dès qu&apos;un achat, une facture ou un bon de commande le mentionne, ou depuis la fiche de l&apos;article.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -5,6 +5,7 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouvelleFactureForm } from "./nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 
 function delaiEnJours(s: string | null): number | null {
   if (!s) return null;
@@ -17,7 +18,7 @@ function delaiEnJours(s: string | null): number | null {
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
   const user = await exigerPageStock();
   const { bc } = await searchParams;
-  const [articles, taux, fournisseurs, bons] = await Promise.all([
+  const [articles, taux, fournisseurs, bons, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
     tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
@@ -31,6 +32,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
         lignes: { select: { articleId: true, designation: true, unite: true, quantite: true, prixUnitaireUSD: true } },
       },
     }),
+    chargerLiensFournisseurs(),
   ]);
 
   return (
@@ -60,6 +62,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
           lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD?.toString() ?? "" })),
         }))}
         bcInitial={bc ?? null}
+        liens={liens}
         estDirection={user.role === "ADMIN"}
       />
     </div>

@@ -10,7 +10,7 @@ import Decimal from "decimal.js";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { ArticleUniteResto, ChargeArticle } from "./charge";
-import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull, valeursEgales, type NatureDemande } from "./charge";
+import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleListeFournisseurs, libelleValeur, lireChargeOuNull, valeurListeIds, valeursEgales, type NatureDemande } from "./charge";
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
 import { obstaclesLiens } from "./lien-resto";
 import { obstaclesAlignement } from "./unite-resto";
@@ -210,7 +210,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const ca = charge as ChargeArticle;
       const ids = ca.articles.map((a) => a.id);
       const [arts, cats, fours] = await Promise.all([
-        prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } }),
+        prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true, fournisseurs: { select: { fournisseurId: true } } } }),
         prisma.categorieStock.findMany({ select: { id: true, nom: true } }),
         prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
       ]);
@@ -225,7 +225,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           const valeurs: Record<string, string | boolean | null> | null = art ? {
             code: art.code, designation: art.designation, nomCourt: art.nomCourt, marque: art.marque, domaine: art.domaine, unite: art.unite,
             contenance: dec(art.contenance), contenanceUnite: art.contenanceUnite, devisePrix: art.devisePrix, prixUnitaireUSD: dec(art.prixUnitaireUSD), prixUnitaireCDF: dec(art.prixUnitaireCDF),
-            uniteParCarton: dec(art.uniteParCarton), categorieId: art.categorieId, fournisseurId: art.fournisseurId,
+            uniteParCarton: dec(art.uniteParCarton), categorieId: art.categorieId, fournisseurId: art.fournisseurId, fournisseursIds: valeurListeIds(art.fournisseurs.map((l) => l.fournisseurId)),
             actif: art.actif, surFicheCommande: art.surFicheCommande,
             stockMinimum: dec(art.stock?.stockMinimum) ?? "0", seuilUrgent: dec(art.stock?.seuilUrgent) ?? "0", quantite: dec(art.stock?.quantite) ?? "0",
           } : null;
@@ -236,7 +236,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
               let actuel: string | null = null;
               if (valeurs && !valeursEgales(c.champ, valeurs[c.champ], c.avant)) {
                 const v = valeurs[c.champ];
-                actuel = c.champ === "categorieId" ? (v ? catNom.get(String(v)) ?? "?" : "— à classer —") : c.champ === "fournisseurId" ? (v ? fourNom.get(String(v)) ?? "?" : "—") : libelleValeur(c.champ, v);
+                actuel = c.champ === "categorieId" ? (v ? catNom.get(String(v)) ?? "?" : "— à classer —") : c.champ === "fournisseurId" ? (v ? fourNom.get(String(v)) ?? "?" : "—") : c.champ === "fournisseursIds" ? libelleListeFournisseurs(v, fourNom) : libelleValeur(c.champ, v);
                 base.alertes.push(`« ${a.designation} » — ${CHAMPS_ARTICLE[c.champ].libelle} a changé depuis la proposition.`);
               }
               return { libelle: CHAMPS_ARTICLE[c.champ].libelle, avant: c.avantLibelle, apres: c.apresLibelle, actuel };

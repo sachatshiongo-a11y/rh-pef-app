@@ -19,6 +19,9 @@ import { refusCreationFournisseur, verrouillerNomFournisseur } from "@/lib/fourn
 import { extraireBonCommandePDF, type DeviseBon, type LigneBonLue } from "@/lib/import-bc-pdf";
 import { appliquerReception, exigerBonReceptionnable, lireQuantitesRecues } from "@/lib/reception-bc";
 import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { alimenterFournisseursTx } from "@/lib/article-fournisseurs";
+import { STATUTS_BON_ENGAGES } from "@/lib/prix-fournisseurs";
+import type { Prisma } from "@prisma/client";
 
 
 const slugBC = (s: string) => normNom(s).slice(0, 40) || "bc";
@@ -148,6 +151,16 @@ async function garde() {
   return user;
 }
 
+/**
+ * Bon engagé (validé, envoyé, reçu) → le fournisseur du bon rejoint la liste des fournisseurs de chaque article de
+ * ses lignes (2026-10-16) : un FAIT constaté, sans validation, sans habituel. Un brouillon n'est pas une commande ;
+ * un bon annulé n'engage plus rien. Idempotent. Les lignes libres (sans article) et les bons sans fournisseur sont ignorés.
+ */
+async function alimenterDepuisBons(tx: Prisma.TransactionClient, bonIds: string[], source: "BON_COMMANDE" | "RECEPTION", userId: string, seulesLignes?: Set<string>) {
+  const bons = await tx.bonDeCommande.findMany({ where: { id: { in: bonIds }, fournisseurId: { not: null }, statut: { in: [...STATUTS_BON_ENGAGES] } }, select: { fournisseurId: true, lignes: { where: { articleId: { not: null } }, select: { id: true, articleId: true } } } });
+  await alimenterFournisseursTx(tx, bons.flatMap((b) => b.lignes.filter((l) => !seulesLignes || seulesLignes.has(l.id)).map((l) => ({ articleId: l.articleId, fournisseurId: b.fournisseurId }))), source, userId);
+}
+
 /** Crée un bon de commande avec numérotation NNN/PEF/MOIS/AA (séquence remise à zéro chaque année). */
 export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const user = await garde();
@@ -193,7 +206,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
     const sequence = (dernier._max.sequence ?? 0) + 1;
     const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1].toUpperCase()}/${String(annee).slice(-2)}`;
-    return tx.bonDeCommande.create({
+    const cree = await tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
         date: now, // jour civil de Kinshasa, explicite : le défaut de la base (now() UTC) daterait la veille
@@ -219,6 +232,8 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
         },
       },
     });
+    if (autoValide) await alimenterDepuisBons(tx, [cree.id], "BON_COMMANDE", user.id); // né validé : déjà une commande
+    return cree;
   });
 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
@@ -302,7 +317,10 @@ export async function validerBonCommande(id: string, _formData: FormData) {
   requireRole(user, ["ADMIN"]); // seule la Direction valide un bon de commande
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
   if (bc.statut !== "BROUILLON") throw new Error("Ce bon de commande est déjà validé.");
-  await prisma.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });
+  await prisma.$transaction(async (tx) => {
+    await tx.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });
+    await alimenterDepuisBons(tx, [id], "BON_COMMANDE", user.id); // validé = commande passée
+  });
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: "VALIDE", userId: user.id });
 
   // La demande « à valider » est traitée → sa notification disparaît.
@@ -341,7 +359,10 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
     if (statut === "ANNULE" || (statut === "BROUILLON" && avant.statut !== "BROUILLON")) {
       exigerDirectionPourSupprimer(user, "Annuler un bon de commande, ou le repasser en brouillon, est réservé à la Direction.");
     }
-    await prisma.bonDeCommande.update({ where: { id }, data: { statut } });
+    await prisma.$transaction(async (tx) => {
+      await tx.bonDeCommande.update({ where: { id }, data: { statut } });
+      await alimenterDepuisBons(tx, [id], "BON_COMMANDE", user.id); // sans effet pour un brouillon ou un bon annulé
+    });
     await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", ancienneValeur: avant.statut, nouvelleValeur: statut, userId: user.id });
     revalidatePath("/stock/commandes");
     revalidatePath(`/stock/commandes/${id}`);
@@ -375,6 +396,8 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
     for (const m of calcul.maj) await tx.ligneBonDeCommande.update({ where: { id: m.id }, data: { quantiteRecue: m.quantiteRecue } });
     await tx.reception.create({ data: { bonDeCommandeId: bcId, date: jourCivilKinshasa(new Date()), creeParId: user.id } }); // date explicite : le défaut de la base est le jour UTC
     await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: calcul.complet ? "RECU" : "RECU_PARTIEL" } });
+    // Marchandise arrivée : le fournisseur du bon rejoint la liste des articles RÉCEPTIONNÉS (fait constaté, sans validation).
+    await alimenterDepuisBons(tx, [bcId], "RECEPTION", user.id, new Set(calcul.maj.map((m) => m.id)));
     return { bc, nb: calcul.maj.length, complet: calcul.complet, restes: calcul.restes };
   });
 
@@ -393,7 +416,10 @@ export const validerBonsEnLot = actionLisible(async (ids: string[]) => {
   if (uniq.length === 0) return;
   const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true, creeParId: true } });
   if (bcs.length === 0) return;
-  await prisma.bonDeCommande.updateMany({ where: { id: { in: bcs.map((b) => b.id) } }, data: { statut: "VALIDE" } });
+  await prisma.$transaction(async (tx) => {
+    await tx.bonDeCommande.updateMany({ where: { id: { in: bcs.map((b) => b.id) } }, data: { statut: "VALIDE" } });
+    await alimenterDepuisBons(tx, bcs.map((b) => b.id), "BON_COMMANDE", user.id);
+  });
   for (const b of bcs) {
     await supprimerNotificationsPour(b.id);
     // Cloche « validé » TOUJOURS émise (choix client : trace visible même en auto-validation).
