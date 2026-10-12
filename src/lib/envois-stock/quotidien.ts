@@ -172,7 +172,7 @@ export async function rubriqueBons(maintenant: Date): Promise<Rubrique | null> {
   return {
     cle: "bons", titre: "Bons de commande à réceptionner", nombre: bons.length,
     resume: parStatut.map((x) => `${x.n} ${STATUT_BC_LABEL[x.s].toLowerCase()}`).join(" · ") + ".",
-    groupes: [plafonner(lignes, LIENS.bonsValides())], suite: { libelle: "Voir les bons validés", lien: LIENS.bonsValides() },
+    groupes: [plafonner(lignes, LIENS.bons())], suite: { libelle: "Voir les bons de commande", lien: LIENS.bons() },
   };
 }
 

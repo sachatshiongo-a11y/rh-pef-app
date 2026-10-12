@@ -22,9 +22,12 @@ export async function GET(request: NextRequest) {
   }
 
   const alertes = await calculerAlertes();
+  // Rappels RH seulement : les alertes de l'espace Stock (« N facture(s) fournisseur à payer sous 7 jours »…) ont depuis le
+  // 2026-10-12 leur courriel détaillé (`/api/cron/stock-quotidien`, mêmes destinataires ADMIN + les comptes Stock) ; les
+  // répéter ici ferait un doublon dans la boîte de la Direction. Même filtre que l'accueil RH.
   // On n'envoie par e-mail que ce qui est proche (urgent/warning) pour éviter un bruit quotidien ;
   // les échéances lointaines (info, ~30 j) restent visibles dans la cloche in-app.
-  const aEnvoyer = alertes.filter((a) => a.niveau === "urgent" || a.niveau === "warning");
+  const aEnvoyer = alertes.filter((a) => a.espace === "RH" && (a.niveau === "urgent" || a.niveau === "warning"));
 
   if (aEnvoyer.length === 0) {
     return NextResponse.json({ envoye: false, nombre: 0 });

@@ -35,6 +35,8 @@ export const LIENS = {
   // Bons de commande
   bon: (id: string) => `/stock/commandes/${id}`,
   bonsValides: () => "/stock/commandes?statut=VALIDE",
+  // Tous les bons, sans filtre d'état : la liste du courriel mêle Validés, Envoyés et Reçus partiellement (le filtre de l'écran n'en prend qu'un à la fois).
+  bons: () => "/stock/commandes",
   // À valider, fournisseurs
   aValider: () => "/stock/a-valider",
   fournisseur: (id: string) => `/stock/fournisseurs/${id}`,
@@ -52,7 +54,7 @@ export const LIENS = {
 export function exemplesDeLiens(): string[] {
   return [
     LIENS.accueil(), LIENS.catalogue(), LIENS.article("x"), LIENS.articlePrix("x"), LIENS.articleFournisseurs("x"), LIENS.alertesCatalogue("URGENT", "BOISSON"), LIENS.alertesCatalogue("APPRO"), LIENS.stocksNegatifs(), LIENS.hausses(),
-    LIENS.facture("x"), LIENS.facturesADevoir(), LIENS.facturesEchues(), LIENS.bon("x"), LIENS.bonsValides(), LIENS.aValider(), LIENS.fournisseur("x"), LIENS.fournisseurs(),
+    LIENS.facture("x"), LIENS.facturesADevoir(), LIENS.facturesEchues(), LIENS.bon("x"), LIENS.bonsValides(), LIENS.bons(), LIENS.aValider(), LIENS.fournisseur("x"), LIENS.fournisseurs(),
     LIENS.mouvementsDuMois(2026, 9), LIENS.mouvementsDuMois(2026, 9, "perte"), LIENS.mouvementsDuMois(2026, 9, "livraison"),
     LIENS.listeAchat(), LIENS.legumes(), LIENS.factures(), LIENS.ecartsVentes(), LIENS.ecartsVentes("2026-09-28"),
   ];
