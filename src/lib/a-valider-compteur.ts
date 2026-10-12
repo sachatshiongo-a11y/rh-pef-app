@@ -5,10 +5,9 @@
 // même file. Module pur (ni base ni React).
 //
 // Ce qui compte : les demandes réelles (congés, modifications et créations de fiches, acomptes,
-// attestations, échanges et changements de shift) et les bulletins VALIDÉS restant à payer.
-// Ce qui ne compte pas : les bulletins brouillons du mois (« Bulletins à valider »). Ils sont
-// recréés à chaque recalcul — dès qu'on saisit une présence — et gonflaient le badge d'une
-// vingtaine sans qu'il s'agisse de demandes (décision du 2026-07-22) ; ils restent listés sur la page.
+// attestations, échanges et changements de shift), les bulletins du mois À VALIDER (brouillons,
+// hors calcul exclus) et les bulletins VALIDÉS restant à payer. Les brouillons ne comptaient pas
+// depuis le 2026-07-22 ; la Direction les veut dans la pastille (décision du 2026-10-12).
 
 export type ElementsAValider = {
   conges: number;
@@ -17,11 +16,12 @@ export type ElementsAValider = {
   attestations: number;
   echanges: number;
   changements: number;
+  bulletinsAValider: number; // brouillons du mois, hors calcul exclus
   bulletinsAPayer: number;
 };
 
 export function totalAValiderRH(e: ElementsAValider): number {
-  return e.conges + e.fiches + e.acomptes + e.attestations + e.echanges + e.changements + e.bulletinsAPayer;
+  return e.conges + e.fiches + e.acomptes + e.attestations + e.echanges + e.changements + e.bulletinsAValider + e.bulletinsAPayer;
 }
 
 /**

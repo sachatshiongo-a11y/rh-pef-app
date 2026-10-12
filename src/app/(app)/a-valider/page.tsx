@@ -184,11 +184,10 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     motif: a.motif ?? null,
     demandeLe: new Date(a.dateDemande).toLocaleDateString("fr-FR"),
   }));
-  // Le MÊME total que le badge du menu (`lib/a-valider-compteur.ts`) : les bulletins brouillons du
-  // mois, listés plus bas, n'y comptent pas.
+  // Le MÊME total que le badge du menu (`lib/a-valider-compteur.ts`), bulletins du mois à valider compris.
   const total = totalAValiderRH({
     conges: congeRows.length, fiches: ficheRows.length, acomptes: acompteRows.length, attestations: attestationRows.length,
-    echanges: echanges.length, changements: changements.length, bulletinsAPayer: valideRows.length,
+    echanges: echanges.length, changements: changements.length, bulletinsAValider: prepareRows.length, bulletinsAPayer: valideRows.length,
   });
   const rubriques: RubriqueAValider[] = [
     { id: "conges", titre: "Demandes de congé", nombre: congeRows.length, contenu: <CongesInbox rows={congeRows} peutValider={peutValider} /> },

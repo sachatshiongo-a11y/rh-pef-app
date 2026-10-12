@@ -33,12 +33,11 @@ async function chargerBadges(): Promise<Record<string, number>> {
   const attestationsDemandees = await prisma.attestation.count({ where: { statut: "DEMANDEE" } });
   const badges = {
     // La définition du compteur est PARTAGÉE avec la page « Demandes de validation »
-    // (`lib/a-valider-compteur.ts`) : le chiffre du menu est celui de la page. Les bulletins
-    // brouillons du mois n'y comptent pas (décision du 2026-07-22 : recréés à chaque recalcul, ils
-    // gonflaient le badge sans être des demandes) ; la validation de la paie se fait aussi dans Paie.
+    // (`lib/a-valider-compteur.ts`) : le chiffre du menu est celui de la page, bulletins du mois à
+    // valider compris (décision de la Direction du 2026-10-12).
     "/a-valider": totalAValiderRH({
       conges: congesEnAttente, fiches: modifsFicheEnAttente, acomptes: acomptesEnAttente, attestations: attestationsDemandees,
-      echanges: echangesEnAttente, changements: changementsShift, bulletinsAPayer: bulletinsValide,
+      echanges: echangesEnAttente, changements: changementsShift, bulletinsAValider: bulletinsPasValide, bulletinsAPayer: bulletinsValide,
     }),
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
