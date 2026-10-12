@@ -216,7 +216,11 @@ async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: st
       where: { employeeId: { in: employeeIds }, code: "C", date: { lte: finAnnee } },
       select: { employeeId: true, date: true },
     }),
-    db.jourFerie.findMany({ where: { date: { lte: finAnnee } }, select: { date: true } }),
+    // TOUS les fériés, pas seulement jusqu'au 31 décembre de l'année en cours : un congé à cheval
+    // (28/12 → 05/01) se répartit sur les jours ouvrables des DEUX années. Sans le 1er janvier suivant,
+    // janvier comptait un jour ouvrable de trop et décembre perdait une part de ce qui y est pris
+    // (7 j saisis du 28/12/2026 au 05/01/2027 : 3,5 j décomptés en 2026 au lieu de 4).
+    db.jourFerie.findMany({ select: { date: true } }),
   ]);
   const feriesIso = new Set(feries.map((f) => iso(f.date)));
   const compteDansSolde = new Map(types.map((t) => [t.nom, t.compteDansSolde]));

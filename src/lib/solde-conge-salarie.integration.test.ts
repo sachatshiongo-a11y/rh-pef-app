@@ -112,4 +112,18 @@ describe("chargerCongesParAnnee", () => {
     expect(maladie).toMatchObject({ entameLeSolde: false, joursParAnnee: {} });
     expect(demandes.find((d) => d.statut === "EN_ATTENTE")!.joursParAnnee).toEqual({});
   });
+
+  // Relecture 2026-10-12 : les fériés de l'année SUIVANTE comptent pour répartir un congé à cheval posé
+  // cette année. 28/12/2026 → 05/01/2027 : 7 jours ouvrables (le 1er janvier férié, le 3 dimanche),
+  // 4 en 2026 (28-31/12), 3 en 2027 (2, 4, 5/01). Sans le férié de 2027 : 8 jours, 3,5 j décomptés en 2026.
+  it("congé à cheval sur l'année suivante : le férié du 1er janvier suivant est connu", async () => {
+    const e = await salarie("CDI", "2024-01-10");
+    await prisma.jourFerie.create({ data: { date: new Date("2027-01-01"), designation: "Nouvel an", annee: 2027 } });
+    await conge(e, "Congé annuel", "2026-12-28", "2027-01-05", 7);
+    const { bilans, demandes } = await chargerCongesParAnnee(prisma, e, MAINTENANT);
+    expect(demandes[0].joursParAnnee).toEqual({ 2026: 4, 2027: 3 });
+    const solde = await chargerSoldeCongeSalarie(prisma, e, MAINTENANT);
+    expect(solde.pris).toBe(4);
+    expect(bilans.at(-1)!.pris).toBe(4);
+  });
 });

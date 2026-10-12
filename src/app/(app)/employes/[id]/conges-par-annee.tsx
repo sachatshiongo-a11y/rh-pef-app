@@ -66,11 +66,13 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
       {bilan ? (
         <>
           <dl data-bilan-conges={annee} className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-5">
-            <Carte label={`Report de ${annee - 1}`} valeur={jours(sansConges ? null : bilan.report)} rouge={!sansConges && bilan.report < 0} />
+            {/* Contrat sans congés : seuls l'acquis et les perdus n'ont pas de sens (« — »). Le report et le
+                solde restent chiffrés — les jours pris se décomptent — : c'est le solde de l'en-tête de la fiche. */}
+            <Carte label={`Report de ${annee - 1}`} valeur={jours(bilan.report)} rouge={bilan.report < 0} />
             <Carte label={`Acquis en ${annee}`} valeur={jours(sansConges ? null : bilan.acquisAnnee)} />
             <Carte label={`Pris en ${annee}`} valeur={jours(bilan.pris)} />
             <Carte label="Perdus au plafond" valeur={jours(sansConges ? null : bilan.perdu)} />
-            <Carte label={bilan.enCours ? "Solde à date" : `Solde au 31 décembre ${annee}`} valeur={jours(sansConges ? null : bilan.solde)} rouge={!sansConges && bilan.solde < 0} />
+            <Carte label={bilan.enCours ? "Solde à date" : `Solde au 31 décembre ${annee}`} valeur={jours(bilan.solde)} rouge={bilan.solde < 0} />
           </dl>
           {sansConges && (
             <p className="-mt-2 mb-4 text-xs text-muted-foreground">Contrat sans congés : rien ne s&apos;acquiert, les jours pris sont seulement comptés.</p>
@@ -112,11 +114,11 @@ export function CongesParAnnee({ employeeId, annee, anneeCourante, bilans, deman
                       <Link href={lienFicheAnnee(employeeId, "conges", b.annee)} scroll={false} aria-current={b.annee === annee ? "page" : undefined} className="font-medium text-primary underline">{b.annee}</Link>
                       {b.enCours && <span className="ml-1.5 text-xs text-muted-foreground">(à date)</span>}
                     </td>
-                    <td className={`px-3 py-2 text-right ${!sansConges && b.report < 0 ? "text-red-600" : ""}`}>{jours(sansConges ? null : b.report)}</td>
+                    <td className={`px-3 py-2 text-right ${b.report < 0 ? "text-red-600" : ""}`}>{jours(b.report)}</td>
                     <td className="px-3 py-2 text-right">{jours(sansConges ? null : b.acquisAnnee)}</td>
                     <td className="px-3 py-2 text-right">{jours(b.pris)}</td>
                     <td className="px-3 py-2 text-right">{jours(sansConges ? null : b.perdu)}</td>
-                    <td className={`px-3 py-2 text-right font-medium ${!sansConges && b.solde < 0 ? "text-red-600" : ""}`}>{jours(sansConges ? null : b.solde)}</td>
+                    <td className={`px-3 py-2 text-right font-medium ${b.solde < 0 ? "text-red-600" : ""}`}>{jours(b.solde)}</td>
                   </tr>
                 ))}
               </tbody>

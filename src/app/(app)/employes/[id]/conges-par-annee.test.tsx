@@ -102,12 +102,17 @@ describe("congés par année — récapitulatif de toutes les années", () => {
 });
 
 describe("congés par année — cas limites", () => {
-  it("contrat sans congés : rien d'acquis (« — »), jamais 0, et les jours pris restent comptés", () => {
+  it("contrat sans congés : rien d'acquis (« — »), les jours pris restent comptés ; report et solde chiffrés comme l'en-tête", () => {
     const sans = bilansParAnnee({ ...ENTREES, sansConges: true });
     const b = bilanTexte(rendu(2026, { bilans: sans, sansConges: true }));
-    expect(b).toContain("Report de 2025 —");
+    // Relecture 2026-10-12 : l'en-tête de la fiche affiche ce solde (négatif : 13 j pris en 2025, 8 en 2026) ;
+    // le bilan disait « — » et contredisait l'en-tête.
+    const enTete = calculerSoldeAnneeCivile({ ...ENTREES, sansConges: true });
+    expect([enTete.report, enTete.solde]).toEqual([-13, -21]);
+    expect(b).toContain("Report de 2025 -13 j");
     expect(b).toContain("Acquis en 2026 —");
-    expect(b).toContain("Solde à date —");
+    expect(b).toContain("Perdus au plafond —");
+    expect(b).toContain("Solde à date -21 j");
     expect(b).toContain("Pris en 2026 8 j");
     expect(texte(rendu(2026, { bilans: sans, sansConges: true }))).toContain("Contrat sans congés");
   });
