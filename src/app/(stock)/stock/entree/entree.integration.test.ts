@@ -728,9 +728,9 @@ describe("Liste d'achat — marque du nouvel article (2026-10-14)", () => {
   });
 
   it("l'analyse à la saisie tient compte de la marque (rattachement / nouvel article)", async () => {
-    const memeMarque = await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Danone", quantite: 1 }]);
+    const memeMarque = ok(await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Danone", quantite: 1 }]));
     expect(memeMarque.lignes[0]?.article.type).toBe("auto");
-    const autre = await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Nouvelle marque", quantite: 1 }]);
+    const autre = ok(await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Nouvelle marque", quantite: 1 }]));
     expect(autre.lignes[0]?.article.type).toBe("nouveau");
   });
 });
