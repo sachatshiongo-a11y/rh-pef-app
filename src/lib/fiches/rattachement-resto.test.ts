@@ -56,7 +56,7 @@ describe("propositions — unités du restaurant et du catalogue", () => {
       [resto("r1", "Farine", null, "g"), resto("r2", "Penne", null, "g")],
       [cat("a1", "Farine", true, "kg"), cat("a2", "Penne", true, "500 GR")],
     );
-    expect(p.map((x) => [x.uniteResto, x.uniteCatalogue, x.alerteUnite])).toEqual([["g", "kg", null], ["g", "500 GR", null]]);
+    expect(p.map((x) => [x.uniteResto, x.uniteCatalogue, x.alerteUnite])).toEqual([["g", "kg", "UNITES_DIFFERENTES"], ["g", "500 GR", "UNITES_DIFFERENTES"]]); // convertibles, mais PAS la même unité que l'Inventaire : jamais cochées d'office
   });
 
   it("conversion impossible : « unités incompatibles » (masse contre volume, comptages différents)", () => {

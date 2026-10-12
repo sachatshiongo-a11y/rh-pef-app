@@ -216,7 +216,7 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
       article("Beurre", { unite: "kg" }), article("Farfalle Molisana"), article("Citron", { domaine: "AUTRE" }),
       article("Vin rouge", { domaine: "BOISSON", unite: "l" }), article("Lait"), article("Gaz", { domaine: "AUTRE", unite: "Bouteille" }),
     ]);
-    const rb = await resto("Beurre", { unite: "g" });
+    const rb = await resto("Beurre", { unite: "kg" });
     await resto("Citron"); await resto("Citron ", { espace: "BAR" });
     // Unités incompatibles, déjà rattaché : à corriger À LA MAIN — le bouton n'y touche pas.
     const rv = await resto("Vin rouge", { espace: "BAR", unite: "bouteille", articleStockId: vin });
@@ -245,24 +245,21 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
   }, 60_000);
 
   it("le stock théorique du restaurant relit le rattachement : les livraisons de la semaine comptent après le clic", async () => {
-    const beurre = await article("Beurre", { unite: "kg" });
-    const penne = await article("Penne");
-    const rb = await resto("Beurre", { unite: "g" });
-    await prisma.comptageResto.create({ data: { articleRestoId: rb.id, date: jour(veille(DATE, 2)), quantite: 500 } }); // 500 g comptés
-    await livraisonPassee(beurre, 2, veille(DATE)); // 2 kg livrés la veille
-    await livraisonPassee(penne, 3, veille(DATE));
+    const penne = await article("Penne"); // même unité que le restaurant (« Paquet ») : la règle « une seule unité par produit »
+    const rp = await resto("Penne");
+    await prisma.comptageResto.create({ data: { articleRestoId: rp.id, date: jour(veille(DATE, 2)), quantite: 5 } }); // 5 paquets comptés
+    await livraisonPassee(penne, 3, veille(DATE)); // 3 paquets livrés la veille
     const charger = () => chargerEntreesStockResto({ depuis: veille(DATE, 6), jusquA: DATE });
 
     const avant = stockRestaurantTheorique(await charger(), DATE);
-    expect(avant.nonRattachees.map((l) => l.designation).sort()).toEqual(["Beurre", "Penne"]);
-    expect(avant.parArticle.get(rb.id)!.stock).toBe("500"); // la livraison n'est pas encore additionnée
+    expect(avant.nonRattachees.map((l) => l.designation)).toEqual(["Penne"]);
+    expect(avant.parArticle.get(rp.id)!.stock).toBe("5"); // la livraison n'est pas encore additionnée
 
-    await rattacherLivraisonsAutomatiquement([beurre, penne]);
+    await rattacherLivraisonsAutomatiquement([penne]);
     const apres = stockRestaurantTheorique(await charger(), DATE);
     expect(apres.nonRattachees).toEqual([]);
-    expect(apres.parArticle.get(rb.id)!.stock).toBe("2500"); // 500 g + 2 kg, dans l'unité du restaurant
-    const [rp] = await rattacheA(penne);
-    expect(apres.parArticle.get(rp!.id)).toMatchObject({ stock: "3", aucunComptage: true }); // estimé, jamais 0
+    expect(apres.parArticle.get(rp.id)!.stock).toBe("8"); // 5 + 3, dans l'unité du restaurant
+    expect(apres.parArticle.get(rp.id)).toMatchObject({ aucunComptage: false });
   }, 60_000);
 
   it("droits : un compte RH sans accès Stock est refusé, rien n'est écrit (mêmes droits que le rattachement à la main)", async () => {

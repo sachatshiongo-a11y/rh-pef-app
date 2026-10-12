@@ -9,7 +9,7 @@ import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
-import { libelleArticle } from "@/lib/libelle-article";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 import { demanderAlignementsUnite, demanderLiensResto, estDirection } from "@/lib/validations-stock/demandes";
 import { aligner, articlesDeDemande, plansAlignement, texteEffet } from "@/lib/validations-stock/unite-resto";
 import { ecartUnite, obstaclesLiens, poserLiensTx, retirerLiensTx } from "@/lib/validations-stock/lien-resto";
@@ -126,10 +126,10 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
       // Une seule unité par produit, celle de l'Inventaire : un article RATTACHÉ ne prend qu'une unité identique (normalisée)
       // à celle de ses articles du dépôt. Pour en changer : l'Inventaire d'abord, ou « Aligner sur l'Inventaire » (conversion exacte).
       if (article.liens.length > 0) {
-        const inventaire = await prisma.articleStock.findMany({ where: { id: { in: article.liens.map((l) => l.articleStockId) } }, select: { designation: true, unite: true } });
+        const inventaire = await prisma.articleStock.findMany({ where: { id: { in: article.liens.map((l) => l.articleStockId) } }, select: { ...CHAMPS_LIBELLE, unite: true } });
         const autre = inventaire.find((i) => ecartUnite(apres, i.unite) !== null);
         if (autre) {
-          throw new Error(`L'unité de « ${article.designation} » est celle de l'Inventaire (« ${autre.unite?.trim() || "—"} » pour « ${autre.designation} ») : ${apres ?? "vide"} ne convient pas. Changez l'unité dans l'Inventaire d'abord, ou utilisez « Aligner sur l'Inventaire » (qui convertit aussi les comptages).`);
+          throw new Error(`L'unité de « ${article.designation} » est celle de l'Inventaire (« ${autre.unite?.trim() || "—"} » pour « ${libelleArticle(autre)} ») : ${apres ?? "vide"} ne convient pas. Changez l'unité dans l'Inventaire d'abord, ou utilisez « Aligner sur l'Inventaire » (qui convertit aussi les comptages).`);
         }
       }
       changementUnite = { avant: article.unite, apres };
