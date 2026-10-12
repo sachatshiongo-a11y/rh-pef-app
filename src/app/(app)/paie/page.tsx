@@ -419,12 +419,7 @@ export default async function PaiePage({
 
       {enApercu && (
         <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 p-4">
-          <p className="text-sm font-semibold">Aperçu en temps réel</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ces montants sont calculés à la volée depuis les présences, heures, primes et acomptes du mois — ils restent
-            toujours à jour. Cliquez sur <span className="font-medium">« Calculer la paie du mois »</span> pour figer les
-            bulletins et pouvoir les valider, payer et exporter.
-          </p>
+          <p className="text-sm font-semibold">Aperçu en temps réel <span className="font-normal text-muted-foreground">· montants provisoires, non figés</span></p>
         </div>
       )}
 

@@ -18,6 +18,7 @@ import { BlocDlcProches } from "./_tableau-de-bord/bloc-dlc-proches";
 import { dlcProches } from "@/lib/dlc-stock";
 import { dateHeureGenerationKinshasa, jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
+import { Indicateur } from "@/components/indicateur";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -137,17 +138,17 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           </p>
         )}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Kpi label="Articles" valeur={String(nbArticles)} sous={etiquette(AUJ)} href="/stock/catalogue" />
-          <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} sous={etiquette(AUJ)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
-          <Kpi label="À réapprovisionner" valeur={String(nbAppro)} sous={etiquette(AUJ)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
-          <Kpi label="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} accent={nbSansPrixValeur > 0 ? "amber" : undefined} sous={[sousValeur, nbSansPrixValeur > 0 ? mentionSansPrix(nbSansPrixValeur) : "", !stockFige && ind.articlesSansTaux > 0 ? `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)` : ""].filter(Boolean).join(" · ") || undefined} />
+          <Indicateur libelle="Articles" valeur={String(nbArticles)} sousTexte={etiquette(AUJ)} href="/stock/catalogue" />
+          <Indicateur libelle="Alertes urgentes" valeur={String(nbUrgent)} sousTexte={etiquette(AUJ)} teinte={nbUrgent > 0 ? "alerte" : undefined} href="/stock/catalogue?alerte=URGENT" />
+          <Indicateur libelle="À réapprovisionner" valeur={String(nbAppro)} sousTexte={etiquette(AUJ)} teinte={nbAppro > 0 ? "attention" : undefined} href="/stock/catalogue?alerte=APPRO" />
+          <Indicateur libelle="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} teinte={nbSansPrixValeur > 0 ? "attention" : undefined} sousTexte={[sousValeur, nbSansPrixValeur > 0 ? mentionSansPrix(nbSansPrixValeur) : "", !stockFige && ind.articlesSansTaux > 0 ? `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)` : ""].filter(Boolean).join(" · ") || undefined} />
           {/* Factures en francs (2026-10-09) : leur reste s'affiche à part, jamais additionné aux dollars. */}
-          <Kpi label="Factures à payer" valeur={libelleSomme(facturesAPayer.montant, facturesAPayer.montantCDF, usd)} sous={avecEtiquette([`${facturesAPayer.nb} facture(s)`, equivalentSomme(facturesAPayer.montant, facturesAPayer.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 || (facturesAPayer.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
-          <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
-          <Kpi label="À payer cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sous={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
-          <Kpi label="Factures échues" valeur={libelleSomme(facturesEchues.montant, facturesEchues.montantCDF, usd)} sous={avecEtiquette([`${facturesEchues.nb} facture(s)`, equivalentSomme(facturesEchues.montant, facturesEchues.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
-          <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
-          <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} accent={consoMois.nbSansPrix > 0 ? "amber" : undefined} sous={detailConso(consoMois, usd, ind.consoFrancsSansTaux)} href={lienMouvements} />
+          <Indicateur libelle="Factures à payer" valeur={libelleSomme(facturesAPayer.montant, facturesAPayer.montantCDF, usd)} sousTexte={avecEtiquette([`${facturesAPayer.nb} facture(s)`, equivalentSomme(facturesAPayer.montant, facturesAPayer.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} teinte={(facturesAPayer.montant ?? 0) > 0 || (facturesAPayer.montantCDF ?? 0) > 0 ? "attention" : undefined} href="/stock/factures?statut=du" />
+          <Indicateur libelle="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
+          <Indicateur libelle="À payer cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sousTexte={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} teinte={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "attention" : undefined} href="/stock/factures?statut=du" />
+          <Indicateur libelle="Factures échues" valeur={libelleSomme(facturesEchues.montant, facturesEchues.montantCDF, usd)} sousTexte={avecEtiquette([`${facturesEchues.nb} facture(s)`, equivalentSomme(facturesEchues.montant, facturesEchues.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} teinte={facturesEchues.nb > 0 ? "alerte" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
+          <Indicateur libelle="Légumes frais du mois" valeur={usd(legumesMois.montant)} sousTexte={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
+          <Indicateur libelle="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} teinte={consoMois.nbSansPrix > 0 ? "attention" : undefined} sousTexte={detailConso(consoMois, usd, ind.consoFrancsSansTaux)} href={lienMouvements} />
         </div>
       </section>
 
@@ -313,19 +314,6 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
       <p className="text-xs text-muted-foreground">{nbFournisseurs} fournisseurs · {nbArticles} articles au catalogue{estCourant ? "" : ` (${AUJ})`}.</p>
     </div>
   );
-}
-
-function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "red" | "amber"; href?: string }) {
-  const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : "";
-  // h-full + flex : toutes les cartes d'une même rangée occupent la même hauteur (fin de l'effet décalé sur mobile).
-  const inner = (
-    <div className={`flex h-full flex-col rounded-lg border p-4 ${cls} ${href ? "transition-colors hover:border-primary" : ""}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold sm:text-xl">{valeur}</p>
-      {sous && <p className="mt-auto pt-0.5 text-xs text-muted-foreground">{sous}</p>}
-    </div>
-  );
-  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
 }
 
 /** `periode` : ce que couvre le bloc hors du mois courant (« août 2026 », « aujourd'hui »…). */

@@ -16,6 +16,7 @@ import { lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { EtatVide } from "@/components/etat-vide";
 import { OngletsDefilants } from "@/components/onglets-defilants";
+import { Indicateur } from "@/components/indicateur";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string; page?: string; par?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -201,10 +202,10 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={libelleTotal(t(kpi.total, kpi.totalCDF), undefined, usd)} sous={`${kpi.nbTotal} facture(s)${equivalent(t(kpi.total, kpi.totalCDF))}`} href={lien({ statut: "" })} />
-        <Kpi label="Payé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sous={`${kpi.nbReglees} payée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} accent="green" href={lien({ statut: "REGLEE" })} />
-        <Kpi label="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sous={`${kpi.nbDues} à payer${equivalent(t(kpi.du, kpi.duCDF))}`} accent={kpi.du > 0 || kpi.duCDF > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
-        <Kpi label="Échu" valeur={libelleTotal(t(kpi.echu, kpi.echuCDF), undefined, usd)} sous={`${kpi.nbEchues} échue(s)${equivalent(t(kpi.echu, kpi.echuCDF))}`} accent={kpi.echu > 0 || kpi.echuCDF > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
+        <Indicateur libelle="Total facturé" valeur={libelleTotal(t(kpi.total, kpi.totalCDF), undefined, usd)} sousTexte={`${kpi.nbTotal} facture(s)${equivalent(t(kpi.total, kpi.totalCDF))}`} href={avecTaille(lien({ statut: "" }))} />
+        <Indicateur libelle="Payé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sousTexte={`${kpi.nbReglees} payée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} teinte="entree" href={avecTaille(lien({ statut: "REGLEE" }))} />
+        <Indicateur libelle="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sousTexte={`${kpi.nbDues} à payer${equivalent(t(kpi.du, kpi.duCDF))}`} teinte={kpi.du > 0 || kpi.duCDF > 0 ? "attention" : undefined} href={avecTaille(lien({ statut: "du" }))} />
+        <Indicateur libelle="Échu" valeur={libelleTotal(t(kpi.echu, kpi.echuCDF), undefined, usd)} sousTexte={`${kpi.nbEchues} échue(s)${equivalent(t(kpi.echu, kpi.echuCDF))}`} teinte={kpi.echu > 0 || kpi.echuCDF > 0 ? "alerte" : undefined} href={avecTaille(lien({ statut: "ECHUE_NON_REGLEE" }))} />
       </div>
 
       {vue === "fournisseur" ? (
@@ -299,16 +300,3 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   );
 }
 
-function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "green" | "amber" | "red"; href?: string }) {
-  const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  const contenu = (
-    <>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold">{valeur}</p>
-      {sous && <p className="mt-0.5 text-[11px] text-muted-foreground">{sous}</p>}
-    </>
-  );
-  return href
-    ? <LienGardantTaille href={href} className={`block rounded-lg border p-3 transition-colors hover:border-primary ${cls}`} title="Filtrer la liste">{contenu}</LienGardantTaille>
-    : <div className={`rounded-lg border p-3 ${cls}`}>{contenu}</div>;
-}

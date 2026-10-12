@@ -266,7 +266,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   ]);
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full">
       {erreur && (
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>
       )}
@@ -283,14 +283,6 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       </div>
 
       {ailleurs && <div className="mb-4"><AussiEnAttente courant="rh" attente={ailleurs} /></div>}
-
-      {!peutValider && (
-        <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-          {peutPayer
-            ? "Rien n'est modifié tant que la Direction n'a pas validé vos demandes. Vous marquez payés les bulletins qu'elle a validés."
-            : "Rien n'est modifié tant que la Direction n'a pas validé vos demandes."}
-        </p>
-      )}
 
       <RubriquesAValider rubriques={rubriques} />
 

@@ -22,10 +22,28 @@ import { lireMoisEffet } from "@/lib/config";
 import { exigerPageRH } from "@/lib/garde-page";
 import { ChampNombre } from "@/components/champ-nombre";
 import { versSaisie } from "@/lib/nombre";
+import { SommaireSections, SECTION_ANCREE } from "@/components/sommaire-sections";
 
 // Date d'effet de la paie sur heures planifiées : saisie ici en texte libre, relue par
 // `lireMoisEffet` (config.ts). Une valeur mal formée vaut « ancienne règle partout » : l'écran le dit.
 const CLE_MOIS_EFFET = "paie_reference_planning_depuis";
+
+// Sommaire de la page (H8) : une entrée par rubrique, dans l'ordre de la page. Les ancres sont les `id` des
+// `<Section>` ci-dessous ; « utilisateurs » reste tel quel (des liens y mènent : /stock/utilisateurs, notifications).
+const SECTIONS_PARAMETRES = [
+  { id: "identite", label: "Identité" },
+  { id: "integration", label: "Intégration" },
+  { id: "utilisateurs", label: "Utilisateurs" },
+  { id: "types-conges", label: "Types de congés" },
+  { id: "espace-salarie", label: "Espace salarié" },
+  { id: "pointage-qr", label: "Pointage QR" },
+  { id: "operationnels", label: "Opérationnels" },
+  { id: "salaires-net", label: "Salaires en net" },
+  { id: "parametres-legaux", label: "Paramètres légaux" },
+  { id: "bareme-ipr", label: "Barème IPR" },
+  { id: "jours-feries", label: "Jours fériés" },
+  { id: "cloture-stock", label: "Clôture du stock" },
+];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<{ erreur?: string; msg?: string }> }) {
   const user = await exigerPageRH();
@@ -103,12 +121,16 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
 
   return (
     <div className="max-w-5xl">
-      <h1 className="mb-6 text-xl font-semibold sm:text-2xl">Paramètres</h1>
+      <h1 className="mb-4 text-xl font-semibold sm:text-2xl">Paramètres</h1>
+
+      {/* Pas de conteneur autour : la barre est collante, elle doit rester dans la hauteur de la page entière. */}
+      <SommaireSections sections={SECTIONS_PARAMETRES} libelle="Rubriques des paramètres" />
+      <div className="h-6" aria-hidden />
 
       {sp.erreur && <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{sp.erreur}</div>}
       {sp.msg && <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">{sp.msg}</div>}
 
-      <Section title="Identité de l'entreprise & documents">
+      <Section id="identite" title="Identité de l'entreprise & documents">
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
           Ces informations apparaissent sur l&apos;en-tête et le pied de page des documents générés (contrats, fiches de poste, bulletins…).
           Laissez un champ vide pour utiliser la valeur par défaut.
@@ -165,7 +187,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </form>
       </Section>
 
-      <Section title="Modèle d'intégration (onboarding)">
+      <Section id="integration" title="Modèle d'intégration (onboarding)">
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
           Liste des tâches d&apos;intégration (une par ligne) — copiée automatiquement dans la fiche de chaque nouvel employé (onglet Dossier).
         </p>
@@ -185,11 +207,11 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         <UsersAdmin users={userRows} employes={employesActifs} monId={user.id} />
       </Section>
 
-      <Section title="Types de congés & absences">
+      <Section id="types-conges" title="Types de congés & absences">
         <TypesCongesAdmin types={typeCongeRows} />
       </Section>
 
-      <Section title="Espace salarié (self-service)">
+      <Section id="espace-salarie" title="Espace salarié (self-service)">
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
           Ouvre un espace personnel aux salariés : ils se connectent avec leur <b>matricule</b> pour
           consulter leur <b>planning publié</b>, leur <b>dossier</b> et leurs <b>documents</b>, et
@@ -221,7 +243,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         )}
       </Section>
 
-      <Section title="Pointage par QR code">
+      <Section id="pointage-qr" title="Pointage par QR code">
         <PointageReglages
           reglages={{
             lat: config.pointageLatitude === null ? null : Number(config.pointageLatitude),
@@ -232,7 +254,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         />
       </Section>
 
-      <Section title="Paramètres opérationnels">
+      <Section id="operationnels" title="Paramètres opérationnels">
         <form action={mettreAJourConfig} className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <Field
             label="Taux de change CDF/USD"
@@ -266,7 +288,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </form>
       </Section>
 
-      <Section title="Salaires saisis en net">
+      <Section id="salaires-net" title="Salaires saisis en net">
         <p className="mb-3 text-xs text-muted-foreground">
           Quand c&apos;est activé, les salaires saisis sur les fiches sont considérés comme des
           montants <b>nets</b> à verser : le moteur reconstitue automatiquement le brut (CNSS + IPR
@@ -285,6 +307,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
       </Section>
 
       <Section
+        id="parametres-legaux"
         title={`Paramètres légaux — exercice ${exercice?.annee ?? "?"}`}
         badge={
           nbAValider > 0 ? (
@@ -361,7 +384,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </div>
       </Section>
 
-      <Section title="Barème IPR — DGI (tranches annuelles en CDF)">
+      <Section id="bareme-ipr" title="Barème IPR — DGI (tranches annuelles en CDF)">
         <p className="mb-3 text-xs text-muted-foreground">
           Barème progressif officiel DGI. Les plafonds sont annuels en francs congolais ; le
           moteur divise par 12 pour le calcul mensuel. Dernière tranche : plafond vide = « au-delà ».
@@ -411,7 +434,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </div>
       </Section>
 
-      <Section title="Jours fériés">
+      <Section id="jours-feries" title="Jours fériés">
         <form action={ajouterJourFerie} className="mb-4 flex items-end gap-3 text-sm">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="date" className="font-medium">
@@ -444,7 +467,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         <JoursFeriesListe feries={joursFeries.map((j) => ({ id: j.id, date: new Date(j.date).toLocaleDateString("fr-FR"), designation: j.designation }))} />
       </Section>
 
-      <Section title="Clôture mensuelle du stock">
+      <Section id="cloture-stock" title="Clôture mensuelle du stock">
         {/* Onglet Paramètres UNIQUE (demande user) : la clôture du stock, jadis dans
             /stock/parametres, vit désormais ici ; /stock/parametres redirige vers cette page. */}
         <ClotureStockSection />
@@ -465,7 +488,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div id={id} className="mb-6 scroll-mt-4 rounded-lg border p-5">
+    <div id={id} className={`mb-6 ${SECTION_ANCREE} rounded-lg border p-5`}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-base font-semibold">{title}</h2>
         {badge}

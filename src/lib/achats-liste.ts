@@ -94,9 +94,9 @@ export function fournisseurDuMouvement(m: MvtFournisseur): { id: string; nom: st
 
 /** Les trois sous-onglets de l'entrée de menu « Achats & mouvements » (routes inchangées). */
 export const SOUS_ONGLETS_ACHATS = [
-  { href: "/stock/mouvements", label: "Mouvements", aide: "toutes les entrées et sorties du dépôt" },
-  { href: "/stock/entree", label: "Liste d'achat", aide: "achats sans facture, qui entrent en stock" },
-  { href: "/stock/legumes", label: "Légumes frais", aide: "achats du marché, hors stock" },
+  { href: "/stock/mouvements", label: "Mouvements" },
+  { href: "/stock/entree", label: "Liste d'achat" },
+  { href: "/stock/legumes", label: "Légumes frais" },
 ] as const;
 
 /** Le sous-onglet de la page courante (la page elle-même ou l'un de ses sous-chemins), sinon null. */

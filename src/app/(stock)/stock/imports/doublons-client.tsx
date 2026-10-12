@@ -12,6 +12,7 @@ import { ListePaginee } from "@/components/liste-paginee";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche } from "@/lib/pagination";
 import { EtatVide } from "@/components/etat-vide";
+import { Indicateur } from "@/components/indicateur";
 
 // Outil « Retirer les mouvements en double » (Direction). Règle : on GARDE la copie de l'import de
 // MOUVEMENTS, on RETIRE celle de l'import d'INVENTAIRE. Le stock ne bouge pas : l'inventaire l'a
@@ -135,9 +136,9 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
         <div className="space-y-3 rounded-lg border p-3 sm:p-4">
           <h3 className="font-semibold">Aperçu — rien n&apos;est encore retiré</h3>
           <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-            <Kpi label="Paires jumelles" val={paires.length} />
-            <Kpi label="Sans jumeau — inventaire" val={apercu.sansJumeauInventaire.length} />
-            <Kpi label="Sans jumeau — mouvements" val={apercu.sansJumeauMouvements.length} />
+            <Indicateur libelle="Paires jumelles" valeur={String(paires.length)} />
+            <Indicateur libelle="Sans jumeau — inventaire" valeur={String(apercu.sansJumeauInventaire.length)} />
+            <Indicateur libelle="Sans jumeau — mouvements" valeur={String(apercu.sansJumeauMouvements.length)} />
           </div>
           {apercu.controle.ecarts.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -201,11 +202,3 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
   );
 }
 
-function Kpi({ label, val }: { label: string; val: number }) {
-  return (
-    <div className="rounded-md border bg-card p-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold tabular-nums">{val}</p>
-    </div>
-  );
-}

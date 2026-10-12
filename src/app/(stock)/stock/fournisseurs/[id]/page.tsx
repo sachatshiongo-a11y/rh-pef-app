@@ -25,6 +25,7 @@ import { versFactureRow } from "../../factures/facture-row";
 import { CommandesListe } from "../../commandes/commandes-liste";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 import { whereEchues } from "@/lib/facture-echue";
+import { Indicateur } from "@/components/indicateur";
 
 const s = (v: string | null) => v ?? "";
 
@@ -157,10 +158,10 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
 
       {/* KPIs factures — au-dessus des onglets, visibles quel que soit l'onglet : le solde dû au fournisseur est ce qu'on vient chercher sur sa fiche. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={lib(total)} sous={eq(total)} />
-        <Kpi label="Payé" valeur={lib(regle)} sous={eq(regle)} accent="green" />
-        <Kpi label={`Impayé (${nbARegler})`} valeur={lib(impaye)} sous={eq(impaye)} accent={du(impaye) ? "amber" : undefined} />
-        <Kpi label={`Échu (${nbEchu})`} valeur={lib(echu)} sous={eq(echu)} accent={du(echu) ? "red" : undefined} />
+        <Indicateur libelle="Total facturé" valeur={lib(total)} sousTexte={eq(total)} />
+        <Indicateur libelle="Payé" valeur={lib(regle)} sousTexte={eq(regle)} teinte="entree" />
+        <Indicateur libelle={`Impayé (${nbARegler})`} valeur={lib(impaye)} sousTexte={eq(impaye)} teinte={du(impaye) ? "attention" : undefined} />
+        <Indicateur libelle={`Échu (${nbEchu})`} valeur={lib(echu)} sousTexte={eq(echu)} teinte={du(echu) ? "alerte" : undefined} />
       </div>
 
       <OngletsDefilants
@@ -340,13 +341,3 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
   );
 }
 
-function Kpi({ label, valeur, accent, sous }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; sous?: string }) {
-  const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold tabular-nums">{valeur}</p>
-      {sous && <p className="mt-0.5 text-[11px] text-muted-foreground">{sous}</p>}
-    </div>
-  );
-}
