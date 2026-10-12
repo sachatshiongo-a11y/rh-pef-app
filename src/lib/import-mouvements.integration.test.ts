@@ -127,3 +127,35 @@ describe("analyserMouvements — la désignation prime, codes en collision dépa
     expect(p.lignes[0].rapprochement).toBe("code");
   }, 60_000);
 });
+
+describe("analyserMouvements — plusieurs marques du même nom (2026-10-14)", () => {
+  const entete = "Date,Code article,Désignation,Marque,Entrées,Sorties\n";
+  beforeAll(async () => {
+    await prisma.articleStock.createMany({
+      data: [
+        { designation: "Crème liquide Zorg", marque: "Elle & Vire", domaine: "NOURRITURE", unite: "L" },
+        { designation: "Crème liquide Zorg", marque: "Débic", domaine: "NOURRITURE", unite: "L" },
+      ],
+    });
+  });
+
+  it("la colonne Marque départage : la ligne va sur l'article de CETTE marque", async () => {
+    const p = await analyserMouvements(`${entete}10/07/2026,,Crème liquide Zorg,débic,3,0`);
+    expect(p.lignes[0]).toMatchObject({ rapprochement: "nom", articleId: expect.any(String) });
+    const a = await prisma.articleStock.findUniqueOrThrow({ where: { id: p.lignes[0].articleId! } });
+    expect(a.marque).toBe("Débic");
+  });
+
+  it("sans marque, un nom porté par PLUSIEURS articles n'est jamais attribué au hasard : ligne inconnue", async () => {
+    const p = await analyserMouvements("Date,Code article,Désignation,Entrées,Sorties\n10/07/2026,,Crème liquide Zorg,3,0");
+    expect(p.lignes[0]).toMatchObject({ articleId: null, rapprochement: "inconnu" });
+    expect(p.resume.inconnues).toBe(1);
+  });
+
+  it("un nom porté par UN seul article se rapproche comme avant, marque du fichier ou non", async () => {
+    const sans = await analyserMouvements("Date,Code article,Désignation,Entrées,Sorties\n10/07/2026,,Riz basmati 5kg,1,0");
+    expect(sans.lignes[0].articleId).toBe(articleId);
+    const avec = await analyserMouvements(`${entete}10/07/2026,,Riz basmati 5kg,,1,0`);
+    expect(avec.lignes[0].articleId).toBe(articleId);
+  });
+});

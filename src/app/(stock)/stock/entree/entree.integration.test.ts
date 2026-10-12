@@ -688,3 +688,49 @@ describe("DLC proches (tableau de bord) — jour civil de Kinshasa, indicatif", 
     expect(nos[1]).toMatchObject({ quantite: 3, dateEntreeISO: "2026-11-01", dlcISO: "2026-11-12", unite: "kg" });
   });
 });
+
+describe("Liste d'achat — marque du nouvel article (2026-10-14)", () => {
+  it("même désignation qu'un article d'une AUTRE marque : un nouvel article est créé, avec sa marque", async () => {
+    await prisma.articleStock.create({ data: { designation: "Zorglub", marque: "Danone", domaine: "NOURRITURE", unite: "kg" } });
+    const r = ok(await entreeListeAchat(fd([{ designation: "Zorglub", marque: "Fage", unite: "kg", quantite: 2 }])));
+    expect(r.crees).toEqual(["Zorglub Fage"]);
+    const tous = await prisma.articleStock.findMany({ where: { designation: "Zorglub" }, orderBy: { marque: "asc" } });
+    expect(tous.map((a) => a.marque)).toEqual(["Danone", "Fage"]);
+    const fage = tous[1];
+    expect(await prisma.mouvementStock.count({ where: { articleId: fage.id } })).toBe(1);
+    expect(await prisma.mouvementStock.count({ where: { articleId: tous[0].id } })).toBe(0);
+  });
+
+  it("même désignation ET même marque (casse ignorée) : rattaché d'office, rien n'est créé", async () => {
+    const r = ok(await entreeListeAchat(fd([{ designation: "zorglub", marque: "danone", quantite: 1 }])));
+    expect(r.crees).toEqual([]);
+    const danone = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Zorglub", marque: "Danone" } });
+    expect(await prisma.mouvementStock.count({ where: { articleId: danone.id } })).toBe(1);
+  });
+
+  it("deux lignes du même nom et de marques différentes dans la MÊME liste : deux articles ; mêmes marques : un seul", async () => {
+    const r = ok(await entreeListeAchat(fd([
+      { designation: "Quinoa soufflé", marque: "Bridel", unite: "kg", quantite: 1 },
+      { designation: "Quinoa soufflé", marque: "Carrefour", unite: "kg", quantite: 1 },
+      { designation: "quinoa soufflé", marque: "bridel", unite: "kg", quantite: 1 },
+    ])));
+    expect(r.crees.sort()).toEqual(["Quinoa soufflé Bridel", "Quinoa soufflé Carrefour"]);
+    const bridel = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Quinoa soufflé", marque: "Bridel" } });
+    expect(await prisma.mouvementStock.count({ where: { articleId: bridel.id } })).toBe(2);
+  });
+
+  it("la marque saisie sur une ligne rattachée à un article du catalogue est ignorée (sa marque est la sienne)", async () => {
+    const a = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Zorglub", marque: "Danone" } });
+    const avant = await prisma.articleStock.count();
+    ok(await entreeListeAchat(fd([{ articleId: a.id, designation: "Zorglub", marque: "Autre", quantite: 1 }])));
+    expect(await prisma.articleStock.count()).toBe(avant);
+    expect((await prisma.articleStock.findUniqueOrThrow({ where: { id: a.id } })).marque).toBe("Danone");
+  });
+
+  it("l'analyse à la saisie tient compte de la marque (rattachement / nouvel article)", async () => {
+    const memeMarque = await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Danone", quantite: 1 }]);
+    expect(memeMarque.lignes[0]?.article.type).toBe("auto");
+    const autre = await verifierDoublonsListe(veille(), [{ articleId: "", designation: "Zorglub", marque: "Nouvelle marque", quantite: 1 }]);
+    expect(autre.lignes[0]?.article.type).toBe("nouveau");
+  });
+});

@@ -53,3 +53,12 @@ describe("grouperParMois — accordéons par mois (ordre conservé)", () => {
     expect(g[2].items.map((x) => x.id)).toEqual(["d"]);
   });
 });
+
+describe("parserMouvementsCsv — colonne Marque facultative (2026-10-14)", () => {
+  it("lit la marque quand la colonne existe ; sans colonne, comme avant", () => {
+    const avec = parserMouvementsCsv("Date,Code,Désignation,Marque,Entrées,Sorties\n10/07/2026,,Beurre doux,Lurpak,5,0");
+    expect(avec.lignes[0]).toMatchObject({ designation: "Beurre doux", marque: "Lurpak", entree: 5 });
+    const sans = parserMouvementsCsv("Date,Code,Désignation,Entrées,Sorties\n10/07/2026,,Beurre doux,5,0");
+    expect(sans.lignes[0].marque).toBeUndefined();
+  });
+});

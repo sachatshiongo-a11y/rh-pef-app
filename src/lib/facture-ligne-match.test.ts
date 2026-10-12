@@ -24,4 +24,16 @@ describe("lecture PDF — rattachement d'une ligne à un article", () => {
   it("rien de proche : ni article ni suggestion", () => {
     expect(rapprocherLignePdf("Détergent vaisselle", CAT)).toEqual({ article: null, suggestion: null });
   });
+
+  it("deux marques du même nom : la ligne qui nomme la marque se rattache, celle qui ne la nomme pas reste à choisir (2026-10-14)", () => {
+    const beurres = [
+      { id: "b1", designation: "Beurre doux", marque: "Président", contenance: "250", contenanceUnite: "g" },
+      { id: "b2", designation: "Beurre doux", marque: "Lurpak", contenance: "250", contenanceUnite: "g" },
+    ];
+    expect(rapprocherLignePdf("Beurre doux Lurpak 250 g", beurres).article?.id).toBe("b2");
+    expect(rapprocherLignePdf("BEURRE DOUX PRESIDENT 250G", beurres).article?.id).toBe("b1");
+    const sans = rapprocherLignePdf("Beurre doux", beurres);
+    expect(sans.article).toBeNull(); // deux articles de ce nom : jamais un choix au hasard
+    expect(sans.suggestion).not.toBeNull();
+  });
 });
