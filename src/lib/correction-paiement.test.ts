@@ -51,6 +51,10 @@ describe("avant → après", () => {
     expect(avant).toEqual({ jour: "2026-10-03", mode: "VIREMENT" });
     expect(paiementDeLigne({ datePaiement: null, modePaiement: null })).toEqual({ jour: null, mode: null });
   });
+  it("un très ancien paiement (instant, pas date pure) se lit au jour de KINSHASA, comme l'Exploitation : 23 h 30 UTC le 30/09 = 1er/10", () => {
+    expect(paiementDeLigne({ datePaiement: new Date("2026-09-30T23:30:00.000Z"), modePaiement: null }).jour).toBe("2026-10-01");
+    expect(paiementDeLigne({ datePaiement: new Date("2026-09-30T00:00:00.000Z"), modePaiement: null }).jour).toBe("2026-09-30"); // date pure : inchangée
+  });
   it("ne signale que ce qui change", () => {
     expect(changementPaiement(avant, { jour: "2026-10-03", mode: "VIREMENT" })).toEqual({ dateChangee: false, modeChange: false });
     expect(changementPaiement(avant, { jour: "2026-10-04", mode: "VIREMENT" })).toEqual({ dateChangee: true, modeChange: false });

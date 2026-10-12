@@ -1,6 +1,7 @@
 import type { ModePaiement } from "@prisma/client";
 import { lireDateVersementPaie } from "@/lib/date-paiement";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 // CORRIGER LE PAIEMENT D'UN BULLETIN DÉJÀ PAYÉ (Direction, 2026-10-12) : la date de versement et le moyen de
 // paiement, de n'importe quel mois, et RIEN d'autre. Module pur (ni base, ni `server-only`) : les règles de lecture
@@ -62,9 +63,20 @@ export function lireDateCorrection(saisie: unknown, paie: { mois: number; annee:
 
 export type PaiementLu = { jour: string | null; mode: ModePaiement | null };
 
-/** Date et moyen d'une ligne PAYÉE, tels que stockés (`datePaiement` : date pure, minuit UTC). */
+/**
+ * Jour de versement d'une ligne, lu comme le lit l'Exploitation (`chargerRapprochement`) : le jour civil de KINSHASA.
+ * Une date posée par « Marquer payé » est une date pure (minuit UTC = le même jour à Kinshasa, UTC+1) ; mais les
+ * paiements d'avant le 7bd883ec portent l'INSTANT du geste (`new Date()`), et entre 23 h et minuit UTC leur jour UTC
+ * est la VEILLE du jour de Kinshasa (relecture 2026-10-12) : lu en UTC, le contrôle « mois d'Exploitation clôturé »
+ * aurait regardé le mauvais mois, et l'écran aurait montré une date que l'Exploitation ne compte pas.
+ */
+export function jourDeVersement(d: Date | null | undefined): string | null {
+  return d ? jourCourantKinshasaISO(d) : null;
+}
+
+/** Date et moyen d'une ligne PAYÉE, tels que stockés (`datePaiement` : date pure, minuit UTC ; instant pour les très anciens). */
 export function paiementDeLigne(l: { datePaiement: Date | null; modePaiement: ModePaiement | null }): PaiementLu {
-  return { jour: l.datePaiement ? l.datePaiement.toISOString().slice(0, 10) : null, mode: l.modePaiement };
+  return { jour: jourDeVersement(l.datePaiement), mode: l.modePaiement };
 }
 
 export type ChangementPaiement = { dateChangee: boolean; modeChange: boolean };

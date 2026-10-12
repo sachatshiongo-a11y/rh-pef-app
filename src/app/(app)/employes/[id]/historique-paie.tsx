@@ -15,7 +15,7 @@ import { fenetrePage, tranche, type ParPage } from "@/lib/pagination";
 import type { EtatSignature } from "@/lib/signature";
 import { faireSignerDocument } from "../../signature-actions";
 import { CorrigerPaiement } from "../../paie/corriger-paiement";
-import { libelleModePaiement, jourFrancais } from "@/lib/correction-paiement";
+import { libelleModePaiement, jourFrancais, jourDeVersement } from "@/lib/correction-paiement";
 import type { ModePaiement } from "@prisma/client";
 
 /** Un bulletin de l'historique, prêt à afficher (montants déjà lus, taux de la ligne résolu par la page). */
@@ -63,7 +63,7 @@ export function ligneHistoriquePaie(
     taux: tauxDeLigne(l, l.payrollRun),
     versions: l.versionsBulletin,
     signature,
-    datePaiement: l.datePaiement ? l.datePaiement.toISOString().slice(0, 10) : null,
+    datePaiement: jourDeVersement(l.datePaiement),
     modePaiement: l.modePaiement ?? null,
   };
 }
