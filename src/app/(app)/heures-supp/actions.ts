@@ -7,6 +7,7 @@ import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { journaliser } from "@/lib/audit";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { heuresDansLesBornes, HEURES_MIN, HEURES_MAX } from "@/lib/heures-bornes";
+import { refusMoisPasse } from "@/lib/presences-mois-serveur";
 
 /**
  * Écrit (ou vide : 0 / vide) les heures d'un jour. Vider reste une correction de grille ouverte au
@@ -61,6 +62,10 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  // Mois PASSÉ (antérieur au mois RH courant) : lecture seule, rien n'est écrit (lib/presences-mois-serveur).
+  const passe = await refusMoisPasse([date]);
+  if (passe) throw new Error(passe);
+
   await appliquerHeures(employeeId, date, heures, user.id);
 
   revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
@@ -77,6 +82,10 @@ export async function saisirHeuresEnLot(
 ): Promise<{ ignores: { employeeId: string; date: string }[] }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Mois PASSÉ : le lot entier est refusé si un seul de ses jours y tombe, avant la première écriture.
+  const passe = await refusMoisPasse(entrees.map((e) => e.date));
+  if (passe) throw new Error(passe);
 
   // Toutes les saisies lues AVANT la première écriture : une valeur hors 0–24 h refuse le lot entier
   // (jamais un lot à moitié appliqué).

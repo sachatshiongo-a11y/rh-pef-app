@@ -15,6 +15,8 @@ import {
 } from "@/lib/pointage";
 import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
 import { heuresDansLesBornes, messageHeuresHorsBornes } from "@/lib/heures-bornes";
+import { estMoisPasse, periodeDuJour } from "@/lib/presences-mois";
+import { lirePeriodeCouranteRH } from "@/lib/presences-mois-serveur";
 
 // Import IVMS-4200 en DEUX temps (comme les imports du module Stock) :
 //  1. analyserPointageIVMS : lit le fichier, calcule les heures ajustées et renvoie un APERÇU
@@ -29,7 +31,7 @@ export type LigneImport = {
   date: string; // YYYY-MM-DD
   heures: number; // heures ajustées (pause, bornes du shift)
   code: "P" | "F"; // présence, ou férié travaillé
-  statut: "OK" | "CONGE" | "PAIE_FIGEE"; // CONGE : congé approuvé prioritaire · PAIE_FIGEE : mois validé
+  statut: "OK" | "CONGE" | "PAIE_FIGEE" | "MOIS_PASSE"; // CONGE : congé approuvé prioritaire · PAIE_FIGEE : mois validé · MOIS_PASSE : mois antérieur au mois RH courant (lecture seule)
   /** Ce que la grille porte DÉJÀ ce jour-là (heures et code), ou null si rien : l'aperçu montre
    *  « existant → importé », et un jour déjà saisi n'est pas coché par défaut (l'import l'écraserait). */
   existant: { heures: number | null; code: string | null } | null;
@@ -72,6 +74,11 @@ async function moisFiges(): Promise<Set<string>> {
   return new Set(runs.map((r) => `${r.annee}-${r.mois}`));
 }
 const cleMois = (iso: string) => `${Number(iso.slice(0, 4))}-${Number(iso.slice(5, 7))}`;
+/** Jour d'un mois antérieur au mois RH courant : lecture seule (lib/presences-mois-serveur). */
+const dansMoisPasse = (iso: string, courant: { mois: number; annee: number }) => {
+  const p = periodeDuJour(iso);
+  return p !== null && estMoisPasse(p, courant);
+};
 
 /** Étape 1 — analyse le rapport et renvoie l'aperçu complet, sans rien écrire. */
 export async function analyserPointageIVMS(
@@ -133,7 +140,7 @@ export async function analyserPointageIVMS(
   const debut = new Date(dateMin + "T00:00:00Z");
   const fin = new Date(dateMax + "T00:00:00Z");
 
-  const [creneaux, feries, conges, figes, heuresExistantes, codesExistants] = await Promise.all([
+  const [creneaux, feries, conges, figes, heuresExistantes, codesExistants, courant] = await Promise.all([
     prisma.planningCreneau.findMany({
       where: { date: { gte: debut, lte: fin } },
       select: { employeeId: true, date: true, shift: { select: { heureDebut: true, heureFin: true } } },
@@ -146,6 +153,7 @@ export async function analyserPointageIVMS(
     moisFiges(),
     prisma.overtimeEntry.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, heuresTravaillees: true } }),
     prisma.attendance.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, code: true } }),
+    lirePeriodeCouranteRH(),
   ]);
   const jourIso = (d: Date) => new Date(d).toISOString().slice(0, 10);
   const heuresDuJour = new Map(heuresExistantes.map((h) => [`${h.employeeId}_${jourIso(h.date)}`, Number(h.heuresTravaillees)]));
@@ -170,7 +178,9 @@ export async function analyserPointageIVMS(
       });
       const statut: LigneImport["statut"] = figes.has(cleMois(jour.date))
         ? "PAIE_FIGEE"
-        : estEnConge(jour.employeeId, jour.date)
+        : dansMoisPasse(jour.date, courant)
+          ? "MOIS_PASSE"
+          : estEnConge(jour.employeeId, jour.date)
           ? "CONGE"
           : "OK";
       return {
@@ -227,7 +237,7 @@ export async function appliquerPointageIVMS(
   const debut = new Date(dates[0] + "T00:00:00Z");
   const fin = new Date(dates[dates.length - 1] + "T00:00:00Z");
 
-  const [feries, conges, figes, sorties] = await Promise.all([
+  const [feries, conges, figes, sorties, courant] = await Promise.all([
     prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } }, select: { date: true } }),
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
@@ -235,6 +245,7 @@ export async function appliquerPointageIVMS(
     }),
     moisFiges(),
     datesDeSortie(prisma, [...new Set(valides.map((s) => s.employeeId))]),
+    lirePeriodeCouranteRH(),
   ]);
   const feriesSet = new Set(feries.map((f) => new Date(f.date).toISOString().slice(0, 10)));
   const estEnConge = (employeeId: string, iso: string) => {
@@ -245,8 +256,8 @@ export async function appliquerPointageIVMS(
   let nbAppliques = 0;
   let nbIgnores = 0;
   for (const s of valides) {
-    // Garde-fous revérifiés à l'écriture : paie du mois validée, congé approuvé prioritaire.
-    if (figes.has(cleMois(s.date)) || estEnConge(s.employeeId, s.date) || apresSortie(sorties, s.employeeId, s.date)) {
+    // Garde-fous revérifiés à l'écriture : paie du mois validée, mois passé (lecture seule), congé approuvé prioritaire.
+    if (figes.has(cleMois(s.date)) || dansMoisPasse(s.date, courant) || estEnConge(s.employeeId, s.date) || apresSortie(sorties, s.employeeId, s.date)) {
       nbIgnores++;
       continue;
     }
@@ -293,7 +304,7 @@ export async function appliquerPointageIVMS(
 
   return {
     ok: true,
-    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s)${nbIgnores > 0 ? `, ${nbIgnores} ignoré(s) (congé, paie validée ou après la sortie du salarié)` : ""}.`,
+    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s)${nbIgnores > 0 ? `, ${nbIgnores} ignoré(s) (congé, paie validée, mois passé ou après la sortie du salarié)` : ""}.`,
     nbAppliques,
     nbIgnores,
   };

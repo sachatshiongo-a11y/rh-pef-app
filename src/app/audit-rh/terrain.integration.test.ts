@@ -1,6 +1,6 @@
 // Non-régression de l'audit RH de terrain du 2026-10-10 (preuves « Sarasa », reprises et
 // retournées : chaque test échouait sur le code d'avant le correctif).
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
 
@@ -59,6 +59,9 @@ async function url(p: Promise<unknown>): Promise<string | null> {
 }
 const comme = (role: string, employeeId: string | null = null) => { A.user = { ...A.user, role, employeeId }; };
 const jourPur = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+/** Mois RH courant du scénario : depuis le 2026-10-12, un jour d'un mois ANTÉRIEUR au mois RH courant est en
+ *  lecture seule (lib/presences-mois-serveur.ts). Une saisie se fait donc sur le mois en cours de son scénario. */
+const moisRH = (mois: number) => prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: mois, anneeCourante: 2026 } });
 
 beforeAll(async () => {
   ({ prisma, fermer } = await creerBaseTest()); H.client = prisma;
@@ -299,6 +302,8 @@ describe("7 — congé décidé sur un mois dont la paie est validée : la grill
 });
 
 describe("9 — saisie en lot : tout ou rien, compte rendu exact", () => {
+  beforeEach(() => moisRH(4));
+  afterEach(() => moisRH(10));
   it("un mois entier pour 3 salariés s'écrit d'un bloc ; une case invalide fait tout échouer, rien n'est écrit", async () => {
     comme("ADMIN");
     const ids = [await emp(), await emp(), await emp()];
@@ -317,6 +322,8 @@ describe("9 — saisie en lot : tout ou rien, compte rendu exact", () => {
 });
 
 describe("10 — salarié sorti dans le mois : présent pour ses jours actifs, grille et IVMS", () => {
+  beforeEach(() => moisRH(8));
+  afterEach(() => moisRH(10));
   it("visible dans le mois de sa sortie ; un jour après la sortie est ignoré, un jour avant s'écrit ; l'IVMS le signale", async () => {
     comme("ADMIN");
     const id = await emp({ actif: false });
@@ -430,6 +437,8 @@ describe("13 — mineurs : identifiants, remplaçant", () => {
 void adminId;
 
 describe("bornes serveur des heures (0–24 h) : un lot fautif est refusé en entier", () => {
+  beforeEach(() => moisRH(5));
+  afterEach(() => moisRH(10));
   it("import IVMS : une ligne à 25 h ou négative refuse toute la sélection, rien n'est écrit", async () => {
     comme("ADMIN");
     const id = await emp();

@@ -45,3 +45,33 @@ export async function hsValoriseesPaie(mois: number, annee: number, employes: Em
   }
   return res;
 }
+
+/**
+ * « HS VALORISÉES » D'UN MOIS PASSÉ : le montant FIGÉ du bulletin de ce mois-là (`PayrollLine.hsValorisee`
+ * des lignes VALIDÉES ou PAYÉES), jamais un recalcul. `hsValoriseesPaie` reprend le moteur avec les
+ * paramètres, la fiche (salaire, contrat, catégorie, état actif) et les heures d'AUJOURD'HUI : sur un mois
+ * clôturé, il pouvait afficher un montant que personne n'a payé (salaire augmenté depuis, salarié sorti
+ * affiché « — » alors que ses HS ont été payées).
+ *
+ * Sans bulletin figé (mois antérieur à l'outil, ligne hors calcul, paie jamais calculée) : `montant: null`
+ * → « — », jamais un chiffre provisoire présenté comme celui de la paie. Une ligne figée à 0 d'un salarié
+ * hors brigade reste « — » (la paie ne lui paie pas d'HS), comme sur le mois courant.
+ *
+ * `tauxHoraire` est toujours null : le taux n'est pas figé sur la ligne, et le recalculer avec la fiche
+ * d'aujourd'hui serait justement ce qu'on évite (l'export n'affiche donc pas la valorisation semaine par
+ * semaine d'un mois passé : « — »).
+ */
+export async function hsValoriseesFigees(mois: number, annee: number, employes: Pick<Employee, "id" | "categorie">[]): Promise<Map<string, HsPaie>> {
+  const res = new Map<string, HsPaie>();
+  if (employes.length === 0) return res;
+  const lignes = await prisma.payrollLine.findMany({
+    where: { payrollRun: { mois, annee }, employeeId: { in: employes.map((e) => e.id) }, statutPaiement: { in: ["VALIDE", "PAYE"] } },
+    select: { employeeId: true, hsValorisee: true },
+  });
+  const parEmploye = new Map(lignes.map((l) => [l.employeeId, Number(l.hsValorisee)]));
+  for (const e of employes) {
+    const montant = parEmploye.get(e.id);
+    res.set(e.id, { montant: montant === undefined || (montant === 0 && e.categorie !== "BRIGADE") ? null : montant, tauxHoraire: null });
+  }
+  return res;
+}

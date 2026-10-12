@@ -126,6 +126,9 @@ beforeAll(async () => {
   const db = await creerBaseTest();
   prisma = db.prisma; fermer = db.fermer; H.client = prisma;
   empId = await creerEmploye();
+  // Mois RH courant : mars 2026, le plus ancien des jours saisis ici (2026-03 à 2026-06). Depuis le 2026-10-12, un
+  // jour d'un mois antérieur au mois RH courant est en lecture seule ; sans Config, ce serait le mois de l'horloge.
+  await prisma.config.create({ data: { id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 3 } });
   for (const c of Object.keys(COMPTES) as Compte[]) {
     const u = await prisma.user.create({ data: { email: `${c.toLowerCase()}@pef.test`, nom: c, role: COMPTES[c].role, accesStock: COMPTES[c].accesStock, employeeId: c === "SALARIE" ? empId : null } });
     ids[c] = u.id;

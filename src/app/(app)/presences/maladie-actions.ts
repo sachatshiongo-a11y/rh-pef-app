@@ -6,6 +6,7 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { journaliserPlusieurs } from "@/lib/audit";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { BulletinFigeError, exigerBulletinModifiable } from "@/lib/paie-element-fige";
+import { refusMoisPasse } from "@/lib/presences-mois-serveur";
 
 // JOUR DE MALADIE JUSTIFIÉ — décision de la Direction du 2026-10-12, TOUT le personnel : un jour M
 // justifié AU PRÉALABLE par un certificat médical est payé à 100 % ; sans justificatif, aux 2/3.
@@ -48,6 +49,9 @@ export async function marquerMaladieJustifiee(
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
   if (cases.length === 0) return { message: "Aucune case sélectionnée." };
+  // Mois PASSÉ : lecture seule (s'ajoute au verrou « bulletin figé » ci-dessous, qui reste).
+  const passe = await refusMoisPasse(cases.map((c) => c.date));
+  if (passe) return { erreur: passe };
   const presences = await prisma.attendance.findMany({
     where: { OR: cases.map((c) => ({ employeeId: c.employeeId, date: datePure(c.date) })) },
     select: { id: true, employeeId: true, date: true, code: true, maladieJustifiee: true },
@@ -88,6 +92,8 @@ export async function joindreCertificatMaladie(formData: FormData): Promise<Resu
   const fichier = formData.get("fichier");
   if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { erreur: "Jour introuvable." };
   if (!(fichier instanceof File) || fichier.size === 0) return { erreur: "Choisissez le certificat à joindre." };
+  const passe = await refusMoisPasse([date]);
+  if (passe) return { erreur: passe };
   const presence = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date: datePure(date) } }, select: { id: true, code: true, maladieJustifiee: true } });
   if (!presence || presence.code !== "M") return { erreur: "Un certificat se joint à un jour de maladie (code M) : posez d'abord le code M." };
   // Bulletin figé : refusé AVANT de téléverser (rien ne reste dans le stockage pour un geste refusé).

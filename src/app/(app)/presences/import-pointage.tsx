@@ -18,6 +18,7 @@ const STATUT_LABEL: Record<string, { label: string; cls: string }> = {
   OK: { label: "Importable", cls: "bg-emerald-100 text-emerald-800" },
   CONGE: { label: "Congé approuvé", cls: "bg-amber-100 text-amber-800" },
   PAIE_FIGEE: { label: "Paie validée", cls: "bg-red-100 text-red-800" },
+  MOIS_PASSE: { label: "Mois passé", cls: "bg-zinc-100 text-zinc-700" },
 };
 
 const LIBELLE_ANOMALIE: Record<string, string> = {
@@ -55,6 +56,7 @@ export function ImportPointage() {
   const cocherPage = (on: boolean) => setDecochees((s) => { const n = new Set(s); for (const l of importablesPage) { if (on) n.delete(cle(l)); else n.add(cle(l)); } return n; });
   const nbConge = visibles.filter((l) => l.statut === "CONGE").length;
   const nbFige = visibles.filter((l) => l.statut === "PAIE_FIGEE").length;
+  const nbPasse = visibles.filter((l) => l.statut === "MOIS_PASSE").length;
 
   function lancerAnalyse(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -141,6 +143,7 @@ export function ImportPointage() {
                 <b className="text-foreground">{selection.length}</b> à importer (toutes pages)
                 {nbConge > 0 && <> · {nbConge} en congé (ignorés)</>}
                 {nbFige > 0 && <> · {nbFige} paie validée (ignorés)</>}
+                {nbPasse > 0 && <> · {nbPasse} mois passé (ignorés)</>}
               </span>
             </div>
 

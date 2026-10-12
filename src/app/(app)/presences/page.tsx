@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
-import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { hsValoriseesPaie, hsValoriseesFigees } from "@/lib/hs-valorisees-paie";
 import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { datesDeSortie, inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
@@ -17,7 +17,11 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { chargerHorairesDuMois } from "@/lib/horaires-presences";
 import { PAUSE_PAR_DEFAUT_MIN } from "@/lib/pointage-qr";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { jourCourantKinshasaISO, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { bornesNavigation, requeteMois, resoudreMoisPresences } from "@/lib/presences-mois";
+import { lirePeriodeCouranteRH, premierMoisAvecDonnees } from "@/lib/presences-mois-serveur";
+import { NavigationMoisPresences } from "./navigation-mois";
+import Link from "next/link";
 
 // Chaque code = couleur + libellé + icône (jamais la couleur seule — D).
 const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
@@ -31,16 +35,30 @@ const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
   { code: "S", icone: "∅", label: "Congé sans solde — non payé" },
 ];
 
-export default async function PresencesPage({ searchParams }: { searchParams: Promise<{ vue?: string; sem?: string; emp?: string }> }) {
+export default async function PresencesPage({ searchParams }: { searchParams: Promise<{ vue?: string; sem?: string; emp?: string; mois?: string; annee?: string }> }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
-  const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
-  const peutEffacer = peutSupprimer(user); // vider une présence saisie = suppression → Direction
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  // Mois affiché : le mois RH courant sans `?mois=&annee=` (comme avant) ; un mois PASSÉ se consulte en
+  // LECTURE SEULE (aucun geste d'écriture, et le serveur refuse — lib/presences-mois-serveur.ts) ; un mois
+  // à venir ou illisible est refusé, jamais remplacé en silence par le mois courant.
+  const courant = await lirePeriodeCouranteRH();
+  const resolu = resoudreMoisPresences(sp, courant);
+  if (!resolu.ok) {
+    return (
+      <div>
+        <h1 className="mb-4 text-xl font-semibold sm:text-2xl">Présences &amp; heures</h1>
+        <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{resolu.message}</p>
+        <Link href="/presences" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Revenir au mois en cours</Link>
+      </div>
+    );
+  }
+  const { mois, annee } = resolu.periode;
+  const passe = resolu.passe;
+  const peutModifier = !passe && (user.role === "ADMIN" || user.role === "MANAGER");
+  const peutEffacer = !passe && peutSupprimer(user); // vider une présence saisie = suppression → Direction
+
   const parametres = await chargerParametresPaie();
-  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
-  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   const nbJours = new Date(annee, mois, 0).getDate();
   const days = Array.from({ length: nbJours }, (_, i) => i + 1);
@@ -53,7 +71,8 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
 
   // Les congés approuvés se répercutent TOUJOURS sur la grille (rattrapage des congés validés
   // avant la synchro). Idempotent ; ne touche jamais un code existant ni un mois à paie validée.
-  await rattraperCodesConges();
+  // Mois PASSÉ (lecture seule) : RIEN n'est écrit au chargement — pas de rattrapage.
+  if (!passe) await rattraperCodesConges();
 
   // Salariés SORTIS dans le mois (fin de contrat) : gardés pour leurs jours actifs (audit RH 2026-10-10).
   const inactifsGardes = await inactifsDeLaPeriode(prisma, debutMois, finMois);
@@ -90,11 +109,13 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // Détail hebdomadaire (HS par semaine) — calculé côté serveur pour le tableau replié.
   // « HS valorisées » : le MONTANT de la paie (même chemin que le lot : référence du mois puis moteur),
   // plus aucun taux recalculé ici (salaire ÷ 26 ÷ heures/jour divergeait du bulletin).
-  const [hsPaie, sorties, avantMois] = await Promise.all([
-    hsValoriseesPaie(mois, annee, employees, parametres),
+  // Mois PASSÉ : le montant FIGÉ du bulletin de ce mois-là, jamais un recalcul aux paramètres d'aujourd'hui.
+  const [hsPaie, sorties, avantMois, premierMois] = await Promise.all([
+    passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres),
     datesDeSortie(prisma, employees.filter((e) => !e.actif).map((e) => e.id)),
     // Semaine à cheval sur le mois précédent : ses heures placent le seuil des HS (même règle que la paie).
     chargerHeuresAvantMois(annee, mois),
+    premierMoisAvecDonnees(),
   ]);
   for (const f of avantMois.feriesIso) joursFeries.add(f);
   const semainesParEmploye: Record<string, DetailSemaineHS[]> = {};
@@ -142,40 +163,65 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
     ...backoffice.map((r) => ({ id: r.id, nom: r.nom, photoUrl: r.photoUrl, groupe: "Back-office" })),
   ];
   const employeInitial = pourBarre.find((e) => e.id === sp.emp)?.id ?? (vueInitiale === "employe" ? pourBarre[0]?.id ?? null : null);
+  const semaineInitiale = semDemandee >= 0 ? semDemandee : semaineAujourdhui;
+  const { prec, suiv } = bornesNavigation(resolu.periode, courant, premierMois);
+  const qMois = requeteMois(resolu.periode, courant);
 
   return (
+    <PresencesVueProvider
+      vueInitiale={vueInitiale}
+      semaineInitiale={semaineInitiale}
+      employeInitial={employeInitial}
+      semaines={semaines}
+    >
     <div>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Présences &amp; heures</h1>
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
           <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            Chaque case porte le <b>code du jour</b> (couleur) et les <b>heures travaillées</b>.
-            Cliquez une case pour ouvrir le menu (code + heures), ou tapez directement une lettre
-            (P, O, M, A, N, C, F, S) — Suppr efface, flèches pour naviguer. Cliquez un nom pour voir
-            tout son mois. Les 6 premières heures supp. de la semaine sont majorées à 30%, le reste à
+            {!passe && (
+              <>
+                Chaque case porte le <b>code du jour</b> (couleur) et les <b>heures travaillées</b>.
+                Cliquez une case pour ouvrir le menu (code + heures), ou tapez directement une lettre
+                (P, O, M, A, N, C, F, S) — Suppr efface, flèches pour naviguer. Cliquez un nom pour voir
+                tout son mois.{" "}
+              </>
+            )}
+            Les 6 premières heures supp. de la semaine sont majorées à 30%, le reste à
             60% ; dimanche et fériés, toutes les heures sont payées double.
           </p>
         </div>
-        <TelechargerLien
-          href="/presences/export"
-          className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-          title="Un seul classeur : Présences, Heures par jour, Détail hebdomadaire"
-        >
-          Exporter Excel
-        </TelechargerLien>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <TelechargerLien
+            href={qMois ? `/presences/export?${qMois}` : "/presences/export"}
+            className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+            title="Un seul classeur : Présences, Heures par jour, Détail hebdomadaire"
+          >
+            Exporter Excel
+          </TelechargerLien>
+          <NavigationMoisPresences
+            courant={courant}
+            prec={prec}
+            suiv={suiv}
+            passe={passe}
+            semaines={semaines}
+            semaineInitiale={semaineInitiale}
+            semInitiale={sp.sem ?? null}
+          />
+        </div>
       </div>
+
+      {passe && (
+        <p role="status" data-mois-passe="" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+          Mois passé — lecture seule
+        </p>
+      )}
 
       {peutModifier && <ImportPointage />}
 
       <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(jourCourantKinshasaISO()))}>
-        <PresencesVueProvider
-          vueInitiale={vueInitiale}
-          semaineInitiale={semDemandee >= 0 ? semDemandee : semaineAujourdhui}
-          employeInitial={employeInitial}
-          semaines={semaines}
-        >
-          <BarreVuePresences semaines={semaines} semaineAujourdhui={semaineAujourdhui} employes={pourBarre} />
+          <BarreVuePresences semaines={semaines} semaineAujourdhui={semaineAujourdhui} employes={pourBarre} requeteMois={qMois} />
 
           <div className="mb-3 flex flex-wrap gap-2">
             {LEGENDE.map((l) => (
@@ -236,7 +282,6 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
               params={parametres}
             />
           </div>
-        </PresencesVueProvider>
       </JourMobileProvider>
 
       <details className="mt-8 rounded-xl border">
@@ -252,5 +297,6 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
         </div>
       </details>
     </div>
+    </PresencesVueProvider>
   );
 }

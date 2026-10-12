@@ -1,28 +1,36 @@
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerHeuresSupp, resumerPresences, type CodePresence } from "@/lib/payroll";
-import { hsValoriseesPaie } from "@/lib/hs-valorisees-paie";
+import { calculerHeuresSupp, numeroSemaineDuMois, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { hsValoriseesPaie, hsValoriseesFigees } from "@/lib/hs-valorisees-paie";
 import { chargerHeuresAvantMois } from "@/lib/heures-avant-mois";
 import { inactifsDeLaPeriode } from "@/lib/salaries-sortis";
 import { classeurExcel } from "@/lib/export-excel";
+import { resoudreRecherche } from "@/lib/presences-mois";
+import { lirePeriodeCouranteRH } from "@/lib/presences-mois-serveur";
 
 /**
  * Export Excel UNIQUE de l'onglet « Présences & heures » — un seul classeur, trois feuilles :
  * 1. « Présences » : codes par jour + totaux (Payé 100% / 2/3 / Non payé / Total présences) ;
  * 2. « Heures par jour » : heures travaillées par jour + H. totales, HS 30/60/100, valorisation ;
  * 3. « Détail hebdomadaire » : les heures supp. semaine par semaine.
+ *
+ * `?mois=&annee=` : le mois affiché à l'écran (mois passé, en lecture seule). Absents : le mois RH courant,
+ * comme avant. Illisible : 400 lisible ; mois à venir : refusé (400). La garde reste la première instruction.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
 
-  const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
+  const courant = await lirePeriodeCouranteRH();
+  const resolu = resoudreRecherche(new URL(req.url).searchParams, courant);
+  if (!resolu.ok) return new Response(resolu.message, { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  const { mois, annee } = resolu.periode;
   const parametres = await chargerParametresPaie();
-  const mois = config.moisCourant;
-  const annee = config.anneeCourante;
   const nbJours = new Date(annee, mois, 0).getDate();
-  const nbSemaines = Math.ceil(nbJours / 7);
+  // Semaines lundi → dimanche, comme l'écran : un mois qui commence un samedi ou un dimanche en compte SIX
+  // (mars, août 2026). `Math.ceil(nbJours / 7)` en comptait cinq et perdait la dernière semaine.
+  const nbSemaines = numeroSemaineDuMois(new Date(Date.UTC(annee, mois - 1, nbJours)));
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
@@ -94,7 +102,11 @@ export async function GET() {
 
   // HS valorisées : le montant de la PAIE (même chemin que le lot), « — » si la paie n'en paie pas ;
   // par semaine : les heures de la semaine au taux de la paie (taux du contrat, brut reconstitué).
-  const [hsPaie, avantMois] = await Promise.all([hsValoriseesPaie(mois, annee, employees, parametres), chargerHeuresAvantMois(annee, mois)]);
+  // Mois PASSÉ : le montant FIGÉ du bulletin de ce mois-là (jamais recalculé) ; pas de taux figé → « — » par semaine.
+  const [hsPaie, avantMois] = await Promise.all([
+    resolu.passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres),
+    chargerHeuresAvantMois(annee, mois),
+  ]);
   for (const f of avantMois.feriesIso) joursFeries.add(f);
   for (const e of employees) {
     const paie = hsPaie.get(e.id) ?? { montant: null, tauxHoraire: null };
