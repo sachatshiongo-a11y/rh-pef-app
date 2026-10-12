@@ -60,7 +60,12 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
     const c = fournisseurs.find((f) => f.id === cible);
     if (!s || !c || s.id === c.id) { setErreur("Choisissez deux fournisseurs différents."); return; }
     if (!confirm(`Fusionner « ${s.nom} » dans « ${c.nom} » ?\n\nTous les articles, bons de commande, factures et achats directs de « ${s.nom} » seront rattachés à « ${c.nom} », les coordonnées manquantes complétées, puis « ${s.nom} » sera supprimé. Action irréversible.`)) return;
-    run(async () => { await fusionnerFournisseurs(s.id, c.id); setFusion(false); setSource(""); setCible(""); });
+    // Le panneau ne se ferme et la saisie ne se vide qu'une fois la fusion ACCEPTÉE : un refus du serveur reste affiché, choix gardés.
+    run(async () => {
+      const r = await fusionnerFournisseurs(s.id, c.id);
+      if (!estErreur(r)) { setFusion(false); setSource(""); setCible(""); }
+      return r;
+    });
   };
 
   const visibles = useMemo(() => {

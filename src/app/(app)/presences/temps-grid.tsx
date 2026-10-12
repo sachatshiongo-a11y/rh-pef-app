@@ -213,9 +213,16 @@ export function TempsGrid({
     const k = `${empId}_${day}`;
     const val = heures === "" ? null : Number(heures.replace(",", "."));
     if (val !== null && (Number.isNaN(val) || val < 0 || val > 24)) return;
+    const avant = cel(empId, day).heures;
     setCellules((c) => ({ ...c, [k]: { ...c[k], heures: val } }));
-    startTransition(() => {
-      saisirHeures(empId, isoDates[day - 1], heures.replace(",", "."));
+    startTransition(async () => {
+      try {
+        await saisirHeures(empId, isoDates[day - 1], heures.replace(",", "."));
+      } catch {
+        // Refus ou échec : la case revient à sa valeur enregistrée et la note le dit (avant, la valeur restait affichée sans être écrite).
+        setCellules((c) => ({ ...c, [k]: { ...c[k], heures: avant } }));
+        setNote("Les heures n'ont pas été enregistrées : la case est revenue à sa valeur précédente. Réessayez.");
+      }
     });
   }
   // Case « heures » des listes (téléphone, vue Employé) : enregistrée à la sortie de la case —

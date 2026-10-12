@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { enregistrerPush, supprimerPush } from "./push-actions";
+import { estErreur } from "@/lib/action-lisible";
 
 const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
@@ -19,6 +20,8 @@ type Etat = "chargement" | "non-supporte" | "refuse" | "actif" | "inactif" | "oc
 
 export function PushToggle() {
   const [etat, setEtat] = useState<Etat>("chargement");
+  // Refus du serveur (service push inconnu, abonnement d'un autre compte) : dit à l'écran, au lieu d'afficher « activées » à tort.
+  const [refus, setRefus] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -39,6 +42,7 @@ export function PushToggle() {
   }, []);
 
   async function activer() {
+    setRefus(null);
     setEtat("occupe");
     try {
       const reg = await navigator.serviceWorker.register("/sw.js");
@@ -52,7 +56,14 @@ export function PushToggle() {
         applicationServerKey: base64ToUint8(VAPID_PUBLIC),
       });
       const json = sub.toJSON();
-      await enregistrerPush({ endpoint: sub.endpoint, p256dh: json.keys!.p256dh, auth: json.keys!.auth });
+      const r = await enregistrerPush({ endpoint: sub.endpoint, p256dh: json.keys!.p256dh, auth: json.keys!.auth });
+      if (estErreur(r)) {
+        // Rien n'est enregistré côté serveur : l'abonnement du navigateur est retiré pour ne pas laisser un état à moitié actif.
+        await sub.unsubscribe().catch(() => false);
+        setRefus(r.erreur);
+        setEtat("inactif");
+        return;
+      }
       setEtat("actif");
     } catch {
       setEtat("inactif");
@@ -60,12 +71,15 @@ export function PushToggle() {
   }
 
   async function desactiver() {
+    setRefus(null);
     setEtat("occupe");
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = await reg?.pushManager.getSubscription();
       if (sub) {
-        await supprimerPush(sub.endpoint);
+        const r = await supprimerPush(sub.endpoint);
+        // Le navigateur se désabonne dans tous les cas (le serveur n'enverra plus rien à un compte qui n'est pas le sien) ; le refus est dit.
+        if (estErreur(r)) setRefus(r.erreur);
         await sub.unsubscribe();
       }
       setEtat("inactif");
@@ -86,6 +100,7 @@ export function PushToggle() {
 
   const actif = etat === "actif";
   return (
+    <>
     <button
       type="button"
       onClick={actif ? desactiver : activer}
@@ -96,5 +111,7 @@ export function PushToggle() {
     >
       {etat === "occupe" ? "🔔 …" : actif ? "🔔 Notifications activées" : "🔕 Activer les notifications"}
     </button>
+    {refus && <p role="alert" className="px-2 pt-1 text-[11px] text-destructive">{refus}</p>}
+    </>
   );
 }
