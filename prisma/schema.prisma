@@ -2149,6 +2149,7 @@ model Rubrique {
   ratioMaxAnnuel   Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,30)
   categories Categorie[]
   ecritures  EcritureCaisse[]
+  demandesRatios DemandeRatiosRubrique[]
   @@schema("exploitation")
 }
 
@@ -2213,6 +2214,63 @@ model ActiviteJour {
   note               String?
   creeLe             DateTime @default(now())
   majLe              DateTime @updatedAt
+  @@schema("exploitation")
+}
+
+// ─── Clôture mensuelle de l'Exploitation (décision de Sacha, 2026-10-12) ───
+// Un mois clôturé par la Direction n'accepte plus aucune écriture de journal ni recette du jour dont
+// la date tombe dedans (création, modification, recatégorisation, suppression, virement, import),
+// ni dans un sens ni dans l'autre (déplacer une écriture vers ou depuis ce mois). Réversible par la
+// Direction seule (la ligne est supprimée, le geste est journalisé). Une ligne = un mois clos ;
+// aucun lien avec ClotureStock (le stock se clôture à part). Pas de FK cross-schéma (creeParId).
+model ClotureExploitation {
+  id         String   @id @default(uuid())
+  annee      Int
+  mois       Int
+  creeParId  String?
+  creeParNom String
+  createdAt  DateTime @default(now())
+
+  @@unique([annee, mois])
+  @@schema("exploitation")
+}
+
+// ─── Demandes de modification des ratios cibles (décision de Sacha, 2026-10-12) ───
+// La Direction modifie les ratios d'une rubrique directement ; la Compta (ou tout non-Direction) crée
+// une demande « À valider » (avant → après). Approuver réécrit les ratios dans la même transaction que
+// le passage à VALIDEE, seulement si la rubrique vaut encore `avant` (sinon demande périmée, rien n'est
+// écrit). `cible` = « RUBRIQUE:<id> » tant que la demande est EN_ATTENTE (unique : une seule demande en
+// attente par rubrique, tenue par la base), NULL ensuite.
+enum StatutDemandeRatios {
+  EN_ATTENTE
+  VALIDEE
+  REFUSEE
+  ANNULEE // retirée par son auteur avant décision
+
+  @@schema("exploitation")
+}
+
+model DemandeRatiosRubrique {
+  id          String              @id @default(uuid())
+  rubriqueId  Int
+  rubrique    Rubrique            @relation(fields: [rubriqueId], references: [id], onDelete: Cascade)
+  statut      StatutDemandeRatios @default(EN_ATTENTE)
+  /// { ratioIdeal, ratioMax, ratioIdealAnnuel, ratioMaxAnnuel } en fraction (0,30) ou null
+  avant       Json
+  apres       Json
+  motif       String?
+  cible       String?             @unique
+  auteurId    String
+  auteurNom   String
+  decideurId  String?
+  decideurNom String?
+  decideLe    DateTime?
+  motifRefus  String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([statut, createdAt])
+  @@index([rubriqueId, statut])
   @@schema("exploitation")
 }
 
