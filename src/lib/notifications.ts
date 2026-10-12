@@ -15,13 +15,16 @@ export type NotificationItem = {
   createdAt: Date;
 };
 
-/** Crée une notification (cloche). `domaine` cloisonne l'affichage (RH ou STOCK). */
+/** Les espaces qui ont une cloche d'espace (la cloche personnelle du salarié est le domaine SALARIE, à part). */
+export type DomaineCloche = "RH" | "STOCK" | "EXPLOITATION";
+
+/** Crée une notification (cloche). `domaine` cloisonne l'affichage (RH, STOCK ou EXPLOITATION). */
 export async function creerNotification(params: {
   type: "CONGE" | "ACOMPTE" | "CLOTURE" | "AUTRE";
   message: string;
   lien?: string;
   refId?: string;
-  domaine?: "RH" | "STOCK";
+  domaine?: DomaineCloche;
 }) {
   await prisma.notification.create({
     data: { domaine: params.domaine ?? "RH", type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
@@ -87,13 +90,13 @@ export async function chargerNotificationsSalarie(userId: string): Promise<{ ite
 }
 
 /** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */
-export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH", userId?: string): Promise<{
+export async function chargerNotifications(domaine: DomaineCloche = "RH", userId?: string): Promise<{
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
 }> {
   // Cloche d'espace = notifications PARTAGÉES de l'espace + celles adressées à CE compte (réponse de
-  // la Direction à une demande de l'espace Stock) ; celles d'un autre compte ne s'affichent jamais.
+  // la Direction à une demande de l'espace Stock ; demande de ratios reçue ou tranchée en Exploitation) ; celles d'un autre compte ne s'affichent jamais.
   const visibles = { domaine, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
   const [items, nonLues, config] = await Promise.all([
     prisma.notification.findMany({ where: visibles, orderBy: { createdAt: "desc" }, take: 20 }),

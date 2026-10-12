@@ -3,19 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import type { DomaineCloche } from "@/lib/notifications";
 import { MESSAGE_NOTIFICATION_REFUSEE, peutGererDomaine, peutToucherNotification } from "@/lib/acces-notification";
 
-// Cloche des espaces RH et Stock (composant partagé `components/notification-bell.tsx`). Une Server
+// Cloche des espaces RH, Stock et Exploitation (composant partagé `components/notification-bell.tsx`). Une Server
 // Action ne passe par aucun layout : chaque action vérifie ELLE-MÊME le droit du compte sur l'objet
 // (règles dans `lib/acces-notification.ts`). Un refus est RENDU comme valeur, jamais jeté : en
 // production Next masquerait le message d'une exception.
 
 export type ResultatNotification = { ok: true } | { erreur: string };
 
-/** Marque comme lues les notifications d'un espace (RH ou STOCK) — réservé à cet espace. */
-export async function marquerNotificationsLues(domaine: "RH" | "STOCK" = "RH"): Promise<ResultatNotification> {
+/** Marque comme lues les notifications d'un espace (RH, STOCK ou EXPLOITATION) — réservé à cet espace. */
+export async function marquerNotificationsLues(domaine: DomaineCloche = "RH"): Promise<ResultatNotification> {
   const user = await verifySession();
-  const dom = domaine === "STOCK" ? "STOCK" : "RH";
+  const dom: DomaineCloche = domaine === "STOCK" || domaine === "EXPLOITATION" ? domaine : "RH";
   if (!peutGererDomaine(user, dom)) return { erreur: MESSAGE_NOTIFICATION_REFUSEE };
   // Les notifications personnelles d'un AUTRE compte (réponses à ses demandes) ne sont pas touchées.
   await prisma.notification.updateMany({ where: { domaine: dom, lu: false, OR: [{ destinataireUserId: null }, { destinataireUserId: user.id }] }, data: { lu: true } });
