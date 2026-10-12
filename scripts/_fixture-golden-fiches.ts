@@ -63,7 +63,10 @@ export type FixtureClasseur = {
 
 /** Lit le classeur (valeurs seules : ni formules, ni styles — le parseur n'en lit aucun). */
 export function lireClasseurReel(chemin = CHEMIN_CLASSEUR_REEL): XLSX.WorkBook {
-  return XLSX.readFile(chemin, { cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false });
+  // `XLSX.read` sur un tampon, PAS `XLSX.readFile` : depuis SheetJS 0.20, `import "xlsx"` résout la
+  // version ESM, qui n'a pas accès au disque (`readFile` → « Cannot access file ») — c'est le cas
+  // sous vitest. Lire le fichier soi-même marche en ESM comme en CommonJS (tsx).
+  return XLSX.read(fs.readFileSync(chemin), { type: "buffer", cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false });
 }
 
 /**
