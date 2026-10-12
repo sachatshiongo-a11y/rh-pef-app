@@ -1,5 +1,6 @@
 "use client";
 
+import { MODES_PAIEMENT } from "@/lib/correction-paiement";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "../paie/actions";
@@ -33,14 +34,7 @@ export type BulletinRow = {
 
 // "" = automatique : le moyen de paiement de la fiche de chaque salarié (comme l'écran Paie). Jusqu'au
 // 2026-10-01 un lot payé d'ici enregistrait « Virement » pour tous, quelle que soit la fiche.
-const MODES = [
-  { value: "", label: "Auto (selon la fiche)" },
-  { value: "ESPECES", label: "Espèces" },
-  { value: "VIREMENT", label: "Virement" },
-  { value: "MOBILE_MONEY", label: "Mobile Money" },
-  { value: "CHEQUE", label: "Chèque" },
-  { value: "AUTRE", label: "Autre" },
-];
+const MODES = [{ value: "", label: "Auto (selon la fiche)" }, ...MODES_PAIEMENT]; // la liste des moyens est partagée avec « Corriger le paiement »
 
 export function BulletinsInbox({
   rows,

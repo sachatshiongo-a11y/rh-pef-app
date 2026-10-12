@@ -14,6 +14,9 @@ import { tauxDeLigne } from "@/lib/paie-taux";
 import { fenetrePage, tranche, type ParPage } from "@/lib/pagination";
 import type { EtatSignature } from "@/lib/signature";
 import { faireSignerDocument } from "../../signature-actions";
+import { CorrigerPaiement } from "../../paie/corriger-paiement";
+import { libelleModePaiement, jourFrancais, jourDeVersement } from "@/lib/correction-paiement";
+import type { ModePaiement } from "@prisma/client";
 
 /** Un bulletin de l'historique, prêt à afficher (montants déjà lus, taux de la ligne résolu par la page). */
 export type LigneHistoriquePaie = {
@@ -29,6 +32,9 @@ export type LigneHistoriquePaie = {
   /** Bulletins déjà remis, du plus ancien au plus récent. */
   versions: { numeroVersion: number; genereLe: Date }[];
   signature: EtatSignature;
+  /** Jour de versement (`YYYY-MM-DD`) et moyen de paiement d'un bulletin payé ; absents = jamais renseignés. */
+  datePaiement?: string | null;
+  modePaiement?: ModePaiement | null;
 };
 
 type Montant = { toString(): string };
@@ -40,6 +46,8 @@ export function ligneHistoriquePaie(
     salNetUSD: Montant;
     transportUSD: Montant;
     tauxChangeFige: Montant | null;
+    datePaiement?: Date | null;
+    modePaiement?: ModePaiement | null;
     payrollRun: { mois: number; annee: number; tauxChangeUtilise: Montant };
     versionsBulletin: { numeroVersion: number; genereLe: Date }[];
   },
@@ -55,6 +63,8 @@ export function ligneHistoriquePaie(
     taux: tauxDeLigne(l, l.payrollRun),
     versions: l.versionsBulletin,
     signature,
+    datePaiement: jourDeVersement(l.datePaiement),
+    modePaiement: l.modePaiement ?? null,
   };
 }
 
@@ -89,10 +99,12 @@ function PaiementBadge({ statut }: { statut: string }) {
  * sont ceux de l'année ENTIÈRE, même quand la pagination (« Toutes ») ne montre qu'une partie de ses lignes.
  * Colonnes et gestes inchangés : Aperçu, $, CDF, Attestation, Signer.
  */
-export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, lignes, annee, anneeCourante, page, par }: {
+export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, peutCorrigerPaiement = false, lignes, annee, anneeCourante, page, par }: {
   employeeId: string;
   nomSalarie: string;
   peutModifier: boolean;
+  /** Direction seule : « Corriger le paiement » (date de versement, moyen) sur les bulletins payés, de tous les mois. */
+  peutCorrigerPaiement?: boolean;
   /** TOUS les bulletins du salarié, du plus récent au plus ancien. */
   lignes: LigneHistoriquePaie[];
   annee: AnneeVue;
@@ -186,7 +198,17 @@ export function HistoriquePaie({ employeeId, nomSalarie, peutModifier, lignes, a
                         <Cdf valeur={l.taux > 0 ? Math.round(salaireNetCDF(l, l.taux)) : null} />
                       </td>
                       <td className="px-3 py-2 text-right text-muted-foreground"><Usd valeur={l.salNetUSD} /></td>
-                      <td className="px-3 py-2"><PaiementBadge statut={l.statutPaiement} /></td>
+                      <td className="px-3 py-2">
+                        <PaiementBadge statut={l.statutPaiement} />
+                        {l.statutPaiement === "PAYE" && (l.datePaiement || l.modePaiement) && (
+                          <span className="block text-[11px] text-muted-foreground">
+                            {l.datePaiement ? `le ${jourFrancais(l.datePaiement)}` : ""}{l.datePaiement && l.modePaiement ? " · " : ""}{l.modePaiement ? libelleModePaiement(l.modePaiement) : ""}
+                          </span>
+                        )}
+                        {l.statutPaiement === "PAYE" && peutCorrigerPaiement && (
+                          <CorrigerPaiement payrollLineId={l.id} datePaiement={l.datePaiement ?? null} modePaiement={l.modePaiement ?? null} nomDocument={libelleMois(l)} />
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2">
                         {l.statutPaiement === "PAS_VALIDE" ? (
                           <span className="text-xs text-muted-foreground">—</span>

@@ -7,7 +7,7 @@ import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
-import { cloturePeutValider, roleRequisPour, ROLES_CLOTURE, transitionPermise } from "@/lib/paie-etats";
+import { cloturePeutValider, roleRequisPour, ROLES_CLOTURE, transitionAutorisee, transitionPermise } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, lignesNonFigees, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { calculerEcheancePret } from "@/lib/prets";
 import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
@@ -37,6 +37,16 @@ const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modificati
 /** Refus de rouvrir un bulletin d'un autre mois que le mois en cours (voir `appliquerTransitionPaie`). */
 function messageRouvrirAutreMois(nom: string, periode: Periode): string {
   return `${nom} : ce bulletin appartient à la paie de ${libellePeriode(periode)}, qui n'est plus le mois en cours — il ne se rouvre pas d'ici (rouvert, il sortirait des totaux et des déclarations de ce mois sans pouvoir être revalidé). Il reste à payer ; pour le corriger, la Direction revient d'abord à ce mois (Paramètres → mois en cours).`;
+}
+
+/**
+ * Refus d'annuler le paiement d'un bulletin d'un mois qui n'est plus le mois en cours, ou dont la paie est CLÔTURÉE
+ * (`PayrollRun.statut = VALIDE`, posé par `cloturerPaie`). Décision de la Direction du 2026-10-12 : annulé, un paiement
+ * d'un mois quitté ferait revenir un bulletin « à payer » dans un mois dont les totaux et les déclarations sont déjà
+ * sortis. La date et le moyen de paiement, eux, se corrigent partout (« Corriger le paiement », fiche du salarié → Paie).
+ */
+function messageAnnulerPaiementMoisClos(nom: string, periode: Periode, moisEnCours: boolean): string {
+  return `${nom} : ce bulletin appartient à la paie de ${libellePeriode(periode)}, ${moisEnCours ? "qui est clôturée" : "qui n'est plus le mois en cours"} — son paiement ne s'annule plus. Pour changer la date de versement ou le moyen de paiement, utilisez « Corriger le paiement » (fiche du salarié → Paie).`;
 }
 
 export async function calculerPaieDuMois() {
@@ -109,7 +119,20 @@ async function appliquerTransitionPaie(
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
   });
-  if (!ligne || !transitionPermise(acteur.role, ligne.statutPaiement, versStatut, { enLot: opts.enLot })) return null;
+  if (!ligne) return null;
+  // Annuler un paiement (Payé → Validé) : le bulletin du MOIS EN COURS dont la paie n'est PAS clôturée, seulement
+  // (décision Direction 2026-10-12). Contrôlé AVANT le filtre de lot ci-dessous, pour qu'un lot qui glisse un paiement
+  // d'un mois quitté ou clos soit refusé EN ENTIER (la transaction du lot annule tout), comme « Rouvrir » : une ligne
+  // payée du mois en cours reste, elle, ignorée en lot (`transitionAutoriseeEnLot`). Refus lisible, rien d'écrit.
+  if (ligne.statutPaiement === "PAYE" && versStatut === "VALIDE" && transitionAutorisee("PAYE", "VALIDE")) {
+    const config = await tx.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
+    const moisEnCours = !!config && memePeriode(ligne.payrollRun, { mois: config.moisCourant, annee: config.anneeCourante });
+    const cloturee = ligne.payrollRun.statut === "VALIDE";
+    if (!moisEnCours || cloturee) {
+      throw new ValidationPaieRefuseeError(messageAnnulerPaiementMoisClos(ligne.employee.nom, ligne.payrollRun, moisEnCours));
+    }
+  }
+  if (!transitionPermise(acteur.role, ligne.statutPaiement, versStatut, { enLot: opts.enLot })) return null;
   // Rouvrir : le bulletin du MOIS COURANT seulement (relecture du lot 8, 2026-10-12). « À valider » liste les
   // bulletins à payer de TOUS les mois (un mois clôturé garde ses validés impayés) : rouvert, un bulletin d'un
   // mois quitté devient « hors calcul » (paie-hors-calcul.ts) — sorti des totaux et des déclarations de son

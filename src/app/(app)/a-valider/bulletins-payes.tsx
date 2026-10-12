@@ -20,6 +20,8 @@ export type BulletinPayeRow = {
  * dans À valider, puisqu'il défait une décision déjà prise. Il vivait sur la ligne du bulletin dans Paie ; depuis le
  * lot 8 (V5) on décide dans À valider seulement, il est donc ici, à part des files (un bulletin payé n'attend rien :
  * il ne compte pas dans la pastille). Direction seule (paie-etats.ts) ; le serveur revérifie le rôle.
+ * Mois en cours seulement, paie non clôturée (le serveur refuse sinon, `appliquerTransitionPaie`) ; la date et le moyen d'un
+ * paiement, de n'importe quel mois, se corrigent par « Corriger le paiement » (fiche du salarié → Paie).
  * Ligne par ligne, jamais en lot : « valider » en lot ne vaut pas « annuler un paiement » (transitionAutoriseeEnLot).
  */
 export function BulletinsPayes({ rows }: { rows: BulletinPayeRow[] }) {
