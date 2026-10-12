@@ -75,11 +75,14 @@ export async function chargerBadgesRH(user: Compte): Promise<Record<string, numb
     chargerElementsAValiderRH(),
     user.role === "ADMIN" ? Promise.resolve(0) : compterMesDemandesFiche(user.id),
   ]);
+  // Paie : les bulletins que CE compte peut décider (Direction : à valider + à payer ; RH : à payer),
+  // les mêmes chiffres que les liens « N à valider / N à payer » affichés en haut de Paie.
+  const pourMoi = elementsAValiderPour(user.role, toute, mes);
   return {
     "/a-valider": totalAValiderRHPour(user.role, toute, mes),
-    // Congés et Paie : badges d'écrans de travail, pas de la boîte « À valider » (inchangés).
+    // Congés : badge d'écran de travail, pas de la boîte « À valider » (inchangé).
     "/conges": toute.conges,
-    "/paie": toute.bulletinsAValider + toute.bulletinsAPayer,
+    "/paie": pourMoi.bulletinsAValider + pourMoi.bulletinsAPayer,
   };
 }
 
