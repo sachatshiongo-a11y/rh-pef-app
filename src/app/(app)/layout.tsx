@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerBadgesRH } from "@/lib/a-valider-chargeurs";
 import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
-import { chargerNotifications } from "@/lib/notifications";
+import { chargerNotificationsCompte } from "@/lib/notifications";
 import { AppShell } from "./app-shell";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -13,12 +13,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // repose donc pas sur le seul masquage des liens.
   if (!estRH(user.role)) redirect("/entree");
   const [badges, notif, moi, salarieActif] = await Promise.all([
-    // Badges par rôle (`lib/a-valider-chargeurs.ts`) : la Direction compte toute la file « À valider »,
-    // les autres leurs seules demandes — le chiffre du menu est celui de la page.
+    // Badges (`lib/a-valider-chargeurs.ts`) : « À valider » = le total de TOUS les espaces du compte (la Direction
+    // compte toute la file, les autres leurs seules demandes), le chiffre de la page ; « Congés » et « Paie » : à la RH.
     chargerBadgesRH(user),
-    // Cloche RH : notifications partagées + celles ADRESSÉES à ce compte (paie : « à payer » pour la
-    // RH, « payés » / « clôturée » pour la Direction — 2026-10-01).
-    chargerNotifications("RH", user.id),
+    // LA cloche unique : les notifications de tous les espaces du compte (RH, Stock, Exploitation selon ses droits)
+    // + celles qui lui sont ADRESSÉES (paie : « à payer » pour la RH, « payés » / « clôturée » pour la Direction).
+    chargerNotificationsCompte(user),
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { id: true, photoUrl: true } } } }),
     espaceEmployeActif(),
   ]);

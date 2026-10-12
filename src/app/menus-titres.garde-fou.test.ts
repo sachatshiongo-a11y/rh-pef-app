@@ -70,13 +70,26 @@ function estUnRenvoi(r: Route): boolean {
 const decoder = (s: string) =>
   s.replace(/&amp;/g, "&").replace(/&apos;|&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 
-/** Les titres `<h1>` écrits en toutes lettres dans le dossier d'une page (la page et ses écrans voisins). */
+/** Les `<h1>` littéraux d'un source. */
+function titresDuSource(src: string): string[] {
+  return [...src.matchAll(/<h1\b[^>]*>([^<{]+)<\/h1>/g)].map((m) => decoder(m[1]));
+}
+
+/**
+ * Les titres `<h1>` écrits en toutes lettres dans le dossier d'une page (la page et ses écrans voisins) ET dans les
+ * pages-composants qu'elle monte depuis `@/app/…` (un saut) : « À valider » est UNE page, montée à trois adresses
+ * (une par coquille d'espace) — le titre vit dans `(app)/a-valider/page-a-valider.tsx`, les trois routes l'importent.
+ */
 function titresDe(dossier: string): string[] {
   const titres: string[] = [];
   for (const n of readdirSync(dossier)) {
     if (!/\.tsx$/.test(n) || /\.test\.tsx$/.test(n)) continue;
     const src = readFileSync(path.join(dossier, n), "utf8");
-    for (const m of src.matchAll(/<h1\b[^>]*>([^<{]+)<\/h1>/g)) titres.push(decoder(m[1]));
+    titres.push(...titresDuSource(src));
+    for (const m of src.matchAll(/from "@\/app\/([^"]+)"/g)) {
+      const fichier = path.join(APP, `${m[1]}.tsx`);
+      if (existsSync(fichier)) titres.push(...titresDuSource(readFileSync(fichier, "utf8")));
+    }
   }
   return titres;
 }

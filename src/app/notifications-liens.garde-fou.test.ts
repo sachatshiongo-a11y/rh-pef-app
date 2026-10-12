@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { exemplesDeLiens, LIENS } from "@/lib/envois-stock/liens";
+import { BOITES_A_VALIDER } from "@/lib/a-valider-compteur";
 
 const APP = __dirname;
 const SRC = path.join(APP, "..");
@@ -113,6 +114,74 @@ describe("liens de notification — chacun mène à une page qui existe", () => 
 
   it("la fiche d'un comptage garde son adresse /stock/archives/<id>", () => {
     expect(routeDe("/stock/archives/abc")).toBeTruthy();
+  });
+});
+
+// « À VALIDER » EST UNE SEULE PAGE (2026-10-12), montée à TROIS adresses — une par coquille d'espace. Les notifications déjà
+// stockées visent `/a-valider` (RH), `/stock/a-valider` ou `/exploitation/a-valider` : aucune ne doit casser, et un
+// lien neuf doit rester dans l'espace de son destinataire (un compte Stock ne peut pas ouvrir la coquille RH : sa garde
+// le renverrait à l'entrée). Pas de renvoi 307 d'une adresse à l'autre : la Direction serait éjectée de la coquille d'où elle vient.
+describe("« À valider » unique — trois adresses, une seule page", () => {
+  const ADRESSES = ["/a-valider", "/stock/a-valider", "/exploitation/a-valider"];
+  const PAGE_PARTAGEE = "(app)/a-valider/page-a-valider.tsx";
+
+  it("le registre des boîtes porte exactement ces trois adresses", () => {
+    expect(BOITES_A_VALIDER.map((b) => b.href)).toEqual(ADRESSES);
+  });
+
+  it("chaque adresse est une vraie page (jamais un simple renvoi) qui monte la MÊME page partagée", () => {
+    expect(readFileSync(path.join(APP, PAGE_PARTAGEE), "utf8")).toMatch(/export async function PageAValider\b/);
+    for (const adresse of ADRESSES) {
+      const r = routeDe(adresse);
+      expect(r, adresse).toBeTruthy();
+      expect(estUnRenvoi(r!), `${adresse} ne doit pas être un renvoi`).toBe(false);
+      const src = readFileSync(path.join(r!.dossier, "page.tsx"), "utf8");
+      expect(src, adresse).toMatch(/\bPageAValider\(\{/); // la page partagée, pas une copie
+      expect(src, adresse).toMatch(/page-a-valider"/);
+      expect(src, adresse).not.toMatch(/\bredirect\(/);
+    }
+  });
+
+  it("chaque adresse garde la garde de SON espace (le layout ne suffit pas) et déclare son espace courant", () => {
+    const GARDES: Record<string, [string, string]> = {
+      "/a-valider": ["exigerPageRH", "rh"], "/stock/a-valider": ["exigerPageStock", "stock"], "/exploitation/a-valider": ["exigerPageExploitation", "exploitation"],
+    };
+    for (const [adresse, [garde, courant]] of Object.entries(GARDES)) {
+      const src = readFileSync(path.join(routeDe(adresse)!.dossier, "page.tsx"), "utf8");
+      expect(src, adresse).toContain(`await ${garde}()`);
+      expect(src, adresse).toContain(`courant: "${courant}"`);
+    }
+  });
+
+  // Les liens écrits en toutes lettres : le domaine de la notification et l'espace de l'adresse vont ensemble.
+  const ESPACE_DE_ADRESSE = (a: string) => (a.startsWith("/stock/") ? "STOCK" : a.startsWith("/exploitation/") ? "EXPLOITATION" : "RH");
+  const ecrits: { fichier: string; adresse: string; domaine: string }[] = [];
+  for (const f of [...sources(APP), ...sources(path.join(SRC, "lib"))]) {
+    const src = readFileSync(f, "utf8");
+    for (const m of src.matchAll(/\blien\s*:\s*"(\/(?:stock\/|exploitation\/)?a-valider)(?:[#?][^"]*)?"/g)) {
+      // Le domaine se lit dans le MÊME appel (creerNotification / notification.create), sinon c'est le domaine par défaut : RH.
+      const debut = Math.max(src.lastIndexOf("creerNotification(", m.index), src.lastIndexOf("notification.create(", m.index), src.lastIndexOf("notifier", m.index));
+      const fenetre = src.slice(debut < 0 ? Math.max(0, m.index! - 300) : debut, m.index);
+      const domaine = /domaine:\s*"(STOCK|EXPLOITATION|RH|SALARIE)"/.exec(fenetre)?.[1] ?? "RH";
+      ecrits.push({ fichier: path.relative(SRC, f), adresse: m[1], domaine });
+    }
+  }
+
+  it("le scanner lit bien des liens vers « À valider » en RH et au Stock (une regex cassée ne doit pas passer pour un succès) ; ceux de l'Exploitation passent par une constante, vérifiée plus haut", () => {
+    expect(new Set(ecrits.map((e) => e.adresse))).toEqual(new Set(["/a-valider", "/stock/a-valider"]));
+    expect(ecrits.length).toBeGreaterThan(8);
+  });
+
+  it("tout lien écrit vers « À valider » reste dans l'espace de la notification : RH → /a-valider, STOCK → /stock/a-valider, EXPLOITATION → /exploitation/a-valider", () => {
+    const hors = ecrits.filter((e) => ESPACE_DE_ADRESSE(e.adresse) !== e.domaine).map((e) => `${e.fichier} : ${e.domaine} → ${e.adresse}`);
+    expect([...new Set(hors)]).toEqual([]);
+  });
+
+  it("falsification : un lien Stock écrit vers la coquille RH serait signalé", () => {
+    expect(ESPACE_DE_ADRESSE("/a-valider")).not.toBe("STOCK");
+    expect(ESPACE_DE_ADRESSE("/stock/a-valider")).toBe("STOCK");
+    expect(ESPACE_DE_ADRESSE("/exploitation/a-valider")).toBe("EXPLOITATION");
+    expect(estUnRenvoi({ adresse: "/x", dossier: path.join(APP, "(app)", "a-valider") })).toBe(false); // vraie page
   });
 });
 

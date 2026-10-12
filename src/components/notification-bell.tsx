@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import { marquerNotificationsLues, supprimerNotification } from "@/app/(app)/notifications-actions";
-import type { DomaineCloche, NotificationItem } from "@/lib/notifications";
+import type { NotificationItem } from "@/lib/notifications";
+import { DOMAINES_CLOCHE, LIBELLE_DOMAINE_CLOCHE, type DomaineCloche } from "@/lib/acces-notification";
+
+/** L'étiquette d'espace d'une notification (RH, Stock, Exploitation) ; rien pour un domaine inconnu. */
+function etiquetteEspace(domaine: string | undefined): string | null {
+  return DOMAINES_CLOCHE.includes(domaine as DomaineCloche) ? LIBELLE_DOMAINE_CLOCHE[domaine as DomaineCloche] : null;
+}
 
 function ilYA(date: Date): string {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -13,16 +19,19 @@ function ilYA(date: Date): string {
   return `il y a ${Math.floor(s / 86400)} j`;
 }
 
+/**
+ * LA cloche, la même dans les espaces RH, Stock et Exploitation : les notifications de tous les espaces du compte,
+ * chacune avec son étiquette d'espace ; le chiffre est le total des non lues ; « Tout marquer lu » vaut pour tout ce
+ * que le compte voit (le serveur ne touche que ses domaines).
+ */
 export function NotificationBell({
   items,
   nonLues,
   cloture,
-  domaine = "RH",
 }: {
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
-  domaine?: DomaineCloche;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const total = nonLues + (cloture ? 1 : 0);
@@ -57,7 +66,7 @@ export function NotificationBell({
               {nonLues > 0 && (
                 <button
                   onClick={() => {
-                    marquerNotificationsLues(domaine);
+                    marquerNotificationsLues();
                     setOuvert(false);
                   }}
                   className="text-xs text-primary hover:underline"
@@ -80,10 +89,14 @@ export function NotificationBell({
                 <li className="px-4 py-8 text-center text-sm text-muted-foreground">Aucune notification.</li>
               )}
               {items.map((n) => {
+                const espace = etiquetteEspace(n.domaine);
                 const contenu = (
                   <div className={`px-4 py-3 ${n.lu ? "" : "bg-primary/5"}`}>
                     <p className="text-sm">{n.message}</p>
-                    <p className="text-xs text-muted-foreground">{ilYA(n.createdAt)}</p>
+                    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {espace && <span className="rounded-full border px-1.5 py-px text-[10px] font-medium leading-4">{espace}</span>}
+                      {ilYA(n.createdAt)}
+                    </p>
                   </div>
                 );
                 return (

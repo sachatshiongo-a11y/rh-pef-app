@@ -3,23 +3,28 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import type { DomaineCloche } from "@/lib/notifications";
-import { MESSAGE_NOTIFICATION_REFUSEE, peutGererDomaine, peutToucherNotification } from "@/lib/acces-notification";
+import { MESSAGE_NOTIFICATION_REFUSEE, domainesGerables, peutGererDomaine, peutToucherNotification, type DomaineCloche } from "@/lib/acces-notification";
 
-// Cloche des espaces RH, Stock et Exploitation (composant partagé `components/notification-bell.tsx`). Une Server
+// Cloche UNIQUE des espaces RH, Stock et Exploitation (composant partagé `components/notification-bell.tsx`). Une Server
 // Action ne passe par aucun layout : chaque action vérifie ELLE-MÊME le droit du compte sur l'objet
 // (règles dans `lib/acces-notification.ts`). Un refus est RENDU comme valeur, jamais jeté : en
 // production Next masquerait le message d'une exception.
 
 export type ResultatNotification = { ok: true } | { erreur: string };
 
-/** Marque comme lues les notifications d'un espace (RH, STOCK ou EXPLOITATION) — réservé à cet espace. */
-export async function marquerNotificationsLues(domaine: DomaineCloche = "RH"): Promise<ResultatNotification> {
+/**
+ * « Tout marquer lu » de la cloche unique : marque comme lues les notifications de TOUS les espaces que le compte
+ * voit (RH, STOCK, EXPLOITATION, selon ses droits) — celles qu'il voit, pas une de plus. Avec un `domaine`, seul cet
+ * espace est touché (appelants d'avant la cloche unique) ; il est refusé si le compte n'y a pas droit.
+ */
+export async function marquerNotificationsLues(domaine?: DomaineCloche): Promise<ResultatNotification> {
   const user = await verifySession();
-  const dom: DomaineCloche = domaine === "STOCK" || domaine === "EXPLOITATION" ? domaine : "RH";
-  if (!peutGererDomaine(user, dom)) return { erreur: MESSAGE_NOTIFICATION_REFUSEE };
+  const dom: DomaineCloche | null = domaine === undefined ? null : domaine === "STOCK" || domaine === "EXPLOITATION" ? domaine : "RH";
+  if (dom !== null && !peutGererDomaine(user, dom)) return { erreur: MESSAGE_NOTIFICATION_REFUSEE };
+  const domaines = dom !== null ? [dom] : domainesGerables(user);
+  if (domaines.length === 0) return { erreur: MESSAGE_NOTIFICATION_REFUSEE };
   // Les notifications personnelles d'un AUTRE compte (réponses à ses demandes) ne sont pas touchées.
-  await prisma.notification.updateMany({ where: { domaine: dom, lu: false, OR: [{ destinataireUserId: null }, { destinataireUserId: user.id }] }, data: { lu: true } });
+  await prisma.notification.updateMany({ where: { domaine: { in: domaines }, lu: false, OR: [{ destinataireUserId: null }, { destinataireUserId: user.id }] }, data: { lu: true } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

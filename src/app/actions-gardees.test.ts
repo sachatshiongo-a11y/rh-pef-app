@@ -121,7 +121,7 @@ describe("le garde-fou des actions mord (falsification en mémoire)", () => {
   });
 
   it("notification : garde de domaine retirée → signalée (retour à la session seule)", () => {
-    const f = lire("(app)/notifications-actions.ts").replace(/\s*if \(!peutGererDomaine\(user, dom\)\)[^\n]*/, "");
+    const f = lire("(app)/notifications-actions.ts").replace(/\s*if \(dom !== null && !peutGererDomaine\(user, dom\)\)[^\n]*/, "");
     expect(actionsNonGardees(f)).toEqual(["marquerNotificationsLues"]);
   });
 

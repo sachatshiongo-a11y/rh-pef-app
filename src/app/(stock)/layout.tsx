@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
-import { chargerNotifications } from "@/lib/notifications";
+import { chargerNotificationsCompte } from "@/lib/notifications";
 import { urgentsParDomaine } from "@/lib/indicateurs/urgents";
-import { chargerAValiderStock } from "@/lib/a-valider-chargeurs";
+import { chargerAValiderDuCompte } from "@/lib/a-valider-chargeurs";
 import { exigerMotDePassePersonnel } from "@/app/espace/garde";
 import { StockShell } from "./stock-shell";
 
@@ -16,10 +16,10 @@ export default async function StockLayout({ children }: { children: React.ReactN
 
   const [moi, aValider, notifs, urgents, espaceSalarieActif] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true, employe: { select: { photoUrl: true } } } }),
-    // Bons en brouillon + paiements, réconciliations et modifications d'articles en attente de la Direction.
-    // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
-    chargerAValiderStock(user),
-    chargerNotifications("STOCK", user.id), // + les réponses de la Direction adressées à ce compte
+    // Pastille « À valider » = le total de TOUS les espaces du compte (bons en brouillon, demandes de la Direction,
+    // et — pour la Direction — la RH et l'Exploitation) ; les bons en brouillon alimentent aussi le badge des Bons de commande.
+    chargerAValiderDuCompte(user),
+    chargerNotificationsCompte(user), // LA cloche unique (+ les réponses adressées à ce compte)
     urgentsParDomaine(), // même règle et mêmes articles (actifs) que le tableau de bord
     espaceEmployeActif(),
   ]);
@@ -43,8 +43,8 @@ export default async function StockLayout({ children }: { children: React.ReactN
       maPhoto={moi?.employe?.photoUrl ?? null}
       autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{
-        "/stock/a-valider": aValider.total, // même définition que le compteur de la page
-        "/stock/commandes": aValider.bonsEnBrouillon,
+        "/stock/a-valider": aValider.total, // le total de tous les espaces du compte : le compteur de la page
+        "/stock/commandes": aValider.stock?.bonsEnBrouillon ?? 0,
         "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}
       notif={{ items: notifs.items, nonLues: notifs.nonLues, cloture: null }}

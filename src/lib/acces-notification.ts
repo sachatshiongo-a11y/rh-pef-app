@@ -23,6 +23,13 @@ import { estExploitation, estRH, estStock } from "@/lib/espaces";
  */
 export type CompteNotification = { id: string; role: Role; accesStock?: boolean };
 
+/** Les espaces qui ont une cloche d'espace (la cloche personnelle du salarié est le domaine SALARIE, à part). */
+export const DOMAINES_CLOCHE = ["RH", "STOCK", "EXPLOITATION"] as const;
+export type DomaineCloche = (typeof DOMAINES_CLOCHE)[number];
+
+/** L'étiquette d'espace de chaque notification de la cloche unique. */
+export const LIBELLE_DOMAINE_CLOCHE: Record<DomaineCloche, string> = { RH: "RH", STOCK: "Stock", EXPLOITATION: "Exploitation" };
+
 export const MESSAGE_NOTIFICATION_REFUSEE = "Cette notification n'est pas dans votre espace.";
 export const MESSAGE_PUSH_REFUSE = "Cet appareil est abonné aux notifications d'un autre compte.";
 
@@ -32,6 +39,16 @@ export function peutGererDomaine(user: CompteNotification, domaine: string): boo
   if (domaine === "STOCK") return estStock(user);
   if (domaine === "EXPLOITATION") return estExploitation(user);
   return false;
+}
+
+/**
+ * LA CLOCHE UNIQUE : les domaines que ce compte voit, tous espaces confondus — exactement ceux qu'il a le droit de
+ * gérer (`peutGererDomaine`). La Direction : les trois ; la RH, le Stock ou l'Exploitation : le leur ; un
+ * salarié sans accès Stock : aucun (sa cloche est la sienne, domaine SALARIE). Ce que la cloche affiche, ce que
+ * « Tout marquer lu » touche et ce que le compte peut supprimer sont donc le MÊME ensemble.
+ */
+export function domainesGerables(user: CompteNotification): DomaineCloche[] {
+  return DOMAINES_CLOCHE.filter((d) => peutGererDomaine(user, d));
 }
 
 /** Une notification précise, lue en base (domaine et destinataire réels, jamais ceux du client). */
