@@ -16,7 +16,8 @@ vi.mock("../heures-supp/actions", () => ({ saisirHeures: m.saisirHeures, saisirH
 vi.mock("./actions", () => ({ saisirPresence: m.saisirPresence, saisirPresencesEnLot: vi.fn() }));
 vi.mock("@/lib/payroll", () => ({
   resumerPresences: () => ({ payes100: 0, payes2_3: 0, nonPayes: 0 }),
-  calculerHeuresSupp: () => ({ heuresTotalesMois: 0, totalHS: 0, hsValorisee: 0 }),
+  calculerHeuresSupp: () => ({ heuresTotalesMois: 0, totalHS: 0, hsValorisee: 0, semaines: [] }),
+  numeroSemaineDuMois: () => 1,
 }));
 
 import { TempsGrid } from "./temps-grid";
