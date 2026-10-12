@@ -1,4 +1,7 @@
 import { FilAriane } from "@/components/fil-ariane";
+import { LIBELLE_STATUT_CONGE, type StatutConge } from "@/lib/conges-liste";
+import { libelleCategorie } from "@/lib/livre-paie";
+import { libelleTypeSanction } from "@/lib/libelles-espace";
 import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
 import { tauxDeLigne } from "@/lib/paie-taux";
 import { estLibreService } from "@/lib/attestations-donnees";
@@ -9,6 +12,9 @@ import { prisma } from "@/lib/prisma";
 import { ancienneteEnMois, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { ChampNombre } from "@/components/champ-nombre";
 import { PrimeForm } from "./prime-form";
+import { FormulaireGarde } from "@/components/formulaire-garde";
+import { BoutonEnvoi } from "@/components/bouton-envoi";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
@@ -37,7 +43,7 @@ import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
-import { classerContrats, type Classement } from "@/lib/contrats-classement";
+import { classerContrats, libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
 import { jourKinshasa, jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
@@ -402,7 +408,7 @@ export default async function FicheEmployePage({
       date: new Date(employee.dateEmbauche),
       icone: "🎉",
       titre: "Embauche",
-      detail: `${employee.poste} · ${employee.categorie}`,
+      detail: `${employee.poste} · ${libelleCategorie(employee.categorie)}`,
     },
     ...historique.map((h) => ({
       date: new Date(h.date),
@@ -413,13 +419,13 @@ export default async function FicheEmployePage({
     ...contrats.map((c) => ({
       date: new Date(c.dateDebut),
       icone: "📄",
-      titre: `Contrat ${c.type}`,
+      titre: `Contrat ${libelleTypeContrat(c.type)}`,
       detail: `${c.poste} · ${formatMoney(Number(c.salaireMensuel))}${c.dateFin ? " · échéance " + new Date(c.dateFin).toLocaleDateString("fr-FR") : ""}`,
     })),
     ...disciplinaire.map((d) => ({
       date: new Date(d.date),
       icone: "⚠️",
-      titre: `Sanction — ${d.type}`,
+      titre: `Sanction — ${libelleTypeSanction(d.type).toLowerCase()}`,
       detail: d.motif,
     })),
     ...evaluations.map((e) => ({
@@ -432,7 +438,7 @@ export default async function FicheEmployePage({
       date: new Date(l.dateDebut),
       icone: "🏖",
       titre: `Congé ${l.type}`,
-      detail: `${l.statut.replace("_", " ").toLowerCase()} · ${Number(l.nbJours)} j${l.statut === "REFUSE" ? ` · motif : ${l.motifRefus ?? "—"}` : ""}`,
+      detail: `${(LIBELLE_STATUT_CONGE[l.statut as StatutConge] ?? "statut inconnu").toLowerCase()} · ${Number(l.nbJours)} j${l.statut === "REFUSE" ? ` · motif : ${l.motifRefus ?? "—"}` : ""}`,
     })),
     ...payrollLines.map((l) => ({
       date: new Date(l.payrollRun.annee, l.payrollRun.mois - 1, 28),
@@ -891,12 +897,12 @@ export default async function FicheEmployePage({
               salaireBase={baseFinContratUSD}
               tauxAnciennete={tauxPrimeAnciennete(anciennete / 12)}
             />
-            <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
+            <FormulaireGarde action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Demander un acompte</p>
               <div className="flex flex-wrap items-end gap-2">
                 <ChampNombre name="montantUSD" suffixe="$" placeholder="Montant $" aria-label="Montant de l'acompte en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
-                <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Demander</button>
+                <BoutonEnvoi className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-60">Demander</BoutonEnvoi>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
@@ -904,18 +910,18 @@ export default async function FicheEmployePage({
                 {plafondAcompte.echeancePretUSD > 0 && <> — {formaterUSD(plafondAcompte.echeancePretUSD)} d&apos;échéance de prêt retenue ce mois</>}
                 {(plafondAcompte.dejaEngageUSD > 0 || plafondAcompte.echeancePretUSD > 0) && <>, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
               </p>
-            </form>
-            <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
+            </FormulaireGarde>
+            <FormulaireGarde action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
               <p className="mb-2 text-sm font-medium">Ajouter un frais médical (avec certificat)</p>
               <div className="flex flex-wrap items-end gap-2">
                 <ChampNombre name="montantUSD" suffixe="$" placeholder="Montant $" aria-label="Montant du frais médical en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="certificat" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="text-xs" />
-                <button type="submit" className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">Ajouter</button>
+                <BoutonEnvoi className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">Ajouter</BoutonEnvoi>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Remboursé sur le bulletin de la période (non imposable). PDF ou image.</p>
-            </form>
-            <form action={ajouterAvantageNature.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
+            </FormulaireGarde>
+            <FormulaireGarde action={ajouterAvantageNature.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
               <p className="mb-2 text-sm font-medium">Consigner un avantage en nature</p>
               <div className="flex flex-wrap items-end gap-2">
                 <input name="nature" list="natures-avantage" placeholder="Logement, nourriture…" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
@@ -927,13 +933,13 @@ export default async function FicheEmployePage({
                 </datalist>
                 <ChampNombre name="montantUSD" suffixe="$" placeholder="Valeur $" aria-label="Valeur de l'avantage en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Précision (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
-                <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Consigner</button>
+                <BoutonEnvoi className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-60">Consigner</BoutonEnvoi>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Mentionné sur le bulletin, <strong>hors calcul</strong> : ni cotisations, ni IPR, ni salaire net
                 (un avantage en nature n&apos;est pas versé en espèces). Traitement fiscal à valider par un comptable.
               </p>
-            </form>
+            </FormulaireGarde>
           </div>
         )}
 
@@ -946,7 +952,7 @@ export default async function FicheEmployePage({
                   {a.nature} : {formatMoney(Number(a.montantUSD))}{a.motif ? ` · ${a.motif}` : ""}
                   {estAdmin && (
                     <form action={supprimerAvantageNature.bind(null, a.id)} className="inline">
-                      <button className="text-amber-900/70 hover:text-amber-900" title="Supprimer">✕</button>
+                      <ConfirmSubmitButton message={`Supprimer l'avantage en nature « ${a.nature} » (${formatMoney(Number(a.montantUSD))}) ? Le bulletin du mois ne le mentionnera plus.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-amber-900/70 hover:text-amber-900" title="Supprimer" aria-label={`Supprimer l'avantage ${a.nature}`}>✕</ConfirmSubmitButton>
                     </form>
                   )}
                 </span>
@@ -965,7 +971,7 @@ export default async function FicheEmployePage({
                   {f.certificatUrl && <ApercuDocumentBouton href={f.certificatUrl} titre={`Certificat médical — ${employee.nom}`} libelle="certificat" className="underline" />}
                   {estAdmin && (
                     <form action={supprimerFraisMedical.bind(null, f.id)} className="inline">
-                      <button className="text-sky-900/70 hover:text-sky-900" title="Supprimer">✕</button>
+                      <ConfirmSubmitButton message={`Supprimer ce frais médical de ${formatMoney(Number(f.montantUSD))} ? Il ne sera plus remboursé sur le bulletin du mois.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-sky-900/70 hover:text-sky-900" title="Supprimer" aria-label="Supprimer le frais médical">✕</ConfirmSubmitButton>
                     </form>
                   )}
                 </span>
@@ -984,7 +990,7 @@ export default async function FicheEmployePage({
                 {p.nom} : {formatMoney(Number(p.montantUSD))}
                 {estAdmin && (
                   <form action={supprimerPrime.bind(null, p.id)} className="inline">
-                    <button className="text-emerald-900/70 hover:text-emerald-900" title="Supprimer">✕</button>
+                    <ConfirmSubmitButton message={`Supprimer la prime « ${p.nom} » de ${formatMoney(Number(p.montantUSD))} ? Elle sort du bulletin du mois.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-emerald-900/70 hover:text-emerald-900" title="Supprimer" aria-label={`Supprimer la prime ${p.nom}`}>✕</ConfirmSubmitButton>
                   </form>
                 )}
               </span>
@@ -1018,7 +1024,7 @@ export default async function FicheEmployePage({
                 {estAdmin && (
                   <td className="px-3 py-2 text-right">
                     <form action={supprimerAcompte.bind(null, a.id)} className="inline">
-                      <button className="text-muted-foreground hover:text-destructive" title="Supprimer l'acompte">✕</button>
+                      <ConfirmSubmitButton message={`Supprimer l'acompte de ${formatMoney(Number(a.montantUSD))} (${a.mois}/${a.annee}) ? Il ne sera plus déduit du bulletin.`} className="inline-flex min-h-8 min-w-8 items-center justify-center text-muted-foreground hover:text-destructive" title="Supprimer l'acompte" aria-label="Supprimer l'acompte">✕</ConfirmSubmitButton>
                     </form>
                   </td>
                 )}

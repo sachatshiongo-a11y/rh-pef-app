@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { messageLisible } from "@/lib/erreur-metier";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -116,6 +117,17 @@ export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibl
   revalidatePath("/stock/commandes");
 });
 
+/** Supprime UN fournisseur ou jette l'erreur lisible du refus (partagé par la suppression unitaire et groupée). */
+async function supprimerUnFournisseur(id: string, userId: string) {
+  const f = await prisma.fournisseur.findUniqueOrThrow({ where: { id } });
+  const nbAchatsDirects = await prisma.mouvementStock.count({ where: { fournisseurId: id } });
+  if (nbAchatsDirects > 0) {
+    throw new Error(`Suppression impossible : ${nbAchatsDirects} achat(s) direct(s) de la Liste d'achat sont rattachés à « ${f.nom} ». Fusionnez-le plutôt avec un autre fournisseur, qui reprendra ces achats.`);
+  }
+  await prisma.fournisseur.delete({ where: { id } });
+  await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "suppression", ancienneValeur: f.nom, userId });
+}
+
 /**
  * Supprime un fournisseur (les articles/factures/BC liés sont simplement détachés — FK SET NULL).
  * REFUSÉE s'il porte des achats directs de la Liste d'achat : ils perdraient leur fournisseur en
@@ -124,12 +136,32 @@ export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibl
 export const supprimerFournisseur = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // suppression réservée à la Direction
-  const f = await prisma.fournisseur.findUniqueOrThrow({ where: { id } });
-  const nbAchatsDirects = await prisma.mouvementStock.count({ where: { fournisseurId: id } });
-  if (nbAchatsDirects > 0) {
-    throw new Error(`Suppression impossible : ${nbAchatsDirects} achat(s) direct(s) de la Liste d'achat sont rattachés à « ${f.nom} ». Fusionnez-le plutôt avec un autre fournisseur, qui reprendra ces achats.`);
-  }
-  await prisma.fournisseur.delete({ where: { id } });
-  await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "suppression", ancienneValeur: f.nom, userId: user.id });
+  await supprimerUnFournisseur(id, user.id);
   revalidatePath("/stock/fournisseurs");
+});
+
+const MAX_SUPPRESSIONS_FOURNISSEURS = 50;
+
+/**
+ * Supprime PLUSIEURS fournisseurs (Direction) : mêmes règles que la suppression unitaire, le refus de l'un
+ * (achats directs rattachés) est NOMMÉ et n'arrête pas les autres.
+ */
+export const supprimerFournisseursEnLot = actionLisible(async (ids: string[]): Promise<{ traitees: number; echecs: string[] }> => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniques = [...new Set(ids)];
+  if (uniques.length > MAX_SUPPRESSIONS_FOURNISSEURS) throw new Error(`Supprimez ${MAX_SUPPRESSIONS_FOURNISSEURS} fournisseurs au plus à la fois (${uniques.length} cochés). Rien n'a été supprimé.`);
+  const noms = new Map((await prisma.fournisseur.findMany({ where: { id: { in: uniques } }, select: { id: true, nom: true } })).map((f) => [f.id, f.nom]));
+  let traitees = 0;
+  const echecs: string[] = [];
+  for (const id of uniques) {
+    try {
+      await supprimerUnFournisseur(id, user.id);
+      traitees++;
+    } catch (e) {
+      echecs.push(`${noms.get(id) ?? "Fournisseur"} : ${messageLisible(e, "fournisseurs supprimerFournisseursEnLot")}`);
+    }
+  }
+  revalidatePath("/stock/fournisseurs");
+  return { traitees, echecs };
 });

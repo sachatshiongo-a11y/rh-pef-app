@@ -74,8 +74,8 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
         }
         setSelection(new Set());
         setRefus(null);
-      } catch (e) {
-        setRefus({ ids, erreur: e instanceof Error && e.message ? e.message : "Le refus a échoué. Réessayez." });
+      } catch {
+        setRefus({ ids, erreur: "Le refus a échoué. Réessayez." });
       }
     });
   }

@@ -1,5 +1,6 @@
 "use server";
 
+import { messageLisible } from "@/lib/erreur-metier";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -135,7 +136,7 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
       return true;
     }, { timeout: DELAI_APPROBATION_UNITAIRE });
   } catch (e) {
-    return { erreur: `Approbation non enregistrée : ${e instanceof Error ? e.message : "erreur inattendue"}` };
+    return { erreur: `Approbation non enregistrée : ${messageLisible(e, "conges approuverConge")}` };
   }
   if (!approuvee) {
     // Déjà approuvée : rien à écrire, mais l'écran de celui qui a cliqué doit refléter la base.
@@ -344,7 +345,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
     }, { timeout: DELAI_APPROBATION_LOT });
   } catch (e) {
     // Rien n'est écrit (transaction annulée) : chaque demande est nommée en échec.
-    const raison = e instanceof Error ? e.message : "erreur inattendue";
+    const raison = messageLisible(e, "conges approuverCongesEnLot");
     revaliderConges();
     return { traitees: 0, echecs: candidates.map((d) => `${d.employee.nom} : approbation non enregistrée (${raison})`) };
   }
@@ -367,7 +368,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
       await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), true);
       n++;
     } catch (e) {
-      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+      echecs.push(`${d.employee.nom} : ${messageLisible(e, "conges approuverCongesEnLot (suites)")}`);
     }
   }
   revaliderConges();
@@ -408,7 +409,7 @@ export async function refuserCongesEnLot(ids: string[], motifBrut: string): Prom
       await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false, motif);
       n++;
     } catch (e) {
-      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+      echecs.push(`${d.employee.nom} : ${messageLisible(e, "conges refuserCongesEnLot")}`);
     }
   }
   revaliderConges();
@@ -441,7 +442,7 @@ export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotCon
       if (figes > 0) avertissements.push(`${d.employee.nom} : ${noteMoisFige(figes, "retiré")}`);
       n++;
     } catch (e) {
-      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+      echecs.push(`${d.employee.nom} : ${messageLisible(e, "conges supprimerCongesEnLot")}`);
     }
   }
   revaliderConges();

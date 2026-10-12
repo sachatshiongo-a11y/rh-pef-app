@@ -44,7 +44,7 @@ export const obtenirMonAttestationSalaire = actionLisible(async (): Promise<{ id
   const r = await delivrerAttestation(prisma, { employeeId: user.employeeId, type: "SALAIRE", parId: user.id, libreService: true });
   if (!r.ok) throw new Error(r.motif);
   revalidatePath("/espace/attestations");
-  revalidatePath("/attestations");
+  revalidatePath("/documents"); // le registre des attestations de la Direction vit dans Documents (il n'existe pas de page /attestations)
   revalidatePath(`/employes/${user.employeeId}`);
   return { id: r.id, numero: r.numero, existante: !!r.existante };
 });

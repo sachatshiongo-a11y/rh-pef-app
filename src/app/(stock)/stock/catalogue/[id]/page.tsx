@@ -23,6 +23,7 @@ import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { classePastilleDlc, joursAvantDlc, libelleJoursDlc } from "@/lib/achats-doublons";
 import { complementLibelle, incoherenceContenance, libelleArticle } from "@/lib/libelle-article";
+import { formaterDecimales } from "@/lib/montant";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -236,7 +237,7 @@ export default async function ArticleFichePage({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm text-red-800">
           <span className="font-semibold">⚠ Hausse du prix d&apos;achat</span>
           <span>
-            Dernier achat à <span className="font-semibold">{usd(hausse.prix)}</span>, soit <span className="font-semibold">+{hausse.pct.toFixed(0)}%</span> au-dessus de la moyenne précédente ({usd(hausse.moyenneAnterieure)}).
+            Dernier achat à <span className="font-semibold">{usd(hausse.prix)}</span>, soit <span className="font-semibold">+{formaterDecimales(hausse.pct, 0)} %</span> au-dessus de la moyenne précédente ({usd(hausse.moyenneAnterieure)}).
           </span>
         </div>
       )}
@@ -268,7 +269,7 @@ export default async function ArticleFichePage({
               min {usd(prixMin)} · max {usd(prixMax)}
               {variation !== null && (
                 <span className={`ml-2 font-medium ${variation > 0 ? "text-red-700" : variation < 0 ? "text-emerald-700" : ""}`}>
-                  {variation > 0 ? "▲" : variation < 0 ? "▼" : ""} {Math.abs(variation).toFixed(1)}% vs achat précédent
+                  {variation > 0 ? "▲" : variation < 0 ? "▼" : ""} {formaterDecimales(Math.abs(variation), 1)} % vs achat précédent
                 </span>
               )}
               {analyse.dernier && refUSD !== null && (() => {
@@ -276,7 +277,7 @@ export default async function ArticleFichePage({
                 const ecart = ((analyse.dernier.prix - ref) / ref) * 100;
                 return (
                   <span className={`ml-2 font-medium ${ecart > 0 ? "text-red-700" : ecart < 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
-                    {ecart > 0 ? "▲" : ecart < 0 ? "▼" : "="} {Math.abs(ecart).toFixed(1)}% vs prix de référence
+                    {ecart > 0 ? "▲" : ecart < 0 ? "▼" : "="} {formaterDecimales(Math.abs(ecart), 1)} % vs prix de référence
                   </span>
                 );
               })()}

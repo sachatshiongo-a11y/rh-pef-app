@@ -1,4 +1,5 @@
 import type { Shift } from "@prisma/client";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { creerShift, modifierShift, supprimerShift, reactiverShift } from "./actions";
 import { COULEURS_DISPO, paletteDe } from "./creneaux";
 import { ChampNombre } from "@/components/champ-nombre";
@@ -92,9 +93,12 @@ export function ShiftsManager({ shifts, peutModifier, peutSupprimer = false }: {
               {!s.systeme &&
                 (s.actif ? (
                   peutSupprimer && <form action={supprimerShift.bind(null, s.id)}>
-                    <button type="submit" className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10">
+                    <ConfirmSubmitButton
+                      message={`Supprimer le shift « ${s.nom} » ? Il sort des plannings et des règles par poste.`}
+                      className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                    >
                       Supprimer
-                    </button>
+                    </ConfirmSubmitButton>
                   </form>
                 ) : (
                   <form action={reactiverShift.bind(null, s.id)}>

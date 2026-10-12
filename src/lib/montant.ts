@@ -22,6 +22,11 @@ export function formaterNombre(n: number, options: Intl.NumberFormatOptions = {}
   return norm(new Intl.NumberFormat("fr-FR", options).format(n));
 }
 
+/** Nombre à nombre FIXE de décimales, à la française (virgule) : 12,5 — jamais « 12.5 » de `toFixed`. */
+export function formaterDecimales(n: number, decimales: number): string {
+  return formaterNombre(n, { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+}
+
 const nf = (min: number, max: number) => new Intl.NumberFormat("fr-FR", { minimumFractionDigits: min, maximumFractionDigits: max });
 
 export function formaterUSD(n: number): string {

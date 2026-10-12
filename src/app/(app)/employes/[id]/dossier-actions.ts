@@ -189,7 +189,7 @@ function date(formData: FormData, name: string): Date | null {
 }
 
 export async function ajouterContrat(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -278,7 +278,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
 
     revalidatePath(`/employes/${employeeId}`);
 
-  });
+  }, formData);
 }
 
 /**
@@ -286,7 +286,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
  * (le prompt exige la traçabilité des promotions et changements de salaire).
  */
 export async function changerSalaire(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -345,11 +345,11 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
 
     revalidatePath(`/employes/${employeeId}`);
 
-  });
+  }, formData);
 }
 
 export async function ajouterDisciplinaire(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -375,11 +375,11 @@ export async function ajouterDisciplinaire(employeeId: string, formData: FormDat
 
     revalidatePath(`/employes/${employeeId}`);
 
-  });
+  }, formData);
 }
 
 export async function ajouterEvaluation(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -399,7 +399,7 @@ export async function ajouterEvaluation(employeeId: string, formData: FormData) 
 
     revalidatePath(`/employes/${employeeId}`);
 
-  });
+  }, formData);
 }
 
 const BUCKET_DOCS = "employes";
@@ -443,7 +443,7 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
 }
 
 export async function ajouterDocument(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -469,7 +469,7 @@ export async function ajouterDocument(employeeId: string, formData: FormData) {
 
     revalidatePath(`/employes/${employeeId}`);
 
-  });
+  }, formData);
 }
 
 /** Joint (ou remplace) le fichier d'un contrat EXISTANT — PDF, Word… Réservé à la Direction. */

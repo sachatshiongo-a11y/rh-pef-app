@@ -31,13 +31,20 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
-  function run(fn: () => Promise<unknown>) {
+  function run(fn: () => Promise<unknown>, apres?: () => void) {
     setErreur(null);
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
+      else apres?.();
     });
   }
+  /** Envoi par onSubmit (jamais `action={…}`, que React remet à zéro même sur un refus) : la saisie reste tant que le serveur refuse ; `vider` = formulaire de création, vidé une fois accepté. */
+  const surEnvoi = (fn: (fd: FormData) => Promise<unknown>, vider = false) => (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    run(() => fn(new FormData(form)), vider ? () => form.reset() : undefined);
+  };
 
   return (
     <div className="space-y-3">
@@ -59,7 +66,7 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
             {types.map((t) => (
               <tr key={t.id} className="border-t">
                 <td className="py-1.5">
-                  <form action={(fd) => run(() => modifierTypeConge(t.id, fd))} className="flex items-center gap-2">
+                  <form onSubmit={surEnvoi((fd) => modifierTypeConge(t.id, fd))} className="flex items-center gap-2">
                     {t.protege || t.nbDemandes > 0 ? (
                       // Nom figé : les demandes portent le NOM du type ; le changer les détacherait de leur règle.
                       <input name="nom" defaultValue={t.nom} readOnly title={t.protege ? "Type protégé : nom non modifiable" : `Utilisé par ${t.nbDemandes} demande(s) : nom non modifiable`} className={`${inputCls} w-44 bg-muted text-muted-foreground`} />
@@ -110,7 +117,7 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
         </table>
       </div>
 
-      <form action={(fd) => run(() => creerTypeConge(fd))} className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
+      <form onSubmit={surEnvoi((fd) => creerTypeConge(fd), true)} className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
         <input name="nom" placeholder="Nouveau type (ex. Congé exceptionnel)" required className={`${inputCls} flex-1`} />
         <ChampNombre name="joursPayes" placeholder="Jours payés" className={`${inputCls} w-full`} classeConteneur="w-28" />
         <ChampNombre name="tauxPct" placeholder="Taux %" suffixe="%" className={`${inputCls} w-full`} classeConteneur="w-24" />

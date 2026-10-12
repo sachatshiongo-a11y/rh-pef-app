@@ -59,4 +59,26 @@ describe("fusion de fournisseurs — choisir en tapant", () => {
     const details = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => [o.dataset.choixId, o.children[1]?.textContent ?? null]);
     expect(details).toEqual([["", null], ["f2", "+243 81 000 00 00 · 1 article"], ["f1", "Kinshasa · 12 articles"], ["f3", null]]);
   });
+
+  // Audit du 10/10/2026, ergonomie 1 : le panneau se fermait et les choix se vidaient même quand le serveur REFUSAIT.
+  it("un refus du serveur reste affiché : le panneau reste ouvert et les deux choix sont gardés", async () => {
+    await ouvrirFusion();
+    vi.stubGlobal("confirm", () => true);
+    appels.fusionner.mockResolvedValueOnce({ erreur: "Fusion impossible : Grossiste Nord a une facture en cours de saisie." });
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur à fusionner (supprimé)"), "nord");
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur à conserver"), "marche central");
+    await act(async () => [...conteneur.querySelectorAll("button")].filter((b) => b.textContent === "Fusionner")[0]!.click());
+    expect(conteneur.textContent).toContain("Fusion impossible : Grossiste Nord a une facture en cours de saisie.");
+    expect(champChoix(conteneur, "Fournisseur à fusionner (supprimé)").value).toBe("Grossiste Nord");
+    expect(champChoix(conteneur, "Fournisseur à conserver").value).toBe("Marché central");
+  });
+
+  it("une fusion acceptée ferme le panneau", async () => {
+    await ouvrirFusion();
+    vi.stubGlobal("confirm", () => true);
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur à fusionner (supprimé)"), "nord");
+    await choisirEnTapant(champChoix(conteneur, "Fournisseur à conserver"), "marche central");
+    await act(async () => [...conteneur.querySelectorAll("button")].filter((b) => b.textContent === "Fusionner")[0]!.click());
+    expect(conteneur.querySelector('input[role="combobox"]')).toBeNull();
+  });
 });

@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { libelleTauxPaie } from "@/lib/paie-taux";
 import { calculerDeclarationsMois } from "@/lib/declarations";
-import { marquerDeclarationForm } from "./actions";
-import type { StatutDeclaration } from "@prisma/client";
+import { DeclarationsListe } from "./declarations-liste";
 import { exigerPageRH } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 function money(n: number) {
@@ -14,17 +12,6 @@ function money(n: number) {
 function cdf(n: number) {
   return n.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " CDF";
 }
-
-const LIBELLE_STATUT: Record<StatutDeclaration, string> = {
-  A_DECLARER: "À déclarer",
-  DECLARE: "Déclaré",
-  PAYE: "Payé",
-};
-const COULEUR_STATUT: Record<StatutDeclaration, string> = {
-  A_DECLARER: "bg-amber-100 text-amber-800",
-  DECLARE: "bg-blue-100 text-blue-800",
-  PAYE: "bg-green-100 text-green-800",
-};
 
 export default async function DeclarationsPage({
   searchParams,
@@ -153,99 +140,22 @@ export default async function DeclarationsPage({
           </div>
 
           <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Déclarations par organisme</div>
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted text-left">
-                <tr>
-                  <th className="px-3 py-2">Organisme</th>
-                  <th className="px-3 py-2">Nature</th>
-                  <th className="px-3 py-2 text-right">Montant USD</th>
-                  <th className="px-3 py-2 text-right">Montant CDF</th>
-                  <th className="px-3 py-2">Échéance</th>
-                  <th className="px-3 py-2">Statut</th>
-                  {estAdmin && <th className="px-3 py-2 text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {bordereau.lignes.map((l) => (
-                  <tr key={l.type} className="border-t align-top">
-                    <td className="px-3 py-2 font-medium">{l.libelle}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{l.detail}</td>
-                    <td className="px-3 py-2 text-right">
-                      {money(l.montantUSD)}
-                      {bordereau.provisoire && !l.fige && <span className="ml-1 text-xs italic text-amber-700">(provisoire)</span>}
-                      {l.fige && (
-                        <span className="block text-xs text-muted-foreground">
-                          figé au marquage{l.fige.marqueLe ? ` du ${new Date(l.fige.marqueLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}` : ""}
-                        </span>
-                      )}
-                      {l.fige && l.ecartAvecFige && (
-                        <span className="block text-xs font-medium text-destructive">
-                          Recalcul d&apos;aujourd&apos;hui : {money(l.recalculUSD)} — différent du montant déclaré
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">{cdf(l.montantCDF)}</td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {new Date(l.echeance).toLocaleDateString("fr-FR")}
-                      {l.echeanceAValider && (
-                        <span className="ml-1 text-xs italic text-amber-700">(à valider)</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_STATUT[l.statut]}`}
-                      >
-                        {LIBELLE_STATUT[l.statut]}
-                      </span>
-                    </td>
-                    {estAdmin && (
-                      <td className="whitespace-nowrap px-3 py-2 text-right">
-                        {bordereau.provisoire && l.statut !== "PAYE" && l.statut !== "DECLARE" && (
-                          <span className="text-xs italic text-muted-foreground">Validez la paie d&apos;abord</span>
-                        )}
-                        {!bordereau.provisoire && l.statut !== "DECLARE" && l.statut !== "PAYE" && (
-                          <form action={marquerDeclarationForm} className="inline">
-                            <input type="hidden" name="type" value={l.type} />
-                            <input type="hidden" name="mois" value={mois} />
-                            <input type="hidden" name="annee" value={annee} />
-                            <input type="hidden" name="statut" value="DECLARE" />
-                            <button className="text-primary underline">Marquer déclaré</button>
-                          </form>
-                        )}
-                        {(!bordereau.provisoire || l.statut === "DECLARE") && l.statut !== "PAYE" && (
-                          <form action={marquerDeclarationForm} className="ml-3 inline">
-                            <input type="hidden" name="type" value={l.type} />
-                            <input type="hidden" name="mois" value={mois} />
-                            <input type="hidden" name="annee" value={annee} />
-                            <input type="hidden" name="statut" value="PAYE" />
-                            <ConfirmSubmitButton
-                              className="text-primary underline"
-                              message={`Marquer ${l.libelle} comme PAYÉ pour ${periode} (${money(l.montantUSD)}) ? Le paiement sera enregistré et ne pourra plus être annulé depuis cet écran.`}
-                            >
-                              Marquer payé
-                            </ConfirmSubmitButton>
-                          </form>
-                        )}
-                        {l.statut === "PAYE" && (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-primary/40 bg-muted/30 font-semibold">
-                  <td className="px-3 py-2">Total</td>
-                  <td className="px-3 py-2"></td>
-                  <td className="px-3 py-2 text-right">{money(totalUSD)}</td>
-                  <td className="px-3 py-2 text-right">{cdf(totalCDF)}</td>
-                  <td className="px-3 py-2"></td>
-                  <td className="px-3 py-2"></td>
-                  {estAdmin && <td className="px-3 py-2"></td>}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <DeclarationsListe
+            lignes={bordereau.lignes.map((l) => ({
+              type: l.type,
+              libelle: l.libelle,
+              detail: l.detail,
+              montantUSD: l.montantUSD,
+              montantCDF: l.montantCDF,
+              recalculUSD: l.recalculUSD,
+              figeLe: l.fige ? (l.fige.marqueLe ? new Date(l.fige.marqueLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" }) : "") : null,
+              ecartAvecFige: l.ecartAvecFige,
+              echeance: new Date(l.echeance).toLocaleDateString("fr-FR"),
+              echeanceAValider: l.echeanceAValider,
+              statut: l.statut,
+            }))}
+            mois={mois} annee={annee} periode={periode} provisoire={bordereau.provisoire} estAdmin={estAdmin} totalUSD={totalUSD} totalCDF={totalCDF}
+          />
           <p className="mt-4 text-xs text-muted-foreground">
             Taux de change de la paie : {libelleTauxPaie(bordereau.tauxDistincts)}. Les échéances « à valider » et les taux doivent être confirmés par un comptable
             congolais avant tout dépôt officiel.

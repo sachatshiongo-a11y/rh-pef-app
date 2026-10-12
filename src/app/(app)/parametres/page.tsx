@@ -6,11 +6,11 @@ import {
   mettreAJourParametreLegal,
   mettreAJourTrancheIprCDF,
   ajouterJourFerie,
-  supprimerJourFerie,
   mettreAJourEntreprise,
   mettreAJourModeleOnboarding,
 } from "./actions";
 import { UsersAdmin, type UserRow } from "./users-admin";
+import { JoursFeriesListe } from "./jours-feries-liste";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
 import { estTypeCongeProtege } from "@/lib/conges-regles";
 import { PointageReglages } from "./pointage-reglages";
@@ -441,25 +441,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           </button>
         </form>
 
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[24rem] text-sm">
-          <tbody>
-            {joursFeries.map((j) => (
-              <tr key={j.id} className="border-t">
-                <td className="px-2 py-1.5">{new Date(j.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-2 py-1.5">{j.designation}</td>
-                <td className="px-2 py-1.5 text-right">
-                  <form action={supprimerJourFerie.bind(null, j.id)}>
-                    <button type="submit" className="text-destructive underline">
-                      Supprimer
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
+        <JoursFeriesListe feries={joursFeries.map((j) => ({ id: j.id, date: new Date(j.date).toLocaleDateString("fr-FR"), designation: j.designation }))} />
       </Section>
 
       <Section title="Clôture mensuelle du stock">

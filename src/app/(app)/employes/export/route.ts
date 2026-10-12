@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
-import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereStatutEmployes, libelleNombreEmployes } from "../_donnees";
+import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereStatutEmployes, libelleNombreEmployes, refusSelectionTropGrande } from "../_donnees";
 
 /** Export Excel de la liste des employés — FIDÈLE à l'onglet (mêmes filtres, brigade puis backoffice). */
 export async function GET(request: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
+  const refus = refusSelectionTropGrande(sp);
+  if (refus) return refus;
 
   const statut = statutEmployes(sp.get("statut")); // le statut de l'écran (actifs / inactifs / tous), pas toujours les actifs
   const tous = await prisma.employee.findMany({ where: whereStatutEmployes(statut), orderBy: [{ categorie: "asc" }, { nom: "asc" }] });

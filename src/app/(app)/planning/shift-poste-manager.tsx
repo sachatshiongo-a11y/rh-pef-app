@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { definirShiftPoste, supprimerShiftPoste, deplacerShiftPoste } from "./actions";
+import { ErreurAction } from "@/components/erreur-action";
 
 type ShiftPosteDTO = { id: string; poste: string; shiftId: string; ordre: number };
 
@@ -22,6 +23,7 @@ export function ShiftPosteManager({
   const [pending, startTransition] = useTransition();
   const [poste, setPoste] = useState("");
   const [shiftId, setShiftId] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
 
   const nomShift = new Map(shifts.map((s) => [s.id, s.nom]));
   const parPoste = new Map<string, ShiftPosteDTO[]>();
@@ -81,6 +83,8 @@ export function ShiftPosteManager({
           </button>
         </div>
 
+        <ErreurAction message={erreur} />
+
         {parPoste.size > 0 && (
           <ul className="divide-y rounded-md border text-sm">
             {[...parPoste.entries()].map(([p, liste]) => (
@@ -108,7 +112,22 @@ export function ShiftPosteManager({
                     >
                       ↓
                     </button>
-                    {peutRetirer && <button onClick={() => startTransition(async () => { await supprimerShiftPoste(sp.id); })} disabled={pending} className="px-0.5 opacity-70 hover:opacity-100" title="Retirer">✕</button>}
+                    {peutRetirer && (
+                      <button
+                        onClick={() => {
+                          if (!confirm(`Retirer « ${nomShift.get(sp.shiftId) ?? "ce shift"} » des shifts du poste ${p} ?`)) return;
+                          setErreur(null);
+                          // Un refus du serveur reste affiché : la ligne ne disparaît pas sans avoir été retirée.
+                          startTransition(async () => { const r = await supprimerShiftPoste(sp.id); if (r && "erreur" in r) setErreur(r.erreur); });
+                        }}
+                        disabled={pending}
+                        className="min-h-6 min-w-6 px-0.5 opacity-70 hover:opacity-100"
+                        title="Retirer"
+                        aria-label={`Retirer ${nomShift.get(sp.shiftId) ?? "ce shift"} du poste ${p}`}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </span>
                 ))}
               </li>

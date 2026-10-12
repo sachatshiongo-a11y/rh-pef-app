@@ -5,9 +5,10 @@ import { statutAffiche } from "@/lib/facture-echue";
 import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { formaterDecimales } from "@/lib/montant";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
-const u = (v: unknown) => Number(v).toFixed(2);
+const u = (v: unknown) => formaterDecimales(Number(v), 2);
 
 export default async function FacturesImprimerPage() {
   await exigerPageStock();

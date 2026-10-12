@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { definirPolyvalence, supprimerPolyvalence } from "./actions";
+import { ErreurAction } from "@/components/erreur-action";
 
 type PolyDTO = { id: string; posteSource: string; posteCible: string };
 
@@ -15,6 +16,7 @@ export function PolyvalenceManager({ postes, polyvalences, peutRetirer = false }
   const [pending, startTransition] = useTransition();
   const [source, setSource] = useState("");
   const [cible, setCible] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
 
   const ajouter = () => {
     if (!source || !cible || source === cible) return;
@@ -47,12 +49,26 @@ export function PolyvalenceManager({ postes, polyvalences, peutRetirer = false }
           </label>
           <button onClick={ajouter} disabled={pending || !source || !cible || source === cible} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Ajouter</button>
         </div>
+        <ErreurAction message={erreur} />
         {polyvalences.length > 0 && (
           <ul className="divide-y rounded-md border text-sm">
             {polyvalences.map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
                 <span><span className="font-medium">{p.posteSource}</span> <span className="text-muted-foreground">peut couvrir</span> <span className="font-medium">{p.posteCible}</span></span>
-                {peutRetirer && <button onClick={() => startTransition(async () => { await supprimerPolyvalence(p.id); })} disabled={pending} className="text-xs text-destructive underline disabled:opacity-50">Retirer</button>}
+                {peutRetirer && (
+                  <button
+                    onClick={() => {
+                      if (!confirm(`Retirer la règle « ${p.posteSource} peut couvrir ${p.posteCible} » ?`)) return;
+                      setErreur(null);
+                      // Un refus du serveur reste affiché : la règle ne disparaît pas sans avoir été retirée.
+                      startTransition(async () => { const r = await supprimerPolyvalence(p.id); if (r && "erreur" in r) setErreur(r.erreur); });
+                    }}
+                    disabled={pending}
+                    className="min-h-8 text-xs text-destructive underline disabled:opacity-50"
+                  >
+                    Retirer
+                  </button>
+                )}
               </li>
             ))}
           </ul>

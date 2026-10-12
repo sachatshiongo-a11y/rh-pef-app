@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CibleSignature, LeaveStatus, StatutAcompte, TypeDocument } from "@prisma/client";
-import { messageSignatureRecueillie, LIBELLE_TYPE_DOCUMENT, NOM_CIBLE_SIGNATURE, PAGE_CIBLE_SIGNATURE, STATUT_DEMANDE, libelleTypeDocument, statutDemande } from "./libelles-espace";
+import { messageSignatureRecueillie, LIBELLE_TYPE_DOCUMENT, NOM_CIBLE_SIGNATURE, PAGE_CIBLE_SIGNATURE, STATUT_DEMANDE, libelleTypeDocument, libelleTypeSanction, statutDemande } from "./libelles-espace";
 
 // Chaque valeur des énumérations montrées au salarié a son libellé : une valeur ajoutée au schéma
 // sans libellé ferait réapparaître le code brut à l'écran.
@@ -33,5 +33,11 @@ describe("libellés de l'espace salarié", () => {
   it("une valeur inconnue ne s'affiche jamais brute", () => {
     expect(statutDemande("NOUVEAU_STATUT").label).toBe("Statut inconnu");
     expect(libelleTypeDocument("NOUVEAU_TYPE")).toBe("Document");
+  });
+
+  it("chaque type de mesure disciplinaire a un libellé en clair (chronologie de la fiche employé)", () => {
+    expect(libelleTypeSanction("MISE_A_PIED")).toBe("Mise à pied");
+    expect(libelleTypeSanction("AVERTISSEMENT")).toBe("Avertissement");
+    expect(libelleTypeSanction("INCONNU")).toBe("Mesure");
   });
 });

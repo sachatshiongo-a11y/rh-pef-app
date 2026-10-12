@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 
 export type LigneRemu = {
@@ -98,7 +99,7 @@ export function RemunerationElements({ lignes }: { lignes: LigneRemu[] }) {
                   {concernes.map((x) => (
                     <li key={x.employeeId} className="flex items-center gap-3 px-4 py-2">
                       <Avatar nom={x.nom} taille={26} photoUrl={x.photoUrl} />
-                      <span className="min-w-0 flex-1 truncate text-sm">{x.nom}</span>
+                      <Link href={`/employes/${x.employeeId}`} className="min-w-0 flex-1 truncate text-sm text-primary hover:underline">{x.nom}</Link>
                       <span className="text-sm font-medium">{el.retenue ? "- " : ""}{money(x.montant)}</span>
                     </li>
                   ))}

@@ -114,7 +114,7 @@ export function RestaurantGrille({
 
       <button onClick={() => setAjout((v) => !v)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent max-lg:min-h-11">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
       {ajout && (
-        <form action={(fd) => run(async () => { await creerArticleResto(fd); setAjout(false); })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-5">
+        <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); /* pas d'action de formulaire : elle viderait la saisie même sur un refus */ run(async () => { const r = await creerArticleResto(fd); if (!estErreur(r)) setAjout(false); return r; }); }} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-5">
           <input type="hidden" name="espace" value={espace} />
           <input name="designation" placeholder="Désignation *" required className="rounded border border-input bg-background px-2 py-1" />
           <input name="categorie" list={listeId} placeholder="Catégorie" className="rounded border border-input bg-background px-2 py-1" />

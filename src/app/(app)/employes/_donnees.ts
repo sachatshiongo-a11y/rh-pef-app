@@ -14,14 +14,35 @@ export const whereStatutEmployes = (statut: "actifs" | "inactifs" | "tous") =>
 export const libelleNombreEmployes = (n: number, statut: "actifs" | "inactifs" | "tous") =>
   `${n} employé(s) ${statut === "inactifs" ? "inactif(s)" : statut === "tous" ? "au total" : "actif(s)"}`;
 
-/** Filtre la liste (mêmes critères que l'onglet Employés) et ordonne Brigade puis Backoffice, par nom. */
+/** Plafond de l'export d'une SÉLECTION d'employés (`?ids=…`) : lu par le bouton (qui se désactive au-delà) ET par les routes (400 lisible). */
+export const MAX_EXPORT_EMPLOYES = 200;
+export const MESSAGE_EXPORT_EMPLOYES_TROP_GRAND = `Exportez ${MAX_EXPORT_EMPLOYES} employés au plus à la fois.`;
+
+/** Identifiants d'une sélection (`?ids=a,b,c`), ou null si l'export n'est pas une sélection. */
+export function idsSelectionEmployes(sp: URLSearchParams): string[] | null {
+  const brut = sp.get("ids");
+  if (brut === null) return null;
+  return [...new Set(brut.split(",").map((x) => x.trim()).filter(Boolean))];
+}
+
+/** Réponse 400 des routes d'export quand la sélection dépasse le plafond (jamais tronquée en silence). */
+export function refusSelectionTropGrande(sp: URLSearchParams): Response | null {
+  const ids = idsSelectionEmployes(sp);
+  return ids && ids.length > MAX_EXPORT_EMPLOYES ? new Response(MESSAGE_EXPORT_EMPLOYES_TROP_GRAND, { status: 400 }) : null;
+}
+
+/** Filtre la liste (mêmes critères que l'onglet Employés) et ordonne Brigade puis Backoffice, par nom.
+ *  `?ids=` restreint à la sélection cochée sur l'écran (les autres filtres s'appliquent encore). */
 export function filtrerEmployes(tous: Employee[], sp: URLSearchParams): Employee[] {
+  const choisis = idsSelectionEmployes(sp);
+  const dansSelection = choisis ? new Set(choisis) : null;
   const q = (sp.get("q") ?? "").trim().toLowerCase();
   const poste = sp.get("poste") ?? "";
   const secteur = sp.get("secteur") ?? "";
   const annee = sp.get("annee") ?? "";
   return tous
     .filter((e) => {
+      if (dansSelection && !dansSelection.has(e.id)) return false;
       if (poste && e.poste !== poste) return false;
       if (secteur && e.secteur !== secteur) return false;
       if (annee && String(new Date(e.dateEmbauche).getFullYear()) !== annee) return false;

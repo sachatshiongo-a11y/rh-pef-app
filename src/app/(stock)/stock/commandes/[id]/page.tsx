@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { formaterMontantFacture, libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
@@ -270,7 +271,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
         </form>
         {estDirection && (
           <form action={supprimerBonCommande.bind(null, bc.id)}>
-            <button className="rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Supprimer ce bon de commande</button>
+            <ConfirmSubmitButton message={`Supprimer le bon de commande ${bc.numero} ? Action irréversible.`} className="rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Supprimer ce bon de commande</ConfirmSubmitButton>
           </form>
         )}
       </div>

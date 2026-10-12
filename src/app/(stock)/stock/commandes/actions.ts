@@ -1,5 +1,6 @@
 "use server";
 
+import { messageLisible } from "@/lib/erreur-metier";
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
@@ -59,7 +60,7 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
       if (!e.numero || !e.fournisseur) { erreurs.push(`${f.name} : numéro/fournisseur introuvable`); continue; }
       extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? anneeCouranteKinshasa(), fournisseur: e.fournisseur, date: e.date, devise: e.devise, total: e.total, lignes: e.lignes });
     } catch (err) {
-      erreurs.push(`${f.name} : ${err instanceof Error ? err.message : "illisible"}`);
+      erreurs.push(`${f.name} : ${messageLisible(err, "commandes import BC (lecture)")}`);
     }
   }
   if (extraits.length === 0) return { importes: 0, ignores: 0, fournisseursCrees: [], erreurs: erreurs.length ? erreurs : ["Aucun bon de commande lisible."] };
@@ -119,7 +120,7 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
       sigExist.add(sigDe(e.numero, e.fournisseur, e.date));
       importes++;
     } catch (err) {
-      erreurs.push(`${e.file.name} : ${err instanceof Error ? err.message : "échec"}`);
+      erreurs.push(`${e.file.name} : ${messageLisible(err, "commandes import BC (écriture)")}`);
     }
   }
 

@@ -105,7 +105,7 @@ async function BonsValides({ pg }: { pg: Pg }) {
     orderBy: [{ annee: "desc" }, { date: "desc" }, { id: "asc" }],
     skip: fen.skip,
     take: fen.take,
-    include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } },
+    include: { fournisseur: { select: { id: true, nom: true } }, _count: { select: { lignes: true } }, lignes: { where: WHERE_LIGNE_SANS_PRIX, select: { id: true } } },
   });
   if (nb === 0) return <EtatVide message="Aucun bon de commande validé." />;
   const groupes = grouperParMois(bcs, (b) => b.date);
@@ -120,7 +120,7 @@ async function BonsValides({ pg }: { pg: Pg }) {
               <li key={b.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
                 <span className="min-w-0">
                   <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
-                  <span className="ml-2 text-xs text-muted-foreground">{b.fournisseur?.nom ?? "—"} · {jfr(b.date)} · {b._count.lignes} ligne(s)</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{b.fournisseur ? <Link href={`/stock/fournisseurs/${b.fournisseur.id}`} className="text-primary hover:underline">{b.fournisseur.nom}</Link> : "—"} · {jfr(b.date)} · {b._count.lignes} ligne(s)</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>

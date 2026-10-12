@@ -146,17 +146,26 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
 /** Retire une ligne de l'historique des achats de légumes : réservé à la Direction (le serveur exige ADMIN). */
 export function SupprimerAchatBtn({ id, legume, estDirection = false }: { id: string; legume?: string; estDirection?: boolean }) {
   const [isPending, start] = useTransition();
+  const [erreur, setErreur] = useState<string | null>(null);
   if (!estDirection) return null;
   return (
-    <button
-      type="button"
-      onClick={() => { if (confirm("Supprimer cette ligne ?")) start(async () => { await supprimerAchatLegume(id); }); }}
-      disabled={isPending}
-      aria-label={legume ? `Supprimer l'achat ${legume}` : "Supprimer cette ligne"}
-      title="Supprimer cette ligne"
-      className="rounded-md border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
-    >
-      ✕
-    </button>
+    <span className="inline-flex items-center gap-2">
+      {/* Un refus du serveur (période close, droit) reste affiché à côté du bouton : rien n'est supprimé en silence. */}
+      {erreur && <span role="alert" className="text-xs text-destructive">{erreur}</span>}
+      <button
+        type="button"
+        onClick={() => {
+          if (!confirm("Supprimer cette ligne ?")) return;
+          setErreur(null);
+          start(async () => { const r = await supprimerAchatLegume(id); if (estErreur(r)) setErreur(r.erreur); });
+        }}
+        disabled={isPending}
+        aria-label={legume ? `Supprimer l'achat ${legume}` : "Supprimer cette ligne"}
+        title="Supprimer cette ligne"
+        className="min-h-8 min-w-8 rounded-md border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+      >
+        ✕
+      </button>
+    </span>
   );
 }

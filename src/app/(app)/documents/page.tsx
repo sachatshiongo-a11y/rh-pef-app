@@ -1,4 +1,9 @@
 import Link from "next/link";
+import { LIBELLE_STATUT_CONGE, type StatutConge } from "@/lib/conges-liste";
+import { libelleTypeDocument } from "@/lib/libelles-espace";
+import { SelectionZip, CaseZip, type LotZip } from "./selection-zip";
+import { MAX_DEMANDES_PAR_LOT } from "@/lib/conges-liste";
+import { MAX_FICHES_PAR_LOT } from "@/lib/fiches-poste-liste";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
@@ -240,6 +245,14 @@ export default async function DocumentsPage({
   const suffixeTaille = par !== PAR_DEFAUT ? `&par=${par}` : "";
   const qs = (o: string) => `/documents?onglet=${o}${annee ? `&annee=${annee}` : ""}${mois ? `&mois=${mois}` : ""}${suffixeTaille}`;
 
+  // Onglets dont les documents se téléchargent par lot (une archive ZIP existe : demandes de congé, fiches de poste).
+  const lotZip: LotZip | null =
+    onglet === "conges"
+      ? { ids: congesP.map((c) => c.id), href: "/conges/pdf-lot", max: MAX_DEMANDES_PAR_LOT, libelle: "les PDF", nomFichier: "Demandes_de_conge.zip", totalFiltre: nbConges }
+      : onglet === "fiches" && peutFaireSigner // la route d'archive des fiches est réservée à la Direction et aux managers
+        ? { ids: fichesP.map((f) => f.id), href: "/fiches-poste/pdf-lot", max: MAX_FICHES_PAR_LOT, libelle: "les fiches PDF", nomFichier: "Fiches_de_poste.zip", totalFiltre: fiches.length }
+        : null;
+
   return (
     <div>
       <div className="mb-4">
@@ -316,11 +329,17 @@ export default async function DocumentsPage({
         {onglet === "attestations" && (
           <TelechargerLien href={qsExport} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Exporter (Excel)</TelechargerLien>
         )}
+        {onglet === "bulletins" && annee && mois && (
+          <TelechargerLien href={`/paie/bulletins-zip?mois=${mois}&annee=${annee}`} nomFichier={`Bulletins_${annee}-${String(mois).padStart(2, "0")}.zip`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
+            ⭳ Bulletins du mois (ZIP)
+          </TelechargerLien>
+        )}
         {(annee || mois || statut || q || sp.type) && (
           <Link href={`/documents?onglet=${onglet}${suffixeTaille}`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
         )}
       </form>
 
+      <SelectionZip lot={lotZip}>
       {/* Mobile : cartes par onglet. */}
       <div className="space-y-2 lg:hidden">
         {onglet === "bulletins" && bulletinsP.map((b) => (
@@ -362,9 +381,9 @@ export default async function DocumentsPage({
             <div className="mt-1.5 text-xs text-muted-foreground">{libelleTypeContrat(c.type)} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               {signatureContrat(c)}
-              <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+              <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${libelleTypeContrat(c.type)} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
               <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
-              {c.documentUrl && <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Pièce jointe" className="text-muted-foreground underline" />}
+              {c.documentUrl && <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${libelleTypeContrat(c.type)} · ${c.employee.nom}`} libelle="Pièce jointe" className="text-muted-foreground underline" />}
             </div>
           </div>
         ))}
@@ -372,7 +391,7 @@ export default async function DocumentsPage({
           <div key={d.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
-              <span className="shrink-0 text-xs text-muted-foreground">{d.type}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{libelleTypeDocument(d.type)}</span>
             </div>
             <div className="mt-1 text-sm font-medium">{d.nom}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -384,8 +403,9 @@ export default async function DocumentsPage({
         {onglet === "conges" && congesP.map((c) => (
           <div key={c.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
-              <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
-              <Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge>
+              <CaseZip id={c.id} libelle={`Sélectionner la demande de ${c.employee.nom}`} />
+              <span className="min-w-0 flex-1"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></span>
+              <Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{LIBELLE_STATUT_CONGE[c.statut as StatutConge] ?? "Statut inconnu"}</Badge>
             </div>
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</span>
@@ -395,7 +415,10 @@ export default async function DocumentsPage({
         ))}
         {onglet === "fiches" && fichesP.map((f) => (
           <div key={f.id} className="rounded-xl border bg-card p-3">
-            <span className="font-medium">{f.poste}</span>
+            <div className="flex items-center gap-2">
+              <CaseZip id={f.id} libelle={`Sélectionner la fiche ${f.poste}`} />
+              <span className="font-medium">{f.poste}</span>
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <ContratViewerButton href={`/fiches-poste/${f.id}/pdf`} titre={`Fiche de poste — ${f.poste}`} libelle="Aperçu" className="text-primary underline" />
               <TelechargerLien href={`/fiches-poste/${f.id}/pdf?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
@@ -485,11 +508,11 @@ export default async function DocumentsPage({
                     <td className="whitespace-nowrap px-3 py-2">{signatureContrat(c)}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-3">
-                        <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+                        <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${libelleTypeContrat(c.type)} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
                         <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
                       </div>
                     </td>
-                    <td className="px-3 py-2">{c.documentUrl ? <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
+                    <td className="px-3 py-2">{c.documentUrl ? <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${libelleTypeContrat(c.type)} · ${c.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
                 ))}
                 <Vide n={contrats.length} cols={8} />
@@ -505,7 +528,7 @@ export default async function DocumentsPage({
                   <tr key={d.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{d.nom}</td>
-                    <td className="px-3 py-2">{d.type}</td>
+                    <td className="px-3 py-2">{libelleTypeDocument(d.type)}</td>
                     <td className="px-3 py-2">{fr(d.dateExpiration)}</td>
                     <td className="px-3 py-2">{d.fichierUrl ? <ApercuDocumentBouton href={d.fichierUrl} titre={`${d.nom} — ${d.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
@@ -517,19 +540,20 @@ export default async function DocumentsPage({
 
           {onglet === "conges" && (
             <>
-              <Thead cols={["Employé", "Type", "Début", "Fin", "Statut", "PDF"]} />
+              <Thead cols={["", "Employé", "Type", "Début", "Fin", "Statut", "PDF"]} />
               <tbody>
                 {congesP.map((c) => (
                   <tr key={c.id} className="border-t">
+                    <td className="w-8 px-3 py-2"><CaseZip id={c.id} libelle={`Sélectionner la demande de ${c.employee.nom}`} /></td>
                     <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{c.type}</td>
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
-                    <td className="px-3 py-2"><Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge></td>
+                    <td className="px-3 py-2"><Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{LIBELLE_STATUT_CONGE[c.statut as StatutConge] ?? "Statut inconnu"}</Badge></td>
                     <td className="px-3 py-2"><TelechargerLien href={`/conges/demande/${c.id}`} className="text-primary underline">PDF</TelechargerLien></td>
                   </tr>
                 ))}
-                <Vide n={nbConges} cols={6} />
+                <Vide n={nbConges} cols={7} />
               </tbody>
             </>
           )}
@@ -567,10 +591,11 @@ export default async function DocumentsPage({
 
           {onglet === "fiches" && (
             <>
-              <Thead cols={["Poste", "Description", "Fiche de poste (PDF)", "Pièce jointe"]} />
+              <Thead cols={["", "Poste", "Description", "Fiche de poste (PDF)", "Pièce jointe"]} />
               <tbody>
                 {fichesP.map((f) => (
                   <tr key={f.id} className="border-t">
+                    <td className="w-8 px-3 py-2"><CaseZip id={f.id} libelle={`Sélectionner la fiche ${f.poste}`} /></td>
                     <td className="px-3 py-2 font-medium">{f.poste}</td>
                     <td className="max-w-md truncate px-3 py-2 text-muted-foreground">{f.descriptionPoste ?? f.description ?? "—"}</td>
                     <td className="px-3 py-2">
@@ -586,12 +611,13 @@ export default async function DocumentsPage({
                     </td>
                   </tr>
                 ))}
-                <Vide n={fiches.length} cols={4} />
+                <Vide n={fiches.length} cols={5} />
               </tbody>
             </>
           )}
         </table>
       </div>
+      </SelectionZip>
 
       <Pagination className="mt-4" plafondTout={enBase ? PLAFOND_TOUT : undefined} total={totalOnglet} page={fen.page} par={par} chemin="/documents" params={sp} libelle="documents" />
     </div>

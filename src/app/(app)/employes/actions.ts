@@ -87,7 +87,7 @@ async function exigerDoublonsTranches(saisie: IdentiteFiche, formData: FormData,
 
 export async function creerEmploye(formData: FormData) {
   // Une saisie illisible revient sur le formulaire avec son message (les erreurs jetées sont masquées en production).
-  await formulaireLisible("/employes/nouveau", async () => {
+  return formulaireLisible("/employes/nouveau", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -120,11 +120,11 @@ export async function creerEmploye(formData: FormData) {
 
     revalidatePath("/employes");
     redirect("/employes");
-  });
+  }, formData);
 }
 
 export async function modifierEmploye(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}/modifier`, async () => {
+  return formulaireLisible(`/employes/${employeeId}/modifier`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -197,7 +197,7 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
       redirect(`/employes/${employeeId}`);
     }
     redirect("/employes");
-  });
+  }, formData);
 }
 
 /**
@@ -206,7 +206,7 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
  * justificatif, l'écart éventuel est signalé sur la fiche et tranché par la Direction.
  */
 export async function ajouterMembreFamille(employeeId: string, formData: FormData) {
-  await formulaireLisible(`/employes/${employeeId}`, async () => {
+  return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -244,7 +244,7 @@ export async function ajouterMembreFamille(employeeId: string, formData: FormDat
     });
 
     revalidatePath(`/employes/${employeeId}`);
-  });
+  }, formData);
 }
 
 /** Retire un membre de la composition familiale (Direction seulement). Tracé au journal d'audit. */

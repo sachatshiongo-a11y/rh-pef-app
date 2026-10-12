@@ -2,13 +2,15 @@ import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { TableauDocument } from "@/lib/pdf/tableau";
-import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereStatutEmployes, libelleNombreEmployes } from "../_donnees";
+import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereStatutEmployes, libelleNombreEmployes, refusSelectionTropGrande } from "../_donnees";
 
 /** Export PDF de la liste des employés — mêmes colonnes et filtres que l'onglet. */
 export async function GET(request: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
+  const refus = refusSelectionTropGrande(sp);
+  if (refus) return refus;
 
   const statut = statutEmployes(sp.get("statut")); // le statut de l'écran (actifs / inactifs / tous), pas toujours les actifs
   const tous = await prisma.employee.findMany({ where: whereStatutEmployes(statut), orderBy: [{ categorie: "asc" }, { nom: "asc" }] });
