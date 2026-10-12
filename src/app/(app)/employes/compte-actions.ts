@@ -7,6 +7,7 @@ import { journaliser } from "@/lib/audit";
 import { actionLisible } from "@/lib/action-lisible";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { creerCompteSalarie, reinitialiserCompteSalarie } from "@/lib/comptes-salaries";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
 
 /**
  * Crée le compte de l'espace salarié d'un employé — Direction uniquement,
@@ -63,7 +64,8 @@ export const desactiverCompteEmploye = actionLisible(async (employeeId: string):
   requireRole(user, ["ADMIN"]);
   const compte = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, role: true } });
   if (!compte || compte.role !== "EMPLOYE") throw new Error("Aucun compte salarié pour cet employé.");
-  await prisma.user.update({ where: { id: compte.id }, data: { actif: false } });
+  await prisma.user.update({ where: { id: compte.id }, data: { actif: false, ...donneesRevocationSessions() } });
+  invaliderProfil(compte.id); // la session ouverte est refusée dès la requête suivante
   await journaliser(prisma, { entite: "User", entiteId: compte.id, champ: "desactivation", nouvelleValeur: "compte salarié désactivé", userId: user.id });
   revalidatePath(`/employes/${employeeId}`);
 });

@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { exigerEspaceRH } from "@/lib/garde-route";
@@ -29,7 +29,8 @@ export async function GET(request: Request) {
   const taux = Number(run.tauxChangeUtilise);
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const buffer = await renderPdfBuffer(LivrePaieDocument({ lignes, taux, periode }));
+  const buffer = await renderPdfOuRefus(() => LivrePaieDocument({ lignes, taux, periode }));
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

@@ -21,6 +21,7 @@ import { calculerLignesPaie, type DonneesLignePaie } from "@/lib/paie-batch";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
 import { ecartJeton, jetonDeLigneLue, SELECTION_JETON } from "@/lib/paie-jeton";
 import { netNonValidable, usdSigne } from "@/lib/paie-avertissements-mois";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /**
  * Compare les jetons FOURNIS aux lignes lues : null si tout concorde ; sinon « TAUX » quand seul le
@@ -86,7 +87,7 @@ export function messagePaieChangee(noms: string[]): string {
 }
 
 /** Refus d'une validation : message destiné à l'écran, renvoyé comme une valeur par les actions. */
-export class ValidationPaieRefuseeError extends Error {
+export class ValidationPaieRefuseeError extends ErreurMetier {
   constructor(message: string) {
     super(message);
     this.name = "ValidationPaieRefuseeError";

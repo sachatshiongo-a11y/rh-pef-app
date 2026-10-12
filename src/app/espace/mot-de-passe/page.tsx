@@ -5,6 +5,7 @@ import { formulaireMotDePasseOuvert } from "@/lib/mot-de-passe-temporaire";
 import { retourValide } from "@/lib/retour-connexion";
 import { redirect } from "next/navigation";
 import { changerMonMotDePasse } from "../actions";
+import { MOT_DE_PASSE_MIN } from "@/lib/mot-de-passe";
 
 export default async function MotDePassePage({
   searchParams,
@@ -50,15 +51,15 @@ export default async function MotDePassePage({
           {retour && <input type="hidden" name="retour" value={retour} />}
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Nouveau mot de passe
-            <input type="password" name="motDePasse" required minLength={6} autoComplete="new-password"
+            <input type="password" name="motDePasse" required minLength={MOT_DE_PASSE_MIN} autoComplete="new-password"
               className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-ring sm:text-sm" />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Confirmer le mot de passe
-            <input type="password" name="confirmation" required minLength={6} autoComplete="new-password"
+            <input type="password" name="confirmation" required minLength={MOT_DE_PASSE_MIN} autoComplete="new-password"
               className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-ring sm:text-sm" />
           </label>
-          <p className="text-sm text-muted-foreground">Au moins 6 caractères. Gardez-le pour vous : ne le donnez à personne, même à un collègue.</p>
+          <p className="text-sm text-muted-foreground">Au moins {MOT_DE_PASSE_MIN} caractères. Gardez-le pour vous : ne le donnez à personne, même à un collègue.</p>
           <button className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">Enregistrer mon mot de passe</button>
         </form>
       </div>

@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
 import { retourPourChemin, retourValide } from "@/lib/retour-connexion";
+import { MOTIF_SESSION_FERMEE } from "@/lib/sessions-revoquees";
 
 /**
  * Les SEULES pages atteignables sans être connecté. Tout le reste est redirigé vers /login.
@@ -101,6 +102,15 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Compte désactivé ou session révoquée (verifySession → /login?motif=session-fermee) : le jeton
+  // reste valide en signature, mais l'application le refuse. On EFFACE les cookies de session et on
+  // sert la page de connexion — surtout pas la redirection vers /entree ci-dessous, qui renverrait
+  // vers /login, et ainsi de suite (boucle de redirections). Effacer ses propres cookies est sans
+  // risque : au pire, une personne qui suit ce lien se reconnecte.
+  if (request.nextUrl.pathname === "/login" && request.nextUrl.searchParams.get("motif") === MOTIF_SESSION_FERMEE) {
+    return effacerCookiesSession(request, response);
+  }
+
   if (estAuthentifie && request.nextUrl.pathname === "/login") {
     // Déjà connecté : un retour permis (le scan) est honoré, sinon le résolveur d'entrée.
     const retour = retourValide(request.nextUrl.searchParams.get("retour"));
@@ -124,5 +134,19 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
+  return response;
+}
+
+/** Cookies de session Supabase (`sb-<projet>-auth-token`, découpés en `.0`, `.1`… quand ils sont longs). */
+export function cookiesDeSession(noms: string[]): string[] {
+  return noms.filter((n) => n.startsWith("sb-"));
+}
+
+/** Efface les cookies de session de la réponse (le navigateur les oublie) et de la requête en cours. */
+export function effacerCookiesSession(request: NextRequest, response: NextResponse): NextResponse {
+  for (const nom of cookiesDeSession(request.cookies.getAll().map((c) => c.name))) {
+    request.cookies.delete(nom);
+    response.cookies.set(nom, "", { path: "/", maxAge: 0 });
+  }
   return response;
 }

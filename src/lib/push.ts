@@ -2,6 +2,9 @@ import "server-only";
 
 import webpush from "web-push";
 import { prisma } from "@/lib/prisma";
+import { endpointPushAutorise } from "@/lib/push-services";
+
+const hoteDe = (u: string) => { try { return new URL(u).host; } catch { return "(adresse illisible)"; } };
 
 // Configuration VAPID (clé publique côté client, clé privée SECRÈTE côté serveur). Si les clés
 // sont absentes, l'envoi est un no-op (comme l'e-mail) — la cloche in-app continue de fonctionner.
@@ -30,7 +33,14 @@ export async function envoyerPush(
   payload: { title: string; body: string; url?: string; tag?: string },
 ): Promise<void> {
   if (!pretPush() || userIds.length === 0) return;
-  const subs = await prisma.pushSubscription.findMany({ where: { userId: { in: userIds } } });
+  const tous = await prisma.pushSubscription.findMany({ where: { userId: { in: userIds } } });
+  // Un abonnement enregistré avant le contrôle des services (lib/push-services.ts) vers une adresse
+  // inconnue n'est JAMAIS appelé ; il est signalé au journal, pas effacé en silence.
+  const subs = tous.filter((s) => {
+    if (endpointPushAutorise(s.endpoint)) return true;
+    console.error("[push] abonnement ignoré : service push non reconnu", { id: s.id, userId: s.userId, hote: hoteDe(s.endpoint) });
+    return false;
+  });
   if (subs.length === 0) return;
 
   const data = JSON.stringify(payload);

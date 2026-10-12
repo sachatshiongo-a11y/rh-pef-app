@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   ];
 
   const label = espace === "BAR" ? "Bar" : "Cuisine";
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     TableauDocument({
       titre: `Stock restaurant — ${label}`,
       sousTitre: `Semaine du ${jours[0].num} au ${jours[6].num}`,
@@ -45,6 +45,7 @@ export async function GET(req: Request) {
       pied: "« Base » = stock de base journalier (niveau cible). Les colonnes de jours indiquent la quantité comptée.",
     }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
 
   const fichier = `Stock_restaurant_${label}_${jours[0].iso}.pdf`;
   return new Response(new Uint8Array(buffer), {

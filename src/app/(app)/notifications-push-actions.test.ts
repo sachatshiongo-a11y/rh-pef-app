@@ -131,42 +131,42 @@ describe("abonnements push — l'appareil appartient au compte", () => {
   it("supprimerPush sur l'abonnement d'un autre compte : refusé, rien n'est supprimé", async () => {
     compte("EMPLOYE");
     A.abo = { userId: "u-autre", ...cles };
-    expect(await supprimerPush("https://push/xyz")).toEqual({ erreur: MESSAGE_PUSH_REFUSE });
+    expect(await supprimerPush("https://fcm.googleapis.com/fcm/send/xyz")).toEqual({ erreur: MESSAGE_PUSH_REFUSE });
     expect(A.ecritures).toEqual([]);
   });
 
   it("supprimerPush sur son propre abonnement : supprimé (filtré sur SON compte)", async () => {
     compte("EMPLOYE");
     A.abo = { userId: "u-moi", ...cles };
-    expect(await supprimerPush("https://push/xyz")).toEqual({ ok: true });
+    expect(await supprimerPush("https://fcm.googleapis.com/fcm/send/xyz")).toEqual({ ok: true });
     expect(A.ecritures).toEqual([expect.stringContaining('"userId":"u-moi"')]);
   });
 
   it("supprimerPush sur un abonnement déjà parti : ok, sans écriture", async () => {
     compte("EMPLOYE");
-    expect(await supprimerPush("https://push/xyz")).toEqual({ ok: true });
+    expect(await supprimerPush("https://fcm.googleapis.com/fcm/send/xyz")).toEqual({ ok: true });
     expect(A.ecritures).toEqual([]);
   });
 
   it("enregistrerPush sur l'endpoint d'un autre, SANS ses clés : refusé (on ne détourne pas son appareil)", async () => {
     compte("EMPLOYE");
     A.abo = { userId: "u-autre", ...cles };
-    expect(await enregistrerPush({ endpoint: "https://push/xyz", p256dh: "autre", auth: "autre" })).toEqual({ erreur: MESSAGE_PUSH_REFUSE });
+    expect(await enregistrerPush({ endpoint: "https://fcm.googleapis.com/fcm/send/xyz", p256dh: "autre", auth: "autre" })).toEqual({ erreur: MESSAGE_PUSH_REFUSE });
     expect(A.ecritures).toEqual([]);
   });
 
   it("enregistrerPush sur l'endpoint d'un autre AVEC les mêmes clés (tablette partagée) : repris", async () => {
     compte("EMPLOYE");
     A.abo = { userId: "u-autre", ...cles };
-    expect(await enregistrerPush({ endpoint: "https://push/xyz", ...cles })).toEqual({ ok: true });
+    expect(await enregistrerPush({ endpoint: "https://fcm.googleapis.com/fcm/send/xyz", ...cles })).toEqual({ ok: true });
     expect(A.ecritures).toEqual([expect.stringContaining('"userId":"u-moi"')]);
   });
 
   it("enregistrerPush : nouvel appareil, ou le sien → enregistré", async () => {
     compte("EMPLOYE");
-    expect(await enregistrerPush({ endpoint: "https://push/neuf", ...cles })).toEqual({ ok: true });
+    expect(await enregistrerPush({ endpoint: "https://fcm.googleapis.com/fcm/send/neuf", ...cles })).toEqual({ ok: true });
     A.abo = { userId: "u-moi", p256dh: "ancienne", auth: "ancienne" };
-    expect(await enregistrerPush({ endpoint: "https://push/neuf", ...cles })).toEqual({ ok: true });
+    expect(await enregistrerPush({ endpoint: "https://fcm.googleapis.com/fcm/send/neuf", ...cles })).toEqual({ ok: true });
     expect(A.ecritures.length).toBe(2);
   });
 

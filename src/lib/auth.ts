@@ -7,6 +7,7 @@ import { getJwksKeys } from "@/lib/supabase/jwks";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
 import { estRH, estStock, estExploitation, estSalarie } from "@/lib/espaces";
+import { MOTIF_SESSION_FERMEE, sessionRevoquee } from "@/lib/sessions-revoquees";
 
 export type CurrentUser = {
   id: string;
@@ -21,7 +22,14 @@ export type CurrentUser = {
 // DB de rôle à CHAQUE navigation : le profil/rôle change rarement. TTL court → une
 // désactivation de compte prend effet en ≤ 60 s. Invalidable via `invaliderProfil`.
 const CACHE_PROFIL_MS = 60_000;
-const cacheProfil = new Map<string, { profil: CurrentUser; expire: number }>();
+const cacheProfil = new Map<string, { profil: CurrentUser; revoqueesLe: Date | null; expire: number }>();
+
+/**
+ * Compte désactivé ou session révoquée : vers /login AVEC le motif qui fait effacer les cookies de
+ * session par le proxy (src/lib/supabase/middleware.ts). Sans lui, le proxy voyait un jeton valide
+ * et renvoyait /login vers /entree, qui renvoyait vers /login : boucle de redirections.
+ */
+const SORTIE_SESSION_FERMEE = `/login?motif=${MOTIF_SESSION_FERMEE}`;
 
 export function invaliderProfil(userId: string) {
   cacheProfil.delete(userId);
@@ -42,6 +50,7 @@ export const verifySession = cache(async (): Promise<CurrentUser> => {
 
   const enCache = cacheProfil.get(sub);
   if (enCache && enCache.expire > Date.now()) {
+    if (sessionRevoquee(data?.claims, enCache.revoqueesLe)) redirect(SORTIE_SESSION_FERMEE);
     return enCache.profil;
   }
 
@@ -49,8 +58,10 @@ export const verifySession = cache(async (): Promise<CurrentUser> => {
 
   if (!profile || !profile.actif) {
     cacheProfil.delete(sub);
-    redirect("/login");
+    redirect(SORTIE_SESSION_FERMEE);
   }
+  // Session ouverte avant une réinitialisation du mot de passe / une désactivation : refusée.
+  if (sessionRevoquee(data?.claims, profile.sessionsRevoqueesLe)) redirect(SORTIE_SESSION_FERMEE);
 
   const profil: CurrentUser = {
     id: profile.id,
@@ -60,7 +71,7 @@ export const verifySession = cache(async (): Promise<CurrentUser> => {
     accesStock: profile.accesStock,
     employeeId: profile.employeeId,
   };
-  cacheProfil.set(sub, { profil, expire: Date.now() + CACHE_PROFIL_MS });
+  cacheProfil.set(sub, { profil, revoqueesLe: profile.sessionsRevoqueesLe, expire: Date.now() + CACHE_PROFIL_MS });
   return profil;
 });
 

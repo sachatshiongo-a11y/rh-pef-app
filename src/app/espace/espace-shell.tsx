@@ -10,7 +10,7 @@ import { ClocheSalarie } from "./cloche-salarie";
 import { BarreDuBas } from "@/components/barre-du-bas";
 import { ENTETE_COLLANT, HAUTEUR_ENTETE_ESPACE } from "@/components/entete-mobile";
 import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
-import { logout } from "@/app/login/actions";
+import { FormulaireDeconnexion } from "@/components/formulaire-deconnexion";
 import type { NotificationItem } from "@/lib/notifications";
 import { ACCUEIL, BARRE_DU_BAS, GROUPES_ESPACE, lienActif, type LienEspace } from "./navigation";
 
@@ -115,11 +115,11 @@ export function EspaceShell({
               <Link href="/espace/mot-de-passe" onClick={fermer} className={CLASSE_LIEN_COMPTE}>
                 <Icone nom="parametres" className="shrink-0" /> Changer mon mot de passe
               </Link>
-              <form action={logout}>
+              <FormulaireDeconnexion>
                 <button type="submit" className={CLASSE_LIEN_COMPTE}>
                   <Icone nom="deconnexion" /> Se déconnecter
                 </button>
-              </form>
+              </FormulaireDeconnexion>
             </div>
           </Tiroir>
         </>

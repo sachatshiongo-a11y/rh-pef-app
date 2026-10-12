@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifySession, espacesDe } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
-import { logout } from "@/app/login/actions";
+import { FormulaireDeconnexion } from "@/components/formulaire-deconnexion";
 import { Icone } from "@/components/icones";
 
 // Sélecteur d'espace — pour les comptes à accès multiple (Direction RH+Stock, ou salarié + stock).
@@ -38,11 +38,11 @@ export default async function ChoixEspacePage() {
         )}
       </div>
 
-      <form action={logout}>
+      <FormulaireDeconnexion>
         <button type="submit" className="text-sm text-muted-foreground underline hover:text-foreground">
           Déconnexion
         </button>
-      </form>
+      </FormulaireDeconnexion>
     </div>
   );
 }

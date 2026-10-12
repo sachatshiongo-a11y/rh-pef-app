@@ -3,6 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 import { journaliser } from "@/lib/audit";
 import { emailInterneMatricule, genererMotDePasseTemporaire } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin, creerUtilisateurAuth, supprimerUtilisateurAuth } from "@/lib/securite-connexion";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
+import { invaliderProfil } from "@/lib/auth";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 // Le SEUL chemin de création d'un compte de l'espace salarié, et le SEUL chemin de
 // réinitialisation de son mot de passe : la fiche employé (« Créer un compte », « Réinitialiser le
@@ -13,7 +16,7 @@ import { changerMotDePasseAdmin, creerUtilisateurAuth, supprimerUtilisateurAuth 
 /** Pourquoi un compte n'a pas été créé ou réinitialisé, quand ce n'est pas une panne. */
 export type MotifRefusCompte = "INTROUVABLE" | "INACTIF" | "COMPTE_EXISTANT" | "SANS_COMPTE" | "COMPTE_PAR_EMAIL" | "ROLE_NON_SALARIE";
 
-export class RefusCompteSalarie extends Error {
+export class RefusCompteSalarie extends ErreurMetier {
   constructor(
     readonly motif: MotifRefusCompte,
     message: string,
@@ -97,7 +100,7 @@ export function etatCompteSalarie(matricule: string, compte: { email: string; ac
 export const MESSAGE_COMPTE_PAR_EMAIL = "compte par adresse e-mail — géré dans Utilisateurs & accès";
 
 /** Réinitialisation à moitié faite : l'Auth a changé le mot de passe, la base ou le journal non. */
-export class ReinitialisationInachevee extends Error {
+export class ReinitialisationInachevee extends ErreurMetier {
   constructor(cause: unknown) {
     super("Mot de passe changé mais non enregistré : l'ancien ne marche plus, réinitialisez à nouveau ce salarié (« Nouvelle fiche » dans Paramètres, ou « Réinitialiser le mot de passe » sur sa fiche).", { cause });
     this.name = "ReinitialisationInachevee";
@@ -144,7 +147,9 @@ export async function reinitialiserCompteSalarie(
   // L'Auth d'abord : si elle échoue, rien n'a changé côté application.
   await changerMotDePasseAdmin(compte.id, motDePasse);
   try {
-    await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true } });
+    // Nouveau mot de passe = sessions ouvertes avec l'ancien fermées (audit 10/10/2026, sécurité 5).
+    await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true, ...donneesRevocationSessions() } });
+    invaliderProfil(compte.id);
     await journaliser(client, {
       entite: "User",
       entiteId: compte.id,

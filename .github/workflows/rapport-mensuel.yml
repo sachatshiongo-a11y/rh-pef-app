@@ -15,4 +15,4 @@ jobs:
         run: |
           curl -fsS --max-time 120 -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://rh.patesenfolie.cd/api/cron/rapport-mensuel
+            https://gestion.patesenfolie.cd/api/cron/rapport-mensuel

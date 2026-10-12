@@ -8,6 +8,7 @@ import { journaliser } from "@/lib/audit";
 import type { Role } from "@prisma/client";
 
 import { ROLES_ATTRIBUABLES, roleModifiableIci } from "@/lib/roles";
+import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
 const ROLES: readonly Role[] = ROLES_ATTRIBUABLES;
 
 /** Crée un utilisateur : compte Supabase Auth (email + mot de passe) + profil applicatif (rôle). */
@@ -79,7 +80,9 @@ export const basculerActifUtilisateur = actionLisible(async (userId: string) => 
   if (userId === admin.id) throw new Error("Vous ne pouvez pas désactiver votre propre compte.");
 
   const u = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  await prisma.user.update({ where: { id: userId }, data: { actif: !u.actif } });
+  // Désactiver ferme aussi toutes les sessions ouvertes (audit 10/10/2026, sécurité 5) ; réactiver
+  // n'en rouvre aucune : il faudra se reconnecter.
+  await prisma.user.update({ where: { id: userId }, data: { actif: !u.actif, ...(u.actif ? donneesRevocationSessions() : {}) } });
   invaliderProfil(userId);
   await journaliser(prisma, { entite: "User", entiteId: userId, champ: "actif", nouvelleValeur: String(!u.actif), userId: admin.id });
   revalidatePath("/parametres");
@@ -121,6 +124,9 @@ export const reinitialiserMotDePasse = actionLisible(async (userId: string, form
     body: JSON.stringify({ password }),
   });
   if (!res.ok) throw new Error("Échec de la réinitialisation du mot de passe.");
+  // Nouveau mot de passe = les sessions ouvertes avec l'ancien sont fermées (audit 10/10/2026, sécurité 5).
+  await prisma.user.update({ where: { id: userId }, data: donneesRevocationSessions() });
+  invaliderProfil(userId);
   await journaliser(prisma, { entite: "User", entiteId: userId, champ: "motDePasse", nouvelleValeur: "réinitialisé", userId: admin.id });
   revalidatePath("/parametres");
 });

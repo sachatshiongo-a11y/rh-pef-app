@@ -9,6 +9,7 @@
 // (« 12.5 ») et comparés avec Decimal : jamais d'aller-retour par un flottant.
 
 import Decimal from "decimal.js";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /** Nombre → chaîne décimale en notation simple (« 0.0000001 », jamais « 1e-7 »), lisible par la charge. */
 export const texteDecimal = (n: number): string => new Decimal(n).toFixed();
@@ -204,7 +205,7 @@ export function libelleValeur(champ: ChampArticle, v: Valeur): string {
 }
 
 // ── Relecture validée ───────────────────────────────────────────────────────
-class ChargeIllisible extends Error {
+class ChargeIllisible extends ErreurMetier {
   constructor(detail: string) { super(`Demande illisible (${detail}) : elle ne peut pas être exécutée — refusez-la.`); }
 }
 
