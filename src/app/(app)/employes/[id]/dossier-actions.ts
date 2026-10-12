@@ -19,6 +19,8 @@ import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { canonique, changementsProposes, messagePerime, type Changement } from "@/lib/fiche-sensible";
 import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx, verrouillerFiche } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
+import { ancienneteALaSortie, controlerDateSortie, lireDateSortieSaisie } from "@/lib/sortie-salarie";
+import { chargerSoldeCongeALaSortie } from "@/lib/solde-conge-salarie";
 import { formaterUSD } from "@/lib/montant";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { donneesRevocationSessions } from "@/lib/sessions-revoquees";
@@ -49,8 +51,9 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
     requireRole(user, ["ADMIN"]);
 
     const motif = String(formData.get("motif") ?? "AUTRE");
-    const dateFin = new Date(String(formData.get("dateFin")));
-    if (Number.isNaN(dateFin.getTime())) throw new Error("Date de fin invalide : choisissez un jour du calendrier.");
+    // DATE DE SORTIE OBLIGATOIRE (décision de la Direction du 2026-10-12) : c'est elle qui arrête l'acquisition des
+    // congés, donc le solde et l'indemnité de ce solde de tout compte. Vide ou illisible : rien n'est écrit.
+    const dateFin = lireDateSortieSaisie(formData.get("dateFin"));
     // Saisies lues à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux
     // dans un solde de tout compte. Les minimums du champ natif (>= 0) sont repris ici.
     const positif = (nom: string, libelle: string) => {
@@ -75,6 +78,10 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
     };
     const reprisePretAffichee = repriseAffichee("reprisePretUSD");
     const repriseAcomptesAffichee = repriseAffichee("repriseAcomptesUSD");
+    // « 0 » = la Direction a laissé la proposition de l'écran : elle est revérifiée ci-dessous contre le solde À LA
+    // DATE DE SORTIE (une proposition pas encore rafraîchie — date changée puis envoi immédiat, rappel en échec —
+    // porterait le solde d'aujourd'hui). « 1 » = saisie retouchée à la main : elle fait foi. Absent : pas de contrôle.
+    const congesSaisisMain = formData.get("congesSaisisMain");
 
     const parametres = await chargerParametresPaie();
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
@@ -88,6 +95,8 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
       if (!employee.actif) {
         throw new Error(`${employee.nom} n'est plus actif : son contrat est déjà terminé. Un seul solde de tout compte par départ — rien n'a été enregistré.`);
       }
+      const avantEmbauche = controlerDateSortie(employee.dateEmbauche, dateFin);
+      if (avantEmbauche) throw new Error(`${avantEmbauche} Rien n'a été enregistré.`);
       const dejaFin = await tx.finContrat.findFirst({
         where: { employeeId, dateFin: { gte: employee.dateEmbauche } },
         orderBy: { createdAt: "desc" },
@@ -95,6 +104,12 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
       });
       if (dejaFin) {
         throw new Error(`Une fin de contrat au ${dejaFin.dateFin.toISOString().slice(0, 10).split("-").reverse().join("/")} est déjà enregistrée pour ${employee.nom} depuis son embauche : rien n'a été enregistré.`);
+      }
+      if (congesSaisisMain === "0") {
+        const attendu = Math.max(0, (await chargerSoldeCongeALaSortie(tx, employeeId, dateFin)).solde);
+        if (Math.round(attendu * 10) !== Math.round(joursCongesNonPris * 10)) {
+          throw new Error(`Le solde de congés au ${dateFin.toISOString().slice(0, 10).split("-").reverse().join("/")} (date de sortie) est de ${attendu.toLocaleString("fr-FR")} j, la proposition envoyée portait ${joursCongesNonPris.toLocaleString("fr-FR")} j (elle n'était pas encore recalculée pour cette date) : relisez le formulaire et renvoyez-le. Rien n'a été enregistré.`);
+        }
       }
 
       // Solde de tout compte sur la base BRUTE (décision client 2026-07-22) : si les salaires sont
@@ -181,6 +196,28 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
     revalidatePath("/paie");
 
   });
+}
+
+/**
+ * Jours de congés à proposer au solde de tout compte pour la date de sortie CHOISIE (le formulaire la rappelle à
+ * chaque changement de date). Même calcul que la fiche et l'espace salarié, arrêté à la sortie : l'acquisition
+ * cesse ce jour-là. Lecture seule ; la saisie reste modifiable à l'écran.
+ */
+export async function proposerSoldeConges(
+  employeeId: string,
+  dateSortie: string,
+): Promise<{ jours: number; annee: number; ancienneteMois: number; prisApresSortie: number } | { erreur: string }> {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  try {
+    const date = lireDateSortieSaisie(dateSortie);
+    const s = await chargerSoldeCongeALaSortie(prisma, employeeId, date);
+    const { dateEmbauche } = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { dateEmbauche: true } });
+    // L'ancienneté de l'indemnité de licenciement suit la MÊME date de sortie (jamais celle du mois de paie).
+    return { jours: s.solde, annee: s.annee, ancienneteMois: ancienneteALaSortie(dateEmbauche, date), prisApresSortie: s.prisApresSortie ?? 0 };
+  } catch (e) {
+    return { erreur: e instanceof Error ? e.message : "Solde illisible." };
+  }
 }
 
 function date(formData: FormData, name: string): Date | null {

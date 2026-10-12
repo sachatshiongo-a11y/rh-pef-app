@@ -94,6 +94,7 @@ export function EmployeeForm({
   doublons,
   famille,
   champsDirection = "modifiables",
+  dateSortieFinContrat = null,
 }: {
   employee?: Employee;
   /** RÉEMBAUCHE : formulaire « Nouvel employé » pré-rempli depuis la fiche archivée (sans date d'embauche, ni salaire, ni matricule). */
@@ -112,6 +113,8 @@ export function EmployeeForm({
    *  saisissables, mais les champs SENSIBLES (paie, contrat, versement — lib/fiche-sensible) ne
    *  s'appliquent qu'après validation de la Direction ; ils sont marqués, et le formulaire le dit. */
   champsDirection?: "modifiables" | "validation";
+  /** Date de la fin de contrat enregistrée (AAAA-MM-JJ) : elle fait foi pour la sortie, la fiche n'en porte pas une seconde. */
+  dateSortieFinContrat?: string | null;
 }) {
   // Valeurs par défaut des champs : la fiche modifiée, ou (réembauche) le modèle tiré de la fiche archivée.
   const base = employee ?? (reembauche?.modele as Employee | undefined);
@@ -216,7 +219,7 @@ export function EmployeeForm({
             {aValider && !!employee && (
               <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Les champs marqués <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">à valider</span>{" "}
-                (salaire, heures, transport, frais médicaux, enfants, CNSS, embauche, contrat, catégories, versement) ne
+                (salaire, heures, transport, frais médicaux, enfants, CNSS, embauche, sortie, contrat, catégories, versement) ne
                 s&apos;appliquent qu&apos;après validation de la Direction : leur changement part dans « À valider ». Les autres
                 champs s&apos;enregistrent tout de suite.
               </p>
@@ -318,6 +321,21 @@ export function EmployeeForm({
                 defaultValue={toDateInput(base?.dateEmbauche)}
                 required
               />
+              {/* DATE DE SORTIE (décision de la Direction du 2026-10-12) : fiche désactivée seulement. Une fin de
+                  contrat enregistrée fait foi (pas de seconde date) ; sinon la date se saisit ici — « à valider » hors Direction. */}
+              {employee && !employee.actif && (dateSortieFinContrat ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium">Date de sortie</span>
+                  <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{dateSortieFinContrat.split("-").reverse().join("/")} <span className="text-xs text-muted-foreground">— reprise de la fin de contrat</span></p>
+                </div>
+              ) : (
+                <Field
+                  label="Date de sortie (dernier jour de présence)"
+                  name="dateSortie"
+                  type="date"
+                  defaultValue={toDateInput(employee.dateSortie ?? undefined)}
+                />
+              ))}
               <Field
                 label="ID pointeuse IVMS (optionnel)"
                 name="idExterneIVMS"

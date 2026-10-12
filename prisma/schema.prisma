@@ -335,6 +335,9 @@ model Employee {
   heuresHebdomadaires      Decimal          @default(48) @db.Decimal(5, 2)
   fraisMedicauxMoisCourant Decimal          @default(0) @db.Decimal(12, 2)
   actif                    Boolean          @default(true)
+  /// DATE DE SORTIE (dernier jour de présence, inclus) d'une fiche désactivée SANS fin de contrat. Quand une fin de
+  /// contrat existe, sa date (`FinContrat.dateFin`) fait foi : jamais deux dates (lib/sortie-salarie.ts). NULL = inconnue.
+  dateSortie               DateTime?        @db.Date
   /// RÉEMBAUCHE = nouvelle fiche (décision du 2026-10-12 n°10) : la fiche archivée (inactive) dont celle-ci prend la suite.
   ancienneFicheId          String?
   ancienneFiche            Employee?        @relation("Reembauche", fields: [ancienneFicheId], references: [id], onDelete: SetNull)

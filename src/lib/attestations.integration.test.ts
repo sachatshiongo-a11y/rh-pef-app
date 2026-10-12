@@ -160,6 +160,14 @@ describe("attestation de travail", () => {
     expect(r.ok && r.donnees.dateSortie).toBe("2025-12-31");
   });
 
+  it("sorti sans fin de contrat mais avec la date de sortie saisie sur la fiche : c'est celle-là (décision du 2026-10-12)", async () => {
+    const a = await salarie({ actif: false });
+    await contrat(a, "CDI", "2024-03-01", null, "RESILIE");
+    await prisma.employee.update({ where: { id: a }, data: { dateSortie: new Date("2026-02-27") } });
+    const r = await instantaneAttestation(prisma, a, "TRAVAIL");
+    expect(r.ok && r.donnees.dateSortie).toBe("2026-02-27");
+  });
+
   it("sorti sans AUCUNE date de sortie : refus lisible, jamais « au — »", async () => {
     const a = await salarie({ actif: false });
     await contrat(a, "CDI", "2024-03-01", null, "RESILIE");

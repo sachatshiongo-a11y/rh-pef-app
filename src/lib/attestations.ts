@@ -1,4 +1,5 @@
 import "server-only";
+import { chargerSortieFiche } from "@/lib/sortie-salarie";
 import { tauxDeLigne } from "@/lib/paie-taux";
 
 import { Prisma, type PrismaClient, type TypeAttestation } from "@prisma/client";
@@ -72,12 +73,13 @@ export async function instantaneAttestation(
     return { ok: false, motif: "Votre date d'embauche n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true };
   }
 
-  // Sorti : date de sortie (fin de contrat enregistrée), sinon fin du dernier contrat. Sans l'une
+  // Sorti : date de sortie (fin de contrat enregistrée, sinon date de la fiche), sinon fin du dernier contrat. Sans l'une
   // ni l'autre, on REFUSE plutôt que d'imprimer « jusqu'au — ».
   let dateSortie: string | null = null;
   if (!emp.actif) {
-    const fin = await db.finContrat.findFirst({ where: { employeeId }, orderBy: { dateFin: "desc" }, select: { dateFin: true } });
-    const d = fin?.dateFin ?? dernier?.dateFin ?? null;
+    // La date de sortie est UNE : fin de contrat, sinon celle de la fiche (lib/sortie-salarie) ; à défaut, fin du dernier contrat.
+    const sortie = await chargerSortieFiche(db, employeeId);
+    const d = sortie.dateSortie ?? dernier?.dateFin ?? null;
     if (!d) {
       return { ok: false, motif: "Votre date de sortie n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true };
     }

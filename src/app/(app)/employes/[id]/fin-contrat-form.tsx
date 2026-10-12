@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { terminerContrat } from "./dossier-actions";
+import { useRef, useState } from "react";
+import { proposerSoldeConges, terminerContrat } from "./dossier-actions";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 import { MOIS_FR } from "@/lib/dates-fr";
@@ -42,21 +42,44 @@ export function FinContratForm({
   // Préavis pré-rempli depuis les paramètres légaux selon le motif (À VALIDER si non renseigné).
   const preavisDe = (m: string) =>
     m === "LICENCIEMENT" ? preavisLicenciement : m === "DEMISSION" ? preavisDemission : null;
-  // Indemnité de licenciement suggérée = jours/année × années d'ancienneté × salaire journalier.
-  const anciennteAnnees = ancienneteMois / 12;
-  const indemLicenciementSuggeree =
+  // Indemnité de licenciement suggérée = jours/année × années d'ancienneté × salaire journalier. L'ancienneté est
+  // celle À LA DATE DE SORTIE dès qu'elle est choisie (rappel serveur, même date que les congés) ; avant, celle de la fiche.
+  const [ancienneteSortie, setAncienneteSortie] = useState<number | null>(null);
+  const suggestionLicenciement = (mois: number) =>
     indemniteLicenciementJoursParAn != null
-      ? Math.round(indemniteLicenciementJoursParAn * anciennteAnnees * salaireJournalier * 100) / 100
+      ? Math.round(indemniteLicenciementJoursParAn * (mois / 12) * salaireJournalier * 100) / 100
       : 0;
+  const indemLicenciementSuggeree = suggestionLicenciement(ancienneteSortie ?? ancienneteMois);
+  const licenciementRetouche = useRef(false); // une indemnité tapée à la main n'est jamais écrasée par un changement de date
+  const motifCourant = useRef("DEMISSION"); // lu par la réponse (asynchrone) du rappel de date
 
   const [motif, setMotif] = useState("DEMISSION");
   const [joursTravailles, setJoursTravailles] = useState(versSaisie(joursPresence));
   const [joursConges, setJoursConges] = useState(versSaisie(Math.max(0, soldeCongesInit)));
+  // Le solde de congés se recalcule À LA DATE DE SORTIE choisie (l'acquisition s'arrête ce jour-là) tant que la
+  // saisie n'a pas été retouchée à la main : une valeur tapée par la Direction n'est jamais écrasée.
+  const [soldeALaSortie, setSoldeALaSortie] = useState<{ jours: number; date: string; prisApresSortie: number } | { erreur: string } | null>(null);
+  const congesRetouches = useRef(false); // la logique lit la référence (réponse tardive), l'affichage lit l'état
+  const [retouche, setRetouche] = useState(false);
+  const dernierAppel = useRef(0);
+  async function changerDateFin(valeur: string) {
+    const appel = ++dernierAppel.current;
+    if (!valeur) { setSoldeALaSortie(null); return; }
+    const r = await proposerSoldeConges(employeeId, valeur);
+    if (appel !== dernierAppel.current) return; // une date plus récente a été choisie entre-temps
+    if ("erreur" in r) { setSoldeALaSortie({ erreur: r.erreur }); return; }
+    setSoldeALaSortie({ jours: r.jours, date: valeur, prisApresSortie: r.prisApresSortie });
+    if (!congesRetouches.current) setJoursConges(versSaisie(Math.max(0, r.jours)));
+    setAncienneteSortie(r.ancienneteMois);
+    if (motifCourant.current === "LICENCIEMENT" && !licenciementRetouche.current) setLicenciement(versSaisie(suggestionLicenciement(r.ancienneteMois)));
+  }
   const [preavis, setPreavis] = useState(versSaisie(preavisDemission ?? 0));
   const [licenciement, setLicenciement] = useState("0");
   const [autres, setAutres] = useState("0");
 
   function changerMotif(m: string) {
+    motifCourant.current = m;
+    licenciementRetouche.current = false; // le motif change : l'indemnité est re-proposée, comme avant
     setMotif(m);
     setPreavis(versSaisie(preavisDe(m) ?? 0));
     setLicenciement(m === "LICENCIEMENT" ? versSaisie(indemLicenciementSuggeree) : "0");
@@ -85,6 +108,8 @@ export function FinContratForm({
       {/* Reprises MONTRÉES : le serveur les revérifie au centime (un écart depuis l'affichage refuse). */}
       <input type="hidden" name="reprisePretUSD" value={reprisePret.toFixed(2)} />
       <input type="hidden" name="repriseAcomptesUSD" value={repriseAcomptes.toFixed(2)} />
+      {/* Congés non pris : « 0 » = proposition de l'écran, revérifiée par le serveur au solde À LA DATE DE SORTIE. */}
+      <input type="hidden" name="congesSaisisMain" value={retouche ? "1" : "0"} />
       <div className="mb-4 space-y-2">
         {reprises?.bulletinFigeDuMois && (
           <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
@@ -112,7 +137,7 @@ export function FinContratForm({
                   <option value="AUTRE">Autre</option>
                 </select>
               </Champ>
-              <Champ label="Date de fin"><input name="dateFin" type="date" required className={cls} /></Champ>
+              <Champ label="Date de sortie (dernier jour de présence)"><input name="dateFin" type="date" required onChange={(e) => void changerDateFin(e.target.value)} className={cls} /></Champ>
             </div>
           </div>
 
@@ -124,20 +149,30 @@ export function FinContratForm({
                 <ChampNombre name="joursTravaillesMois" suffixe="j" alerteMilliers value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Jours de congés non pris">
-                <ChampNombre name="joursCongesNonPris" suffixe="j" alerteMilliers value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
+                <ChampNombre name="joursCongesNonPris" suffixe="j" alerteMilliers value={joursConges} onChange={(e) => { congesRetouches.current = true; setRetouche(true); setJoursConges(e.target.value); }} className={cls} />
               </Champ>
             </div>
+            <p className="mt-2 text-xs text-emerald-700" role="status">
+              {soldeALaSortie === null && <>Solde d&apos;aujourd&apos;hui. Choisissez la date de sortie : les congés cessent de s&apos;acquérir ce jour-là et la proposition est recalculée.</>}
+              {soldeALaSortie !== null && "erreur" in soldeALaSortie && <span className="text-red-700">{soldeALaSortie.erreur}</span>}
+              {soldeALaSortie !== null && "jours" in soldeALaSortie && <>Solde de congés au {soldeALaSortie.date.split("-").reverse().join("/")} : {soldeALaSortie.jours.toLocaleString("fr-FR")} j (acquisition arrêtée à la sortie){retouche ? " — saisie modifiée à la main, conservée." : "."}</>}
+            </p>
+            {soldeALaSortie !== null && "jours" in soldeALaSortie && soldeALaSortie.prisApresSortie > 0 && (
+              <p className="mt-1 text-xs text-amber-800" role="note">
+                {soldeALaSortie.prisApresSortie.toLocaleString("fr-FR")} j de congé sont posés après la date de sortie : ils ne sont pas déduits (le salarié ne les prendra pas). Annulez ces congés.
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
             <p className="mb-1 text-sm font-semibold text-amber-800">Indemnités légales — à valider (Code du travail RDC)</p>
-            <p className="mb-3 text-xs text-amber-700">Pré-remplies depuis Paramètres → paramètres légaux (ancienneté × barème). À faire valider par un juriste.</p>
+            <p className="mb-3 text-xs text-amber-700">Pré-remplies depuis Paramètres → paramètres légaux (ancienneté × barème). À faire valider par un juriste. Ancienneté retenue : {ancienneteSortie ?? ancienneteMois} mois{ancienneteSortie === null ? " (choisissez la date de sortie : elle est recalculée à ce jour)" : " à la date de sortie"}.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Champ label="Préavis (jours)">
                 <ChampNombre name="preavisJours" suffixe="j" alerteMilliers value={preavis} onChange={(e) => setPreavis(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Indemnité de licenciement $">
-                <ChampNombre name="indemniteLicenciementUSD" suffixe="$" value={licenciement} onChange={(e) => setLicenciement(e.target.value)} className={cls} disabled={motif !== "LICENCIEMENT"} />
+                <ChampNombre name="indemniteLicenciementUSD" suffixe="$" value={licenciement} onChange={(e) => { licenciementRetouche.current = true; setLicenciement(e.target.value); }} className={cls} disabled={motif !== "LICENCIEMENT"} />
               </Champ>
               <Champ label="Autres indemnités $">
                 <ChampNombre name="autresUSD" suffixe="$" value={autres} onChange={(e) => setAutres(e.target.value)} className={cls} />

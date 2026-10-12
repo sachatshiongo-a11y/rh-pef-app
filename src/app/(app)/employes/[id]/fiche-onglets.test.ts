@@ -46,7 +46,8 @@ describe("fiche salarié — Paie et Congés se lisent par année (?annee=)", ()
     expect(page).toMatch(/searchParams: Promise<\{[^}]*annee\?: string[^}]*page\?: string[^}]*par\?: string/);
     expect(page).toMatch(/const anneeHorloge = anneeCouranteKinshasa\(\)/);
     expect(page).toMatch(/lireAnneeFiche\(sp\.annee, anneesAvecDonnees\(.*\), anneeHorloge, true\)/); // Paie : « toutes » admis
-    expect(page).toMatch(/lireAnneeFiche\(sp\.annee, anneesDeConges\(.*\), anneeHorloge\)/); // Congés : une année
+    // Congés : une année. Par défaut l'année en cours — ou, pour un salarié parti, l'année de sa sortie (dernière année du bilan).
+    expect(page).toMatch(/: anneeHorloge;\s+const anneeVueConges = congesAnnees \? lireAnneeFiche\(sp\.annee, anneesDeConges\(.*\), anneeFinConges\)/);
   });
 
   it("la Paie passe par HistoriquePaie (tous les bulletins, page et taille lues dans l'adresse)", () => {

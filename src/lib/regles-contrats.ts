@@ -77,7 +77,5 @@ export function verifierProlongationEssai(
   return null;
 }
 
-/** Un contrat de ce type n'acquiert pas de congés payés (stage, intérim). */
-export function typeSansConges(type: string | null | undefined): boolean {
-  return type === "STAGE" || type === "INTERIM";
-}
+/** Un contrat de ce type n'acquiert pas de congés payés (stage, intérim). Définie avec les règles par période (lib/conges-periodes). */
+export { typeSansConges } from "@/lib/conges-periodes";
