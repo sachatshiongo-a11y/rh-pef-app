@@ -127,6 +127,33 @@ export async function excelModele(r: { modele: Modele; feuilles: FeuilleSortie[]
   return ecrireClasseur(r.modele.gabarit, r.feuilles);
 }
 
+/**
+ * Feuilles rendues par document PDF. Une semaine de commande, c'est 14 feuilles : rendues d'un seul
+ * bloc, react-pdf garde toute la mise en page en mémoire (~256 Mo de plus que pour un jour, mesuré),
+ * ce qui dépasse l'instance de production (512 Mo, Next compris) : le processus est tué et le
+ * téléchargement échoue. Rendues deux par deux (un jour : fiche cuisine + fiche bar) puis réunies,
+ * le pic reste celui d'un jour (~30 Mo).
+ */
+export const FEUILLES_PAR_DOCUMENT_PDF = 2;
+
 export async function pdfModele(r: { modele: Modele; feuilles: FeuilleSortie[] }, titre: string, pied?: string): Promise<Buffer> {
-  return renderPdfBuffer(DocumentModele({ titre, feuilles: r.feuilles.map((f) => ({ g: r.modele.gabarit, f })), ...(pied ? { pied } : {}) }));
+  // Une feuille sans tableau (« Fiche commande Salle », vide) n'imprime rien : elle ne compte pas.
+  const imprimees = r.feuilles.filter((f) => f.squelette);
+  const lots: FeuilleSortie[][] = [];
+  for (let i = 0; i < imprimees.length; i += FEUILLES_PAR_DOCUMENT_PDF) lots.push(imprimees.slice(i, i + FEUILLES_PAR_DOCUMENT_PDF));
+  const rendre = (feuilles: FeuilleSortie[], dernier: boolean) =>
+    renderPdfBuffer(DocumentModele({ titre, feuilles: feuilles.map((f) => ({ g: r.modele.gabarit, f })), ...(dernier && pied ? { pied } : {}) }));
+  if (lots.length <= 1) return rendre(lots[0] ?? [], true);
+
+  // Un lot après l'autre (jamais en parallèle : c'est le but), puis les pages mises bout à bout.
+  const { PDFDocument } = await import("pdf-lib");
+  const reuni = await PDFDocument.create();
+  reuni.setTitle(titre);
+  reuni.setAuthor("Pâtes en Folie");
+  for (const [i, lot] of lots.entries()) {
+    const partie = await PDFDocument.load(await rendre(lot, i === lots.length - 1));
+    for (const page of await reuni.copyPages(partie, partie.getPageIndices())) reuni.addPage(page);
+  }
+  // Sans flux d'objets : le dictionnaire des polices reste lisible en clair (contrôle des glyphes manquants).
+  return Buffer.from(await reuni.save({ useObjectStreams: false }));
 }
