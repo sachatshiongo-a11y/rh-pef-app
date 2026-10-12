@@ -92,7 +92,7 @@ describe("liste des fiches de poste", () => {
     const noms = [...form.querySelectorAll("[name]")].map((e) => e.getAttribute("name")).sort();
     expect(noms).toEqual([
       "categorieProfessionnelle", "competencesTechniques", "description", "descriptionPoste", "diplomesRequis", "echelleSalariale",
-      "experiencesExigees", "fichier", "formationsRequises", "poste", "savoirEtre", "superieurHierarchique", "tempsTravail", "typeContrat",
+      "experiencesExigees", "fichier", "formationsRequises", "poste", "risquesContraintes", "savoirEtre", "superieurHierarchique", "tempsTravail", "typeContrat",
     ]);
     expect((form.querySelector('[name="typeContrat"]') as HTMLInputElement).value).toBe("CDI");
     expect((form.querySelector('[name="poste"]') as HTMLInputElement).value).toBe("Cuisinière");

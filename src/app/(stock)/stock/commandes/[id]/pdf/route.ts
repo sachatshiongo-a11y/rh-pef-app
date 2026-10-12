@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { BonCommandeDocument } from "@/lib/pdf/bon-commande";
 import { CHAMPS_CONTENANCE } from "@/lib/libelle-article";
+import { chargerEntreprise } from "@/lib/entreprise";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await exigerEspaceStock();
@@ -11,7 +12,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const bc = await prisma.bonDeCommande.findUnique({
     where: { id },
-    include: { lignes: { include: { article: { select: CHAMPS_CONTENANCE } } }, fournisseur: true },
+    // L'article lié apporte la contenance (libellé), son unité et ses unités par carton (colonnes du bon).
+    include: { lignes: { include: { article: { select: { ...CHAMPS_CONTENANCE, unite: true, uniteParCarton: true } } } }, fournisseur: true },
   });
   if (!bc) return new Response("Bon de commande introuvable", { status: 404 });
   if (bc.statut === "BROUILLON") {
@@ -20,7 +22,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const acheteur = await prisma.parametresAchat.findUnique({ where: { id: "singleton" } });
 
-  const buffer = await renderPdfBuffer(BonCommandeDocument({ bc, fournisseur: bc.fournisseur, acheteur }));
+  const { entreprise, achats } = await chargerEntreprise(); // identité de la société : repli des informations de l'acheteur
+
+  const buffer = await renderPdfBuffer(BonCommandeDocument({ bc, fournisseur: bc.fournisseur, acheteur, societe: entreprise, achats }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

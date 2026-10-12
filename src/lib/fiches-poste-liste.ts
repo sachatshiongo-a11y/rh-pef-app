@@ -12,6 +12,7 @@ export type FicheDePoste = {
   poste: string;
   descriptionPoste: string | null;
   description: string | null;
+  risquesContraintes: string | null;
   typeContrat: string | null;
   echelleSalariale: string | null;
   categorieProfessionnelle: string | null;

@@ -87,6 +87,7 @@ export async function enregistrerFichePoste(formData: FormData) {
       const champ = (n: string) => String(formData.get(n) ?? "").trim() || null;
       const descriptionPoste = champ("descriptionPoste");
       const description = champ("description");
+      const risquesContraintes = champ("risquesContraintes");
       const donneesGenerateur = {
         typeContrat: champ("typeContrat"),
         echelleSalariale: champ("echelleSalariale"),
@@ -111,8 +112,8 @@ export async function enregistrerFichePoste(formData: FormData) {
 
       await prisma.fichePoste.upsert({
         where: { poste },
-        create: { poste, descriptionPoste, description, fichierUrl, fichierNom, creeParId: user.id, ...donneesGenerateur },
-        update: { descriptionPoste, description, fichierUrl, fichierNom, ...donneesGenerateur },
+        create: { poste, descriptionPoste, description, risquesContraintes, fichierUrl, fichierNom, creeParId: user.id, ...donneesGenerateur },
+        update: { descriptionPoste, description, risquesContraintes, fichierUrl, fichierNom, ...donneesGenerateur },
       });
 
       await journaliser(prisma, {

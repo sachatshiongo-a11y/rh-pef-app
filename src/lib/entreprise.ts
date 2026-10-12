@@ -14,6 +14,8 @@ export type EntrepriseResolue = {
   entreprise: typeof defaut;
   logo: ImagePdf;
   signature: ImagePdf | null;
+  /** Informations d'ACHAT de la société (bon de commande) : saisies dans Paramètres, null tant qu'elles sont vides. */
+  achats?: { adresseLivraison: string | null; contact: string | null };
 };
 
 /** Récupère un objet du bucket privé Supabase (chemin interne « /fichiers/<path> »). */
@@ -68,5 +70,7 @@ export async function chargerEntreprise(): Promise<EntrepriseResolue> {
     if (b) signature = { data: b, format: fmt(p.signatureNom) };
   }
 
-  return { entreprise, logo, signature };
+  const achats = { adresseLivraison: p?.adresseLivraison?.trim() || null, contact: p?.contactAchats?.trim() || null };
+
+  return { entreprise, logo, signature, achats };
 }

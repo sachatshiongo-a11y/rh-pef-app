@@ -138,6 +138,15 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
               />
             </label>
           ))}
+          {/* Bon de commande (Stock) : l'acheteur est la société ; ces deux informations n'ont pas d'autre endroit. */}
+          <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+            Adresse de livraison (bons de commande)
+            <input type="text" name="adresseLivraison" defaultValue={paramEnt?.adresseLivraison ?? ""} placeholder="Vide : le lieu de travail (restaurant)" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+          </label>
+          <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+            Contact acheteur (bons de commande)
+            <input type="text" name="contactAchats" defaultValue={paramEnt?.contactAchats ?? ""} placeholder="Nom de la personne à joindre" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+          </label>
           <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-0.5">Logo (en-tête des documents) — PNG/JPG

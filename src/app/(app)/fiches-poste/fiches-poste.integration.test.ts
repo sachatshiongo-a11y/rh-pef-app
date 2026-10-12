@@ -79,6 +79,36 @@ describe("suppression groupée des fiches", () => {
   });
 });
 
+describe("saisie des risques et contraintes du poste", () => {
+  const formulaire = (poste: string, extra: Record<string, string> = {}) => {
+    const fd = new FormData(); fd.append("poste", poste);
+    for (const [k, v] of Object.entries(extra)) fd.append(k, v);
+    return fd;
+  };
+
+  it("enregistrée avec la fiche (espaces retirés), effacée quand on vide le champ, jamais mélangée aux autres rubriques", async () => {
+    await envoyer(() => POSTES.enregistrerFichePoste(formulaire("Cuisinière", { descriptionPoste: "Prépare les plats", risquesContraintes: "  Station debout prolongée\nMilieu bruyant  " })));
+    let f = await prisma.fichePoste.findUniqueOrThrow({ where: { poste: "Cuisinière" } });
+    expect(f.risquesContraintes).toBe("Station debout prolongée\nMilieu bruyant");
+    expect(f.descriptionPoste).toBe("Prépare les plats");
+    expect(f.description).toBeNull();
+
+    await envoyer(() => POSTES.enregistrerFichePoste(formulaire("Cuisinière", { descriptionPoste: "Prépare les plats", risquesContraintes: "   " })));
+    f = await prisma.fichePoste.findUniqueOrThrow({ where: { poste: "Cuisinière" } });
+    expect(f.risquesContraintes).toBeNull();
+  });
+
+  it("le PDF de la fiche imprime la rubrique saisie, et la mention du modèle", async () => {
+    const { genererFichePostePdf } = await import("@/lib/pdf/fiche-poste-buffer");
+    const f = await prisma.fichePoste.create({ data: { poste: "Plongeur", risquesContraintes: "Sols glissants\nChaleur" } });
+    const pdf = await genererFichePostePdf(f.id);
+    const { pagesDuPdf } = await import("@/lib/test/pdf-lecture");
+    const texte = (await pagesDuPdf(pdf!.buffer)).map((p) => p.plat).join(" ");
+    expect(texte).toContain("Risques et contraintes du poste : • Sols glissants • Chaleur");
+    expect(texte).toContain("ne décrit pas les activités de façon exhaustive");
+  }, 60000);
+});
+
 describe("PDF en lot (ZIP)", () => {
   it("un PDF par fiche demandée, nommé comme l'unitaire ; un id inconnu est DIT dans un LISEZMOI.txt", async () => {
     const [a, b] = await fiches();

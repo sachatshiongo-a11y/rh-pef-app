@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { estDocumentee, filtrerFichesPoste, grouperParDepartement, lignesFichesPoste, premiereLigne, SANS_DEPARTEMENT, type FicheDePoste } from "./fiches-poste-liste";
 
 const fiche = (poste: string, extra: Partial<FicheDePoste> = {}): FicheDePoste => ({
-  id: `f-${poste}`, poste, descriptionPoste: null, description: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
+  id: `f-${poste}`, poste, descriptionPoste: null, description: null, risquesContraintes: null, typeContrat: null, echelleSalariale: null, categorieProfessionnelle: null,
   superieurHierarchique: null, tempsTravail: null, competencesTechniques: null, savoirEtre: null, formationsRequises: null, diplomesRequis: null,
   experiencesExigees: null, fichierUrl: null, fichierNom: null, ...extra,
 });

@@ -216,6 +216,8 @@ model ParamEntreprise {
   rccm          String?
   idNat         String?
   numImpot      String?
+  adresseLivraison String? // « Adresse de livraison » du bon de commande ; vide = le lieu de travail (restaurant)
+  contactAchats String? // « Contact » de l'acheteur sur le bon de commande
   logoUrl       String? // logo d'en-tête des documents (Storage)
   logoNom       String?
   signatureUrl  String? // signature de la Direction (Storage)
@@ -841,6 +843,7 @@ model FichePoste {
   poste       String   @unique
   descriptionPoste String? @db.Text // mission / rôle (« Description du poste »)
   description String?  @db.Text // responsabilités / missions (« Description des tâches »)
+  risquesContraintes String? @db.Text // « Risques et contraintes du poste » (une par ligne), propre à chaque poste
   // Champs du modèle « fiche de poste » (générateur PDF). La classe/catégorie est déduite des salariés du poste.
   typeContrat           String? // ex. « CDD à temps partiel »
   echelleSalariale      String? // ex. « 100 usd »
