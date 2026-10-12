@@ -35,8 +35,10 @@ import { libelleJourLong } from "@/lib/jour-mobile";
 import { lireSaisieNombre, versSaisie } from "@/lib/nombre";
 import {
   calculerHeuresSupp,
+  numeroSemaineDuMois,
   resumerPresences,
   type CodePresence,
+  type DetailSemaineHS,
   type ParametresPaie,
 } from "@/lib/payroll";
 import type { AttendanceCode } from "@prisma/client";
@@ -497,7 +499,7 @@ export function TempsGrid({
 
   // ── Totaux vivants (présences + heures supp) calculés depuis l'état local ──
   const totaux = useMemo(() => {
-    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number | null }> = {};
+    const t: Record<string, { p100: number; p23: number; np: number; h: number; hs: number; hsVal: number | null; semaines: DetailSemaineHS[] }> = {};
     for (const e of employees) {
       const codes: CodePresence[] = [];
       const jours: { date: Date; heuresTravaillees: number }[] = [];
@@ -518,12 +520,18 @@ export function TempsGrid({
         joursFeries,
         params,
       });
-      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hs.totalHS, hsVal: e.hsValoriseePaie ?? null };
+      t[e.id] = { p100: r.payes100, p23: r.payes2_3, np: r.nonPayes, h: hs.heuresTotalesMois, hs: hs.totalHS, hsVal: e.hsValoriseePaie ?? null, semaines: hs.semaines };
     }
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cellules, employees]);
-  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsVal: null };
+  const totauxDe = (id: string) => totaux[id] ?? { p100: 0, p23: 0, np: 0, h: 0, hs: 0, hsVal: null, semaines: [] };
+  /** Heures supp. de la SEMAINE affichée (même calcul que la paie : seuils jour et semaine du contrat). */
+  const numeroSemaineAffichee = joursSemaine.length > 0 ? numeroSemaineDuMois(new Date(`${isoDates[joursSemaine[0] - 1]}T00:00:00Z`)) : 0;
+  const hsDeLaSemaine = (id: string) => {
+    const s = totauxDe(id).semaines.find((x) => x.semaine === numeroSemaineAffichee);
+    return s ? s.hs30 + s.hs60 + s.hs100 : 0;
+  };
   /** « HS valorisées » : le montant de la PAIE (dernier enregistrement), « — » si la paie n'en paie pas. */
   const fmtHsVal = (v: number | null) => (v === null ? "—" : formaterUSD(v));
   /** Somme simple des heures saisies sur les jours de la semaine affichée (lecture, aucun calcul de paie). */
@@ -712,7 +720,7 @@ export function TempsGrid({
   /** Nom + sous-ligne de totaux d'un employé (vues Semaine et Mois). */
   function celluleNom(e: EmployeeRow) {
     const t = totauxDe(e.id);
-    const detail = `Payés 100 % : ${formaterNombre(t.p100)} j · payés 2/3 : ${formaterNombre(t.p23)} j · non payés : ${formaterNombre(t.np)} j · heures du mois : ${fmtH(t.h)} · heures supp. : ${fmtH(t.hs)} (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
+    const detail = `Payés 100 % : ${formaterNombre(t.p100)} j · payés 2/3 : ${formaterNombre(t.p23)} j · non payés : ${formaterNombre(t.np)} j · heures du mois : ${fmtH(t.h)} · heures supp. du mois : ${fmtH(t.hs)} — au-delà de ${fmtH(e.heuresParJour)} h/jour ou ${fmtH(e.heuresHebdo)} h/semaine du contrat, jours saisis d'avance compris, même calcul que la paie (valorisées par la paie : ${fmtHsVal(t.hsVal)})`;
     return (
       <div role="rowheader" className="flex min-w-0 items-center gap-2 px-2 py-1">
         {peutModifier && (
@@ -724,8 +732,21 @@ export function TempsGrid({
         <span className="min-w-0">
           <button type="button" onClick={() => ouvrirEmploye(e.id)} title="Voir son mois" className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline">{e.nom}</button>
           <span className="block truncate text-[11px] tabular-nums text-muted-foreground" title={detail}>
-            {vue === "semaine" ? `${fmtH(heuresDeLaSemaine(e.id))} h · mois ${fmtH(t.h)}` : `${fmtH(t.h)} h`}
-            {t.hs > 0 && <span className="font-medium text-amber-700"> · HS {fmtH(t.hs)}</span>}
+            {/* « HS » dit TOUJOURS sa période : la semaine affichée à côté de ses heures, le mois à côté du
+                mois (avant : « 16 h · mois 76 · HS 12 » mêlait les heures de la semaine et les HS du mois). */}
+            {vue === "semaine" ? (
+              <>
+                {`sem. ${fmtH(heuresDeLaSemaine(e.id))} h`}
+                {hsDeLaSemaine(e.id) > 0 && <span className="font-medium text-amber-700">{` (HS ${fmtH(hsDeLaSemaine(e.id))})`}</span>}
+                {` · mois ${fmtH(t.h)} h`}
+                {t.hs > 0 && <span className="font-medium text-amber-700">{` (HS ${fmtH(t.hs)})`}</span>}
+              </>
+            ) : (
+              <>
+                {`${fmtH(t.h)} h`}
+                {t.hs > 0 && <span className="font-medium text-amber-700">{` · HS du mois ${fmtH(t.hs)}`}</span>}
+              </>
+            )}
           </span>
           {e.sortieLe && (
             <span className="mt-0.5 inline-block rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground" title="Fin de contrat : les jours suivants ne se saisissent plus">
