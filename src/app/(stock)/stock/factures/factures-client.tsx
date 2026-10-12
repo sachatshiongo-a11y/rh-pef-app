@@ -34,7 +34,7 @@ export type FactureRow = {
   reste: number;
   statut: string;
   documentUrl: string | null;
-  /** Un paiement de cette facture attend la Direction (« Demandes à valider ») : pas de second geste. */
+  /** Un paiement de cette facture attend la Direction (« À valider ») : pas de second geste. */
   paiementDemande?: boolean;
 };
 

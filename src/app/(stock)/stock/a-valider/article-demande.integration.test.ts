@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : modification d'article soumise à la
-// validation de la Direction. Vraies actions serveur du catalogue et de « Demandes à valider ».
+// validation de la Direction. Vraies actions serveur du catalogue et de « À valider ».
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN" as string, nom: "Direction", accesStock: false } }));
 vi.mock("@/lib/prisma", () => ({
@@ -192,7 +192,7 @@ describe("La Direction décide de ce qu'elle a VU (jeton de version)", () => {
     const riz = await article("Riz", { quantite: 10 });
     en("resp"); await C.modifierArticle(riz, fd({ nomCourt: "HUI" }));
     const [d] = await demandes();
-    const vue = await v([d.id]); // la Direction ouvre « Demandes à valider »
+    const vue = await v([d.id]); // la Direction ouvre « À valider »
     await new Promise((r) => setTimeout(r, 5));
     expect(await C.modifierArticle(riz, fd({ prixUnitaireUSD: "200", quantite: "5000" }))).toMatchObject({ proposition: true }); // retouche de l'auteur
     en("dir");

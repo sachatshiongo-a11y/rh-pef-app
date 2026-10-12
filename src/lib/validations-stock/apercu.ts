@@ -1,6 +1,6 @@
 import "server-only";
 
-// APERÇU DES DEMANDES pour l'écran « Demandes à valider » : ce que la Direction doit voir pour
+// APERÇU DES DEMANDES pour l'écran « À valider » : ce que la Direction doit voir pour
 // décider (factures et restes, écarts de comptage et leur valeur, avant/après champ par champ) ET
 // ce qui a changé depuis la demande (conflit prévisible), calculé avec les MÊMES règles que la
 // validation (`etatLigneAValider`, `valeursEgales`) — l'écran n'annonce pas une validation que le

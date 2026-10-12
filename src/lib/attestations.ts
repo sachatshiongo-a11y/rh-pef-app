@@ -194,7 +194,7 @@ export async function demanderAttestation(
       refId: `attestation:${r.id}`,
     });
   } catch {
-    // La demande est enregistrée ; elle apparaît dans « Demandes de validation » de toute façon.
+    // La demande est enregistrée ; elle apparaît dans « À valider » de toute façon.
   }
   return { ok: true, id: r.id };
 }
@@ -274,7 +274,7 @@ export async function delivrerAttestation(
       employeeId = p.employeeId;
       type = p.type;
       // Une demande du même type attend : la délivrance directe la SATISFAIT plutôt que de laisser
-      // une demande orpheline. COURSE : « Demandes de validation » a pu la traiter entre la lecture
+      // une demande orpheline. COURSE : « À valider » a pu la traiter entre la lecture
       // et le verrou — on RELIT son statut sous verrou et on ne la reprend que si elle est encore
       // DEMANDEE. Sinon la délivrance directe crée SA propre attestation : un numéro déjà délivré
       // n'est jamais écrasé, une demande refusée ne repasse jamais délivrée.
@@ -399,7 +399,7 @@ export async function figerAttestation(
 ): Promise<void> {
   try {
     // Import À LA DEMANDE : le moteur PDF (react-pdf, polices) ne pèse que sur la délivrance, pas sur
-    // chaque page qui importe ces actions (« Demandes de validation », fiche employé).
+    // chaque page qui importe ces actions (« À valider », fiche employé).
     const { rendreAttestationPdf } = await import("@/lib/pdf/attestation-buffer");
     const pdf = await rendreAttestationPdf(a);
     const url = await televerserFichier(`attestations/${a.id}-${a.delivreeLe.getTime()}.pdf`, pdf, "application/pdf");

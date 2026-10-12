@@ -201,7 +201,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
 export async function exigerAucunPaiementDemande(client: Tx | typeof prisma, factureIds: string[]) {
   const prises = await client.cibleDemandeStock.findMany({ where: { cle: { in: factureIds.map(cleFacture) } }, include: { demande: { select: { resume: true, auteurNom: true } } } });
   if (prises.length > 0) {
-    throw new Error(`Un paiement est déjà demandé (« ${prises[0].demande.resume} », ${prises[0].demande.auteurNom}) : validez ou refusez cette demande dans « Demandes à valider », pour ne pas régler deux fois.`);
+    throw new Error(`Un paiement est déjà demandé (« ${prises[0].demande.resume} », ${prises[0].demande.auteurNom}) : validez ou refusez cette demande dans « À valider », pour ne pas régler deux fois.`);
   }
 }
 
@@ -287,7 +287,7 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
         const p = prises[0];
         const art = noms.get(p.cle.slice(p.cle.indexOf(":") + 1)) ?? "Un article";
         const quoi = p.demande.nature === "MOUVEMENT_MANUEL" ? "d'un mouvement manuel" : "d'une réconciliation";
-        throw new Error(`« ${art} » fait partie ${quoi} en attente de votre décision (« ${p.demande.resume} », ${p.demande.auteurNom}) : validez-la ou refusez-la d'abord dans « Demandes à valider ».`);
+        throw new Error(`« ${art} » fait partie ${quoi} en attente de votre décision (« ${p.demande.resume} », ${p.demande.auteurNom}) : validez-la ou refusez-la d'abord dans « À valider ».`);
       }
     }
     const niveauxAvant = niveauxDe(stocks);

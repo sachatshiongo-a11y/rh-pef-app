@@ -9,15 +9,13 @@ import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
 import { DemandesAValider } from "./demandes-client";
 import { totalAValiderStock } from "@/lib/a-valider-compteur";
 import { RubriquesAValider, type RubriqueAValider } from "@/components/rubriques-a-valider";
+import { DernieresDecisions } from "@/components/dernieres-decisions";
+import { AussiEnAttente } from "@/components/aussi-en-attente";
+import { chargerAttenteDirection } from "@/lib/a-valider-chargeurs";
 
-const STATUT_DECISION: Record<string, { texte: string; cls: string }> = {
-  VALIDEE: { texte: "Validée", cls: "bg-emerald-100 text-emerald-800" },
-  REFUSEE: { texte: "Refusée", cls: "bg-red-100 text-red-800" },
-  ANNULEE: { texte: "Retirée", cls: "bg-muted text-muted-foreground" },
-};
 const quand = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" }) : "—");
 
-// File « Demandes à valider » de l'espace Stock : bons de commande en brouillon, puis les demandes
+// File « À valider » de l'espace Stock : bons de commande en brouillon, puis les demandes
 // que la Direction doit trancher (paiements de factures, réconciliations, modifications d'articles).
 // Un compte qui n'est pas la Direction y voit SES demandes (en attente, et les dernières décisions).
 export default async function AValiderPage() {
@@ -25,7 +23,7 @@ export default async function AValiderPage() {
   const estDirection = user.role === "ADMIN";
   const miennes = estDirection ? {} : { auteurId: user.id };
 
-  const [brouillons, enAttente, decidees] = await Promise.all([
+  const [brouillons, enAttente, decidees, ailleurs] = await Promise.all([
     prisma.bonDeCommande.findMany({
       where: { statut: "BROUILLON" },
       orderBy: [{ annee: "desc" }, { sequence: "desc" }],
@@ -33,6 +31,8 @@ export default async function AValiderPage() {
     }),
     apercusDemandes({ statut: "EN_ATTENTE", ...miennes }, { detail: true }),
     apercusDemandes({ statut: { not: "EN_ATTENTE" }, ...miennes }, { take: 15 }),
+    // Direction seulement : ce qui attend dans les autres espaces (« Aussi en attente », V11).
+    estDirection ? chargerAttenteDirection({ id: user.id, role: user.role }, "stock") : Promise.resolve(null),
   ]);
 
   // Le MÊME total que le badge du menu (`lib/a-valider-compteur.ts`).
@@ -73,7 +73,7 @@ export default async function AValiderPage() {
     <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Demandes à valider</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">À valider</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {estDirection
               ? "Bons de commande, paiements de factures, réconciliations du stock et modifications d'articles en attente de votre décision. Tant qu'une demande n'est pas validée, rien n'est payé ni modifié."
@@ -86,30 +86,22 @@ export default async function AValiderPage() {
         </div>
       </div>
 
+      <AussiEnAttente courant="stock" attente={ailleurs} />
+
       <div>
         <RubriquesAValider rubriques={rubriques} />
       </div>
 
-      {decidees.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted-foreground">{estDirection ? "Dernières décisions" : "Mes dernières demandes traitées"}</h2>
-          <ul className="divide-y rounded-lg border text-sm">
-            {decidees.map((d) => (
-              <li key={d.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{d.resume}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {NATURE_LIBELLE[d.nature]} · demandé par {d.auteurNom} le {quand(d.creeLe)}
-                    {d.decideLe ? ` · ${d.statut === "ANNULEE" ? "retirée" : `décidée par ${d.decideurNom ?? "—"}`} le ${quand(d.decideLe)}` : ""}
-                  </p>
-                  {d.motifRefus && <p className="text-xs text-red-800">Motif : {d.motifRefus}</p>}
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_DECISION[d.statut]?.cls ?? ""}`}>{STATUT_DECISION[d.statut]?.texte ?? d.statut}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <DernieresDecisions
+        titre={estDirection ? "Dernières décisions" : "Mes dernières demandes traitées"}
+        decisions={decidees.map((d) => ({
+          id: d.id,
+          resume: d.resume,
+          detail: `${NATURE_LIBELLE[d.nature]} · demandé par ${d.auteurNom} le ${quand(d.creeLe)}${d.decideLe ? ` · ${d.statut === "ANNULEE" ? "retirée" : `décidée par ${d.decideurNom ?? "—"}`} le ${quand(d.decideLe)}` : ""}`,
+          statut: d.statut,
+          motifRefus: d.motifRefus,
+        }))}
+      />
     </div>
   );
 }

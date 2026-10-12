@@ -156,7 +156,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
       {/* Paiements, réconciliations, articles en attente de la Direction (toutes pour elle, les siennes sinon). */}
       {nbDemandes > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
-          <span className="font-semibold text-amber-900">{estDirection ? `Demandes à valider (${nbDemandes})` : `Mes demandes en attente de la Direction (${nbDemandes})`}</span>
+          <span className="font-semibold text-amber-900">{estDirection ? `À valider (${nbDemandes})` : `Mes demandes en attente de la Direction (${nbDemandes})`}</span>
           {demandesParNature.map((g) => (
             <span key={g.nature} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">{NATURE_LIBELLE[g.nature]} : {g._count._all}</span>
           ))}

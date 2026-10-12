@@ -9,7 +9,7 @@ import { BoutonApprouver, BoutonRefuser, BoutonNeutre } from "@/components/actio
 /**
  * Décision sur UNE demande, là où elle se voit (fiche facture, fiche article) : Valider / Refuser
  * (motif) pour la Direction, « Retirer ma demande » pour son auteur. Mêmes actions serveur que la
- * page « Demandes à valider » — qui revérifient les droits, ce bouton n'est qu'un raccourci.
+ * page « À valider » — qui revérifient les droits, ce bouton n'est qu'un raccourci.
  * `dateProposee` : demande de paiement → la Direction peut corriger la date avant de valider.
  */
 export function DecisionDemande({ id, version, estDirection, estAuteur, dateProposee }: { id: string; version: string; estDirection: boolean; estAuteur: boolean; dateProposee?: string }) {

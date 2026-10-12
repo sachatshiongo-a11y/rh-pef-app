@@ -1,7 +1,7 @@
 // Contenu d'une demande à valider, tel que la Direction doit le voir pour décider : factures et
 // restes, écarts de comptage et leur valeur, avant/après champ par champ — et ce qui a changé
 // depuis (alerte). Composant de PRÉSENTATION pur (ni état ni action) : rendu sur la page
-// « Demandes à valider » (composant client) comme sur la fiche facture / article (serveur).
+// « À valider » (composant client) comme sur la fiche facture / article (serveur).
 import Link from "next/link";
 import type { ApercuDemande } from "@/lib/validations-stock/apercu";
 import { formaterFC, formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";

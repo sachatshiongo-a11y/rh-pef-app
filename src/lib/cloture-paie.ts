@@ -15,7 +15,7 @@ export type TacheBloquante = {
  * - contrat arrivant à échéance dans le mois (à prolonger/transformer/rompre) ;
  * - période d'essai se terminant dans le mois (à transformer en CDI/CDD ou rompre) ;
  * - jour codé « Présent » (P) SANS heures saisies (à corriger dans Présences/Heures supp.).
- * Se résolvent via les Demandes de validation (acompte), le Dossier employé (contrats) et la
+ * Se résolvent via « À valider » (acompte), le Dossier employé (contrats) et la
  * grille Présences & heures.
  */
 export async function tachesBloquantesCloture(mois: number, annee: number): Promise<TacheBloquante[]> {

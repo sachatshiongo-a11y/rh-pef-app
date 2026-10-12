@@ -4,10 +4,17 @@ import type { CandidatBarre, GroupeMenu } from "@/lib/navigation-espaces";
 
 export const NAV_GROUPS: GroupeMenu[] = [
   {
-    titre: "Les essentiels",
+    titre: "Pilotage",
     items: [
       { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
-      { href: "/a-valider", label: "Demandes de validation", icone: "valider", adminOnly: true },
+      // « À valider » : même nom, même place (2e ligne) dans les trois espaces, VISIBLE PAR TOUS LES RÔLES
+      // (plan d'ergonomie, V1) — la Direction y décide, les autres y suivent leurs demandes.
+      { href: "/a-valider", label: "À valider", icone: "valider" },
+    ],
+  },
+  {
+    titre: "Les essentiels",
+    items: [
       { href: "/employes", label: "Employés", icone: "employes" },
       { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
       { href: "/paie", label: "Paie", icone: "billet" },
@@ -38,15 +45,15 @@ export const NAV_GROUPS: GroupeMenu[] = [
 /**
  * Barre du bas (téléphone) — les gestes quotidiens de la RH d'un restaurant : le tableau de bord,
  * la saisie des présences (chaque jour, elle alimente la paie), le planning de la brigade, puis la
- * pile de demandes à trancher (congés, acomptes, changements de shift — badge rouge). « Demandes de
- * validation » étant réservé à la Direction, un Responsable RH reçoit à la place « Congés », qui
- * porte le badge des congés en attente.
+ * pile de demandes à trancher (congés, acomptes, changements de shift — badge rouge). Ce bouton est
+ * celui de la DIRECTION seule (V10) : un Responsable RH ou une personne en consultation reçoit à la
+ * place « Congés », qui porte le badge des congés en attente.
  */
 export const BARRE_DU_BAS: CandidatBarre[] = [
   { href: "/accueil", court: "Accueil" },
   { href: "/presences", court: "Présences" },
   { href: "/planning", court: "Planning" },
-  { href: "/a-valider", court: "À valider" },
+  { href: "/a-valider", court: "À valider", roles: ["ADMIN"] },
   { href: "/conges", court: "Congés" },
 ];
 

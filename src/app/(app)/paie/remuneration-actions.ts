@@ -247,7 +247,7 @@ export async function supprimerAvantageNature(id: string) {
   });
 }
 
-/** Demande d'acompte sur salaire (à approuver dans les Demandes de validation). */
+/** Demande d'acompte sur salaire (à approuver dans « À valider »). */
 export async function demanderAcompte(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();

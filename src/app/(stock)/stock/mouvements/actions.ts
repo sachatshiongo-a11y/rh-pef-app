@@ -54,7 +54,7 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
   const fait = (m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.") + rattache;
   // Une ancienne demande en attente vise aussi ces articles : si c'est le même mouvement, la valider le compterait deux fois.
   const avertissement = demandesEnAttente.length
-    ? ` Attention : une ancienne demande en attente de la Direction vise aussi ${demandesEnAttente.map((d) => `« ${d} »`).join(", ")}. S'il s'agit du même mouvement, retirez-la dans « Demandes à valider » (sinon elle serait comptée deux fois).`
+    ? ` Attention : une ancienne demande en attente de la Direction vise aussi ${demandesEnAttente.map((d) => `« ${d} »`).join(", ")}. S'il s'agit du même mouvement, retirez-la dans « À valider » (sinon elle serait comptée deux fois).`
     : "";
   return { demande: false, message: fait + avertissement };
 });
