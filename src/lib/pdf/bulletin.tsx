@@ -342,6 +342,22 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   // récapitulative.
   const estBrigade = employee.categorie === "BRIGADE";
 
+  // Absences et maladie (décisions Direction 2026-10-12), chacune sur sa ligne. `?? 0` : une archive
+  // antérieure n'a pas ces champs, elle s'imprime comme avant.
+  const nb = (v: unknown) => Number(v ?? 0);
+  const retenueAbsences = nb(ligne.retenueAbsencesUSD);
+  const retenueMaladie = nb(ligne.retenueMaladieUSD);
+  const joursAbsenceRetenus = nb(ligne.joursAbsenceRetenus);
+  const joursMaladieNon = nb(ligne.joursMaladieNonJustifies);
+  const joursMaladieOui = nb(ligne.joursMaladieJustifies);
+  const maladieJustifieeUSD = nb(ligne.remunerationMaladieJustifieeUSD);
+  const prorata = ligne.prorataJoursTravailles != null && ligne.prorataJoursMois != null
+    ? `${fmtQte(Number(ligne.prorataJoursTravailles))} j ouvrables sur ${fmtQte(Number(ligne.prorataJoursMois))}`
+    : null;
+  /** Une retenue : entre parenthèses (convention maison des montants négatifs, jamais un signe moins). */
+  const retenue = (usd: number) => `(${m(usd)})`;
+  const jj = (n: number) => `${fmtQte(n)} j`;
+
   const nbJours = new Date(Date.UTC(run.annee, run.mois, 0)).getUTCDate();
   const joursCal = Array.from({ length: nbJours }, (_, i) => {
     const jour = i + 1;
@@ -419,21 +435,36 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
                 designation="Jours payés non travaillés (congés, fériés, repos)"
                 base={
                   heuresPayeesNonTravaillees > 0
-                    ? `${fmtQte(heuresPayeesNonTravaillees)} h (${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j)`
-                    : `${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j`
+                    ? `${fmtQte(heuresPayeesNonTravaillees)} h (${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0) - (maladieJustifieeUSD > 0 ? joursMaladieOui : 0))} j)`
+                    : `${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0) - (maladieJustifieeUSD > 0 ? joursMaladieOui : 0))} j`
                 }
-                montant={m(Number(ligne.remunerationJoursPayesUSD))}
+                montant={m(Number(ligne.remunerationJoursPayesUSD) - maladieJustifieeUSD)}
               />
+              {maladieJustifieeUSD > 0 && (
+                <Row designation="Maladie justifiée (certificat), payée 100 %" base={jj(joursMaladieOui)} montant={m(maladieJustifieeUSD)} />
+              )}
             </>
           ) : (
-            <Row
-              designation="Salaire de base"
-              base={estBrigade ? `${fmtQte(heuresNormales)} h` : undefined}
-              montant={m(salaireBaseLigne)}
-            />
+            <>
+              {/* Salaire au mois : la base (au prorata d'une entrée/sortie), puis chaque retenue. */}
+              <Row
+                designation={prorata ? `Salaire de base au prorata (${prorata})` : "Salaire de base"}
+                base={estBrigade ? `${fmtQte(heuresNormales)} h` : undefined}
+                montant={m(salaireBaseLigne + retenueAbsences + retenueMaladie)}
+              />
+              {retenueAbsences > 0 && (
+                <Row designation="Absences non payées (N, sans solde), 1/26e par jour" base={jj(joursAbsenceRetenus)} montant={retenue(retenueAbsences)} />
+              )}
+              {retenueMaladie > 0 && (
+                <Row designation="Maladie sans justificatif, payée 2/3 (retenue 1/3)" base={jj(joursMaladieNon)} montant={retenue(retenueMaladie)} />
+              )}
+              {!estBrigade && joursMaladieOui > 0 && (
+                <Row designation="Maladie justifiée (certificat), payée 100 %" base={jj(joursMaladieOui)} />
+              )}
+            </>
           )}
           {Number(ligne.remuneration2_3) > 0 && (
-            <Row designation="Indemnité maladie (2/3)" montant={m(Number(ligne.remuneration2_3))} />
+            <Row designation={joursMaladieNon > 0 ? "Maladie sans justificatif, payée 2/3" : "Indemnité maladie (2/3)"} base={joursMaladieNon > 0 ? jj(joursMaladieNon) : undefined} montant={m(Number(ligne.remuneration2_3))} />
           )}
           {totHS > 0 && (
             <Row designation="Heures supplémentaires" base={`${fmtQte(totHS)} h`} montant={m(Number(ligne.hsValorisee))} />
