@@ -3,6 +3,8 @@
 //   /stock/utilisateurs                 → /parametres#utilisateurs         (rubrique de Paramètres)
 //   /stock/archives  (et ?vue=comptages) → /stock/reconciliation?vue=comptages (onglet « Comptages passés »)
 //   /stock/archives?vue=bons             → /stock/commandes?statut=VALIDE      (filtre d'état « Validés »)
+// LOT 8 (V8) :
+//   /stock/parametres                    → /stock/cloture                     (la clôture du mois, ex-rubrique de Paramètres)
 // Éprouvé sur les VRAIES pages : la redirection est levée par Next (`redirect`), son code (307) et sa cible
 // sont lus dans l'erreur levée. La garde Stock reste la 1re instruction (un compte hors Stock ne passe pas).
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -81,5 +83,18 @@ describe("/stock/archives", () => {
   it("la garde Stock est appelée avant la redirection", async () => {
     await archives({ vue: "bons" });
     expect(G.garde).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("/stock/parametres (lot 8, V8)", () => {
+  it("l'ancienne adresse de la clôture du stock renvoie vers « Clôture du mois » (307), plus vers Paramètres", async () => {
+    const { default: Page } = await import("./parametres/page");
+    expect(await redirection(() => Page())).toEqual({ statut: 307, cible: "/stock/cloture" });
+  });
+
+  it("garde Stock d'abord : un compte refusé est renvoyé avant toute redirection", async () => {
+    G.garde.mockRejectedValueOnce(Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/entree;307;" }));
+    const { default: Page } = await import("./parametres/page");
+    expect(await redirection(() => Page())).toEqual({ statut: 307, cible: "/entree" });
   });
 });

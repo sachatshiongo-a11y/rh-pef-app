@@ -17,11 +17,11 @@ export function lireJourSaisie(dateIso: string, nature: string): Date {
   return d;
 }
 
-/** Refuse la saisie d'un jour dont la période est clôturée (Paramètres → Clôture mensuelle). */
+/** Refuse la saisie d'un jour dont la période est clôturée (Stock → Clôture du mois). */
 export async function exigerJourSaisissable(date: Date, objet: string): Promise<void> {
   const borne = await derniereClotureStock();
   if (!estDansPeriodeFigee(date, borne)) return;
   const periode = `${String(borne!.mois).padStart(2, "0")}/${borne!.annee}`;
   const jour = date.toISOString().slice(0, 10).split("-").reverse().join("/");
-  throw new Error(`La période ${periode} est clôturée : ${objet} du ${jour} sont en lecture seule. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)`);
+  throw new Error(`La période ${periode} est clôturée : ${objet} du ${jour} sont en lecture seule. (Direction : Stock → Clôture du mois pour la rouvrir.)`);
 }

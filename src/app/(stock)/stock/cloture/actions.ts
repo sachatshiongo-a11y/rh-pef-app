@@ -23,7 +23,7 @@ async function gardeDirection() {
  * un mois déjà clôturé (rouvrez-le d'abord : l'instantané n'est jamais réécrit en silence).
  */
 export async function cloturerMoisStock(annee: number, mois: number) {
-  await formulaireLisible("/parametres", async () => {
+  await formulaireLisible("/stock/cloture", async () => {
     const user = await gardeDirection();
     exigerMoisClorable(annee, mois, moisCourantKinshasa());
     if (await prisma.clotureStock.findUnique({ where: { annee_mois: { annee, mois } }, select: { id: true } })) throw new Error(messageDejaCloture(annee, mois));
@@ -37,17 +37,17 @@ export async function cloturerMoisStock(annee: number, mois: number) {
       throw e;
     }
     await journaliser(prisma, { entite: "ClotureStock", entiteId: `${annee}-${mois}`, champ: "cloture", nouvelleValeur: `clôturé — stock ${snapshot.valeurTotaleUSD.toFixed(2)} $${snapshot.nbSansPrix > 0 ? ` (partiel : ${snapshot.nbSansPrix} sans prix)` : ""}`, userId: user.id });
-    revalidatePath("/parametres");
+    revalidatePath("/stock/cloture");
   });
 }
 
 /** Rouvre un mois de stock clôturé (les erreurs reviennent par la page : action de formulaire). */
 export async function rouvrirMoisStock(annee: number, mois: number) {
-  await formulaireLisible("/parametres", async () => {
+  await formulaireLisible("/stock/cloture", async () => {
     const user = await gardeDirection();
     const n = await prisma.clotureStock.deleteMany({ where: { annee, mois } });
     if (n.count === 0) throw new Error("Ce mois n'est pas clôturé (peut-être déjà rouvert) : rien n'a changé.");
     await journaliser(prisma, { entite: "ClotureStock", entiteId: `${annee}-${mois}`, champ: "cloture", nouvelleValeur: "rouvert", userId: user.id });
-    revalidatePath("/parametres");
+    revalidatePath("/stock/cloture");
   });
 }

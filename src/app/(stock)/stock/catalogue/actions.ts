@@ -196,7 +196,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
   await prisma.$transaction(async (tx) => {
     // CLÔTURE : rattacher à l'article conservé les mouvements d'un doublon réécrit l'historique PAR ARTICLE des
     // mois figés (consommations, rapports de ces mois). La fusion est donc refusée tant qu'un doublon a des
-    // mouvements datés d'une période clôturée — la Direction rouvre ces mois (Paramètres → Clôture mensuelle),
+    // mouvements datés d'une période clôturée — la Direction rouvre ces mois (Stock → Clôture du mois),
     // fusionne, puis reclôture. Le total du stock ne change pas, mais « une période clôturée ne se réécrit pas en douce ».
     const borne = await derniereClotureStock();
     if (borne) {
@@ -204,7 +204,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       const figes = await tx.mouvementStock.groupBy({ by: ["articleId"], where: { articleId: { in: losers.map((l) => l.id) }, date: { lt: limite } }, _count: { _all: true } });
       if (figes.length > 0) {
         const noms = figes.map((f) => `« ${losers.find((l) => l.id === f.articleId)?.designation ?? "?"} » (${f._count._all} mouvement(s))`).join(", ");
-        throw new Error(`Fusion refusée : des mouvements de ${figes.length > 1 ? "doublons" : "ce doublon"} sont datés de la période clôturée (jusqu'à ${String(borne.mois).padStart(2, "0")}/${borne.annee}) — ${noms}. Les rattacher à « ${keep.designation} » réécrirait l'historique par article de ces mois figés. Direction : Paramètres → Clôture mensuelle pour rouvrir ces mois, fusionner, puis les clôturer à nouveau. Rien n'a été fusionné.`);
+        throw new Error(`Fusion refusée : des mouvements de ${figes.length > 1 ? "doublons" : "ce doublon"} sont datés de la période clôturée (jusqu'à ${String(borne.mois).padStart(2, "0")}/${borne.annee}) — ${noms}. Les rattacher à « ${keep.designation} » réécrirait l'historique par article de ces mois figés. Direction : Stock → Clôture du mois pour rouvrir ces mois, fusionner, puis les clôturer à nouveau. Rien n'a été fusionné.`);
       }
     }
     // Stock des doublons cumulé en UNE variation (l'ordre des doublons ne compte pas : 3 − 5 + 5 = 3),
