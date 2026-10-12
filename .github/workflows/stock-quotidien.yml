@@ -1,0 +1,20 @@
+name: Courriel quotidien du Stock
+
+# Envoie chaque matin, SEULEMENT s'il y a quelque chose à signaler, le point du Stock (articles en rupture ou
+# sous le seuil, factures échues ou à échéance sous 7 jours, DLC proches, demandes en attente, bons de commande
+# à réceptionner, stocks négatifs) par e-mail à la Direction et au rôle Stock, en appelant l'endpoint sécurisé
+# de l'application. Même jeton (CRON_SECRET) et même horaire que les rappels RH.
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC = 07:00 à Kinshasa (UTC+1), tous les jours
+  workflow_dispatch: {} # bouton « Run workflow » pour tester manuellement
+
+jobs:
+  stock-quotidien:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déclencher le courriel quotidien du Stock
+        run: |
+          curl -fsS --max-time 120 -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://gestion.patesenfolie.cd/api/cron/stock-quotidien

@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { exemplesDeLiens, LIENS } from "@/lib/envois-stock/liens";
 
 const APP = __dirname;
 const SRC = path.join(APP, "..");
@@ -112,5 +113,31 @@ describe("liens de notification — chacun mène à une page qui existe", () => 
 
   it("la fiche d'un comptage garde son adresse /stock/archives/<id>", () => {
     expect(routeDe("/stock/archives/abc")).toBeTruthy();
+  });
+});
+
+// Les courriels automatiques du Stock (envois quotidien et mensuel, 2026-10-12) écrivent leurs liens par des
+// constructeurs (`LIENS.article(id)`…), que le scanner ci-dessus ne lit pas : on les vérifie ici, un par un.
+describe("liens des courriels automatiques du Stock — chacun mène à une vraie page", () => {
+  const exemples = exemplesDeLiens();
+
+  it("le catalogue d'exemples couvre bien tous les constructeurs (un constructeur ajouté sans exemple échoue ici)", () => {
+    expect(exemples.length).toBeGreaterThanOrEqual(Object.keys(LIENS).length);
+  });
+
+  it("aucun lien ne vise une adresse inexistante, un simple renvoi ou une adresse déplacée", () => {
+    const morts = exemples.filter((l) => !routeDe(chemin(l)));
+    expect(morts).toEqual([]);
+    expect(exemples.filter((l) => { const r = routeDe(chemin(l)); return r && estUnRenvoi(r); })).toEqual([]);
+    expect(exemples.filter((l) => ADRESSES_DEPLACEES.includes(chemin(l)))).toEqual([]);
+  });
+
+  it("tous visent l'espace Stock", () => {
+    expect(exemples.filter((l) => !l.startsWith("/stock"))).toEqual([]);
+  });
+
+  it("falsification : une adresse inventée ou déplacée serait refusée", () => {
+    expect(routeDe(chemin("/stock/n-existe-pas"))).toBeUndefined();
+    expect(ADRESSES_DEPLACEES).toContain(chemin("/stock/utilisateurs"));
   });
 });

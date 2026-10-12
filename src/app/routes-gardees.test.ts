@@ -44,6 +44,14 @@ const PUBLIQUES: Record<string, { justification: string; jeton?: string }> = {
     justification: "Déclencheur GitHub Actions (rapport du 1er du mois) : pas de session, gardé par le jeton CRON_SECRET.",
     jeton: "jetonCronValide",
   },
+  "api/cron/stock-quotidien/route.ts": {
+    justification: "Déclencheur GitHub Actions (courriel quotidien du Stock, 7 h) : pas de session, gardé par le jeton CRON_SECRET. Lecture seule.",
+    jeton: "jetonCronValide",
+  },
+  "api/cron/stock-mensuel/route.ts": {
+    justification: "Déclencheur GitHub Actions (rapport mensuel du Stock, le 1er) : pas de session, gardé par le jeton CRON_SECRET. Lecture seule.",
+    jeton: "jetonCronValide",
+  },
 };
 
 const GARDES_PAR_ESPACE: [prefixe: string, garde: string][] = [

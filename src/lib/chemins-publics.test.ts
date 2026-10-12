@@ -118,7 +118,7 @@ describe("le garde d'authentification ne laisse pas fuir, et ne bloque pas ce qu
   it("api/cron/ et api/version sont exclus EXACTEMENT, pas leurs voisins", () => {
     // Hors garde : le numéro de version (vérification d'un déploiement, sans session) et les vraies
     // routes cron (protégées par leur propre jeton CRON_SECRET, appelées par Render sans cookie).
-    for (const hors of ["/api/version", "/api/version/", "/api/cron/alertes", "/api/cron/rapport-mensuel"]) {
+    for (const hors of ["/api/version", "/api/version/", "/api/cron/alertes", "/api/cron/rapport-mensuel", "/api/cron/stock-quotidien", "/api/cron/stock-mensuel"]) {
       expect(examineeParLeGarde(hors), `${hors} doit rester hors garde`).toBe(false);
     }
     for (const voisin of ["/api/cron-admin", "/api/cron", "/api/versionner", "/api/version-interne", "/api/cronjobs/x"]) {
