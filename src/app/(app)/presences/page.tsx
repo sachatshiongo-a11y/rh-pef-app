@@ -24,7 +24,7 @@ import { jourCourantKinshasaISO, numeroMoisCourantKinshasa, anneeCouranteKinshas
 const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
   { code: "P", icone: "✓", label: "Présence — payé 100%" },
   { code: "O", icone: "☕", label: "Repos — payé 100%" },
-  { code: "M", icone: "✚", label: "Maladie — payé 2/3" },
+  { code: "M", icone: "✚", label: "Maladie — payé 2/3, 100 % si justifiée (certificat)" },
   { code: "A", icone: "📄", label: "Absence justifiée — payé 100%" },
   { code: "N", icone: "✕", label: "Absence non justifiée — non payé" },
   { code: "C", icone: "🏖", label: "Congé payé — 100%" },
@@ -122,8 +122,11 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   );
 
   const attendanceMap: Record<string, string> = {};
+  // Jours M justifiés (certificat) : payés 100 % au lieu de 2/3 (décision Direction 2026-10-12).
+  const maladieJustifieeMap: Record<string, boolean> = {};
   for (const a of attendances) {
     attendanceMap[`${a.employeeId}_${new Date(a.date).getUTCDate()}`] = a.code;
+    if (a.code === "M" && a.maladieJustifiee) maladieJustifieeMap[`${a.employeeId}_${new Date(a.date).getUTCDate()}`] = true;
   }
   const hoursMap: Record<string, number> = {};
   const joursParEmploye: Record<string, { date: Date; heuresTravaillees: number }[]> = {};
@@ -255,6 +258,7 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
               employees={brigade}
               days={days}
               attendanceMap={attendanceMap}
+              maladieJustifieeMap={maladieJustifieeMap}
               hoursMap={hoursMap}
               shiftMap={shiftMap}
               peutModifier={peutModifier}
@@ -271,6 +275,7 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
               employees={backoffice}
               days={days}
               attendanceMap={attendanceMap}
+              maladieJustifieeMap={maladieJustifieeMap}
               hoursMap={hoursMap}
               shiftMap={shiftMap}
               peutModifier={peutModifier}

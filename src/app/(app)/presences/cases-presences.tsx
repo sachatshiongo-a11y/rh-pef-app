@@ -14,6 +14,8 @@ export type PropsCase = {
   emp: string;
   day: number;
   code: string;
+  /** Jour M justifié par certificat (payé 100 %) : repère « ✓ » à côté du code. */
+  justifie?: boolean;
   heures: number | null;
   /** Heures au-delà du shift prévu (ambre). */
   supp: boolean;
@@ -52,6 +54,7 @@ export function CaseSemaine(p: PropsCase) {
     >
       <span className="flex items-center gap-1 text-sm font-bold">
         {p.code || "·"}
+        {p.justifie && <span aria-hidden className="text-[10px] font-normal">✓</span>}
         {p.heures !== null && p.heures > 0 && (
           <span className={`text-xs tabular-nums ${p.supp ? PASTILLE_SUPP : "font-normal opacity-80"}`}>{fmtH(p.heures)} h</span>
         )}
@@ -71,6 +74,7 @@ export function CaseMois(p: PropsCase) {
       style={p.couleur ? { backgroundColor: p.couleur.bg, color: p.couleur.text } : undefined}
     >
       {p.code || (prevu ? <span aria-hidden className="text-muted-foreground/60">·</span> : "")}
+      {p.justifie && <span aria-hidden className="text-[10px] font-normal">✓</span>}
       {p.supp && <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
     </button>
   );
@@ -97,6 +101,7 @@ export function CaseCalendrier(p: PropsCase & { jour: number; selectionne: boole
       >
         <span className="flex items-center gap-1 text-sm font-bold">
           {p.code || "·"}
+          {p.justifie && <span aria-hidden className="text-[10px] font-normal">✓</span>}
           {p.heures !== null && p.heures > 0 && (
             <span className={`text-xs tabular-nums ${p.supp ? PASTILLE_SUPP : "font-normal opacity-80"}`}>{fmtH(p.heures)} h</span>
           )}
