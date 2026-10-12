@@ -47,7 +47,7 @@ const { GET: exporter } = await import("./export/route");
 const { saisirPresence, saisirPresencesEnLot } = await import("./actions");
 const { saisirHeures, saisirHeuresEnLot } = await import("../heures-supp/actions");
 const { marquerMaladieJustifiee, joindreCertificatMaladie } = await import("./maladie-actions");
-const { appliquerPointageIVMS } = await import("./import-actions");
+const { appliquerPointageIVMS, analyserPointageIVMS } = await import("./import-actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -372,6 +372,25 @@ describe("le serveur refuse toute écriture sur un mois passé", () => {
     const av = JSON.parse(avant);
     expect(apres.a).toEqual(av.a);
     expect(apres.o).toEqual(av.o);
+  });
+
+  it("import IVMS à cheval sur deux mois : l'aperçu ANNONCE les jours du mois passé (jamais cochés), le mois courant reste importable", async () => {
+    A.user = compte("ADMIN");
+    const avant = await empreinte();
+    // Août : pas de paie validée (seul le verrou « mois passé » l'arrête) ; septembre : paie validée (statut
+    // prioritaire) ; octobre : mois courant.
+    const csv = [
+      "ID,Date/Heure",
+      "AL01-PEF,20/08/2026 08:00", "AL01-PEF,20/08/2026 16:00",
+      "AL01-PEF,29/09/2026 08:00", "AL01-PEF,29/09/2026 16:00",
+      "AL01-PEF,07/10/2026 08:00", "AL01-PEF,07/10/2026 16:00",
+    ].join("\n");
+    const f = new FormData();
+    f.set("fichier", new File([csv], "rapport.csv", { type: "text/csv" }));
+    const a = await analyserPointageIVMS(null, f);
+    const statuts = Object.fromEntries((a.lignes ?? []).map((l) => [l.date, l.statut]));
+    expect(statuts).toEqual({ "2026-08-20": "MOIS_PASSE", "2026-09-29": "PAIE_FIGEE", "2026-10-07": "OK" });
+    expect(await empreinte()).toBe(avant); // l'aperçu n'écrit rien
   });
 
   it("le mois courant reste ouvert à la saisie", async () => {
