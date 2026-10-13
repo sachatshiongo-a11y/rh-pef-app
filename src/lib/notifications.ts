@@ -82,31 +82,61 @@ export async function compteSalarieDe(employeeId: string): Promise<string | null
   return u && u.actif && (u.role === "EMPLOYE" || u.role === "STOCK") ? u.id : null;
 }
 
-/** Charge la cloche personnelle d'un salarié (ses notifications SALARIE). */
-export async function chargerNotificationsSalarie(userId: string): Promise<{ items: NotificationItem[]; nonLues: number }> {
-  const [items, nonLues] = await Promise.all([
-    prisma.notification.findMany({ where: { domaine: "SALARIE", destinataireUserId: userId }, orderBy: { createdAt: "desc" }, take: 20 }),
-    prisma.notification.count({ where: { domaine: "SALARIE", destinataireUserId: userId, lu: false } }),
+/** Combien de notifications la cloche personnelle d'un salarié liste (toutes les non lues, complétées par les lues récentes). */
+export const NOTIFICATIONS_PAR_CLOCHE_SALARIE = 20;
+
+/**
+ * Plafond de SÉCURITÉ sur les non lues listées par une cloche. Une cloche ne cache jamais une non lue comptée :
+ * toutes sont listées, sauf au-delà de ce plafond très haut — et alors la cloche le dit (« 300 affichées sur N »,
+ * `nonLuesListees` < `nonLues`), rien n'est caché en silence.
+ */
+export const PLAFOND_NON_LUES_CLOCHE = 300;
+
+type FiltreNotification = NonNullable<Parameters<typeof prisma.notification.findMany>[0]>["where"];
+
+/**
+ * Ce qu'une cloche liste, pour un ensemble de notifications visibles : TOUTES les non lues (jusqu'au plafond de sécurité),
+ * complétées par les lues les plus récentes jusqu'à `taille` éléments au total. Triées de la plus récente à la plus
+ * ancienne. `nonLues` est le total réel des non lues, `nonLuesListees` combien en sont listées.
+ * Requêtes (index domaine · lu · date et destinataire · lu · date) : les non lues (plafonnées), les lues récentes, et
+ * un COMPTE seulement si le plafond est atteint (sinon le nombre de non lues listées EST le total).
+ */
+async function listerNotifications(
+  visibles: NonNullable<FiltreNotification>,
+  taille: number,
+): Promise<{ items: NotificationItem[]; nonLues: number; nonLuesListees: number }> {
+  const [nonLuesListees, luesRecentes] = await Promise.all([
+    prisma.notification.findMany({ where: { ...visibles, lu: false }, orderBy: { createdAt: "desc" }, take: PLAFOND_NON_LUES_CLOCHE }),
+    prisma.notification.findMany({ where: { ...visibles, lu: true }, orderBy: { createdAt: "desc" }, take: taille }),
   ]);
-  return { items, nonLues };
+  const nonLues = nonLuesListees.length < PLAFOND_NON_LUES_CLOCHE
+    ? nonLuesListees.length
+    : await prisma.notification.count({ where: { ...visibles, lu: false } });
+  const complement = luesRecentes.slice(0, Math.max(0, taille - nonLuesListees.length));
+  const items = [...nonLuesListees, ...complement].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return { items, nonLues, nonLuesListees: nonLuesListees.length };
 }
 
-/** Combien de notifications la cloche liste (les plus récentes, tous espaces du compte confondus). */
+/** Charge la cloche personnelle d'un salarié (ses notifications SALARIE) : toutes ses non lues + les lues récentes. */
+export async function chargerNotificationsSalarie(userId: string): Promise<{ items: NotificationItem[]; nonLues: number; nonLuesListees: number }> {
+  return listerNotifications({ domaine: "SALARIE", destinataireUserId: userId }, NOTIFICATIONS_PAR_CLOCHE_SALARIE);
+}
+
+/** Combien de notifications la cloche liste au total : toutes les non lues, complétées par les lues les plus récentes (tous espaces du compte confondus). */
 export const NOTIFICATIONS_PAR_CLOCHE = 30;
 
-type DonneesCloche = { items: NotificationItem[]; nonLues: number; cloture: { message: string; jours: number } | null };
+type DonneesCloche = { items: NotificationItem[]; nonLues: number; nonLuesListees: number; cloture: { message: string; jours: number } | null };
 
 /**
  * Données de la cloche pour un ensemble de domaines : notifications récentes, non lues, + alerte clôture (RH).
  * Cloche = notifications PARTAGÉES de ces domaines + celles adressées à CE compte (réponse de la Direction à une
  * demande de l'espace Stock ; demande de ratios reçue ou tranchée en Exploitation) ; celles d'un autre compte ne
- * s'affichent jamais. Trois requêtes au plus, quel que soit le nombre de domaines (index domaine · lu · date).
+ * s'affichent jamais. Trois requêtes au plus (quatre si le plafond de sécurité des non lues est atteint), quel que soit le nombre de domaines.
  */
 async function chargerCloche(domaines: DomaineCloche[], userId?: string): Promise<DonneesCloche> {
   const visibles = { domaine: { in: domaines }, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
-  const [items, nonLues, config] = await Promise.all([
-    prisma.notification.findMany({ where: visibles, orderBy: { createdAt: "desc" }, take: NOTIFICATIONS_PAR_CLOCHE }),
-    prisma.notification.count({ where: { ...visibles, lu: false } }),
+  const [{ items, nonLues, nonLuesListees }, config] = await Promise.all([
+    listerNotifications(visibles, NOTIFICATIONS_PAR_CLOCHE),
     domaines.includes("RH") ? prisma.config.findUnique({ where: { id: "singleton" } }) : Promise.resolve(null),
   ]);
 
@@ -138,7 +168,7 @@ async function chargerCloche(domaines: DomaineCloche[], userId?: string): Promis
     }
   }
 
-  return { items, nonLues, cloture };
+  return { items, nonLues, nonLuesListees, cloture };
 }
 
 /** Données de la cloche pour UN espace (`domaine`). La cloche des écrans est `chargerNotificationsCompte`. */

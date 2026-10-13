@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { ATTENTE_VERROU_VALIDATION } from "@/lib/paie-validation";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
@@ -28,7 +29,7 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
   // qui arrive pendant le recalcul l'attend à son tour. Sans ce verrou, le recalcul lisait un
   // planning sur le point de changer et écrivait des montants déjà faux. Même ordre que la
   // validation (run, puis lignes) : jamais d'interblocage entre eux.
-  return prisma.$transaction(async (tx) => {
+  const recalcule = await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${ATTENTE_VERROU_VALIDATION}'`);
     let runId: string;
     if (opts.creerRun) {
@@ -118,6 +119,9 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     }
     return true;
   }, { timeout: 60_000 });
+  // Les bulletins « à valider » ont été remplacés : les compteurs « À valider » se relisent à neuf, pas dans 20 s.
+  if (recalcule) reinitialiserCacheAValider();
+  return recalcule;
 }
 
 /**

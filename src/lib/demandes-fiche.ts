@@ -4,6 +4,7 @@ import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { envoyerPush } from "@/lib/push";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { MAX_MOTIF_REFUS } from "@/lib/conges-liste";
@@ -147,7 +148,7 @@ export type RapportFiche = { traitees: number; echecs: string[]; avertissements:
 
 /** Applique UNE demande (Direction). Lève `DemandePerimee` / une erreur lisible ; rien n'est écrit alors. */
 async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
-  return prisma.$transaction(async (tx) => {
+  const resultat = await prisma.$transaction(async (tx) => {
     const d = await tx.demandeModifFiche.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } });
     if (!d) throw new Error("Demande introuvable.");
     await verrouillerFiche(tx, d.employeeId);
@@ -195,6 +196,8 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
     await journaliser(tx, { entite: "DemandeModifFiche", entiteId: id, champ: "statut", nouvelleValeur: "VALIDEE", userId: decideur.id });
     return { d, ch, note };
   }, { timeout: 15_000 });
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
+  return resultat;
 }
 
 /** Approuve des demandes (Direction) : chacune dans sa transaction ; un échec est NOMMÉ et ne bloque pas les autres. */
@@ -230,6 +233,7 @@ export async function refuserDemandesFiche(ids: string[], motifBrut: unknown, de
       where: { id, statut: "EN_ATTENTE" },
       data: { statut: "REFUSEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: maintenant, motifRefus: motif },
     });
+    reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
     if (count === 0) { r.echecs.push(`${d.employee.nom} : demande déjà traitée.`); continue; }
     await journaliser(prisma, { entite: "DemandeModifFiche", entiteId: id, champ: "statut", nouvelleValeur: `REFUSEE — ${motif}`, userId: decideur.id });
     r.traitees++;

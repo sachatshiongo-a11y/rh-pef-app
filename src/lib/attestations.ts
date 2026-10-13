@@ -11,6 +11,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { journaliser } from "@/lib/audit";
 import { televerserFichier } from "@/lib/storage";
 import { compteSalarieDe, creerNotification, notifierSalarie, supprimerNotificationsPour } from "@/lib/notifications";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { NOM_TYPE_ATTESTATION, numeroAttestation, type DonneesAttestation } from "@/lib/attestations-donnees";
 
 // ATTESTATIONS — demande, délivrance numérotée, refus (spec 2026-09-28, lot 4).
@@ -183,6 +184,7 @@ export async function demanderAttestation(
     await journaliser(tx, { entite: "Attestation", entiteId: a.id, champ: "demande", nouvelleValeur: p.type, userId: p.parId });
     return { ok: true, id: a.id, nom: eligible.donnees.nom };
   });
+  reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
   if (!r.ok) {
     if (r.aCompleter) await signalerDonneeManquante(db, p.employeeId, p.type, r.motif);
     return { ok: false, motif: r.motif };
@@ -355,6 +357,7 @@ export async function delivrerAttestation(
     if (e instanceof Error && e.message === "Cette demande a déjà été traitée.") return { ok: false as const, motif: e.message } as Refus & { refusee?: boolean; employeeId?: string; type?: TypeAttestation; id?: string };
     throw e;
   });
+  reinitialiserCacheAValider(); // la demande (si elle y était) a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
 
   if (!r.ok) {
     if (r.aCompleter && r.employeeId && r.type) await signalerDonneeManquante(db, r.employeeId, r.type, r.motif);
@@ -458,6 +461,7 @@ export async function refuserAttestation(
     await journaliser(tx, { entite: "Attestation", entiteId: p.id, champ: "refus", nouvelleValeur: motif, userId: p.parId });
     return a;
   });
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
   if (r === null) return { ok: false, motif: "Demande introuvable." };
   if (r === "traitee") return { ok: false, motif: "Cette demande a déjà été traitée." };
   await apresTraitement(p.id, r.employeeId, `Votre demande d'${NOM_TYPE_ATTESTATION[r.type]} a été refusée : ${motif}`);

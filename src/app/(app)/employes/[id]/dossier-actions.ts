@@ -17,6 +17,7 @@ import { notifierContratASigner } from "@/lib/contrats-notification";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { canonique, changementsProposes, messagePerime, type Changement } from "@/lib/fiche-sensible";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, recopierContratSurFicheTx, verrouillerFiche } from "@/lib/demandes-fiche";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { ancienneteALaSortie, controlerDateSortie, lireDateSortieSaisie } from "@/lib/sortie-salarie";
@@ -309,7 +310,10 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
       return nouveau;
     });
 
-    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    if (sortie.demande) {
+      reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
+      await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    }
     // Le salarié est prévenu qu'un contrat attend sa signature (cloche de l'espace + push).
     await notifierContratASigner(cree.id);
 
@@ -357,6 +361,7 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
         if (changements.length === 0) throw new Error("Ni le salaire ni le poste ne changent : rien à soumettre.");
         return creerDemandeFicheTx(tx, { employeeId, changements, origine: "CHANGER_SALAIRE", motif, auteur: { id: user.id, nom: user.nom, role: user.role } });
       });
+      reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
       await notifierNouvelleDemandeFiche(demande, employee.nom);
       revalidatePath(`/employes/${employeeId}`);
       revalidatePath("/a-valider");

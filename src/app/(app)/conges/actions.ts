@@ -15,6 +15,7 @@ import {
   demandeQuiRecouvre, exigerAucunRecouvrement, exigerRemplacantDisponible, exigerTypeCongeUtilisable, messageRecouvrement, verrouillerCongesSalarie,
 } from "@/lib/conges-regles";
 import { MAX_SUPPRESSIONS_PAR_LOT, verifierMotifRefus } from "@/lib/conges-liste";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { figerSoldesApprobation, INSTANTANE_SOLDE_EFFACE, resumeInstantane } from "@/lib/solde-conge-fige";
 
 /**
@@ -74,6 +75,7 @@ export async function demanderConge(formData: FormData) {
       if (autoValide) await figerSoldesApprobation(tx, [d], new Date(), user.id);
       return d;
     }, { timeout: DELAI_APPROBATION_UNITAIRE });
+    reinitialiserCacheAValider(); // la pastille « À valider » compte cette demande : relue à neuf, pas dans 20 s
 
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
@@ -138,6 +140,7 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
   } catch (e) {
     return { erreur: `Approbation non enregistrée : ${messageLisible(e, "conges approuverConge")}` };
   }
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf
   if (!approuvee) {
     // Déjà approuvée : rien à écrire, mais l'écran de celui qui a cliqué doit refléter la base.
     revaliderConges();
@@ -210,6 +213,7 @@ export async function refuserConge(leaveRequestId: string, motifBrut: string): P
     where: { id: leaveRequestId },
     data: { statut: "REFUSE", approuveParId: user.id, motifRefus: motif, ...INSTANTANE_SOLDE_EFFACE },
   });
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf
   // Un congé auparavant approuvé avait posé ses codes sur la grille : on les retire.
   // Jamais dans un mois à paie validée : la paie a payé ces jours tels qu'ils étaient.
   const { figes } = demande.statut === "APPROUVE"
@@ -283,7 +287,7 @@ async function supprimerUneDemande(leaveRequestId: string, userId: string): Prom
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
   await supprimerNotificationsPour(leaveRequestId);
-  return prisma.$transaction(async (tx) => {
+  const resultat = await prisma.$transaction(async (tx) => {
     // Les codes de présence partent DANS la transaction de la suppression : un échec de l'une ne laisse
     // jamais une demande approuvée sans ses codes (ni des codes sans demande). Un mois à paie validée
     // garde les siens (ils comptent alors comme « C posés sans demande » dans le solde).
@@ -300,6 +304,8 @@ async function supprimerUneDemande(leaveRequestId: string, userId: string): Prom
     });
     return { figes };
   });
+  reinitialiserCacheAValider(); // une demande en attente supprimée sort du compte « À valider »
+  return resultat;
 }
 
 /** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
@@ -343,6 +349,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
       await figerSoldesApprobation(tx, ok, new Date(), user.id);
       return ok;
     }, { timeout: DELAI_APPROBATION_LOT });
+    reinitialiserCacheAValider(); // les demandes approuvées ont quitté « À valider » : la pastille se relit à neuf
   } catch (e) {
     // Rien n'est écrit (transaction annulée) : chaque demande est nommée en échec.
     const raison = messageLisible(e, "conges approuverCongesEnLot");
@@ -412,6 +419,7 @@ export async function refuserCongesEnLot(ids: string[], motifBrut: string): Prom
       echecs.push(`${d.employee.nom} : ${messageLisible(e, "conges refuserCongesEnLot")}`);
     }
   }
+  reinitialiserCacheAValider(); // les demandes refusées ont quitté « À valider » : la pastille se relit à neuf
   revaliderConges();
   return { traitees: n, echecs };
 }

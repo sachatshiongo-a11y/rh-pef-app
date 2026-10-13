@@ -47,7 +47,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
         "/stock/commandes": aValider.stock?.bonsEnBrouillon ?? 0,
         "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}
-      notif={{ items: notifs.items, nonLues: notifs.nonLues, cloture: null }}
+      notif={{ items: notifs.items, nonLues: notifs.nonLues, nonLuesListees: notifs.nonLuesListees, cloture: null }}
     >
       {children}
     </StockShell>

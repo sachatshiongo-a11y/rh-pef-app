@@ -89,6 +89,7 @@ describe("cloche unique — chaque compte voit les notifications de TOUS ses esp
     const c = await vues("DIR");
     expect(c.items.map((i) => i.id).sort()).toEqual(tousSont("rh", "stock", "exploDir"));
     expect(c.nonLues).toBe(3); // le compteur de la cloche est le total
+    expect(c.nonLuesListees).toBe(3); // ... et tout ce qui est compté est listé
     expect(Object.fromEntries(c.items.map((i) => [i.id, i.domaine]))).toEqual({ [N.rh]: "RH", [N.stock]: "STOCK", [N.exploDir]: "EXPLOITATION" }); // l'étiquette d'espace
   });
 
@@ -117,13 +118,13 @@ describe("cloche unique — chaque compte voit les notifications de TOUS ses esp
     expect((await NOTIFS.chargerNotifications("EXPLOITATION", ids.CPT2)).items).toEqual([]); // adressée à un autre compte : jamais vue
   });
 
-  it("le coût est borné : au plus 3 requêtes (liste, compte, config) pour la Direction, 2 sans RH — jamais une par espace", async () => {
+  it("le coût est borné : au plus 3 requêtes (non lues, lues récentes, config) pour la Direction, 2 sans RH — jamais une par espace", async () => {
     H.requetes = [];
     await NOTIFS.chargerNotificationsCompte(compte("DIR"));
-    expect(H.requetes.sort()).toEqual(["config.findUnique", "notification.count", "notification.findMany"]);
+    expect(H.requetes.sort()).toEqual(["config.findUnique", "notification.findMany", "notification.findMany"]);
     H.requetes = [];
     await NOTIFS.chargerNotificationsCompte(compte("STK"));
-    expect(H.requetes.sort()).toEqual(["notification.count", "notification.findMany"]);
+    expect(H.requetes.sort()).toEqual(["notification.findMany", "notification.findMany"]);
   });
 });
 

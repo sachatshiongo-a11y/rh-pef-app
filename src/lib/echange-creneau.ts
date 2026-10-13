@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { ecrireCreneaux, messageErreurPlanning, type OperationCreneau } from "@/lib/planning-ecriture";
 
@@ -49,6 +50,7 @@ export async function finaliserEchangeSiComplet(
       await ecrireCreneaux(tx, userId, operations);
       await tx.echangeCreneau.update({ where: { id }, data: { statut: "APPROUVE", reponseDirection: "APPROUVE" } });
     });
+    reinitialiserCacheAValider(); // l'échange a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
   } catch (err) {
     const erreur = messageErreurPlanning(err);
     if (erreur) return { fait: false, erreur };

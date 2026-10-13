@@ -7,6 +7,7 @@ import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { messageDecisionAcompte } from "@/lib/libelles-espace";
 import { recalculerPaieSiCalculee } from "./actions";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
@@ -110,6 +111,7 @@ export async function supprimerAcompte(id: string) {
         userId: user.id,
       });
     });
+    reinitialiserCacheAValider(); // un acompte en attente supprimé sort du compte « À valider » : la pastille se relit à neuf
     await recalculerPaieSiCalculee();
     revalidatePath(`/employes/${acompte.employeeId}`);
     revalidatePath("/paie");
@@ -268,6 +270,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
     const acompte = await prisma.acompteSalaire.create({
       data: { employeeId, montantUSD, mois, annee, motif, statut: "EN_ATTENTE" },
     });
+    reinitialiserCacheAValider(); // la demande entre dans « À valider » : la pastille se relit à neuf, pas dans 20 s
 
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     await creerNotification({
@@ -329,6 +332,7 @@ async function deciderAcompte(
         userId: user.id,
       });
     });
+    reinitialiserCacheAValider(); // l'acompte a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
   } catch (e) {
     if (e instanceof BulletinFigeError) return { ok: false, message: e.message };
     throw e;

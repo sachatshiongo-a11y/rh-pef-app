@@ -33,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       maPhoto={maPhoto}
       employeeId={monEmployeId}
       autresEspaces={ciblesAutresEspaces(user, salarieActif, "rh")}
-      notif={notif ? { items: notif.items, nonLues: notif.nonLues, cloture: notif.cloture } : null}
+      notif={notif ? { items: notif.items, nonLues: notif.nonLues, nonLuesListees: notif.nonLuesListees, cloture: notif.cloture } : null}
     >
       {children}
     </AppShell>

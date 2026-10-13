@@ -90,4 +90,14 @@ describe("cloche unique", () => {
     expect(conteneur.textContent).toContain("Aucune notification.");
     expect(conteneur.textContent).not.toContain("Tout marquer lu");
   });
+
+  it("plafond de sécurité : la cloche DIT « 300 affichées sur 305 non lues » ; sans coupure, aucune annonce", async () => {
+    await rendre({ items: TROIS, nonLues: 305, nonLuesListees: 300 });
+    await ouvrir();
+    expect(conteneur.querySelector('[data-testid="cloche-plafond"]')?.textContent).toContain("300 affichées sur 305 non lues");
+    expect(conteneur.querySelector('button[aria-label="Notifications"]')?.getAttribute("title")).toBe("Notifications : 300 affichées sur 305 non lues");
+    await rendre({ items: TROIS, nonLues: 3, nonLuesListees: 3 });
+    expect(conteneur.querySelector('[data-testid="cloche-plafond"]')).toBeNull();
+    expect(conteneur.querySelector('button[aria-label="Notifications"]')?.getAttribute("title")).toBe("Notifications");
+  });
 });

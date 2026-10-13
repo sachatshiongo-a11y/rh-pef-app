@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { envoyerPush } from "@/lib/push";
 import { genererMatricule } from "@/lib/matricule";
 import { enregistrerSalaireEmbauche } from "@/lib/historique-salaire";
@@ -124,7 +125,7 @@ export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: str
 export async function creerDemandeCreation(p: { donnees: DonneesCreation; ecartes: string[]; auteur: Acteur }) {
   const ctrl = controlerDonneesCreation(p.donnees);
   if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
-  return prisma.$transaction(async (tx) => {
+  const demande = await prisma.$transaction(async (tx) => {
     await verrouillerCreations(tx);
     const d = p.donnees;
     if (d.ancienneFicheId) await verifierReembauche(tx, d.ancienneFicheId);
@@ -148,6 +149,8 @@ export async function creerDemandeCreation(p: { donnees: DonneesCreation; ecarte
     await journaliser(tx, { entite: "DemandeCreationFiche", entiteId: cree.id, champ: "creation", nouvelleValeur: `Nouvelle fiche : ${d.nom}`, userId: p.auteur.id });
     return cree;
   });
+  reinitialiserCacheAValider(); // la demande entre dans « À valider » : la pastille se relit à neuf, pas dans 20 s
+  return demande;
 }
 
 /** Cloche à la Direction, APRÈS la transaction. */
@@ -165,7 +168,7 @@ async function notifierAuteur(d: { id: string; auteurId: string }, message: stri
 }
 
 async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
-  return prisma.$transaction(async (tx) => {
+  const resultat = await prisma.$transaction(async (tx) => {
     await verrouillerCreations(tx);
     const d = await tx.demandeCreationFiche.findUnique({ where: { id } });
     if (!d) throw new Error("Demande introuvable.");
@@ -186,6 +189,8 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
     await journaliser(tx, { entite: "DemandeCreationFiche", entiteId: id, champ: "statut", nouvelleValeur: "VALIDEE", userId: decideur.id });
     return { d, nouvel };
   }, { timeout: 15_000 });
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
+  return resultat;
 }
 
 function messageLisible(e: unknown): string {
@@ -230,6 +235,7 @@ export async function refuserCreations(ids: string[], motifBrut: unknown, decide
       where: { id, statut: "EN_ATTENTE" },
       data: { statut: "REFUSEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: maintenant, motifRefus: motif },
     });
+    reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
     if (count === 0) { r.echecs.push(`Nouvelle fiche ${d.nom} : demande déjà traitée.`); continue; }
     await journaliser(prisma, { entite: "DemandeCreationFiche", entiteId: id, champ: "statut", nouvelleValeur: `REFUSEE — ${motif}`, userId: decideur.id });
     r.traitees++;
