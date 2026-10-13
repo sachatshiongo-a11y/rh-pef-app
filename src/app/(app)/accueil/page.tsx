@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { calculerAlertes, type Alerte } from "@/lib/alertes";
 import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
@@ -33,25 +32,22 @@ function libelleJour(date: Date): string {
 export default async function AccueilPage() {
   const user = await exigerPageRH();
   const prenom = user.nom.split(" ")[0];
-  const peutValider = user.role === "ADMIN";
-  // Photo de profil = celle de la fiche employé liée au compte (si liée).
-  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
+  // Photo de profil = celle de la fiche employé liée au compte (si liée) — lue avec la Config (un aller-retour, pas deux).
+  const [moi, config] = await Promise.all([
+    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
+    prisma.config.findUnique({ where: { id: "singleton" } }),
+  ]);
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
   // Dates stockées à minuit UTC (jour civil) : les échéances et congés se comparent au JOUR de Kinshasa.
   const aujourdhui = jourCivilKinshasa(maintenant);
   const dans30j = new Date(aujourdhui.getTime() + 30 * 86_400_000);
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const { mois, annee } = moisDePaie(config, maintenant);
-  const filtreRun = config ? { payrollRun: { mois, annee } } : {};
 
   const [
     effectifBrigade,
     effectifBackoffice,
     paie,
-    _congesEnAttente,
-    _bulletinsPasValide,
-    _bulletinsValide,
     congesEnCours,
     alertes,
     absencesAVenir,
@@ -63,9 +59,6 @@ export default async function AccueilPage() {
     prisma.employee.count({ where: { categorie: "BRIGADE", actif: true } }),
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
     indicateursPaieDuMois(mois, annee),
-    prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
-    compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
-    prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: aujourdhui }, dateFin: { gte: aujourdhui } } }),
     calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace
     prisma.leaveRequest.findMany({
