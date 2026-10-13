@@ -4,6 +4,7 @@ import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { ATTENTE_VERROU_VALIDATION } from "@/lib/paie-validation";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
+import { empreinteDuMois, empreinteLignes, empreinteSources, paieAJour, garderRecente, texteEmpreinte } from "@/lib/paie-empreinte";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
@@ -49,6 +50,13 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
       // ou PAYÉES n'en dépendent plus : elles portent leur taux figé à la validation (paie-taux.ts).
       await tx.payrollRun.update({ where: { id: runId }, data: { tauxChangeUtilise: config.tauxChangeCDF } });
     }
+
+    // EMPREINTE DES SOURCES, prise ICI : après le verrou et le taux de la run, AVANT que le moteur ne lise
+    // quoi que ce soit (lib/paie-empreinte.ts). Une écriture qui arrive entre cette prise et les lectures
+    // rend l'empreinte enregistrée plus ancienne que les données lues : un recalcul de trop à l'ouverture
+    // suivante, jamais une paie périmée déclarée à jour. Prise après le calcul, elle serait fausse.
+    const cible = { mois, annee, runId, statutsFiges: STATUTS_FIGES as string[] };
+    const sourcesAvantLecture = await empreinteSources(tx, cible);
 
     // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
     const lignesFigees = await tx.payrollLine.findMany({
@@ -117,6 +125,14 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
         },
       });
     }
+    // Empreinte enregistrée : sources lues AVANT le calcul + lignes telles qu'elles viennent d'être écrites
+    // (la run est verrouillée : personne d'autre n'a pu y toucher depuis). C'est elle que l'ouverture
+    // suivante compare pour décider de ne PAS recalculer (`rafraichirPaieAffichee`).
+    const lignesEcrites = await empreinteLignes(tx, cible);
+    await tx.payrollRun.update({
+      where: { id: runId },
+      data: { empreinteCalcul: texteEmpreinte({ sources: sourcesAvantLecture, lignes: lignesEcrites }), calculeLe: new Date(Date.now()) },
+    });
     return true;
   }, { timeout: 60_000 });
   // Les bulletins « à valider » ont été remplacés : les compteurs « À valider » se relisent à neuf, pas dans 20 s.
@@ -159,20 +175,44 @@ export async function lignesNonFigees(tx: Prisma.TransactionClient, runId: strin
  * validation revérifie de toute façon chaque montant (paie-validation.ts).
  */
 export async function rafraichirPaieAffichee(mois: number, annee: number): Promise<void> {
-  const runMeta = await prisma.payrollRun.findUnique({
+  const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
-    select: { lignes: { select: { id: true, employeeId: true, statutPaiement: true } } },
+    select: { id: true, empreinteCalcul: true, calculeLe: true },
   });
-  if (!runMeta) return;
+  if (!run) return;
+  // Rien n'a changé depuis le dernier calcul (même empreinte des sources et des lignes, calcul de moins de
+  // GARDE_RECALCUL_MS) : un recalcul réécrirait exactement les mêmes lignes — on l'évite, et on ne lit
+  // même pas les lignes. Ni empreinte enregistrée ni garde valide, ou la moindre erreur de lecture : on
+  // retombe sur le recalcul d'avant.
+  if (await paieInchangee(run, mois, annee)) return;
+  const lignes = await prisma.payrollLine.findMany({ where: { payrollRunId: run.id }, select: { id: true, employeeId: true, statutPaiement: true } });
   // Seules les lignes qui COMPTENT déclenchent le recalcul : une ligne hors calcul (ligne rouverte
   // d'un salarié sorti du calcul, paie-hors-calcul.ts) n'est jamais recalculée. Sans ce filtre, une
   // paie CLÔTURÉE qui garde une ligne hors calcul était recalculée à chaque ouverture de /paie (taux
   // de change réécrit, ligne créée pour un salarié embauché après la clôture).
-  const aRecalculer = (await lignesComptees(prisma, runMeta.lignes)).some((l) => !STATUTS_FIGES.includes(l.statutPaiement));
+  const aRecalculer = (await lignesComptees(prisma, lignes)).some((l) => !STATUTS_FIGES.includes(l.statutPaiement));
   if (!aRecalculer) return;
   try {
     await rafraichirPaieDuMois({ creerRun: false });
   } catch (e) {
     console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * La paie du mois enregistrée est-elle EXACTEMENT celle qu'un recalcul donnerait ? Vrai seulement si
+ * l'empreinte enregistrée au dernier calcul est identique à l'empreinte courante des sources et des
+ * lignes ET que ce calcul date de moins de `GARDE_RECALCUL_MS`. Le bouton « Calculer » et la
+ * réinitialisation passent par `rafraichirPaieDuMois` directement : ils recalculent toujours.
+ */
+async function paieInchangee(run: { id: string; empreinteCalcul: string | null; calculeLe: Date | null }, mois: number, annee: number): Promise<boolean> {
+  // Pas d'empreinte ou garde échue : inutile de lire les sources, on recalcule.
+  if (!run.empreinteCalcul || !garderRecente(run.calculeLe, Date.now())) return false;
+  try {
+    const courante = await empreinteDuMois(prisma, { mois, annee, runId: run.id, statutsFiges: STATUTS_FIGES as string[] });
+    return paieAJour(run, courante, Date.now());
+  } catch (e) {
+    console.error("[paie] empreinte des sources illisible, recalcul :", e instanceof Error ? e.message : e);
+    return false;
   }
 }
