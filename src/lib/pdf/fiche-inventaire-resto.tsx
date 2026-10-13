@@ -1,7 +1,10 @@
-import { Document, Page } from "@react-pdf/renderer";
+import type { ReactElement } from "react";
+import type { DocumentProps } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
-import { LigneDate, TableauFiche, stylePageFiche, type ColonneFiche, type RangeeFiche } from "./fiche-a-remplir";
+import { pieceLigneDate, pieceTableauFiche, stylePageFiche, type ColonneFiche, type RangeeFiche } from "./fiche-a-remplir";
+import { verifierPlafondPdf } from "./plafond";
+import { documentDuPlan, totalPlaces, type Groupe } from "./blocs";
 
 registerPdfFonts();
 
@@ -62,21 +65,23 @@ export function rangeesFicheInventaire(espace: EspaceFiche, articles: ArticleFic
 }
 
 /** Une fiche par espace demandé, chacune commençant sur une nouvelle page. */
-export function FichesInventaireDocument({ fiches }: { fiches: { espace: EspaceFiche; articles: ArticleFiche[] }[] }) {
-  return (
-    <Document title={fiches.map((f) => FICHES_INVENTAIRE[f.espace].titre).join(" + ")}>
-      {fiches.map(({ espace, articles }) => {
-        const { titre, colonnes } = FICHES_INVENTAIRE[espace];
-        const rangees = rangeesFicheInventaire(espace, articles);
-        return (
-          <Page key={espace} size="A4" style={stylePageFiche}>
-            <PdfHeader title={titre} subtitle="Quantités comptées à écrire à la main" />
-            <LigneDate />
-            <TableauFiche colonnes={colonnes} rangees={rangees} hauteurRangee={18} />
-            <PdfFooter docLabel={titre} />
-          </Page>
-        );
-      })}
-    </Document>
-  );
+export function FichesInventaireDocument({ fiches }: { fiches: { espace: EspaceFiche; articles: ArticleFiche[] }[] }): ReactElement<DocumentProps> {
+  const parFiche = fiches.map(({ espace, articles }) => ({ espace, rangees: rangeesFicheInventaire(espace, articles) }));
+  verifierPlafondPdf(parFiche.reduce((n, f) => n + f.rangees.length, 0)); // toutes les fiches du document comptent
+  const groupes = parFiche.map(({ espace, rangees }): Groupe => {
+    const { titre, colonnes } = FICHES_INVENTAIRE[espace];
+    return {
+      entete: <PdfHeader title={titre} subtitle="Quantités comptées à écrire à la main" />,
+      pieces: [pieceLigneDate, pieceTableauFiche(colonnes, rangees, 18)],
+      pied: <PdfFooter docLabel={titre} />, // le libellé du pied est celui de la fiche
+    };
+  });
+  return documentDuPlan({
+    mode: "fenetres",
+    titre: fiches.map((f) => FICHES_INVENTAIRE[f.espace].titre).join(" + "),
+    groupes,
+    page: { orientation: "portrait", style: stylePageFiche },
+    pied: null,
+    places: totalPlaces(groupes),
+  });
 }

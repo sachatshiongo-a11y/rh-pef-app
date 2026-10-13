@@ -6,7 +6,6 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerReglesContrats, verifierProlongationCdd, verifierProlongationEssai } from "@/lib/regles-contrats";
-import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { televerserFichier } from "@/lib/storage";
 import type { TypeContrat } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
@@ -174,6 +173,8 @@ export async function figerContrat(id: string) {
   requireRole(user, contrat.pdfAccepteUrl ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
 
   // ignorerFige : on régénère depuis les données courantes (sinon on recopierait l'ancien exemplaire).
+  // Chargé À LA DEMANDE : @react-pdf n'est pas embarqué dans les pages Paie et fiche salarié (pages-sans-react-pdf.garde-fou.test.ts).
+  const { genererContratPdf } = await import("@/lib/pdf/contrat-buffer");
   const pdf = await genererContratPdf(id, { ignorerFige: true });
   if (!pdf) return;
   // Contrat signé dont le tracé n'a pas pu être relu : figer ce PDF sans paraphe le servirait pour

@@ -1,9 +1,12 @@
-import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import type { ReactElement } from "react";
+import type { DocumentProps } from "@react-pdf/renderer";
+import { View, Text, StyleSheet } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { verifierPlafondPdf } from "./plafond";
+import { documentDuPlan, totalPlaces, type Groupe, type Piece, type Plan } from "./blocs";
 
 registerPdfFonts();
 
@@ -35,6 +38,11 @@ const styles = StyleSheet.create({
   titreTableau: { fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" },
 });
 
+export { styles as stylesTableau };
+
+/** « 13 octobre 2026 » : jour civil de Kinshasa, pour la ligne « Édité le ». */
+export const dateEdition = () => jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
+
 export type CorpsProps = {
   colonnes: Colonne[];
   lignes: Cellule[][];
@@ -42,16 +50,26 @@ export type CorpsProps = {
   sectionRows?: number[];
   couleurLigne?: (r: number) => string | undefined;
   couleurCellule?: (r: number, c: number) => string | undefined;
+  /**
+   * Rendu PAR BLOCS (`blocs.tsx`) : seules les lignes `plage[0]` à `plage[1]` (exclue) sont posées, avec leurs indices
+   * d'origine (sections, couleurs, total). Absent : toutes les lignes.
+   */
+  plage?: [number, number];
+  /** Rendu par blocs : repère de la ligne r (prop `data-i`, lue dans la mise en page pour couper aux limites de page). */
+  repere?: (r: number) => { "data-i"?: number };
+  /** Rendu par blocs : ce bloc REPREND un tableau commencé plus haut — pas de trait de tête, comme la suite d'un tableau coupé par react-pdf. */
+  suite?: boolean;
 };
 
 /**
  * Le tableau lui-même : ligne d'en-tête `fixed` (répétée en haut de chaque page que le tableau
  * occupe), lignes insécables, lignes-titres de section, dernière ligne de total optionnelle.
  */
-export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sectionRows, couleurLigne, couleurCellule }: CorpsProps) {
+export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sectionRows, couleurLigne, couleurCellule, plage, repere, suite = false }: CorpsProps) {
   const sections = new Set(sectionRows ?? []);
+  const debut = plage?.[0] ?? 0;
   return (
-    <View style={styles.wrap}>
+    <View style={suite ? [styles.wrap, { borderTopWidth: 0 }] : styles.wrap}>
       <View style={styles.th} fixed>
         {colonnes.map((c, i) => (
           <Text key={i} style={[styles.thCell, { width: c.width, textAlign: c.align ?? "left" }]}>
@@ -59,12 +77,13 @@ export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sec
           </Text>
         ))}
       </View>
-      {lignes.map((ligne, r) => {
+      {(plage ? lignes.slice(plage[0], plage[1]) : lignes).map((ligne, i) => {
+        const r = debut + i;
         if (sections.has(r)) {
           return (
             // Un titre de rubrique ne reste jamais seul en bas de page : il exige la place d'une
             // rangée après lui, sinon il passe à la page suivante avec ses lignes.
-            <View key={r} style={[styles.tr, styles.trSection]} wrap={false} minPresenceAhead={18}>
+            <View key={r} style={[styles.tr, styles.trSection]} wrap={false} minPresenceAhead={18} {...repere?.(r)}>
               <Text style={[styles.tdSection, { width: "100%" }]}>{texteCellule(ligne[0])}</Text>
             </View>
           );
@@ -72,7 +91,7 @@ export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sec
         const total = totalDerniereLigne && r === lignes.length - 1;
         const bg = !total ? couleurLigne?.(r) : undefined;
         return (
-          <View key={r} style={[styles.tr, total ? styles.trTotal : {}, bg ? { backgroundColor: bg } : {}]} wrap={false}>
+          <View key={r} style={[styles.tr, total ? styles.trTotal : {}, bg ? { backgroundColor: bg } : {}]} wrap={false} {...repere?.(r)}>
             {colonnes.map((c, i) => {
               const couleur = !total ? couleurCellule?.(r, i) : undefined;
               return (
@@ -87,6 +106,56 @@ export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sec
       })}
     </View>
   );
+}
+
+type SpecCorps = Omit<CorpsProps, "plage" | "repere" | "suite">;
+
+/** Pièce « ligne Période » : une place. */
+const pieceMeta = (sousTitre: string, exporteLe: string): Piece => ({
+  places: 1,
+  rendre: (c) => (c.de < c.a ? <Text style={styles.meta} {...c.repere(0)}>Période : {sousTitre} · Édité le {exporteLe}</Text> : null),
+});
+
+/**
+ * Pièce « tableau » : une place pour son titre (même s'il n'y en a pas), puis une par ligne. `enveloppe` : le tableau est
+ * dans un bloc `blocTableau` avec son titre (plusieurs tableaux sur une page).
+ */
+function pieceTableau(t: SpecCorps & { titre?: string }, enveloppe: boolean): Piece {
+  return {
+    places: 1 + t.lignes.length,
+    rendre: (c) => {
+      const avecTitre = c.de === 0 && c.a > 0;
+      const de = Math.max(c.de, 1) - 1;
+      const a = Math.max(c.a, 1) - 1;
+      if (!avecTitre && a <= de) return null; // rien de ce tableau dans la fenêtre
+      const corps = <CorpsTableau colonnes={t.colonnes} lignes={t.lignes} totalDerniereLigne={t.totalDerniereLigne} sectionRows={t.sectionRows} couleurLigne={t.couleurLigne} couleurCellule={t.couleurCellule} plage={[de, a]} repere={(r) => c.repere(1 + r)} suite={c.suite} />;
+      if (!enveloppe) return corps;
+      // PAS de `wrap={false}` sur le tableau entier : un bloc insécable plus haut que la page est ÉCRASÉ par react-pdf pour
+      // tenir sur une seule page (rangées superposées, en-tête réduit à une barre vide, titre recouvert) — le rapport
+      // « Achats de légumes frais — détail » sortait illisible. Le tableau se découpe donc entre les pages, ses rangées
+      // restent insécables et sa ligne d'en-tête se répète (CorpsTableau).
+      return (
+        <View style={styles.blocTableau}>
+          {t.titre && avecTitre && (
+            // Le titre ne reste jamais seul en bas de page : il exige la place de l'en-tête et de quelques rangées après
+            // lui, sinon il passe à la page suivante avec son tableau.
+            <Text style={styles.titreTableau} minPresenceAhead={60} {...c.repere(0)}>{t.titre}</Text>
+          )}
+          {corps}
+        </View>
+      );
+    },
+  };
+}
+
+function planTableaux(titre: string, sousTitre: string, paysage: boolean, groupes: Groupe[]): Plan {
+  return {
+    mode: "fenetres",
+    groupes,
+    page: { orientation: paysage ? "landscape" : "portrait", style: styles.page },
+    pied: <PdfFooter docLabel={`${titre} — ${sousTitre}`} />,
+    places: totalPlaces(groupes),
+  };
 }
 
 /** Document PDF générique : en-tête de marque + tableau (colonnes/lignes), dernière ligne en gras optionnelle. */
@@ -112,59 +181,26 @@ export function TableauDocument({
   couleurCellule?: (r: number, c: number) => string | undefined; // couleur de texte d'une cellule (ex. commande verte / livraison rouge)
   paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
-}) {
+}): ReactElement<DocumentProps> {
   verifierPlafondPdf(lignes.length); // refus AVANT rendu au-delà du plafond (lib/pdf/plafond.ts)
-  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
-  return (
-    <Document>
-      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
-        <PdfHeader title={titre} subtitle={sousTitre} />
-        <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
-        <CorpsTableau
-          colonnes={colonnes}
-          lignes={lignes}
-          totalDerniereLigne={totalDerniereLigne}
-          sectionRows={sectionRows}
-          couleurLigne={couleurLigne}
-          couleurCellule={couleurCellule}
-        />
-        {pied && <Text style={styles.pied}>{pied}</Text>}
-        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
-      </Page>
-    </Document>
-  );
+  const exporteLe = dateEdition();
+  return documentDuPlan(planTableaux(titre, sousTitre, paysage, [{
+    entete: <PdfHeader title={titre} subtitle={sousTitre} />,
+    pieces: [pieceMeta(sousTitre, exporteLe), pieceTableau({ colonnes, lignes, totalDerniereLigne, sectionRows, couleurLigne, couleurCellule }, false)],
+    fin: pied ? <Text style={styles.pied}>{pied}</Text> : null,
+  }]));
 }
 
 export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: Cellule[][]; totalDerniereLigne?: boolean };
 
 /** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
-export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {
+export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }): ReactElement<DocumentProps> {
   verifierPlafondPdf(tables.reduce((n, t) => n + t.lignes.length, 0)); // toutes les tables du document comptent
-  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
-  return (
-    <Document>
-      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
-        <PdfHeader title={titre} subtitle={sousTitre} />
-        <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
-        {tables.map((t, ti) => (
-          // PAS de `wrap={false}` sur le tableau entier : un bloc insécable plus haut que la page
-          // est ÉCRASÉ par react-pdf pour tenir sur une seule page (rangées superposées, en-tête
-          // réduit à une barre vide, titre recouvert) — le rapport « Achats de légumes frais —
-          // détail » sortait illisible. Le tableau se découpe donc entre les pages, ses rangées
-          // restent insécables et sa ligne d'en-tête se répète (CorpsTableau).
-          <View key={ti} style={styles.blocTableau}>
-            {t.sousTitre && (
-              // Le titre ne reste jamais seul en bas de page : il exige la place de l'en-tête et
-              // de quelques rangées après lui, sinon il passe à la page suivante avec son tableau.
-              <Text style={styles.titreTableau} minPresenceAhead={60}>{t.sousTitre}</Text>
-            )}
-            <CorpsTableau colonnes={t.colonnes} lignes={t.lignes} totalDerniereLigne={t.totalDerniereLigne} />
-          </View>
-        ))}
-        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
-      </Page>
-    </Document>
-  );
+  const exporteLe = dateEdition();
+  return documentDuPlan(planTableaux(titre, sousTitre, paysage, [{
+    entete: <PdfHeader title={titre} subtitle={sousTitre} />,
+    pieces: [pieceMeta(sousTitre, exporteLe), ...tables.map((t) => pieceTableau({ titre: t.sousTitre, colonnes: t.colonnes, lignes: t.lignes, totalDerniereLigne: t.totalDerniereLigne }, true))],
+  }]));
 }
 
 export type PartieTableau = {
@@ -194,30 +230,32 @@ export function TableauxParPartieDocument({
   parties: PartieTableau[];
   paysage?: boolean;
   pied?: string; // mention en bas de la DERNIÈRE partie
-}) {
+}): ReactElement<DocumentProps> {
   verifierPlafondPdf(parties.reduce((n, p) => n + p.lignes.length, 0)); // toutes les parties du document comptent
-  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
-  return (
-    <Document>
-      {parties.map((p, pi) => (
-        <Page key={pi} size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
-          <PdfHeader title={titre} subtitle={sousTitre} />
-          <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
-          {p.sousTitre ? (
-            // Titre daté (« Date : 22/09/2026 ») : répété en haut de chaque page de la partie, pour
-            // qu'une page de suite dise toujours de quel jour elle est.
-            <View fixed>
-              <Text style={[styles.titrePartie, { marginBottom: 2 }]}>{p.titre}</Text>
-              <Text style={styles.sousTitrePartie}>{p.sousTitre}</Text>
-            </View>
-          ) : (
-            <Text style={styles.titrePartie}>{p.titre}</Text>
-          )}
-          <CorpsTableau colonnes={p.colonnes} lignes={p.lignes} totalDerniereLigne={p.totalDerniereLigne} sectionRows={p.sectionRows} couleurCellule={p.couleurCellule} />
-          {pied && pi === parties.length - 1 && <Text style={styles.pied}>{pied}</Text>}
-          <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
-        </Page>
-      ))}
-    </Document>
-  );
+  const exporteLe = dateEdition();
+  return documentDuPlan(planTableaux(titre, sousTitre, paysage, parties.map((p, pi): Groupe => ({
+    entete: <PdfHeader title={titre} subtitle={sousTitre} />,
+    pieces: [
+      {
+        // Ligne Période, puis le titre de la partie. Daté (« Date : 22/09/2026 »), il est répété en haut de chaque page
+        // de la partie (`fixed`), pour qu'une page de suite dise toujours de quel jour elle est.
+        places: 1,
+        rendre: (c) => (
+          <>
+            {c.de < c.a && <Text style={styles.meta} {...c.repere(0)}>Période : {sousTitre} · Édité le {exporteLe}</Text>}
+            {p.sousTitre ? (
+              <View fixed>
+                <Text style={[styles.titrePartie, { marginBottom: 2 }]}>{p.titre}</Text>
+                <Text style={styles.sousTitrePartie}>{p.sousTitre}</Text>
+              </View>
+            ) : (
+              c.de < c.a && <Text style={styles.titrePartie}>{p.titre}</Text>
+            )}
+          </>
+        ),
+      },
+      pieceTableau({ colonnes: p.colonnes, lignes: p.lignes, totalDerniereLigne: p.totalDerniereLigne, sectionRows: p.sectionRows, couleurCellule: p.couleurCellule }, false),
+    ],
+    fin: pied && pi === parties.length - 1 ? <Text style={styles.pied}>{pied}</Text> : null,
+  }))));
 }

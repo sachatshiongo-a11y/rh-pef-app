@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { Font, renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
 import { reponsePdfTropLong } from "./plafond";
+import { planDe, rendreParBlocs, rendreParLots, respirer, SEUIL_PLACES_BLOCS, PAGES_PAR_LOT } from "./blocs";
 
 const FAMILLE = "Optima";
 
@@ -54,14 +55,34 @@ function invaliderCachePolicePourRendu(): void {
 }
 
 /**
- * Point d'entrée UNIQUE pour rendre un <Document/> en Buffer PDF — remplace tout import direct de
- * `renderToBuffer` depuis "@react-pdf/renderer" dans les routes : applique systématiquement le
- * rechargement de police ci-dessus (centralisé ici pour qu'aucun futur document ne l'oublie).
+ * Rend UN <Document/> d'un seul tenant (rechargement de police compris). Brique de `renderPdfBuffer` et du rendu par
+ * blocs (`blocs.tsx`) ; les routes, elles, passent par `renderPdfBuffer`.
  */
-export function renderPdfBuffer(document: ReactElement<DocumentProps>): Promise<Buffer> {
+export function renderPdfBrut(document: ReactElement<DocumentProps>): Promise<Buffer> {
   registerPdfFonts();
   invaliderCachePolicePourRendu();
   return renderToBuffer(document);
+}
+
+/**
+ * Point d'entrée UNIQUE pour rendre un <Document/> en Buffer PDF — remplace tout import direct de
+ * `renderToBuffer` depuis "@react-pdf/renderer" dans les routes : applique systématiquement le
+ * rechargement de police ci-dessus (centralisé ici pour qu'aucun futur document ne l'oublie).
+ *
+ * Un document LONG (tableaux : plus de `SEUIL_PLACES_BLOCS` places ; bulletins groupés : plus de `PAGES_PAR_LOT`
+ * pages) déclare son plan de découpage (`declarerPlan`) : il est rendu PAR BLOCS puis réuni, la boucle d'événements
+ * rendue entre deux blocs (voir `blocs.tsx` : le rendu d'un tableau d'un seul tenant bloque le processus un temps
+ * qui croît comme le carré du nombre de lignes). Mise en page et pagination identiques. Les autres documents, et
+ * les courts, sont rendus d'un seul tenant, comme avant.
+ */
+export async function renderPdfBuffer(document: ReactElement<DocumentProps>): Promise<Buffer> {
+  // Une fois par rendu : dans une boucle (un bulletin par salarié d'un ZIP, un lot de feuilles), la boucle d'événements passe
+  // (contrôle de santé de la plateforme, autres requêtes) avant chaque rendu, jamais deux rendus d'affilée sans respirer.
+  await respirer();
+  const plan = planDe(document);
+  if (plan?.mode === "fenetres" && plan.places > SEUIL_PLACES_BLOCS) return rendreParBlocs(plan, renderPdfBrut);
+  if (plan?.mode === "lots" && plan.pages > PAGES_PAR_LOT) return rendreParLots(plan, renderPdfBrut);
+  return renderPdfBrut(document);
 }
 
 /**

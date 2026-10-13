@@ -66,3 +66,35 @@ export function ecartMinimalEntreRangees(textes: TextePose[], repere: RegExp): n
   }
   return min;
 }
+
+/**
+ * Pages d'un PDF qui diffèrent VISUELLEMENT d'un autre : rastérise chaque page (pdfjs + @napi-rs/canvas, échelle 1) et compte
+ * les pixels dont la couleur diffère nettement. Voit ce que la position du texte ne dit pas : traits, fonds, marges.
+ * Renvoie, par page, le nombre de pixels différents (0 = identique ; quelques pixels de lissage sont normaux).
+ */
+export async function pixelsDifferentsParPage(a: Buffer, b: Buffer, echelle = 1): Promise<number[]> {
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const ouvrir = (pdf: Buffer) => pdfjs.getDocument({ data: new Uint8Array(pdf), useSystemFonts: false, isEvalSupported: false }).promise;
+  const [da, db] = [await ouvrir(a), await ouvrir(b)];
+  if (da.numPages !== db.numPages) throw new Error(`Pages différentes : ${da.numPages} contre ${db.numPages}`);
+  const pixels = async (doc: typeof da, n: number) => {
+    const page = await doc.getPage(n);
+    const vp = page.getViewport({ scale: echelle });
+    const canvas = createCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx as never, viewport: vp, canvas: canvas as never }).promise;
+    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  };
+  const sortie: number[] = [];
+  for (let n = 1; n <= da.numPages; n++) {
+    const [pa, pb] = [await pixels(da, n), await pixels(db, n)];
+    let diff = 0;
+    for (let i = 0; i < pa.length; i += 4) if (Math.abs(pa[i] - pb[i]) + Math.abs(pa[i + 1] - pb[i + 1]) + Math.abs(pa[i + 2] - pb[i + 2]) > 60) diff++;
+    sortie.push(diff);
+  }
+  await Promise.all([da.destroy(), db.destroy()]);
+  return sortie;
+}

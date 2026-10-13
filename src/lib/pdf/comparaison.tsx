@@ -1,10 +1,13 @@
-import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import type { ReactElement } from "react";
+import { View, Text, StyleSheet } from "@react-pdf/renderer";
+import type { DocumentProps } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
 import type { Colonne } from "./tableau";
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { verifierPlafondPdf } from "./plafond";
+import { dateEdition } from "./tableau";
+import { documentDuPlan, totalPlaces, type Groupe } from "./blocs";
 
 registerPdfFonts();
 
@@ -96,23 +99,29 @@ function EnteteTableau({ p }: { p: PartieComparaison }) {
   );
 }
 
-function CorpsTableau({ p }: { p: PartieComparaison }) {
+/**
+ * Le tableau d'une partie. `plage`, `repere` et `suite` : rendu PAR BLOCS (voir `CorpsTableau` de tableau.tsx) — seules les
+ * lignes de `plage` sont posées (avec leurs indices d'origine), repérées, et la suite d'un tableau n'a pas de trait de tête.
+ */
+function CorpsTableau({ p, plage, repere, suite = false }: { p: PartieComparaison; plage?: [number, number]; repere?: (r: number) => { "data-i"?: number }; suite?: boolean }) {
   const sections = new Set(p.sectionRows);
   const parGroupe = groupeDeColonne(p.groupes);
+  const debut = plage?.[0] ?? 0;
   return (
-    <View style={styles.cadre}>
+    <View style={suite ? [styles.cadre, { borderTopWidth: 0 }] : styles.cadre}>
       <EnteteTableau p={p} />
-      {p.lignes.map((ligne, r) => {
+      {(plage ? p.lignes.slice(plage[0], plage[1]) : p.lignes).map((ligne, i) => {
+        const r = debut + i;
         if (sections.has(r)) {
           // Un titre de rubrique ne reste jamais seul en bas de page : il exige la place d'une rangée après lui.
           return (
-            <View key={r} style={[styles.tr, styles.trSection]} wrap={false} minPresenceAhead={30}>
+            <View key={r} style={[styles.tr, styles.trSection]} wrap={false} minPresenceAhead={30} {...repere?.(r)}>
               <Text style={styles.tdSection}>{ligne[0]}</Text>
             </View>
           );
         }
         return (
-          <View key={r} style={styles.tr} wrap={false}>
+          <View key={r} style={styles.tr} wrap={false} {...repere?.(r)}>
             {p.colonnes.map((c, i) => {
               const gi = parGroupe[i]!;
               const st = p.cellule(r, i);
@@ -138,21 +147,38 @@ function CorpsTableau({ p }: { p: PartieComparaison }) {
 }
 
 /** Document PDF de la Comparaison : une page paysage par partie (jours, puis fin de semaine et totaux). */
-export function ComparaisonDocument({ titre, sousTitre, parties, pied }: { titre: string; sousTitre: string; parties: PartieComparaison[]; pied?: string }) {
+export function ComparaisonDocument({ titre, sousTitre, parties, pied }: { titre: string; sousTitre: string; parties: PartieComparaison[]; pied?: string }): ReactElement<DocumentProps> {
   verifierPlafondPdf(parties.reduce((n, p) => n + p.lignes.length, 0)); // refus AVANT rendu (lib/pdf/plafond.ts)
-  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
-  return (
-    <Document>
-      {parties.map((p, pi) => (
-        <Page key={pi} size="A4" orientation="landscape" style={styles.page}>
-          <PdfHeader title={titre} subtitle={sousTitre} />
-          <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
-          <Text style={styles.titrePartie}>{p.titre}</Text>
-          <CorpsTableau p={p} />
-          {pied && pi === parties.length - 1 && <Text style={styles.pied}>{pied}</Text>}
-          <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
-        </Page>
-      ))}
-    </Document>
-  );
+  const exporteLe = dateEdition();
+  const groupes = parties.map((p, pi): Groupe => ({
+    entete: <PdfHeader title={titre} subtitle={sousTitre} />,
+    pieces: [
+      {
+        places: 1,
+        rendre: (c) => c.de < c.a && (
+          <>
+            <Text style={styles.meta} {...c.repere(0)}>Période : {sousTitre} · Édité le {exporteLe}</Text>
+            <Text style={styles.titrePartie}>{p.titre}</Text>
+          </>
+        ),
+      },
+      {
+        places: 1 + p.lignes.length, // une place pour le tableau lui-même (sans titre), puis une par ligne
+        rendre: (c) => {
+          const de = Math.max(c.de, 1) - 1;
+          const a = Math.max(c.a, 1) - 1;
+          if (!(c.de === 0 && c.a > 0) && a <= de) return null;
+          return <CorpsTableau p={p} plage={[de, a]} repere={(r) => c.repere(1 + r)} suite={c.suite} />;
+        },
+      },
+    ],
+    fin: pied && pi === parties.length - 1 ? <Text style={styles.pied}>{pied}</Text> : null,
+  }));
+  return documentDuPlan({
+    mode: "fenetres",
+    groupes,
+    page: { orientation: "landscape", style: styles.page },
+    pied: <PdfFooter docLabel={`${titre} — ${sousTitre}`} />,
+    places: totalPlaces(groupes),
+  });
 }

@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
 import { entreprise as defaut } from "@/lib/pdf/theme";
-import { SIGNATURE_DIRECTRICE_PATH } from "@/lib/pdf/layout";
+import { SIGNATURE_DIRECTRICE_PATH } from "@/lib/signature-directrice";
 
 const logoDefaut = path.join(process.cwd(), "public/logo-pates-en-folie.png");
 // Signature par défaut : hors de `public/` (voir SIGNATURE_DIRECTRICE_PATH), lue côté serveur seulement.

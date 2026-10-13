@@ -1,4 +1,4 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { FichesInventaireDocument, type EspaceFiche } from "@/lib/pdf/fiche-inventaire-resto";
@@ -26,7 +26,8 @@ export async function GET(req: Request) {
     })),
   );
 
-  const buffer = await renderPdfBuffer(FichesInventaireDocument({ fiches }));
+  const buffer = await renderPdfOuRefus(() => FichesInventaireDocument({ fiches }));
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué
   const nom = demande === "TOUS" ? "Cuisine_Bar" : espaces[0] === "BAR" ? "Bar" : "Cuisine";
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="Fiche_inventaire_${nom}.pdf"` },

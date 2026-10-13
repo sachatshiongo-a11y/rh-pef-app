@@ -2,7 +2,6 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { enregistrerSignature, type ParamsSignature } from "@/lib/signature";
-import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { televerserFichier } from "@/lib/storage";
 import { creerNotification } from "@/lib/notifications";
 
@@ -59,6 +58,8 @@ export async function signerDocument(params: ParamsSignature): Promise<void> {
 // `signerDocument` l'appelle en production.
 export async function figerExemplaireSigne(contratId: string, signeLe: Date): Promise<void> {
   try {
+    // Chargé À LA DEMANDE : @react-pdf n'est pas embarqué dans toutes les pages qui importent ce module (voir pages-sans-react-pdf.garde-fou.test.ts).
+    const { genererContratPdf } = await import("@/lib/pdf/contrat-buffer");
     const pdf = await genererContratPdf(contratId, { ignorerFige: true });
     if (!pdf || !pdf.figeable) return;
     const url = await televerserFichier(`contrats/${contratId}-${signeLe.getTime()}.pdf`, pdf.buffer, "application/pdf");
