@@ -4,7 +4,7 @@ import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { ATTENTE_VERROU_VALIDATION } from "@/lib/paie-validation";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
-import { empreinteDuMois, empreinteLignes, empreinteSources, paieAJour, garderRecente, texteEmpreinte } from "@/lib/paie-empreinte";
+import { empreinteDuMois, empreinteLignes, empreinteSources, paieAJour, garderRecente, texteEmpreinte, memesLignesFigees } from "@/lib/paie-empreinte";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
@@ -61,7 +61,7 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
     const lignesFigees = await tx.payrollLine.findMany({
       where: { payrollRunId: runId, statutPaiement: { in: STATUTS_FIGES } },
-      select: { employeeId: true },
+      select: { id: true, employeeId: true },
     });
     const employeeIdsFiges = new Set(lignesFigees.map((l) => l.employeeId));
 
@@ -125,13 +125,20 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
         },
       });
     }
-    // Empreinte enregistrée : sources lues AVANT le calcul + lignes telles qu'elles viennent d'être écrites
-    // (la run est verrouillée : personne d'autre n'a pu y toucher depuis). C'est elle que l'ouverture
-    // suivante compare pour décider de ne PAS recalculer (`rafraichirPaieAffichee`).
-    const lignesEcrites = await empreinteLignes(tx, cible);
+    // Empreinte enregistrée : sources lues AVANT le calcul + lignes telles qu'elles viennent d'être écrites.
+    // C'est elle que l'ouverture suivante compare pour décider de ne PAS recalculer (`rafraichirPaieAffichee`).
+    // La run verrouillée arrête la validation, la clôture, la réinitialisation et le planning, PAS la
+    // réouverture d'une ligne (qui ne verrouille que la ligne) : une ligne rouverte pendant ce calcul a été
+    // lue figée et n'a pas été recalculée. Si l'ensemble des lignes figées a changé depuis la lecture du
+    // départ, aucune empreinte n'est enregistrée : l'ouverture suivante recalcule (relecture du 2026-10-13).
+    const { lignes: lignesEcrites, figees } = await empreinteLignes(tx, cible);
+    const figeesInchangees = memesLignesFigees(figees, lignesFigees.map((l) => l.id));
     await tx.payrollRun.update({
       where: { id: runId },
-      data: { empreinteCalcul: texteEmpreinte({ sources: sourcesAvantLecture, lignes: lignesEcrites }), calculeLe: new Date(Date.now()) },
+      data: {
+        empreinteCalcul: figeesInchangees ? texteEmpreinte({ sources: sourcesAvantLecture, lignes: lignesEcrites }) : null,
+        calculeLe: new Date(Date.now()),
+      },
     });
     return true;
   }, { timeout: 60_000 });

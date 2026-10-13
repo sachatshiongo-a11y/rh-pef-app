@@ -10,7 +10,7 @@ import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
 // un recalcul forcé. Si une source échappait à l'empreinte, l'affichage resterait sur l'ancien calcul et
 // l'égalité tomberait (voir les falsifications du rapport).
 
-const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient, avance: 0 }));
+const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient, avance: 0, pendantCalcul: undefined as undefined | (() => Promise<unknown>) }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
@@ -19,6 +19,20 @@ vi.mock("@/lib/prisma", () => ({
     },
   }),
 }));
+// Point d'injection AU MILIEU d'un recalcul (après la prise de l'empreinte des sources et la lecture des lignes
+// figées, avant le moteur) : une écriture concurrente, faite sur une AUTRE connexion, s'y glisse comme en production.
+vi.mock("@/lib/paie-batch", async (importOriginal) => {
+  const reel = await importOriginal<typeof import("@/lib/paie-batch")>();
+  return {
+    ...reel,
+    calculerLignesPaie: async (...a: Parameters<typeof reel.calculerLignesPaie>) => {
+      const f = H.pendantCalcul;
+      H.pendantCalcul = undefined;
+      if (f) await f();
+      return reel.calculerLignesPaie(...a);
+    },
+  };
+});
 vi.mock("@/lib/auth", () => ({ verifySession: async () => null, requireModule: () => {}, requireRole: () => {}, invaliderProfil: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`REDIRECT ${url}`); } }));
@@ -210,6 +224,10 @@ describe("propriété : après CHAQUE changement de source, l'affichage = un rec
     await verifier(m("heures modifiées", true, () => prisma.overtimeEntry.update({ where: cleJour(E.ada, d(8)), data: { heuresTravaillees: 12 } })));
     await verifier(m("heures supprimées", true, () => prisma.overtimeEntry.delete({ where: cleJour(E.bob, d(9)) })));
     await verifier(m("heures ajoutées un samedi", true, () => prisma.overtimeEntry.create({ data: { employeeId: E.eva, date: d(12), heuresTravaillees: 7 } })));
+    // Semaine À CHEVAL (lun. 31 août → dim. 6 sept.) : un jour d'AOÛT compte dans le plafond de la semaine de septembre.
+    // Verrouille le filtre des sources sur la plage élargie (une empreinte bornée au mois ne le verrait pas).
+    await verifier(m("heures du lundi 31 août (semaine à cheval)", false, () => prisma.overtimeEntry.create({ data: { employeeId: E.ada, date: new Date(Date.UTC(2026, 7, 31)), heuresTravaillees: 12 } })));
+    await verifier(m("présence du lundi 31 août (semaine à cheval)", false, () => prisma.attendance.create({ data: { employeeId: E.ada, date: new Date(Date.UTC(2026, 7, 31)), code: "P" } })));
   });
   it("planning : créneau modifié / supprimé, modèle créé / modifié, shift modifié", async () => {
     await verifier(m("créneau changé", true, () => prisma.planningCreneau.update({ where: cleJour(E.bob, d(9)), data: { shiftId: S.court } })));
@@ -334,6 +352,30 @@ describe("propriété : après CHAQUE changement de source, l'affichage = un rec
     // Rouverte : les sources n'ont PAS changé depuis le dernier calcul, mais la ligne est périmée.
     await verifier(m("ligne rouverte (VALIDE → PAS_VALIDE) après un changement de source", true, () => prisma.payrollLine.update({ where: { id: l.id }, data: { statutPaiement: "PAS_VALIDE" } })));
     expect(Number((await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: E.cleo, payrollRun: { mois: 9, annee: 2026 } } })).primesUSD)).toBeGreaterThan(0);
+  });
+
+  it("ligne ROUVERTE pendant un recalcul : la paie n'est pas déclarée à jour, l'ouverture suivante la recalcule", async () => {
+    // Rouvrir ne verrouille que la ligne, pas la run : elle peut se glisser dans un recalcul en cours. Le recalcul a lu
+    // la ligne comme figée (il ne la recalcule pas) ; s'il enregistrait l'empreinte des lignes telles qu'elles sont
+    // APRÈS la réouverture, l'ouverture suivante croirait la ligne rouverte à jour alors qu'elle porte encore les
+    // montants de sa validation — et le refus du contrôle de validation (« montant changé ») ne se lèverait pas en
+    // rechargeant la page avant la fin de la garde de 10 minutes.
+    const directeur = await prisma.user.create({ data: { email: "d2@pef.cd", nom: "Direction", role: "ADMIN" } });
+    const l = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: E.ada, payrollRun: { mois: 9, annee: 2026 } } });
+    await prisma.payrollLine.update({ where: { id: l.id }, data: { statutPaiement: "VALIDE" } });
+    await prisma.transitionPaie.create({ data: { payrollLineId: l.id, deStatut: "PAS_VALIDE", versStatut: "VALIDE", userId: directeur.id } });
+    await rafraichirPaieAffichee(9, 2026);
+    // Figée, sa source change (une prime) ; puis la Direction la rouvre PENDANT le recalcul que ce changement déclenche.
+    await prisma.prime.create({ data: { employeeId: E.ada, nom: "Prime pendant le recalcul", montantUSD: 33, mois: 9, annee: 2026 } });
+    H.pendantCalcul = () => prisma.payrollLine.update({ where: { id: l.id }, data: { statutPaiement: "PAS_VALIDE" } });
+    await rafraichirPaieAffichee(9, 2026);
+    expect(H.pendantCalcul, "la réouverture a bien eu lieu pendant le recalcul").toBeUndefined();
+
+    await rafraichirPaieAffichee(9, 2026); // la page rechargée
+    const affiche = await instantane();
+    expect(Number(affiche.lignes[E.ada].primesUSD), "la ligne rouverte porte la prime").toBe(33);
+    await rafraichirPaieDuMois({ creerRun: false });
+    expect(affiche).toEqual(await instantane());
   });
 
   it("paie clôturée (toutes lignes validées, run VALIDE) : l'ouverture ne touche à rien", async () => {

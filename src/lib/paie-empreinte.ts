@@ -152,6 +152,16 @@ const SQL_LIGNES = `(SELECT count(*)::text || ':' || coalesce(sum(hashtextextend
          ELSE to_jsonb(l)::text END, 0)), 0)::text
   FROM "public"."PayrollLine" l WHERE l."payrollRunId" = $7::text)`;
 
+/**
+ * Identifiants des lignes FIGÉES de la run, triés — lus dans la MÊME requête que l'empreinte des lignes.
+ * Rouvrir une ligne ne verrouille que la ligne, pas la run (paie-validation.ts, `verrouillerLignesPaie`) :
+ * une réouverture peut donc se glisser dans un recalcul en cours, après qu'il a lu la ligne comme figée
+ * (et décidé de ne pas la recalculer). Le recalcul compare cette liste à celle qu'il a lue au départ :
+ * si elle a changé, il n'enregistre pas d'empreinte (l'ouverture suivante recalcule).
+ */
+const SQL_FIGEES = `(SELECT coalesce(string_agg(l."id", ',' ORDER BY l."id"), '')
+  FROM "public"."PayrollLine" l WHERE l."payrollRunId" = $7::text AND l."statutPaiement"::text = ANY($8::text[]))`;
+
 export type EmpreinteMois = { sources: string; lignes: string };
 type Cible = { mois: number; annee: number; runId: string; statutsFiges: string[] };
 
@@ -182,9 +192,21 @@ export async function empreinteSources(db: Db, c: Cible): Promise<string> {
   return (await lancer<{ v: string }>(db, `SELECT ${SQL_SOURCES} AS v`, c)).v;
 }
 
-/** Empreinte des seules LIGNES de la run (à prendre APRÈS les écritures du calcul). */
-export async function empreinteLignes(db: Db, c: Cible): Promise<string> {
-  return (await lancer<{ v: string }>(db, `SELECT ${SQL_LIGNES} AS v`, c)).v;
+/**
+ * Empreinte des seules LIGNES de la run (à prendre APRÈS les écritures du calcul), avec, lus dans la même
+ * requête (même instantané), les identifiants triés des lignes figées.
+ */
+export async function empreinteLignes(db: Db, c: Cible): Promise<{ lignes: string; figees: string[] }> {
+  const r = await lancer<{ v: string; figees: string }>(db, `SELECT ${SQL_LIGNES} AS v, ${SQL_FIGEES} AS figees`, c);
+  return { lignes: r.v, figees: r.figees ? r.figees.split(",") : [] };
+}
+
+/** Vrai si les deux listes d'identifiants désignent les mêmes lignes (ordre indifférent). */
+export function memesLignesFigees(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const x = [...a].sort();
+  const y = [...b].sort();
+  return x.every((v, i) => v === y[i]);
 }
 
 /** Les deux empreintes en UNE requête (ouverture d'un écran). */

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
-import { SOURCES_PAIE, GARDE_RECALCUL_MS, paieAJour, garderRecente, texteEmpreinte, VERSION_EMPREINTE } from "@/lib/paie-empreinte";
+import { SOURCES_PAIE, GARDE_RECALCUL_MS, paieAJour, garderRecente, texteEmpreinte, VERSION_EMPREINTE, memesLignesFigees } from "@/lib/paie-empreinte";
 
 // GARDE-FOUS STATIQUES de l'empreinte des sources de la paie (lib/paie-empreinte.ts). Leur rôle : qu'une
 // donnée lue un jour par le moteur sans figurer dans l'empreinte fasse échouer la suite, et non
@@ -133,6 +133,15 @@ describe("rafraichirPaieDuMois : l'ordre qui rend l'empreinte sûre", () => {
     expect(coeur.match(/empreinteSources\(/g)).toHaveLength(1);
     // …et la run est verrouillée avant la prise.
     expect(coeur.indexOf("FOR UPDATE")).toBeLessThan(iSources);
+  });
+
+  it("une ligne rouverte PENDANT le calcul (ensemble des figées changé) : aucune empreinte enregistrée", () => {
+    expect(coeur).toMatch(/memesLignesFigees\(figees, lignesFigees\.map\(\(l\) => l\.id\)\)/);
+    expect(coeur).toMatch(/empreinteCalcul: figeesInchangees \? texteEmpreinte\(/);
+    expect(memesLignesFigees(["b", "a"], ["a", "b"])).toBe(true);
+    expect(memesLignesFigees([], [])).toBe(true);
+    expect(memesLignesFigees(["a"], ["a", "b"])).toBe(false);
+    expect(memesLignesFigees(["a", "c"], ["a", "b"])).toBe(false);
   });
 
   it("le recalcul forcé (bouton, réinitialisation, tests) ne consulte jamais l'empreinte : seul l'AFFICHAGE peut s'en dispenser", () => {
