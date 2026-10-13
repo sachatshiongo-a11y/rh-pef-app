@@ -35,9 +35,10 @@ describe("fiche salarié — six onglets, l'ancien « Fin de contrat » redirige
 
   it("les données de la section (fins de contrat, reprises du solde, paramètres de départ) se chargent avec l'onglet Contrats", () => {
     expect(page).not.toMatch(/tab === "fin"/);
-    expect(page).toMatch(/const finContrats =\s+tab === "contrats"/);
-    expect(page).toMatch(/const reprisesSolde = tab === "contrats"/);
-    expect(page).toMatch(/const paramsDepart =\s+tab === "contrats"/);
+    // Lues dans le Promise.all de la page (13/10/2026) : chacune garde sa condition d'onglet.
+    expect(page).toMatch(/tab === "contrats" \? prisma\.finContrat\.findMany\(/);
+    expect(page).toMatch(/tab === "contrats" && employee\.actif \? chargerReprisesSolde\(/);
+    expect(page).toMatch(/tab === "contrats"\s+\? prisma\.parametreLegal\.findMany\(/);
   });
 });
 
