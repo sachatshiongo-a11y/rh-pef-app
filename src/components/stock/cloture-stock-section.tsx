@@ -46,7 +46,6 @@ export async function ClotureStockSection() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <span className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Inventaire + mouvements</span>
-                <TelechargerLien href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=pdf`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</TelechargerLien>
                 <TelechargerLien href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=excel`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</TelechargerLien>
               </span>
               {m.cloture ? (

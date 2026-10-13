@@ -23,7 +23,8 @@ describe("routes PDF tabulaires : refus lisible au-delà du plafond", () => {
   const concernees = routes(APP).filter((f) => DOCUMENTS_PLAFONNES.some((d) => new RegExp(`\\b${d}\\(`).test(fs.readFileSync(f, "utf8"))));
 
   it("le recensement trouve les routes attendues (sinon le test ne prouve rien)", () => {
-    expect(concernees.length).toBeGreaterThanOrEqual(11);
+    // 10 routes depuis le retrait du PDF de l'inventaire de clôture (13/10/2026, Excel seulement).
+    expect(concernees.length).toBeGreaterThanOrEqual(10);
   });
 
   it.each(concernees.map((f) => [path.relative(APP, f), f]))("%s rend ses documents plafonnés par renderPdfOuRefus", (_rel, f) => {

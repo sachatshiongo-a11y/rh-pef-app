@@ -5,7 +5,7 @@ import { creerBaseTest } from "@/lib/test/db";
 // Audit du 10/10/2026, sécurité 2 : export « détail » des rapports Stock.
 //  - les détails Factures et Bons de commande chargeaient TOUTE la table (bons AVEC leurs lignes)
 //    puis filtraient en mémoire : la période est désormais lue EN BASE ;
-//  - au-delà de 1 500 lignes, le PDF est refusé (413 lisible) AVANT tout rendu, et rien n'est
+//  - au-delà de 300 lignes (plafond abaissé le 13/10/2026), le PDF est refusé (413 lisible) AVANT tout rendu, et rien n'est
 //    journalisé dans l'historique des rapports. Test d'INTÉGRATION (Postgres éphémère).
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient, lus: [] as { modele: string; n: number }[] }));
 vi.mock("@/lib/prisma", () => ({
@@ -53,7 +53,7 @@ beforeAll(async () => {
   await bc("BC-IN", 1, "2026-08-10");
   await bc("BC-OUT-1", 2, "2026-07-31");
   await bc("BC-OUT-2", 3, "2026-10-01");
-  // 1 501 mouvements dans la période : un de plus que le plafond.
+  // 1 501 mouvements dans la période : très au-delà du plafond du PDF (300 lignes).
   const a = await prisma.articleStock.create({ data: { designation: "Riz", domaine: "NOURRITURE" } });
   await prisma.mouvementStock.createMany({ data: Array.from({ length: 1501 }, (_, i) => ({ articleId: a.id, type: "ENTREE" as const, quantite: 1, date: J(`2026-09-${String((i % 28) + 1).padStart(2, "0")}`) })) });
 }, 120_000);
@@ -83,7 +83,7 @@ describe("rapports Stock — plafond du PDF", () => {
     const t0 = Date.now();
     const r = await GET(url("pdf"));
     expect(r.status).toBe(413);
-    expect(await r.text()).toMatch(/^Période trop longue : 1 501 lignes, maximum 1 500/);
+    expect(await r.text()).toMatch(/^Période trop longue : 1 501 lignes, maximum 300/);
     expect(Date.now() - t0).toBeLessThan(20_000); // refus avant rendu, pas après
     expect(await prisma.rapport.count()).toBe(0);
   }, 60_000);
