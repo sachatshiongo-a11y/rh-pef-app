@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import ExcelJS from "exceljs";
 import { creerBaseTest } from "@/lib/test/db";
 
-// Export « Inventaire + mouvements » de la Clôture du mois (PDF et Excel) : 12/10/2026, la Direction ne recevait
+// Export « Inventaire + mouvements » de la Clôture du mois (Excel ; le PDF est retiré depuis le 13/10/2026) : 12/10/2026, la Direction ne recevait
 // que « Le document n'a pas pu être récupéré ». Test d'INTÉGRATION (Postgres éphémère) qui appelle le vrai GET,
 // sur un mois non clôturé (état actuel) et un mois clôturé (instantané figé), avec des articles qui ont une
 // marque, une contenance, un prix en francs, un fournisseur, et des mouvements de chaque type.
@@ -61,14 +61,6 @@ afterAll(async () => { await fermer?.(); });
 
 describe("GET /stock/cloture/inventaire", () => {
   for (const [mois, etat] of [["2026-9", "non clôturé"], ["2026-8", "clôturé"]] as const) {
-    it(`PDF — mois ${etat} : un vrai PDF`, async () => {
-      const res = await appel(mois, "pdf");
-      expect(res.status).toBe(200);
-      expect(res.headers.get("Content-Type")).toBe("application/pdf");
-      const buf = Buffer.from(await res.arrayBuffer());
-      expect(buf.subarray(0, 5).toString()).toBe("%PDF-");
-    }, 120_000);
-
     it(`Excel — mois ${etat} : un vrai classeur, une feuille par domaine`, async () => {
       const res = await appel(mois, "excel");
       expect(res.status).toBe(200);
@@ -78,9 +70,14 @@ describe("GET /stock/cloture/inventaire", () => {
     }, 120_000);
   }
 
-  it("PDF : ne lit AUCUN mouvement (il n'en affiche pas) ; l'Excel les lit une fois", async () => {
+  it("PDF retiré (13/10/2026) : 410 en texte lisible qui renvoie vers l'Excel, sans lire la base ; l'Excel lit les mouvements une fois", async () => {
     H.lecturesMouvements = 0;
-    await (await appel("2026-9", "pdf")).arrayBuffer();
+    for (const mois of ["2026-9", "2026-8", "n'importe quoi"]) {
+      const res = await appel(mois, "pdf");
+      expect(res.status).toBe(410);
+      expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
+      expect(await res.text()).toBe("L'inventaire se télécharge en Excel.");
+    }
     expect(H.lecturesMouvements).toBe(0);
     await (await appel("2026-9", "excel")).arrayBuffer();
     expect(H.lecturesMouvements).toBe(1);
@@ -90,7 +87,7 @@ describe("GET /stock/cloture/inventaire", () => {
     const erreur = vi.spyOn(console, "error").mockImplementation(() => {});
     H.panne = true;
     try {
-      for (const format of ["pdf", "excel"]) {
+      for (const format of ["excel"]) {
         const res = await appel("2026-9", format);
         expect(res.status).toBe(500);
         expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
@@ -122,7 +119,7 @@ describe("GET /stock/cloture/inventaire", () => {
   }, 180_000);
 
   it("refuse un mois illisible par un texte lisible (400)", async () => {
-    const res = await appel("n'importe quoi", "pdf");
+    const res = await appel("n'importe quoi", "excel");
     expect(res.status).toBe(400);
     expect(res.headers.get("Content-Type")).toMatch(/text\/plain/);
   });

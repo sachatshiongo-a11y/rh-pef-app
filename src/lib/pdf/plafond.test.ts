@@ -5,33 +5,35 @@ import { ComparaisonDocument } from "./comparaison";
 import { PLAFOND_LIGNES_PDF, PdfTropLongError, messagePdfTropLong } from "./plafond";
 
 /**
- * Audit du 10/10/2026, sécurité 2 : un PDF tabulaire coûte ~110 Ko de mémoire PAR LIGNE au rendu ;
- * sur l'instance de 512 Mo, un export trop long fait tomber l'application pour tout le monde. Au-delà
- * de 1 500 lignes, le document est REFUSÉ AVANT TOUT RENDU (413 lisible), jamais tronqué.
+ * Audit du 10/10/2026, sécurité 2, durci le 13/10/2026 : le rendu d'un PDF tabulaire bloque la boucle d'événements
+ * (carré du nombre de lignes : 1 000 lignes = 10 s) ; sur l'instance de 512 Mo, un export trop long fait échouer le
+ * contrôle de santé et tomber l'application pour tout le monde. Au-delà de 300 lignes, le document est REFUSÉ AVANT
+ * TOUT RENDU (413 lisible, qui renvoie vers l'Excel), jamais tronqué.
  */
 
 const colonnes = [{ header: "A", width: "50%" }, { header: "B", width: "50%" }];
 const lignes = (n: number): Cellule[][] => Array.from({ length: n }, (_, i) => [`L${i}`, i]);
 
 describe("plafond des PDF tabulaires", () => {
-  it("le plafond est de 1 500 lignes, et le message dit le compte réel et le maximum", () => {
-    expect(PLAFOND_LIGNES_PDF).toBe(1500);
+  it("le plafond est de 300 lignes, et le message dit le compte réel et le maximum", () => {
+    expect(PLAFOND_LIGNES_PDF).toBe(300);
     const m = messagePdfTropLong(4321);
-    expect(m).toMatch(/^Période trop longue : 4 321 lignes, maximum 1 500/);
+    expect(m).toMatch(/^Période trop longue : 4 321 lignes, maximum 300/);
     expect(m).toContain("réduisez la période");
+    expect(m).toContain("exportez en Excel");
     expect(m).not.toMatch(/[ −]/);
   });
 
-  it("TableauDocument : 1 500 lignes se construisent, 1 501 sont refusées", () => {
-    expect(() => TableauDocument({ titre: "T", sousTitre: "S", colonnes, lignes: lignes(1500) })).not.toThrow();
-    expect(() => TableauDocument({ titre: "T", sousTitre: "S", colonnes, lignes: lignes(1501) })).toThrow(PdfTropLongError);
+  it("TableauDocument : 300 lignes se construisent, 301 sont refusées", () => {
+    expect(() => TableauDocument({ titre: "T", sousTitre: "S", colonnes, lignes: lignes(300) })).not.toThrow();
+    expect(() => TableauDocument({ titre: "T", sousTitre: "S", colonnes, lignes: lignes(301) })).toThrow(PdfTropLongError);
   });
 
   it("plusieurs tableaux / parties : c'est le TOTAL du document qui compte", () => {
-    const t = { colonnes, lignes: lignes(800) };
+    const t = { colonnes, lignes: lignes(160) };
     expect(() => TablesDocument({ titre: "T", sousTitre: "S", tables: [t, t] })).toThrow(PdfTropLongError);
     expect(() => TableauxParPartieDocument({ titre: "T", sousTitre: "S", parties: [{ titre: "1", ...t }, { titre: "2", ...t }] })).toThrow(PdfTropLongError);
-    const p = { titre: "P", groupes: [], colonnes, lignes: Array.from({ length: 800 }, () => ["a", "b"]) };
+    const p = { titre: "P", groupes: [], colonnes, lignes: Array.from({ length: 160 }, () => ["a", "b"]) };
     expect(() => ComparaisonDocument({ titre: "T", sousTitre: "S", parties: [p, p] as never })).toThrow(PdfTropLongError);
   });
 
