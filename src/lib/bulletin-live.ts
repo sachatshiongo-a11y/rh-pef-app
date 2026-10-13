@@ -9,7 +9,9 @@ import {
   calculerPaieStage,
   type CodePresence,
   type LignePaie,
+  type ParametresPaie,
 } from "@/lib/payroll";
+import type { Employee } from "@prisma/client";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
@@ -45,6 +47,20 @@ export type ApercuBulletin = {
 };
 
 /**
+ * Ce que l'appelant a DÉJÀ lu dans la même requête (la fiche salarié) — mêmes lignes, pas de seconde lecture.
+ * Chaque élément est facultatif ; absent, il est lu en base comme avant.
+ */
+export type ConnuBulletinLive = {
+  /** La fiche (toutes ses colonnes), ou null si elle n'existe pas. */
+  employee?: Employee | null;
+  /** TOUS les contrats du salarié, du début le plus récent au plus ancien (`orderBy: { dateDebut: "desc" }`). */
+  contratsParDebutDecroissant?: { type: string; statut: string; dateDebut: Date }[];
+  parametres?: ParametresPaie;
+  /** Ses présences du mois calculé (seul le code compte). */
+  presencesDuMois?: { code: string }[];
+};
+
+/**
  * Calcule EN DIRECT le bulletin d'un employé pour une période (sans écrire en base) — sert à
  * l'aperçu intégré dans la fiche. Reprend la logique de `calculerLignesPaie` (paie-batch.ts) :
  * paie aux heures §8, transport B3, primes & acompte approuvé Lot D, ET le régime de contrat
@@ -56,18 +72,21 @@ export type ApercuBulletin = {
 export async function calculerBulletinLive(
   employeeId: string,
   mois: number,
-  annee: number
+  annee: number,
+  connu: ConnuBulletinLive = {},
 ): Promise<ApercuBulletin | null> {
-  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  const employee = connu.employee !== undefined ? connu.employee : await prisma.employee.findUnique({ where: { id: employeeId } });
   if (!employee) return null;
 
   // Régime de paie : type du contrat ACTIF le plus récent, sinon le type de la fiche — même
   // règle que paie-batch.ts (typeContratParEmp).
-  const contratActif = await prisma.contrat.findFirst({
-    where: { employeeId, statut: "ACTIF" },
-    orderBy: { dateDebut: "desc" },
-    select: { type: true },
-  });
+  const contratActif = connu.contratsParDebutDecroissant
+    ? (connu.contratsParDebutDecroissant.find((c) => c.statut === "ACTIF") ?? null)
+    : await prisma.contrat.findFirst({
+        where: { employeeId, statut: "ACTIF" },
+        orderBy: { dateDebut: "desc" },
+        select: { type: true },
+      });
   const typeContrat = contratActif?.type ?? employee.contrat;
 
   // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Embauché
@@ -76,7 +95,7 @@ export async function calculerBulletinLive(
   if (new Date(employee.dateEmbauche).getTime() > Date.UTC(annee, mois, 0)) return null;
   const estStage = typeContrat === "STAGE";
 
-  const parametres = await chargerParametresPaie();
+  const parametres = connu.parametres ?? (await chargerParametresPaie());
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
@@ -84,7 +103,7 @@ export async function calculerBulletinLive(
   // 2026-10-10) — même assemblage `chargerJoursMois`, même moteur `calculerHeuresSupp`.
   const [attendances, primesDuMois, fraisMedDuMois, acomptesDuMois, pretsEnCours, avantagesDuMois, joursParEmp] =
     await Promise.all([
-      prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
+      connu.presencesDuMois ?? prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
       prisma.prime.findMany({ where: { employeeId, mois, annee } }),
       prisma.fraisMedical.findMany({ where: { employeeId, mois, annee } }),
       prisma.acompteSalaire.findMany({ where: { employeeId, mois, annee, statut: "APPROUVE" } }),

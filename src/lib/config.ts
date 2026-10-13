@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { ParametresPaie } from "@/lib/payroll";
-import type { Prisma } from "@prisma/client";
+import type { Config, Prisma } from "@prisma/client";
 import { ErreurMetier } from "@/lib/erreur-metier";
 
 /**
@@ -135,9 +135,15 @@ export async function chargerParametresContrat(db: Prisma.TransactionClient = pr
  * Lève une erreur si l'exercice actif ou un paramètre requis est manquant : on ne calcule
  * jamais une paie avec des valeurs implicites.
  */
-export async function chargerParametresPaie(db: Prisma.TransactionClient = prisma): Promise<ParametresPaie> {
+export async function chargerParametresPaie(
+  db: Prisma.TransactionClient = prisma,
+  /** La ligne Config déjà lue (ou en cours de lecture) par le rendu (`lireConfigDuRendu`) : pas de seconde lecture.
+   *  Absente (null) : relue, et son absence lève comme avant. */
+  configDuRendu?: Promise<Config | null> | Config | null,
+): Promise<ParametresPaie> {
+  const lireConfig = () => db.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const [config, exercice] = await Promise.all([
-    db.config.findUniqueOrThrow({ where: { id: "singleton" } }),
+    configDuRendu !== undefined ? Promise.resolve(configDuRendu).then((c) => c ?? lireConfig()) : lireConfig(),
     db.exerciceFiscal.findFirst({
       where: { actif: true },
       include: { parametres: true, tranchesIpr: { orderBy: { ordre: "asc" } } },

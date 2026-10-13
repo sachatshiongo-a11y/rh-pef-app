@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
-import { chargerCongesParAnnee, chargerSoldeCongeSalarie, chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
+import { chargerCongesFiche, chargerCongesParAnnee, chargerSoldeCongeSalarie, chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
+import { chargerSortieFiche, sortieDeFiche } from "@/lib/sortie-salarie";
 
 // Le chargement EN LOT (calendrier des congés, 2026-09-29) doit donner, salarié par salarié, le
 // même solde que le chargement unitaire (espace salarié, fiche Direction, PDF) : c'est la même
@@ -125,5 +126,31 @@ describe("chargerCongesParAnnee", () => {
     const solde = await chargerSoldeCongeSalarie(prisma, e, MAINTENANT);
     expect(solde.pris).toBe(4);
     expect(bilans.at(-1)!.pris).toBe(4);
+  });
+});
+
+// Fiche salarié (13/10/2026) : le solde de l'en-tête et le bilan par année en UNE lecture des entrées, la fiche, ses fins
+// de contrat et les droits annuels venant de la page qui les a déjà lus. Mêmes chiffres que les deux chargements séparés,
+// et la date de sortie calculée sur les mêmes lignes que `chargerSortieFiche`.
+describe("chargerCongesFiche", () => {
+  it("rend exactement chargerSoldeCongeSalarie et chargerCongesParAnnee, pour des fiches actives et sorties", async () => {
+    const parti = await salarie("CDI", "2023-03-01");
+    await prisma.employee.update({ where: { id: parti }, data: { actif: false } });
+    await prisma.finContrat.create({ data: { employeeId: parti, motif: "DEMISSION", dateFin: new Date("2026-05-31"), salaireJournalierUSD: 10 } });
+    await conge(parti, "Congé annuel", "2026-02-02", "2026-02-04", 3);
+    const sansDate = await salarie("CDI", "2025-01-06");
+    await prisma.employee.update({ where: { id: sansDate }, data: { actif: false } });
+    const avecDate = await salarie("STAGE", "2025-02-03");
+    await prisma.employee.update({ where: { id: avecDate }, data: { actif: false, dateSortie: new Date("2026-04-30") } });
+
+    const fiches = await prisma.employee.findMany();
+    expect(fiches.length).toBeGreaterThan(5);
+    for (const fiche of fiches) {
+      const fins = await prisma.finContrat.findMany({ where: { employeeId: fiche.id } });
+      const attendu = { solde: await chargerSoldeCongeSalarie(prisma, fiche.id, MAINTENANT), annees: await chargerCongesParAnnee(prisma, fiche.id, MAINTENANT) };
+      expect(await chargerCongesFiche(prisma, fiche, { fins }, true, MAINTENANT), fiche.nom).toEqual(attendu);
+      expect(await chargerCongesFiche(prisma, fiche, { fins, droitsAnnuels: 18 }, false, MAINTENANT), fiche.nom).toEqual({ solde: attendu.solde, annees: null });
+      expect(sortieDeFiche(fiche, fins), fiche.nom).toEqual(await chargerSortieFiche(prisma, fiche.id));
+    }
   });
 });

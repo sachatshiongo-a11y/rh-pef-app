@@ -100,12 +100,23 @@ export async function chargerDatesSortie(db: Db, employeeIds: string[]): Promise
  * Où en est la sortie d'UNE fiche, pour l'écran : sa date et d'où elle vient, ou « inconnue » quand la fiche est
  * INACTIVE sans date (à compléter par la Direction — l'outil signale, il ne devine pas).
  */
-export async function chargerSortieFiche(db: Db, employeeId: string): Promise<{ dateSortie: Date | null; source: "FIN_CONTRAT" | "FICHE" | null; inconnue: boolean }> {
+export async function chargerSortieFiche(db: Db, employeeId: string): Promise<SortieFiche> {
   const fiche = await db.employee.findUnique({ where: { id: employeeId }, select: { actif: true, dateEmbauche: true, dateSortie: true } });
-  if (!fiche || fiche.actif) return { dateSortie: null, source: null, inconnue: false };
+  if (!fiche || fiche.actif) return sortieDeFiche(fiche, []);
   const fins = await db.finContrat.findMany({ where: { employeeId }, select: { dateFin: true } });
-  const dateSortie = resoudreDateSortie(fiche, fins);
-  return { dateSortie, source: sourceDateSortie(fiche, fins), inconnue: dateSortie === null };
+  return sortieDeFiche(fiche, fins);
+}
+
+export type SortieFiche = { dateSortie: Date | null; source: "FIN_CONTRAT" | "FICHE" | null; inconnue: boolean };
+
+/**
+ * La réponse de `chargerSortieFiche`, à partir de la fiche et de ses fins de contrat DÉJÀ LUES (la fiche salarié les
+ * lit pour elle-même : pas de seconde lecture). PURE.
+ */
+export function sortieDeFiche(fiche: Omit<FicheSortie, "id"> | null, finsContrat: { dateFin: Date }[]): SortieFiche {
+  if (!fiche || fiche.actif) return { dateSortie: null, source: null, inconnue: false };
+  const dateSortie = resoudreDateSortie(fiche, finsContrat);
+  return { dateSortie, source: sourceDateSortie(fiche, finsContrat), inconnue: dateSortie === null };
 }
 
 const jjmmaaaa = (d: Date) => iso(d).split("-").reverse().join("/");

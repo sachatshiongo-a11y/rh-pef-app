@@ -155,3 +155,19 @@ describe("chargerPlafondAcompte — quels acomptes comptent dans le cumul", () =
     expect(p.dejaEngageUSD).toBe(0);
   });
 });
+
+// Fiche salarié (13/10/2026) : la page passe la fiche déjà lue ; le plafond est le même que relu en base.
+describe("chargerPlafondAcompte — avec la fiche déjà lue", () => {
+  it("même plafond pour chaque salarié, et une fiche inexistante (null) comme une lecture vide", async () => {
+    for (const fiche of await prisma.employee.findMany()) {
+      for (const periode of [{ mois: 8, annee: 2026 }, { mois: 1, annee: 2026 }]) {
+        expect(await chargerPlafondAcompte(prisma, { employeeId: fiche.id, ...periode }, fiche), fiche.nom).toEqual(
+          await chargerPlafondAcompte(prisma, { employeeId: fiche.id, ...periode }),
+        );
+      }
+    }
+    expect(await chargerPlafondAcompte(prisma, { employeeId: "inexistant", mois: 8, annee: 2026 }, null)).toEqual(
+      await chargerPlafondAcompte(prisma, { employeeId: "inexistant", mois: 8, annee: 2026 }),
+    );
+  });
+});
