@@ -25,15 +25,27 @@ type Compte = CompteAValider;
 
 // Cache mémoire court des chiffres de TOUTE la file RH : évite de refaire ces requêtes à CHAQUE
 // navigation (coûteux sur lien lent). 20 s de fraîcheur suffisent pour des badges d'attente.
-let cacheRH: { at: number; elements: ElementsAValider } | null = null;
+//
+// MAIS une décision doit se voir TOUT DE SUITE (Direction, 13/10/2026) : chaque action serveur qui crée, approuve,
+// refuse, annule ou supprime un élément compté ici appelle `reinitialiserCacheAValider()` APRÈS son écriture réussie
+// (garde-fou : `a-valider-cache.garde-fou.test.ts`). Le Stock et l'Exploitation ne sont PAS dans ce cache : leurs
+// compteurs (`chargerAValiderStock`, `chargerAValiderExploitation`) se lisent en direct à chaque appel.
+//
+// L'état vit sur `globalThis` : si le bundle des actions serveur et celui des pages embarquaient chacun leur copie
+// de ce module, une copie viderait un cache que l'autre ne lirait pas. `generation` empêche une lecture partie AVANT
+// une écriture de remettre en cache, en finissant APRÈS, un chiffre déjà périmé.
 const TTL = 20_000;
+type EtatCache = { cache: { at: number; elements: ElementsAValider } | null; generation: number };
+const globale = globalThis as typeof globalThis & { __aValiderCacheRH?: EtatCache };
+const etat: EtatCache = (globale.__aValiderCacheRH ??= { cache: null, generation: 0 });
 
-/** Vide le cache (tests). */
-export function reinitialiserCacheAValider() { cacheRH = null; }
+/** Vide le cache : à appeler après toute écriture d'un élément compté dans « À valider » (et dans les tests). */
+export function reinitialiserCacheAValider() { etat.cache = null; etat.generation++; }
 
 /** Les chiffres de TOUTE la file RH, rubrique par rubrique (la portée d'un rôle se règle ensuite, en pur). */
 export async function chargerElementsAValiderRH(): Promise<ElementsAValider> {
-  if (cacheRH && Date.now() - cacheRH.at < TTL) return cacheRH.elements;
+  if (etat.cache && Date.now() - etat.cache.at < TTL) return etat.cache.elements;
+  const generation = etat.generation;
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
@@ -51,7 +63,7 @@ export async function chargerElementsAValiderRH(): Promise<ElementsAValider> {
     prisma.attestation.count({ where: { statut: "DEMANDEE" } }),
   ]);
   const elements: ElementsAValider = { conges, fiches: modifs + creations, acomptes, attestations, echanges, changements, bulletinsAValider, bulletinsAPayer };
-  cacheRH = { at: Date.now(), elements };
+  if (generation === etat.generation) etat.cache = { at: Date.now(), elements }; // une écriture est passée pendant la lecture : on ne garde pas ce chiffre
   return elements;
 }
 

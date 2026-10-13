@@ -14,8 +14,10 @@ function ilYA(date: Date): string {
 }
 
 /** Cloche personnelle du salarié (mêmes codes visuels que la cloche RH/Stock, actions scopées). */
-export function ClocheSalarie({ items, nonLues }: { items: NotificationItem[]; nonLues: number }) {
+export function ClocheSalarie({ items, nonLues, nonLuesListees }: { items: NotificationItem[]; nonLues: number; nonLuesListees?: number }) {
   const [ouvert, setOuvert] = useState(false);
+  // Rien n'est caché en silence : si le plafond de sécurité coupe la liste, la cloche le dit.
+  const tronquee = nonLuesListees !== undefined && nonLuesListees < nonLues;
 
   return (
     <div className="relative">
@@ -23,7 +25,7 @@ export function ClocheSalarie({ items, nonLues }: { items: NotificationItem[]; n
         onClick={() => setOuvert((o) => !o)}
         className="relative flex h-9 w-9 items-center justify-center rounded-full border hover:bg-accent"
         aria-label="Notifications"
-        title="Notifications"
+        title={tronquee ? `Notifications : ${nonLuesListees} affichées sur ${nonLues} non lues` : "Notifications"}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -54,6 +56,12 @@ export function ClocheSalarie({ items, nonLues }: { items: NotificationItem[]; n
                 </button>
               </span>
             </div>
+
+            {tronquee && (
+              <p className="border-b bg-amber-50 px-4 py-2 text-xs text-amber-900" data-testid="cloche-plafond">
+                {nonLuesListees} affichées sur {nonLues} non lues.
+              </p>
+            )}
 
             <ul className="max-h-96 divide-y overflow-y-auto">
               {items.length === 0 && (

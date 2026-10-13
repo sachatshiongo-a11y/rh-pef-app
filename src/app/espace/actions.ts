@@ -18,6 +18,7 @@ import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-pla
 import { exigerBulletinModifiable } from "@/lib/paie-element-fige";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { actionLisible } from "@/lib/action-lisible";
 import { exigerAucunRecouvrement, exigerTypeCongeUtilisable, verrouillerCongesSalarie } from "@/lib/conges-regles";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -115,6 +116,7 @@ export async function demanderMonConge(formData: FormData) {
         data: { employeeId, type, dateDebut, dateFin, nbJours, motif, statut: "EN_ATTENTE" },
       });
     });
+    reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
     await creerNotification({
       type: "CONGE",
       message: `Demande de congé (${type}) — ${emp?.nom ?? "salarié"}, ${nbJours} j.`,
@@ -156,6 +158,7 @@ export async function demanderMonAcompte(formData: FormData) {
     const acompte = await prisma.acompteSalaire.create({
       data: { employeeId, montantUSD, mois, annee, motif, statut: "EN_ATTENTE" },
     });
+    reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
     await creerNotification({
       type: "ACOMPTE",
       message: `Demande d'acompte — ${emp?.nom ?? "salarié"}, ${montantUSD.toFixed(2)} $.`,
@@ -193,6 +196,7 @@ export async function demanderChangementShift(formData: FormData) {
     const dem = await prisma.demandeChangementShift.create({
       data: { employeeId, date, shiftActuelId: creneau?.shiftId ?? null, shiftDemandeId, motif },
     });
+    reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     await creerNotification({
       type: "AUTRE",
@@ -219,6 +223,7 @@ export const annulerChangement = actionLisible(async (id: string): Promise<void>
   if (!d || d.employeeId !== employeeId) throw new Error("Demande introuvable.");
   if (d.statut !== "EN_ATTENTE") throw new Error("La Direction a déjà répondu à cette demande : elle ne peut plus être annulée.");
   await prisma.demandeChangementShift.delete({ where: { id } });
+  reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
   await supprimerNotificationsPour(id);
   revalidatePath("/espace/echanges");
   revalidatePath("/a-valider");
@@ -263,6 +268,7 @@ export async function demanderEchange(formData: FormData) {
         collegueId, collegueDate: saDate, collegueShiftId: sonCreneau.shiftId, motif,
       },
     });
+    reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
 
     // Notifier le COLLÈGUE (cloche + push) et la Direction (inbox À valider).
     const uCollegue = await compteSalarieDe(collegueId);
@@ -298,11 +304,13 @@ export const repondreEchange = actionLisible(async (id: string, accepte: boolean
 
   if (!accepte) {
     await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "REFUSE", statut: "REFUSE" } });
+    reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
     await supprimerNotificationsPour(id);
     const uA = await compteSalarieDe(e.demandeurId);
     if (uA) await notifierSalarie(uA, { type: "PLANNING", message: "Votre proposition d'échange de shift a été refusée par le collègue.", lien: "/espace/echanges", refId: `${id}:rep` });
   } else {
     await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "ACCEPTE" } });
+    reinitialiserCacheAValider(); // (la finalisation, si elle a lieu, vide aussi le cache)
     const { fait, erreur } = await finaliserEchangeSiComplet(id, userId);
     if (erreur) {
       // Planning verrouillé (paie validée) : l'échange reste en attente, la Direction est prévenue.
@@ -329,6 +337,7 @@ export const annulerEchange = actionLisible(async (id: string): Promise<void> =>
   if (!e || e.demandeurId !== employeeId) throw new Error("Proposition introuvable.");
   if (e.statut !== "EN_ATTENTE") throw new Error("Cette proposition est déjà traitée : elle ne peut plus être annulée.");
   await prisma.echangeCreneau.update({ where: { id }, data: { statut: "ANNULE" } });
+  reinitialiserCacheAValider(); // la pastille « À valider » (Direction) se relit à neuf, pas dans 20 s
   await supprimerNotificationsPour(id);
   const uB = await compteSalarieDe(e.collegueId);
   if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "Une proposition d'échange de shift a été annulée.", lien: "/espace/echanges", refId: `${id}:ann` });

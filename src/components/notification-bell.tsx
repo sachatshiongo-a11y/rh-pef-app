@@ -27,14 +27,19 @@ function ilYA(date: Date): string {
 export function NotificationBell({
   items,
   nonLues,
+  nonLuesListees,
   cloture,
 }: {
   items: NotificationItem[];
   nonLues: number;
+  /** Combien de non lues la liste montre : inférieur à `nonLues` seulement au-delà du plafond de sécurité (annoncé). */
+  nonLuesListees?: number;
   cloture: { message: string; jours: number } | null;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const total = nonLues + (cloture ? 1 : 0);
+  // Rien n'est caché en silence : si le plafond de sécurité coupe la liste, la cloche le dit.
+  const tronquee = nonLuesListees !== undefined && nonLuesListees < nonLues;
 
   return (
     <div className="relative">
@@ -42,7 +47,7 @@ export function NotificationBell({
         onClick={() => setOuvert((o) => !o)}
         className="relative flex h-9 w-9 items-center justify-center rounded-full border hover:bg-accent"
         aria-label="Notifications"
-        title="Notifications"
+        title={tronquee ? `Notifications : ${nonLuesListees} affichées sur ${nonLues} non lues` : "Notifications"}
       >
         {/* Cloche (SVG, pas d'emoji) */}
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -75,6 +80,12 @@ export function NotificationBell({
                 </button>
               )}
             </div>
+
+            {tronquee && (
+              <p className="border-b bg-amber-50 px-4 py-2 text-xs text-amber-900" data-testid="cloche-plafond">
+                {nonLuesListees} affichées sur {nonLues} non lues.
+              </p>
+            )}
 
             <ul className="max-h-96 divide-y overflow-y-auto">
               {cloture && (

@@ -11,6 +11,7 @@ import { decSaisi } from "@/lib/nombre";
 import { enregistrerChangementSalaire } from "@/lib/historique-salaire";
 import { CHAMPS_SENSIBLES, CHAMP_ORIGINES, changementsDeLUtilisateur, estChampSensible, libelleValeur, lireOrigines, messagePerime, versDonnee, type ChampSensible } from "@/lib/fiche-sensible";
 import { controlerDateSortie, exigerSortieSaisissable, lireDateSortieSaisie, resoudreDateSortie } from "@/lib/sortie-salarie";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { creerDemandeFicheTx, estDirection, notifierNouvelleDemandeFiche, verrouillerFiche } from "@/lib/demandes-fiche";
 import {
   clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
@@ -198,6 +199,7 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     revalidatePath(`/employes/${employeeId}`);
     if (demande) {
       // La Direction est prévenue APRÈS la transaction ; la fiche montre le bandeau « en attente ».
+      reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
       await notifierNouvelleDemandeFiche(demande, commun.nom || avant.nom);
       revalidatePath("/a-valider");
       revalidatePath("/", "layout");

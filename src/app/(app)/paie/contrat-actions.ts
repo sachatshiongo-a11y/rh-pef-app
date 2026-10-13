@@ -14,6 +14,7 @@ import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 import { recopierContratSurFicheTx, notifierNouvelleDemandeFiche } from "@/lib/demandes-fiche";
 
 function revalider(employeeId: string) {
@@ -75,7 +76,10 @@ export async function transformerContrat(id: string, formData: FormData) {
       });
       return cree;
     });
-    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    if (sortie.demande) {
+      reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
+      await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    }
     await notifierContratASigner(nouveau.id);
     revalider(contrat.employeeId);
   });
@@ -147,7 +151,10 @@ export async function modifierContrat(id: string, formData: FormData) {
         userId: user.id,
       });
     });
-    if (sortie.demande) await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    if (sortie.demande) {
+      reinitialiserCacheAValider(); // la pastille « À valider » se relit à neuf, pas dans 20 s
+      await notifierNouvelleDemandeFiche(sortie.demande, sortie.demande.nomSalarie);
+    }
     await notifierSiContratARevoir(id, etatAvant);
     revalider(contrat.employeeId);
   });

@@ -39,7 +39,7 @@ export function EspaceShell({
   nom: string;
   matricule: string | null;
   photoUrl: string | null;
-  notifs: { items: NotificationItem[]; nonLues: number };
+  notifs: { items: NotificationItem[]; nonLues: number; nonLuesListees?: number };
   autresEspaces?: { href: string; icone: string; label: string }[];
   navigation?: boolean;
   children: React.ReactNode;
@@ -134,7 +134,7 @@ export function EspaceShell({
           </Link>
           {navigation && (
             <div className="ml-auto flex items-center gap-2">
-              <ClocheSalarie items={notifs.items} nonLues={notifs.nonLues} />
+              <ClocheSalarie items={notifs.items} nonLues={notifs.nonLues} nonLuesListees={notifs.nonLuesListees} />
               {/* Sa photo de fiche (initiales en repli) → « Mes informations ». Sur ordinateur, elle
                   est déjà dans le bloc du compte du menu, toujours visible. */}
               <Link href="/espace/dossier" aria-label="Mes informations" className="rounded-full lg:hidden">

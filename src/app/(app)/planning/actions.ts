@@ -16,6 +16,7 @@ import { ecrireCreneaux, ecrireModele, messageErreurPlanning, messageMoisFiges, 
 import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { ErreurMetier } from "@/lib/erreur-metier";
+import { reinitialiserCacheAValider } from "@/lib/a-valider-chargeurs";
 
 /** Délai des transactions d'écriture du planning en lot ou par génération (une requête `update`
  *  par créneau modifié : un mois entier régénéré peut en compter plusieurs centaines). */
@@ -617,6 +618,7 @@ export async function approuverChangementShift(id: string) {
       await ecrireCreneaux(tx, user.id, [{ employeeId: dem.employeeId, date: dem.date, shiftId: dem.shiftDemandeId }]);
       await tx.demandeChangementShift.update({ where: { id }, data: { statut: "APPROUVE", decideParId: user.id } });
     });
+    reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
   } catch (e) {
     const erreur = messageErreurPlanning(e);
     if (erreur) redirect(`/a-valider?erreur=${encodeURIComponent(erreur)}`);
@@ -647,6 +649,7 @@ export async function refuserChangementShift(id: string) {
   const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
   if (!dem || dem.statut !== "EN_ATTENTE") return;
   await prisma.demandeChangementShift.update({ where: { id }, data: { statut: "REFUSE", decideParId: user.id } });
+  reinitialiserCacheAValider(); // la demande a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
 
   const userId = await compteSalarieDe(dem.employeeId);
   if (userId) await notifierSalarie(userId, {
@@ -683,6 +686,8 @@ export async function approuverEchange(id: string) {
       if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "La Direction a approuvé un échange de shift vous concernant — votre accord est attendu.", lien: "/espace/echanges", refId: `${id}:dir` });
     }
   }
+  // La finalisation (`finaliserEchangeSiComplet`) vide déjà le cache ; ici, l'autre branche (réponse seule, échange encore en attente).
+  reinitialiserCacheAValider();
   revalidatePath("/a-valider");
   revalidatePath("/espace/echanges");
   revalidatePath("/planning");
@@ -696,6 +701,7 @@ export async function refuserEchange(id: string) {
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE") return;
   await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "REFUSE", statut: "REFUSE" } });
+  reinitialiserCacheAValider(); // l'échange a quitté « À valider » : la pastille se relit à neuf, pas dans 20 s
   await supprimerNotificationsPour(id);
   const [uA, uB] = await Promise.all([compteSalarieDe(e.demandeurId), compteSalarieDe(e.collegueId)]);
   const msg = "Un échange de shift a été refusé par la Direction.";
