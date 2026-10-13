@@ -1,6 +1,8 @@
 import { Fragment, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { Document, Page } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
+import type { PDFDocument } from "pdf-lib";
+import { dedupliquerObjets } from "./dedup-objets";
 
 /**
  * RENDU PAR BLOCS DES PDF LONGS (13/10/2026).
@@ -38,8 +40,11 @@ import type { DocumentProps } from "@react-pdf/renderer";
  * Pages gardées par fenêtre. Une fenêtre est dimensionnée pour en remplir ce nombre PLUS une marge de quelques places,
  * dont la dernière page (écartée, puis refaite par la fenêtre suivante) ne contient presque que la marge : peu de travail jeté.
  * Le coût d'une fenêtre croît comme le carré de sa taille (voir plus haut) : on reste à deux pages. Mesuré (600 lignes, même
- * temps total pour 1 à 4 pages) : plus long blocage 0,09 s à 1 page, 0,16 s à 2, 0,24 s à 3, 0,35 s à 4 ; taille du fichier 1,3 Mo à 1
- * page, 0,77 Mo à 2, 0,56 Mo à 3 (chaque fenêtre embarque son sous-ensemble de police et le logo).
+ * temps total pour 1 à 4 pages) : plus long blocage 0,09 s à 1 page, 0,16 s à 2, 0,24 s à 3, 0,35 s à 4.
+ * Taille du fichier (600 lignes) : avant la déduplication des images (`dedup-objets.ts`), 1,3 Mo à 1 page, 0,77 Mo à 2, 0,56 Mo à 3 ;
+ * APRÈS, 0,33 Mo à 1 page, 0,26 Mo à 2, 0,23 Mo à 3, 0,23 Mo à 4 (le logo n'est plus en autant d'exemplaires que de fenêtres ; reste le
+ * sous-ensemble de police de chaque fenêtre, qui ne se partage pas). Agrandir la fenêtre ne gagne donc plus que ~10 % pour +50 % de
+ * blocage : on reste à deux pages.
  */
 export const PAGES_PAR_FENETRE = 2;
 
@@ -210,6 +215,21 @@ export function documentDuPlan(plan: Plan): ReactElement<DocumentProps> {
   return declarerPlan(documentFenetre(plan, { debut: 0, fin: plan.places, pied: true }), plan);
 }
 
+/** `dedupliquer: false` : fusion brute, sans retirer les doublons (réservé aux tests, qui comparent les deux fusions). */
+export type OptionsFusion = { dedupliquer?: boolean };
+
+/**
+ * Écrit le document réuni. Chaque fenêtre (ou lot) embarquait sa copie du logo, de son masque et, quand les glyphes sont
+ * les mêmes, de ses polices : les doublons exacts sont fusionnés d'abord (voir `dedup-objets.ts`).
+ *
+ * `useObjectStreams: false` : sans flux d'objets, le dictionnaire des polices reste lisible en clair (le contrôle des glyphes
+ * manquants, `policesDeRepli` et `glyphes-manquants.test.ts`, lit les `/BaseFont` dans le fichier brut).
+ */
+async function enregistrer(reuni: PDFDocument, o: OptionsFusion): Promise<Buffer> {
+  if (o.dedupliquer !== false) dedupliquerObjets(reuni);
+  return Buffer.from(await reuni.save({ useObjectStreams: false }));
+}
+
 // ---- Moteur -----------------------------------------------------------------------------------------------------------
 
 type Rendu = (document: ReactElement<DocumentProps>) => Promise<Buffer>;
@@ -218,7 +238,7 @@ type Rendu = (document: ReactElement<DocumentProps>) => Promise<Buffer>;
 export const respirer = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 /** Rend `plan` par fenêtres et les réunit. `rendre` rend UN document (rechargement des polices compris). */
-export async function rendreParBlocs(plan: Plan, rendre: Rendu): Promise<Buffer> {
+export async function rendreParBlocs(plan: Plan, rendre: Rendu, options: OptionsFusion = {}): Promise<Buffer> {
   const { PDFDocument } = await import("pdf-lib");
   const reuni = await PDFDocument.create();
   if (plan.titre) reuni.setTitle(plan.titre);
@@ -265,12 +285,11 @@ export async function rendreParBlocs(plan: Plan, rendre: Rendu): Promise<Buffer>
   const incorpores = await reuni.embedPdf(pieds, pieds.getPageIndices());
   reuni.getPages().forEach((page, i) => page.drawPage(incorpores[i]));
 
-  // Sans flux d'objets : le dictionnaire des polices reste lisible en clair (contrôle des glyphes manquants).
-  return Buffer.from(await reuni.save({ useObjectStreams: false }));
+  return enregistrer(reuni, options);
 }
 
 /** Rend un document de pages indépendantes par lots de `PAGES_PAR_LOT` pages, réunis dans l'ordre. */
-export async function rendreParLots(plan: PlanLots, rendre: Rendu, taille: number = PAGES_PAR_LOT): Promise<Buffer> {
+export async function rendreParLots(plan: PlanLots, rendre: Rendu, taille: number = PAGES_PAR_LOT, options: OptionsFusion = {}): Promise<Buffer> {
   const { PDFDocument } = await import("pdf-lib");
   const reuni = await PDFDocument.create();
   for (let de = 0; de < plan.pages; de += taille) {
@@ -278,5 +297,5 @@ export async function rendreParLots(plan: PlanLots, rendre: Rendu, taille: numbe
     for (const page of await reuni.copyPages(partie, partie.getPageIndices())) reuni.addPage(page);
     await respirer();
   }
-  return Buffer.from(await reuni.save({ useObjectStreams: false }));
+  return enregistrer(reuni, options);
 }
