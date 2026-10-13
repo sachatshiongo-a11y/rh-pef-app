@@ -124,17 +124,17 @@ export default async function AccueilPage() {
   const maxSerie = Math.max(1, ...historique.flatMap((h) => [h.net, h.cout]));
 
   const cartes = [
-    { libelle: "Effectif brigade", valeur: String(effectifBrigade) },
-    { libelle: "Effectif backoffice", valeur: String(effectifBackoffice) },
+    { libelle: "Effectif brigade", valeur: String(effectifBrigade), href: "/employes" },
+    { libelle: "Effectif backoffice", valeur: String(effectifBackoffice), href: "/employes" },
     ...(nbStagiaires + nbInterimaires > 0
-      ? [{ libelle: "Dont stagiaires / intérim", valeur: `${nbStagiaires} · ${nbInterimaires}` }]
+      ? [{ libelle: "Dont stagiaires / intérim", valeur: `${nbStagiaires} · ${nbInterimaires}`, href: "/employes" }]
       : []),
-    { libelle: "Masse salariale nette", valeur: usd(masseNette) },
-    { libelle: "Coût total employeur", valeur: usd(coutTotal) },
-    { libelle: "Heures supp. valorisées", valeur: usd(hsValoriseeTotal) },
-    { libelle: "Frais de transport", valeur: usd(transportTotal) },
-    { libelle: "Frais médicaux (mois)", valeur: usd(fraisMedicaux) },
-    { libelle: "Congés en cours", valeur: String(congesEnCours) },
+    { libelle: "Masse salariale nette", valeur: usd(masseNette), href: "/paie" },
+    { libelle: "Coût total employeur", valeur: usd(coutTotal), href: "/paie" },
+    { libelle: "Heures supp. valorisées", valeur: usd(hsValoriseeTotal), href: "/presences" },
+    { libelle: "Frais de transport", valeur: usd(transportTotal), href: "/paie" },
+    { libelle: "Frais médicaux (mois)", valeur: usd(fraisMedicaux), href: "/paie?vue=remuneration" },
+    { libelle: "Congés en cours", valeur: String(congesEnCours), href: "/conges?quand=en-cours" },
   ];
 
   const dateDuJour = jourCivilKinshasa(maintenant).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -170,7 +170,7 @@ export default async function AccueilPage() {
 
       {/* Indicateurs */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {cartes.map((c) => <Indicateur key={c.libelle} libelle={c.libelle} valeur={c.valeur} />)}
+        {cartes.map((c) => <Indicateur key={c.libelle} libelle={c.libelle} valeur={c.valeur} href={c.href} />)}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -209,8 +209,8 @@ export default async function AccueilPage() {
 
             {/* Chiffres du mois + variation % vs mois précédent */}
             <div className="mb-4 grid grid-cols-2 gap-4">
-              <VariationBloc label="Masse salariale nette" valeur={usd(masseNette)} variation={varNet} />
-              <VariationBloc label="Coût total employeur" valeur={usd(coutTotal)} variation={varCout} />
+              <VariationBloc label="Masse salariale nette" valeur={usd(masseNette)} variation={varNet} href="/paie?vue=historique" />
+              <VariationBloc label="Coût total employeur" valeur={usd(coutTotal)} variation={varCout} href="/paie?vue=historique" />
             </div>
 
             {historique.length === 0 ? (
@@ -321,12 +321,13 @@ export default async function AccueilPage() {
   );
 }
 
-function VariationBloc({ label, valeur, variation }: { label: string; valeur: string; variation: number | null }) {
+function VariationBloc({ label, valeur, variation, href }: { label: string; valeur: string; variation: number | null; href?: string }) {
   const hausse = (variation ?? 0) >= 0;
   return (
     <Indicateur
       libelle={label}
       valeur={valeur}
+      href={href}
       sousTexte={
         variation === null ? (
           "— vs mois précédent"
