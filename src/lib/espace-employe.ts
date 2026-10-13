@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "@/lib/prisma";
+import { lireConfigDuRendu } from "@/lib/config-rendu";
 
 /**
  * Espace salarié (self-service) — désactivé par défaut. Chaque déploiement l'active via le toggle
@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
  * salarié, pas de connexion salarié, routes /espace fermées, boutons masqués.
  */
 export async function espaceEmployeActif(): Promise<boolean> {
-  const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { espaceEmployeActif: true } });
+  const config = await lireConfigDuRendu(); // une seule lecture par rendu, partagée avec le layout et la page
   return config?.espaceEmployeActif ?? false;
 }
 

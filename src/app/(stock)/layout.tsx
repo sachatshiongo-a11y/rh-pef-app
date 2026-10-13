@@ -19,7 +19,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
     // Pastille « À valider » = le total de TOUS les espaces du compte (bons en brouillon, demandes de la Direction,
     // et — pour la Direction — la RH et l'Exploitation) ; les bons en brouillon alimentent aussi le badge des Bons de commande.
     chargerAValiderDuCompte(user),
-    chargerNotificationsCompte(user), // LA cloche unique (+ les réponses adressées à ce compte)
+    chargerNotificationsCompte(user, { cloture: false }), // LA cloche unique (+ les réponses adressées à ce compte) ; sans alerte de clôture, non affichée ici
     urgentsParDomaine(), // même règle et mêmes articles (actifs) que le tableau de bord
     espaceEmployeActif(),
   ]);

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { lireConfigDuRendu } from "@/lib/config-rendu";
 import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
@@ -92,6 +93,10 @@ export const NOTIFICATIONS_PAR_CLOCHE_SALARIE = 20;
  */
 export const PLAFOND_NON_LUES_CLOCHE = 300;
 
+/** Les seuls champs qu'une cloche affiche (`NotificationItem`) : jusqu'à 330 lignes partent au navigateur à chaque
+ *  rendu d'un layout, inutile d'y joindre l'identifiant de la demande source ni le destinataire. */
+const CHAMPS_CLOCHE = { id: true, domaine: true, type: true, message: true, lien: true, lu: true, createdAt: true } as const;
+
 type FiltreNotification = NonNullable<Parameters<typeof prisma.notification.findMany>[0]>["where"];
 
 /**
@@ -106,8 +111,8 @@ async function listerNotifications(
   taille: number,
 ): Promise<{ items: NotificationItem[]; nonLues: number; nonLuesListees: number }> {
   const [nonLuesListees, luesRecentes] = await Promise.all([
-    prisma.notification.findMany({ where: { ...visibles, lu: false }, orderBy: { createdAt: "desc" }, take: PLAFOND_NON_LUES_CLOCHE }),
-    prisma.notification.findMany({ where: { ...visibles, lu: true }, orderBy: { createdAt: "desc" }, take: taille }),
+    prisma.notification.findMany({ where: { ...visibles, lu: false }, orderBy: { createdAt: "desc" }, take: PLAFOND_NON_LUES_CLOCHE, select: CHAMPS_CLOCHE }),
+    prisma.notification.findMany({ where: { ...visibles, lu: true }, orderBy: { createdAt: "desc" }, take: taille, select: CHAMPS_CLOCHE }),
   ]);
   const nonLues = nonLuesListees.length < PLAFOND_NON_LUES_CLOCHE
     ? nonLuesListees.length
@@ -133,11 +138,11 @@ type DonneesCloche = { items: NotificationItem[]; nonLues: number; nonLuesListee
  * demande de l'espace Stock ; demande de ratios reçue ou tranchée en Exploitation) ; celles d'un autre compte ne
  * s'affichent jamais. Trois requêtes au plus (quatre si le plafond de sécurité des non lues est atteint), quel que soit le nombre de domaines.
  */
-async function chargerCloche(domaines: DomaineCloche[], userId?: string): Promise<DonneesCloche> {
+async function chargerCloche(domaines: DomaineCloche[], userId?: string, avecCloture = true): Promise<DonneesCloche> {
   const visibles = { domaine: { in: domaines }, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
   const [{ items, nonLues, nonLuesListees }, config] = await Promise.all([
     listerNotifications(visibles, NOTIFICATIONS_PAR_CLOCHE),
-    domaines.includes("RH") ? prisma.config.findUnique({ where: { id: "singleton" } }) : Promise.resolve(null),
+    avecCloture && domaines.includes("RH") ? lireConfigDuRendu() : Promise.resolve(null),
   ]);
 
   // Clôture proche : jours restants avant le 30 du mois courant, s'il reste des bulletins non validés (RH uniquement).
@@ -181,7 +186,10 @@ export async function chargerNotifications(domaine: DomaineCloche = "RH", userId
  * de TOUS les domaines que ce compte peut gérer (`domainesGerables` = `peutGererDomaine`), plus celles qui lui sont
  * adressées dans ces domaines. Chaque notification porte son domaine (étiquette « RH / Stock / Exploitation »),
  * son lien est celui qu'elle a toujours eu. Un compte ne voit jamais un domaine qui n'est pas à lui.
+ * L'alerte de clôture de paie n'est calculée que si l'écran l'affiche (`cloture`, vrai par défaut : la coquille RH).
  */
-export async function chargerNotificationsCompte(user: CompteNotification): Promise<DonneesCloche> {
-  return chargerCloche(domainesGerables(user), user.id);
+export async function chargerNotificationsCompte(user: CompteNotification, options: { cloture?: boolean } = {}): Promise<DonneesCloche> {
+  // `cloture: false` : l'écran n'affiche pas l'alerte de clôture (cloches des espaces Stock et Exploitation) —
+  // elle n'est pas calculée (jusqu'à 8 requêtes les 5 derniers jours du mois, pour la Direction).
+  return chargerCloche(domainesGerables(user), user.id, options.cloture ?? true);
 }
