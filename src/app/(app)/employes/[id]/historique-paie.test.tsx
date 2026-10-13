@@ -257,3 +257,27 @@ describe("historique de paie — « Hors calcul »", () => {
     expect(bloc).not.toContain("hors calcul");
   });
 });
+
+// Fiche salarié (13/10/2026) : la page passe la fiche, la Config du rendu et les périodes de ses bulletins (déjà lues) ;
+// la règle n'en relit rien et décide pareil. Base qui REFUSE ces trois lectures : seule la lecture des contrats reste.
+describe("« Hors calcul » avec les lectures de la fiche", () => {
+  const sansRelecture = { ...(baseSimulee({ runs: {}, moisCourant: COURANT }) as object), employee: { findMany: async () => { throw new Error("fiche relue"); } }, payrollLine: { findMany: async () => { throw new Error("bulletins relus"); } }, config: { findUnique: async () => { throw new Error("Config relue"); } } } as never;
+  const cas: [string, boolean, Run, boolean][] = [
+    ["mois passé clôturé", true, { statut: "VALIDE", mois: 7, annee: 2026 }, true],
+    ["mois courant", true, { statut: "VALIDE", mois: 10, annee: 2026 }, false],
+    ["mois passé non clôturé", true, { statut: "BROUILLON", mois: 8, annee: 2026 }, false],
+    ["salarié sorti", false, { statut: "BROUILLON", mois: 10, annee: 2026 }, true],
+  ];
+  for (const [nom, actif, run, hors] of cas) {
+    it(`${nom} : même décision que la lecture en base`, async () => {
+      const enBase = await idsLignesHorsCalcul(baseSimulee({ actif, runs: { x: run }, moisCourant: COURANT }), [BRUTE("x", "PAS_VALIDE")]);
+      const connue = await idsLignesHorsCalcul(sansRelecture, [BRUTE("x", "PAS_VALIDE")], {
+        employes: [{ id: "e1", actif, contrat: "CDI", dateEmbauche: null as unknown as Date }],
+        config: COURANT,
+        periodes: new Map([["x", run]]),
+      });
+      expect(connue).toEqual(enBase);
+      expect(connue.has("x")).toBe(hors);
+    });
+  }
+});

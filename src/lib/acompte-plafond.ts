@@ -146,15 +146,19 @@ type ClientLecture = Prisma.TransactionClient;
  */
 export async function chargerPlafondAcompte(
   client: ClientLecture,
-  params: { employeeId: string; mois: number; annee: number; exclureAcompteId?: string }
+  params: { employeeId: string; mois: number; annee: number; exclureAcompteId?: string },
+  /** La fiche déjà lue par l'appelant (la fiche salarié) : pas de seconde lecture. `null` = fiche inexistante. */
+  ficheConnue?: { salaireMensuel: Prisma.Decimal | number } | null,
 ): Promise<PlafondAcompte> {
   const precedent = moisPrecedent(params.mois, params.annee);
 
   const [employe, lignePrecedente, engages, prets] = await Promise.all([
-    client.employee.findUnique({
-      where: { id: params.employeeId },
-      select: { salaireMensuel: true },
-    }),
+    ficheConnue !== undefined
+      ? ficheConnue
+      : client.employee.findUnique({
+          where: { id: params.employeeId },
+          select: { salaireMensuel: true },
+        }),
     client.payrollLine.findFirst({
       where: {
         employeeId: params.employeeId,

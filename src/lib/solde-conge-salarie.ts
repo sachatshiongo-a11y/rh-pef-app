@@ -243,21 +243,35 @@ type EntreesSolde = Omit<Parameters<typeof calculerSoldeAnneeCivile>[0], "aujour
  * Année civile (décisions Direction du 2026-10-12) : le report d'une année sur l'autre oblige à lire
  * l'HISTORIQUE depuis l'embauche — toutes les demandes approuvées et tous les « C » de la grille
  * jusqu'au 31 décembre de l'année en cours (les années suivantes ne comptent pas encore).
+ *
+ * `connu` : ce que l'appelant a DÉJÀ lu dans la même requête (la fiche salarié lit la fiche et ses fins de contrat
+ * pour elle-même, et les paramètres de paie sur certains onglets) — mêmes lignes, pas de seconde lecture. Les
+ * contrats, eux, sont toujours relus ici : leur ordre de lecture départage deux contrats de même date de début
+ * (`conges-periodes`), la fiche les lit dans un autre ordre.
  */
-async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: string[], maintenant: Date) {
+type ConnuSolde = {
+  /** Les fiches de TOUS les `employeeIds` (une absente = fiche inexistante, comme une lecture qui ne la trouve pas). */
+  emps?: { id: string; contrat: string; dateEmbauche: Date; actif: boolean; dateSortie: Date | null }[];
+  /** TOUTES les fins de contrat de ces salariés. */
+  fins?: { employeeId: string; dateFin: Date }[];
+  /** `droits_conges_annuel` de l'exercice actif, déjà lu (ex. `chargerParametresPaie().droitsCongesAnnuel`, même clé, même règle). */
+  droitsAnnuels?: number;
+};
+
+async function chargerEntreesSolde(db: Prisma.TransactionClient, employeeIds: string[], maintenant: Date, connu: ConnuSolde = {}) {
   // « Maintenant » se lit à Kinshasa : le 1er du mois (ou de l'an) entre 00 h et 01 h, le mois révolu
   // (1,5 j de plus) et l'année des congés avaient encore un jour de retard avec l'horloge UTC.
   const aujourdhui = jourCivilKinshasa(maintenant);
   const finAnnee = new Date(Date.UTC(aujourdhui.getUTCFullYear(), 11, 31));
   const [emps, contrats, fins, droitsCongesAnnuel, types, approuvees, joursC, feries] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true, actif: true, dateSortie: true } }),
+    connu.emps ?? db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true, actif: true, dateSortie: true } }),
     // L'HISTORIQUE des contrats : le régime « sans congés » (stage, intérim) se lit PAR PÉRIODE, pas sur le contrat actuel.
     db.contrat.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, type: true, dateDebut: true, dateFin: true } }),
     // Les fins de contrat : leur date est la date de sortie (lib/sortie-salarie.ts), jamais recopiée ailleurs.
-    db.finContrat.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, dateFin: true } }),
+    connu.fins ?? db.finContrat.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, dateFin: true } }),
     // Les SEULS droits annuels, pas toute la paie : une clé CNSS absente ou un barème IPR vide ne
     // doit ni vider un écran de congé ni bloquer une approbation (2026-09-29).
-    chargerDroitsCongesAnnuel(db),
+    connu.droitsAnnuels ?? chargerDroitsCongesAnnuel(db),
     // TOUS les types (actifs ou non) : un congé approuvé garde son effet si le type est retiré ensuite.
     db.typeConge.findMany({ orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true, actif: true } }),
     // Toutes les demandes approuvées jusqu'à la fin de l'année : celles qui entament le solde sont
@@ -415,6 +429,27 @@ export type DemandeCongeFiche = {
   joursParAnnee: Record<number, number>;
 };
 
+export type CongesParAnnee = {
+  bilans: BilanAnneeConge[];
+  demandes: DemandeCongeFiche[];
+  /** Aucune période avec congés sur toute la vie du salarié (stage ou intérim seulement). */
+  sansConges: boolean;
+  periodesSansConges: PeriodeSansConges[];
+  trous: { debut: Date; fin: Date | null }[];
+  dateSortie: Date | null;
+  sortieInconnue: boolean;
+  ecartFiche: { typeFiche: string; typeHistorique: string } | null;
+};
+
+/** TOUTES les demandes d'un salarié, comme l'onglet « Congés & absences » les montre (les plus récentes d'abord). */
+function lireDemandesFiche(db: Prisma.TransactionClient, employeeId: string) {
+  return db.leaveRequest.findMany({
+    where: { employeeId },
+    orderBy: { dateDebut: "desc" },
+    select: { id: true, type: true, nbJours: true, dateDebut: true, dateFin: true, statut: true, motifRefus: true },
+  });
+}
+
 /**
  * Tout ce que l'onglet « Congés & absences » de la fiche lit : le bilan de chaque année (une seule
  * lecture, la même que le solde d'aujourd'hui) et TOUTES les demandes du salarié (plus seulement les
@@ -425,26 +460,21 @@ export async function chargerCongesParAnnee(
   db: Prisma.TransactionClient,
   employeeId: string,
   maintenant: Date = new Date(),
-): Promise<{
-  bilans: BilanAnneeConge[];
-  demandes: DemandeCongeFiche[];
-  /** Aucune période avec congés sur toute la vie du salarié (stage ou intérim seulement). */
-  sansConges: boolean;
-  periodesSansConges: PeriodeSansConges[];
-  trous: { debut: Date; fin: Date | null }[];
-  dateSortie: Date | null;
-  sortieInconnue: boolean;
-  ecartFiche: { typeFiche: string; typeHistorique: string } | null;
-}> {
-  const { aujourdhui, entrees, contextes, feriesIso, entameLeSolde } = await chargerEntreesSolde(db, [employeeId], maintenant);
+): Promise<CongesParAnnee> {
+  const ent = await chargerEntreesSolde(db, [employeeId], maintenant);
+  if (!ent.entrees.get(employeeId) || !ent.contextes.get(employeeId)) throw new Error(`Salarié introuvable : ${employeeId}`);
+  return congesParAnneeDepuis(ent, employeeId, await lireDemandesFiche(db, employeeId));
+}
+
+/** Le bilan par année et les demandes, depuis les entrées du solde et les demandes déjà lues. PUR. */
+function congesParAnneeDepuis(
+  { aujourdhui, entrees, contextes, feriesIso, entameLeSolde }: Awaited<ReturnType<typeof chargerEntreesSolde>>,
+  employeeId: string,
+  lues: Awaited<ReturnType<typeof lireDemandesFiche>>,
+): CongesParAnnee {
   const e = entrees.get(employeeId);
   const ctx = contextes.get(employeeId);
   if (!e || !ctx) throw new Error(`Salarié introuvable : ${employeeId}`);
-  const lues = await db.leaveRequest.findMany({
-    where: { employeeId },
-    orderBy: { dateDebut: "desc" },
-    select: { id: true, type: true, nbJours: true, dateDebut: true, dateFin: true, statut: true, motifRefus: true },
-  });
   const demandes: DemandeCongeFiche[] = lues.map((l) => {
     const entame = entameLeSolde(l.type);
     const joursParAnnee: Record<number, number> = {};
@@ -458,4 +488,33 @@ export async function chargerCongesParAnnee(
   });
   const tousSansConges = ctx.periodesSansConges.some((p) => p.debut === null && p.fin === null);
   return { bilans: bilansParAnnee({ ...e, aujourdhui }), demandes, sansConges: tousSansConges, periodesSansConges: ctx.periodesSansConges, trous: ctx.trous, dateSortie: ctx.dateSortie, sortieInconnue: ctx.sortieInconnue, ecartFiche: ctx.ecartFiche };
+}
+
+/**
+ * LES CONGÉS DE LA FICHE SALARIÉ EN UNE LECTURE (13/10/2026) : le solde d'aujourd'hui (en-tête, tous les onglets) et,
+ * sur l'onglet « Congés & absences », le bilan par année — mêmes résultats que `chargerSoldeCongeSalarie` et
+ * `chargerCongesParAnnee`, qui lisaient chacun les mêmes entrées. La fiche, ses fins de contrat (et les droits annuels
+ * quand l'onglet a déjà les paramètres de paie) viennent de la page, qui les a lus : rien n'est relu.
+ */
+export async function chargerCongesFiche(
+  db: Prisma.TransactionClient,
+  fiche: { id: string; contrat: string; dateEmbauche: Date; actif: boolean; dateSortie: Date | null },
+  connu: { fins: { dateFin: Date }[]; droitsAnnuels?: number },
+  avecAnnees: boolean,
+  maintenant: Date = new Date(),
+): Promise<{ solde: SoldeConge; annees: CongesParAnnee | null }> {
+  const [ent, lues] = await Promise.all([
+    chargerEntreesSolde(db, [fiche.id], maintenant, {
+      emps: [fiche],
+      fins: connu.fins.map((f) => ({ employeeId: fiche.id, dateFin: f.dateFin })),
+      droitsAnnuels: connu.droitsAnnuels,
+    }),
+    avecAnnees ? lireDemandesFiche(db, fiche.id) : null,
+  ]);
+  const e = ent.entrees.get(fiche.id);
+  if (!e) throw new Error(`Salarié introuvable : ${fiche.id}`);
+  return {
+    solde: { ...calculerSoldeAnneeCivile({ ...e, aujourdhui: ent.aujourdhui }), typesDeduits: ent.typesDeduits },
+    annees: lues ? congesParAnneeDepuis(ent, fiche.id, lues) : null,
+  };
 }

@@ -57,16 +57,33 @@ export async function typesContratActifs(db: Db, employeeIds?: string[]): Promis
 
 type LigneMinimale = { id: string; employeeId: string; statutPaiement: PaymentStatus };
 
+/**
+ * Ce que l'appelant a DÉJÀ lu dans la même requête (la fiche salarié : la fiche, la ligne Config du rendu, les
+ * bulletins avec leur PayrollRun) — mêmes lignes, pas de seconde lecture. Chaque élément est facultatif ; un
+ * élément absent, ou qui ne couvre pas toutes les lignes candidates, est lu en base comme avant.
+ */
+export type ConnuHorsCalcul = {
+  employes?: { id: string; actif: boolean; contrat: string; dateEmbauche: Date }[];
+  /** La ligne Config (`null` = absente, comme une lecture qui ne la trouve pas). */
+  config?: { moisCourant: number; anneeCourante: number } | null;
+  /** La période (PayrollRun) de chaque ligne, par identifiant de ligne. */
+  periodes?: Map<string, { statut: string; mois: number; annee: number }>;
+};
+
 /** Identifiants des lignes HORS CALCUL parmi `lignes` (voir l'en-tête du module). */
-export async function idsLignesHorsCalcul(db: Db, lignes: LigneMinimale[]): Promise<Set<string>> {
+export async function idsLignesHorsCalcul(db: Db, lignes: LigneMinimale[], connu: ConnuHorsCalcul = {}): Promise<Set<string>> {
   const candidates = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE");
   if (candidates.length === 0) return new Set();
   const ids = [...new Set(candidates.map((l) => l.employeeId))];
+  const employesConnus = connu.employes && ids.every((id) => connu.employes!.some((e) => e.id === id)) ? connu.employes.filter((e) => ids.includes(e.id)) : null;
+  const periodesConnues = connu.periodes && candidates.every((l) => connu.periodes!.has(l.id)) ? connu.periodes : null;
   const [employes, types, runs, config] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, actif: true, contrat: true, dateEmbauche: true } }),
+    employesConnus ?? db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, actif: true, contrat: true, dateEmbauche: true } }),
     typesContratActifs(db, ids),
-    db.payrollLine.findMany({ where: { id: { in: candidates.map((l) => l.id) } }, select: { id: true, payrollRun: { select: { statut: true, mois: true, annee: true } } } }),
-    db.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } }),
+    periodesConnues
+      ? candidates.map((l) => ({ id: l.id, payrollRun: periodesConnues.get(l.id)! }))
+      : db.payrollLine.findMany({ where: { id: { in: candidates.map((l) => l.id) } }, select: { id: true, payrollRun: { select: { statut: true, mois: true, annee: true } } } }),
+    connu.config !== undefined ? connu.config : db.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } }),
   ]);
   const employeParId = new Map(employes.map((e) => [e.id, e]));
   const periodeParLigne = new Map(runs.map((l) => [l.id, { mois: l.payrollRun.mois, annee: l.payrollRun.annee }]));

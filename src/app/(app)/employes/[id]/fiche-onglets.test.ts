@@ -35,10 +35,14 @@ describe("fiche salarié — six onglets, l'ancien « Fin de contrat » redirige
 
   it("les données de la section (fins de contrat, reprises du solde, paramètres de départ) se chargent avec l'onglet Contrats", () => {
     expect(page).not.toMatch(/tab === "fin"/);
-    // Lues dans le Promise.all de la page (13/10/2026) : chacune garde sa condition d'onglet.
-    expect(page).toMatch(/tab === "contrats" \? prisma\.finContrat\.findMany\(/);
-    expect(page).toMatch(/tab === "contrats" && employee\.actif \? chargerReprisesSolde\(/);
-    expect(page).toMatch(/tab === "contrats"\s+\? prisma\.parametreLegal\.findMany\(/);
+    // Lues dans le bloc de l'onglet Contrats (13/10/2026 : chaque onglet ne lit que ce qu'il affiche). Les fins de
+    // contrat sont lues pour tous les onglets (date de sortie de l'en-tête, solde de congés) mais ne sont MONTRÉES
+    // que par l'onglet Contrats.
+    const blocContrats = page.slice(page.indexOf("// Onglet Contrats."), page.indexOf("// Onglet Dossier"));
+    expect(blocContrats).toMatch(/tab === "contrats"\s+\? Promise\.all\(\[/);
+    expect(blocContrats).toMatch(/employee\.actif \? chargerReprisesSolde\(/);
+    expect(blocContrats).toMatch(/prisma\.parametreLegal\.findMany\(/);
+    expect(page).toMatch(/const finContrats = tab === "contrats" \? finsContrat : \[\];/);
   });
 });
 
@@ -59,7 +63,9 @@ describe("fiche salarié — Paie et Congés se lisent par année (?annee=)", ()
 
   it("les Congés passent par CongesParAnnee, alimenté par la source du solde (aucun recalcul dans la page)", () => {
     expect(page).toMatch(/<CongesParAnnee\b/);
-    expect(page).toMatch(/chargerCongesParAnnee\(prisma, id\)/);
+    // Le solde de l'en-tête et le bilan par année : une seule lecture des entrées (chargerCongesFiche), le bilan
+    // seulement sur l'onglet Congés.
+    expect(page).toMatch(/chargerCongesFiche\(prisma, employee, \{[^}]*\}, tab === "conges"\)/);
     expect(page).not.toMatch(/calculerSoldeAnneeCivile|repartirCongeParJour|congeDeductibleDuSolde/);
   });
 });

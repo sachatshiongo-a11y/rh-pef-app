@@ -98,8 +98,10 @@ describe("l'espace salarié lit le solde de congé à une seule source", () => {
 // Config.moisCourant, qui peut rester figé) — sinon Direction et salarié lisent deux soldes.
 describe("la fiche employé de la Direction lit le même solde", () => {
   const fiche = readFileSync(path.resolve(__dirname, "../app/(app)/employes/[id]/page.tsx"), "utf8");
-  it("passe par chargerSoldeCongeSalarie, sans date de référence tirée de Config", () => {
-    expect(fiche).toMatch(/chargerSoldeCongeSalarie\(prisma, id\)/);
+  // 13/10/2026 : par `chargerCongesFiche` (même solde que `chargerSoldeCongeSalarie`, en une lecture avec le bilan par
+  // année — l'égalité est vérifiée dans solde-conge-salarie.integration.test.ts), toujours sans date de référence.
+  it("passe par la source du solde (chargerCongesFiche), sans date de référence tirée de Config", () => {
+    expect(fiche).toMatch(/chargerCongesFiche\(prisma, employee, \{[^}]*\}, tab === "conges"\)/);
     expect(fiche).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b/);
   });
 });

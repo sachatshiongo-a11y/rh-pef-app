@@ -154,3 +154,25 @@ describe("calculerBulletinLive vs calculerLignesPaie — non-divergence des deux
     expect(live.acompteUSD).toBeCloseTo(batch.data.acompteUSD, 6);
   });
 });
+
+// Fiche salarié (13/10/2026) : la page passe ce qu'elle a déjà lu (fiche, contrats du plus récent au plus ancien,
+// paramètres de paie, présences du mois) au lieu de le faire relire. Le bulletin doit être EXACTEMENT le même.
+describe("calculerBulletinLive avec les lectures de la fiche — même bulletin", () => {
+  it("stage, intérim (fiche et contrat), brigade : identique à la lecture par la fonction elle-même", async () => {
+    const { chargerParametresPaie } = await import("./config");
+    const parametres = await chargerParametresPaie(prisma);
+    // La Config du rendu passée (promesse, ligne, ou null → relue) : mêmes paramètres.
+    expect(await chargerParametresPaie(prisma, prisma.config.findUnique({ where: { id: "singleton" } }))).toEqual(parametres);
+    expect(await chargerParametresPaie(prisma, null)).toEqual(parametres);
+    for (const id of [stageId, interimFicheId, interimContratId, brigadeId]) {
+      const connu = {
+        employee: await prisma.employee.findUnique({ where: { id } }),
+        contratsParDebutDecroissant: await prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
+        parametres,
+        presencesDuMois: await prisma.attendance.findMany({ where: { employeeId: id, date: { gte: new Date("2026-07-01"), lte: new Date("2026-07-31") } }, orderBy: { date: "asc" } }),
+      };
+      expect(await calculerBulletinLive(id, 7, 2026, connu), id).toEqual(await calculerBulletinLive(id, 7, 2026));
+    }
+    expect(await calculerBulletinLive("inexistant", 7, 2026, { employee: null })).toBeNull();
+  });
+});
