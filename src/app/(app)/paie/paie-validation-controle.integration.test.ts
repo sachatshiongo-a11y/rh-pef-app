@@ -24,7 +24,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {}
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`REDIRECT ${url}`); } }));
 
 const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot, cloturerPaie } = await import("./actions");
-const { rafraichirPaieDuMois } = await import("@/lib/paie-refresh");
+const { rafraichirPaieDuMois, rafraichirPaieAffichee } = await import("@/lib/paie-refresh");
 const { messagePaieChangee, messageErreurValidation, MESSAGE_LIGNE_RECALCULEE, MESSAGE_VALIDATION_OCCUPEE } = await import("@/lib/paie-validation");
 
 let prisma: PrismaClient;
@@ -38,6 +38,10 @@ const SAISI = new Date("2026-10-01T08:00:00Z");
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
 const redirection = (message: string) => `REDIRECT /paie?erreur=${encodeURIComponent(message)}`;
 const ligne = (employeeId: string, mois = 9) => prisma.payrollLine.findFirstOrThrow({ where: { employeeId, payrollRun: { mois, annee: 2026 } } });
+/** Ce qui découle d'un brut changé (refus de validation : champs nommés dans l'ordre cause → conséquence). */
+const CASCADE = ["salBrutUSD", "cnssSalarieUSD", "netImposableUSD", "iprCalculeUSD", "salNetUSD", "salNetCDF", "cnssPatronalUSD", "inppUSD", "onemUSD", "coutEmployeurUSD", "coutEmployeurCDF"];
+/** Créneau effacé après le calcul : 9 h de moins dans la référence, donc une autre base. */
+const parPlanning = (nom: string) => ({ nom, champs: ["heuresContractuelles", "remuneration100", ...CASCADE] });
 const joursOuvres = (mois: number) =>
   Array.from({ length: new Date(Date.UTC(2026, mois, 0)).getUTCDate() }, (_, i) => d(i + 1, mois)).filter((x) => x.getUTCDay() >= 1 && x.getUTCDay() <= 5);
 
@@ -104,7 +108,7 @@ describe("valider une ligne revérifie son montant", () => {
     // faites ce jour-là restent), donc un autre taux et un autre net.
     await prisma.planningCreneau.delete({ where: { employeeId_date: { employeeId: ids.beatrice, date: d(16) } } });
     await expect(changerStatutPaie(avant.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, avant.id) }))).rejects.toThrow(
-      redirection("La paie de Béatrice Mbuyi a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant d'approuver."),
+      redirection("La paie de Béatrice Mbuyi (heures de référence, rémunération à 100 %, salaire brut, CNSS salariale, base imposable, IPR et 7 autres) a changé depuis son calcul : rechargez la page Paie avant d'approuver."),
     );
     const apres = await rienEcrit(ids.beatrice);
     // Jamais réécrite en silence : la ligne garde le montant affiché.
@@ -116,7 +120,7 @@ describe("valider une ligne revérifie son montant", () => {
   it("lot avec une ligne qui a changé : TOUT le lot est refusé, la ligne intacte n'est pas validée non plus", async () => {
     const clarisse = await ligne(ids.clarisse);
     const beatrice = await ligne(ids.beatrice);
-    expect(await changerStatutEnLot([clarisse.id, beatrice.id], "VALIDE", null, await jetonsDe(prisma, [clarisse.id, beatrice.id]))).toEqual({ erreur: messagePaieChangee(["Béatrice Mbuyi"]) });
+    expect(await changerStatutEnLot([clarisse.id, beatrice.id], "VALIDE", null, await jetonsDe(prisma, [clarisse.id, beatrice.id]))).toEqual({ erreur: messagePaieChangee([parPlanning("Béatrice Mbuyi")]) });
     await rienEcrit(ids.clarisse);
     await rienEcrit(ids.beatrice);
   });
@@ -125,13 +129,13 @@ describe("valider une ligne revérifie son montant", () => {
     await prisma.prime.create({ data: { employeeId: ids.dieudonne, nom: "Prime de fin de mois", montantUSD: 40, mois: 9, annee: 2026 } });
     const l = await ligne(ids.dieudonne);
     expect(l.sourceReference).toBe("CONTRAT");
-    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee(["Dieudonné Tshala"])));
+    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee([{ nom: "Dieudonné Tshala", champs: ["primesUSD", ...CASCADE] }])));
     await rienEcrit(ids.dieudonne);
   });
 
   it("clôture : même règle — une seule ligne changée annule la clôture entière", async () => {
     await expect(cloturerPaie(fd({ mois: "9", annee: "2026" }))).rejects.toThrow(
-      redirection(`Clôture annulée (aucun bulletin validé) : ${messagePaieChangee(["Béatrice Mbuyi", "Dieudonné Tshala"])}`),
+      redirection(`Clôture annulée (aucun bulletin validé) : ${messagePaieChangee([parPlanning("Béatrice Mbuyi"), { nom: "Dieudonné Tshala", champs: ["primesUSD", ...CASCADE] }])}`),
     );
     await rienEcrit(ids.clarisse);
     await rienEcrit(ids.beatrice);
@@ -164,7 +168,7 @@ describe("valider une ligne revérifie son montant", () => {
       expect(fini).toBe(false); // elle attend le verrou de la ligne
       await externe.query("COMMIT");
       const erreur = await validation;
-      expect((erreur as Error).message).toBe(redirection(messagePaieChangee(["Clarisse Nsimba"])));
+      expect((erreur as Error).message).toBe(redirection(messagePaieChangee([parPlanning("Clarisse Nsimba")])));
     } finally {
       await externe.query("ROLLBACK").catch(() => {});
       await validation;
@@ -188,7 +192,7 @@ describe("valider une ligne revérifie son montant", () => {
     // Heures saisies après le calcul d'août : 9 h travaillées le lundi 3.
     await prisma.attendance.create({ data: { employeeId: ids.ada, date: d(3, 8), code: "P" } });
     await prisma.overtimeEntry.create({ data: { employeeId: ids.ada, date: d(3, 8), heuresTravaillees: 9 } });
-    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee(["Ada Kalala"])));
+    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee([{ nom: "Ada Kalala", champs: ["heuresTravaillees", "remuneration100", ...CASCADE] }])));
     await rienEcrit(ids.ada, 8);
     await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
   });
@@ -288,5 +292,111 @@ describe("« À valider » recalcule à l'ouverture, comme /paie (même fonction
     expect(appel).toBeGreaterThan(0);
     expect(appel).toBeLessThan(aValider.indexOf("prisma.payrollLine.findMany"));
     expect(aValider).not.toContain("rafraichirPaieDuMois");
+  });
+});
+
+// Relecture du 2026-10-13 : la validation ne comparait que net, brut, base imposable, heures et
+// source. Un taux patronal (CNSS, INPP, ONEM) ou un avantage en nature changé entre l'affichage et
+// « Approuver » ne bouge AUCUN de ces cinq montants : la ligne était figée périmée, puis déclarée.
+// Mois d'octobre, salariés du back-office (salaire fixe) : seul le champ visé change.
+describe("champs figés hors net : charges patronales, avantages en nature", () => {
+  const oct = { helene: "", ivan: "" };
+  const parametre = async (cle: string, valeur: number) => {
+    const exercice = await prisma.exerciceFiscal.findFirstOrThrow({ where: { actif: true } });
+    await prisma.parametreLegal.update({ where: { exerciceId_cle: { exerciceId: exercice.id, cle } }, data: { valeur } });
+  };
+  const valider = async (employeeId: string) => {
+    const l = await ligne(employeeId, 10);
+    return changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
+  };
+
+  it("mise en place : deux salariés du back-office, paie d'octobre calculée", async () => {
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 10 } });
+    const backOffice = async (matricule: string, nom: string) => (await prisma.employee.create({ data: {
+      matricule, nom, sexe: "F", etatCivil: "Célibataire", poste: "Assistante", secteur: "Administration",
+      categorie: "BACKOFFICE", salaireMensuel: 600, dateEmbauche: new Date("2024-01-01T00:00:00Z"), contrat: "CDI", enfants: 0,
+    } })).id;
+    oct.helene = await backOffice("HL01-PEF", "Hélène Lusamba");
+    oct.ivan = await backOffice("IM01-PEF", "Ivan Mpia");
+    await calculerPaieDuMois();
+    expect(Number((await ligne(oct.helene, 10)).cnssPatronalUSD)).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["cnss_patronal_pensions", "CNSS patronale", 0.05, 0.06],
+    ["inpp_taux", "INPP", 0.03, 0.04],
+    ["onem_taux", "ONEM", 0.002, 0.004],
+  ] as const)("taux %s changé après l'affichage : refus qui nomme « %s », net inchangé, rien d'écrit", async (cle, libelle, avant, apres) => {
+    const l = await ligne(oct.helene, 10);
+    const jeton = await jetonDe(prisma, l.id);
+    await parametre(cle, apres);
+    try {
+      const champ = { "CNSS patronale": "cnssPatronalUSD", INPP: "inppUSD", ONEM: "onemUSD" }[libelle];
+      await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton }))).rejects.toThrow(
+        redirection(messagePaieChangee([{ nom: "Hélène Lusamba", champs: [champ, "coutEmployeurUSD", "coutEmployeurCDF"] }])),
+      );
+      const intacte = await rienEcrit(oct.helene, 10);
+      expect(intacte.salNetUSD.toString()).toBe(l.salNetUSD.toString()); // l'ancien contrôle laissait passer
+    } finally {
+      await parametre(cle, avant);
+    }
+  });
+
+  it("avantage en nature saisi après l'affichage : refus qui le nomme, rien d'écrit", async () => {
+    const l = await ligne(oct.helene, 10);
+    const jeton = await jetonDe(prisma, l.id);
+    const avantage = await prisma.avantageNature.create({ data: { employeeId: oct.helene, nature: "Logement", montantUSD: 80, mois: 10, annee: 2026 } });
+    try {
+      await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton }))).rejects.toThrow(
+        redirection(messagePaieChangee([{ nom: "Hélène Lusamba", champs: ["avantagesNatureUSD"] }])),
+      );
+      await rienEcrit(oct.helene, 10);
+    } finally {
+      await prisma.avantageNature.delete({ where: { id: avantage.id } });
+    }
+  });
+
+  it("lot : une seule ligne périmée (avantage d'Ivan) refuse TOUT le lot, Hélène n'est pas validée non plus", async () => {
+    const lignes = [await ligne(oct.helene, 10), await ligne(oct.ivan, 10)];
+    const jetons = await jetonsDe(prisma, lignes.map((l) => l.id));
+    const avantage = await prisma.avantageNature.create({ data: { employeeId: oct.ivan, nature: "Nourriture", montantUSD: 30, mois: 10, annee: 2026 } });
+    try {
+      expect(await changerStatutEnLot(lignes.map((l) => l.id), "VALIDE", null, jetons)).toEqual({
+        erreur: messagePaieChangee([{ nom: "Ivan Mpia", champs: ["avantagesNatureUSD"] }]),
+      });
+      await rienEcrit(oct.helene, 10);
+      await rienEcrit(oct.ivan, 10);
+    } finally {
+      await prisma.avantageNature.delete({ where: { id: avantage.id } });
+    }
+  });
+
+  it("taux INPP changé puis page rechargée (recalcul par l'empreinte) : la ligne prend le nouveau taux et se valide", async () => {
+    const avant = await ligne(oct.helene, 10);
+    await parametre("inpp_taux", 0.04);
+    try {
+      await expect(valider(oct.helene)).rejects.toThrow(/INPP/);
+      await rafraichirPaieAffichee(10, 2026); // ce que fait l'ouverture de /paie et d'« À valider »
+      const rechargee = await ligne(oct.helene, 10);
+      expect(Number(rechargee.inppUSD)).toBeGreaterThan(Number(avant.inppUSD));
+      expect(rechargee.salNetUSD.toString()).toBe(avant.salNetUSD.toString());
+      await valider(oct.helene);
+      const validee = await ligne(oct.helene, 10);
+      expect(validee.statutPaiement).toBe("VALIDE");
+      expect(validee.inppUSD.toString()).toBe(rechargee.inppUSD.toString());
+      expect(await prisma.versionBulletin.count({ where: { payrollLineId: validee.id } })).toBe(1);
+    } finally {
+      await parametre("inpp_taux", 0.03);
+    }
+  });
+
+  it("aucun changement depuis l'affichage (page rechargée) : l'approbation passe", async () => {
+    // Le recalcul précédent avait mis Ivan au taux INPP de 4 % ; le taux revenu à 3 %, sa ligne est
+    // de nouveau périmée tant que la page n'est pas rechargée — exactement ce que le contrôle protège.
+    await expect(valider(oct.ivan)).rejects.toThrow(/INPP/);
+    await rafraichirPaieAffichee(10, 2026);
+    await valider(oct.ivan);
+    expect((await ligne(oct.ivan, 10)).statutPaiement).toBe("VALIDE");
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
   });
 });
