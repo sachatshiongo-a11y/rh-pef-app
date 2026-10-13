@@ -7,7 +7,7 @@ import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from ".
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { qte, uniteAffichee, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
-import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
+import { AVERTISSEMENT_LIVRAISON, type ConseilsLivraison } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
 import { ChangerDate } from "./changer-date";
 import { ChoixRecherche } from "@/components/choix-recherche";
@@ -24,6 +24,9 @@ import { EtatVide } from "@/components/etat-vide";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
+/** Conseils de livraison de tous les articles, calculés par le serveur (`regrouperConseils`) : un article absent, rien à faire. */
+export type { ConseilsLivraison };
+const AUCUN_CONSEIL: ConseilsLivraison = { liste: [], parArticle: {} };
 
 export { AVERTISSEMENT_LIVRAISON };
 
@@ -35,22 +38,24 @@ type Art = { id: string; designation: string; contenance?: string | null; conten
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
 // Version sérialisable d'un mouvement (Decimal/Date convertis) — passée du serveur au client.
+// Une valeur vide n'est pas envoyée (liaisons lentes) : un champ facultatif absent vaut null / faux.
 export type MvtLite = {
   id: string;
   articleId: string;
   designation: string;
   dateISO: string; // AAAA-MM-JJ
-  origine: string | null;
+  origine?: string | null;
   type: string;
   quantite: number;
   /** Unité de l'article (le mouvement n'en porte pas) ; absente : « — » à l'écran, jamais devinée. */
   unite?: string | null;
+  /** null = sans prix (« — ») : toujours présent. */
   valeur: number | null;
-  valeurEstimee: boolean;
-  facture: { id: string; numero: string | null } | null;
-  bc: { id: string; numero: string } | null;
-  fournId: string | null;
-  fournNom: string | null;
+  valeurEstimee?: boolean;
+  facture?: { id: string; numero: string | null } | null;
+  bc?: { id: string; numero: string } | null;
+  fournId?: string | null;
+  fournNom?: string | null;
   /** Sortie : motif (LIVRAISON_RESTAURANT | PERTE ; null = sans motif). */
   motif?: string | null;
   /** Entrée de la Liste d'achat : DLC saisie (AAAA-MM-JJ), facultative. */
@@ -305,9 +310,10 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
  * restaurant : avertissement NON BLOQUANT, un conseil et un lien par cas (non rattaché, unité du
  * restaurant ou du catalogue non renseignée, unités incompatibles, à répartir).
  */
-function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; articles: Art[]; conseils: Record<string, ConseilLivraison> }) {
+function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; articles: Art[]; conseils: ConseilsLivraison }) {
   const noms = new Map(articles.map((a) => [a.id, libelleArticle(a)]));
-  const concernes = [...new Set(ids)].flatMap((id) => (conseils[id] ? [{ id, nom: noms.get(id) ?? id, ...conseils[id]! }] : []));
+  const conseilDe = (id: string) => { const rang = conseils.parArticle[id]; return rang === undefined ? undefined : conseils.liste[rang]; };
+  const concernes = [...new Set(ids)].flatMap((id) => { const c = conseilDe(id); return c ? [{ id, nom: noms.get(id) ?? id, ...c }] : []; });
   if (concernes.length === 0) return null;
   return (
     <div role="status" data-avertissement="livraison" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -353,10 +359,19 @@ export function depassements(lignes: readonly LigneSaisie[], stock: ReadonlyMap<
   return res;
 }
 
-export function MouvementForm({ articles, estDirection = false, conseilsLivraison = {} }: {
+/**
+ * Filtre « Produit » de la liste des mouvements (formulaire GET de la page) : il reçoit le MÊME tableau
+ * d'articles que le formulaire de saisie — la liste ne part qu'une fois au navigateur — et en tire ses options ici.
+ */
+export function ChoixProduitFiltre({ articles, defaultValue }: { articles: Art[]; defaultValue: string }) {
+  const options = useMemo(() => optionsArticles(articles), [articles]);
+  return <ChoixRecherche options={options} name="articleId" defaultValue={defaultValue} vide="Tous les produits" aria-label="Produit" className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5" />;
+}
+
+export function MouvementForm({ articles, estDirection = false, conseilsLivraison = AUCUN_CONSEIL }: {
   articles: Art[]; estDirection?: boolean;
   /** Articles dont une livraison n'alimenterait pas le restaurant, avec le conseil — calculé par le serveur. */
-  conseilsLivraison?: Record<string, ConseilLivraison>;
+  conseilsLivraison?: ConseilsLivraison;
 }) {
   // Lignes CONTRÔLÉES (article + quantité) : le stock disponible s'affiche à côté de la quantité, une
   // sortie qui dépasse est signalée dès la saisie, et « Utiliser … » remplace l'article d'une ligne.

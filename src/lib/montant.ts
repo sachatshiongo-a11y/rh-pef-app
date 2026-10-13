@@ -19,7 +19,21 @@ const norm = normaliserEspaces;
  * À utiliser partout où le texte finit dans un PDF : jamais `toLocaleString("fr-FR")` en direct.
  */
 export function formaterNombre(n: number, options: Intl.NumberFormatOptions = {}): string {
-  return norm(new Intl.NumberFormat("fr-FR", options).format(n));
+  return norm(formateurFr(options).format(n));
+}
+
+const FORMATEURS = new Map<string, Intl.NumberFormat>();
+/**
+ * Formateur fr-FR d'un jeu d'options, créé UNE fois puis réutilisé (2026-10-13). En créer un à chaque
+ * appel coûtait ~17 µs (×10 sur l'instance Render) : l'Inventaire en créait plus de 900 par affichage
+ * (prix et « ≈ » de chaque article), le tiers de son temps de calcul. Même texte produit : un
+ * `Intl.NumberFormat` ne garde aucun état entre deux `format`. Les options viennent du code (jeu fini).
+ */
+export function formateurFr(options: Intl.NumberFormatOptions = {}): Intl.NumberFormat {
+  const cle = JSON.stringify(options);
+  let f = FORMATEURS.get(cle);
+  if (!f) { f = new Intl.NumberFormat("fr-FR", options); FORMATEURS.set(cle, f); }
+  return f;
 }
 
 /** Nombre à nombre FIXE de décimales, à la française (virgule) : 12,5 — jamais « 12.5 » de `toFixed`. */
@@ -27,7 +41,7 @@ export function formaterDecimales(n: number, decimales: number): string {
   return formaterNombre(n, { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
 }
 
-const nf = (min: number, max: number) => new Intl.NumberFormat("fr-FR", { minimumFractionDigits: min, maximumFractionDigits: max });
+const nf = (min: number, max: number) => formateurFr({ minimumFractionDigits: min, maximumFractionDigits: max });
 
 export function formaterUSD(n: number): string {
   return `${norm(nf(2, 2).format(Math.abs(n)))} $`;

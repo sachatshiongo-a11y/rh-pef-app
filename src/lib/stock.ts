@@ -1,5 +1,6 @@
 // Helpers du module Stock & Achats (calculs d'affichage, pas de logique métier figée en base).
 import type { Prisma } from "@prisma/client";
+import { formateurFr } from "@/lib/montant";
 
 export type NiveauAlerte = "URGENT" | "APPRO" | "OK";
 
@@ -91,7 +92,7 @@ export const STATUT_BC_CLASSE: Record<string, string> = {
 /** Formate un montant USD (2 décimales) — ou tiret si nul/absent. */
 export function usd(v: Prisma.Decimal | number | string | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
-  return `${Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+  return `${formateurFr({ minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))} $`; // = toLocaleString("fr-FR", …), formateur réutilisé
 }
 
 /** Formate une quantité (jusqu'à 3 décimales, sans zéros inutiles). */
@@ -106,5 +107,5 @@ export function uniteAffichee(unite: string | null | undefined): string {
 
 export function qte(v: Prisma.Decimal | number | string | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
-  return Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+  return formateurFr({ maximumFractionDigits: 3 }).format(Number(v)); // = toLocaleString("fr-FR", …), formateur réutilisé
 }

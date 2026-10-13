@@ -13,7 +13,7 @@
 // absent ou nul rend `null` (« — »), JAMAIS 0.
 
 import Decimal from "decimal.js";
-import { formaterFC, formaterUSD } from "@/lib/montant";
+import { formateurFr, formaterFC, formaterUSD } from "@/lib/montant";
 
 export type DevisePrix = "USD" | "CDF";
 
@@ -97,7 +97,7 @@ export function formaterPrix(valeur: number, devise: DevisePrix): string {
   // Un prix d'achat peut avoir plus de deux décimales (0,1786 $ le sachet) : on ne le tronque pas.
   const quatre = Math.round(valeur * 10000) / 10000;
   if (Math.abs(quatre - Math.round(quatre * 100) / 100) < 1e-9) return formaterUSD(quatre);
-  return `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Math.abs(quatre)).replace(/[  ]/g, " ")} $`;
+  return `${formateurFr({ minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Math.abs(quatre)).replace(/[  ]/g, " ")} $`;
 }
 
 /**
