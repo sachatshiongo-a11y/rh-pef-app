@@ -30,6 +30,11 @@ export type LigneInventaire = {
    * qu'il avait (jamais complété après coup par la contenance d'aujourd'hui).
    */
   contenance?: string; contenanceUnite?: string;
+  /**
+   * Unités par carton (2026-10-13), pour la colonne « Par carton » de l'Excel de clôture, comme à l'écran. `null` = pas
+   * de conditionnement connu ; ABSENT d'un instantané plus ancien (le classeur reprend alors la valeur du catalogue).
+   */
+  uniteParCarton?: number | null;
 };
 export type Inventaire = {
   fige: boolean; // true = instantané figé à la clôture ; false = état actuel du stock
@@ -71,7 +76,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
     where: { actif: true },
     select: {
       id: true, code: true, designation: true, marque: true, domaine: true, unite: true, contenance: true, contenanceUnite: true,
-      devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true,
+      devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true,
       categorie: { select: { nom: true } },
       fournisseur: { select: { nom: true } },
       stock: { select: { quantite: true, stockMinimum: true, seuilUrgent: true } },
@@ -89,6 +94,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
     quantite: a.stock ? Number(a.stock.quantite) : 0,
     stockMinimum: a.stock ? Number(a.stock.stockMinimum) : 0,
     seuilUrgent: a.stock ? Number(a.stock.seuilUrgent) : 0,
+    uniteParCarton: a.uniteParCarton !== null ? Number(a.uniteParCarton) : null,
     sansPrix: (a.stock ? Number(a.stock.quantite) : 0) !== 0 && prixSaisi(a) === null,
     // Article en dollars : à l'identique d'avant. En francs : converti au taux du jour (tracé sur la ligne).
     prixUnitaireUSD: a.devisePrix === "CDF" ? prixArticleEnUSD(a, taux)?.valeur ?? 0 : a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,

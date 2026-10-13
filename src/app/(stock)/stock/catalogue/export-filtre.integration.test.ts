@@ -102,6 +102,32 @@ describe("colonnes des exports de l'Inventaire — l'unité suit la quantité, p
     expect(farine[entete.indexOf("Stock")]).toBe("0");
     expect(farine[entete.indexOf("Unité")]).toBe("Kg");
   });
+  it("Excel : « Stock début de mois » juste avant « Stock » — « — » pour un article créé après le 1er, jamais 0 ; sinon le stock au 1er", async () => {
+    const { GET } = await import("./export/route");
+    const ExcelJS = (await import("exceljs")).default;
+    const lire = async () => {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(Buffer.from(await (await GET(new Request("http://x/e?q=art"))).arrayBuffer()) as unknown as ArrayBuffer);
+      const lignes: unknown[][] = [];
+      wb.worksheets[0].eachRow((row) => lignes.push((row.values as unknown[]).slice(1)));
+      const entete = lignes.find((l) => l.includes("Désignation"))!.map(String);
+      return { entete, ligne: (nom: string) => lignes.find((l) => l[1] === nom)! };
+    };
+    vi.useFakeTimers({ toFake: ["Date"] }); // le mois courant est octobre 2026
+    vi.setSystemTime(new Date("2026-10-13T08:00:00Z"));
+    try {
+      await prisma.articleStock.updateMany({ data: { createdAt: new Date("2026-10-08T08:00:00Z") } }); // créés après le 1er
+      let { entete, ligne } = await lire();
+      const iDebut = entete.indexOf("Stock début de mois");
+      expect(iDebut).toBeGreaterThan(0);
+      expect(iDebut).toBe(entete.indexOf("Stock") - 1);
+      expect(ligne("Art Farine")[iDebut]).toBe("—");
+      await prisma.articleStock.updateMany({ data: { createdAt: new Date("2026-08-01T08:00:00Z") } }); // anciens, sans mouvement ni clôture : le stock actuel EST celui du 1er
+      ({ entete, ligne } = await lire());
+      expect(ligne("Art Riz")[iDebut]).toBe(50);
+      expect(ligne("Art Farine")[iDebut]).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it("page imprimable : l'en-tête met Unité juste après Stock et la cellule suit la quantité", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { default: Page } = await import("./imprimer/page");

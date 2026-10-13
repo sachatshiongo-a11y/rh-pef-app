@@ -8,6 +8,9 @@ import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 import { prixArticleEnCDF, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { libelleArticle } from "@/lib/libelle-article";
+import { moisEnCours } from "@/lib/mouvements-article-mois";
+import { chargerDonneesStockInitial } from "@/lib/stock-initial-mois-donnees";
+import { quantiteInitiale, stockInitialArticle } from "@/lib/stock-initial-mois";
 
 // Codes couleur d'alerte (ARGB) pour le fond des lignes Excel.
 const ALERTE_ARGB: Record<NiveauAlerte, string> = { URGENT: "FFFBE0E0", APPRO: "FFFBF0D4", OK: "FFE9F6EE" };
@@ -21,7 +24,8 @@ export async function GET(req: Request) {
   const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
   // Le filtre de l'écran (recherche, alerte, « À compléter », hausse) : l'export sort EXACTEMENT l'ensemble affiché, tout — jamais la page.
   const filtre = lireFiltreInventaire((k) => sp.get(k));
-  const [articlesDomaine, hausses, taux] = await Promise.all([
+  const { annee, mois } = moisEnCours();
+  const [articlesDomaine, hausses, taux, debutMois] = await Promise.all([
     prisma.articleStock.findMany({
       where: domaine ? { domaine } : {},
       orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }],
@@ -29,6 +33,7 @@ export async function GET(req: Request) {
     }),
     chargerHausses(domaine),
     tauxDuJour(),
+    chargerDonneesStockInitial(annee, mois).catch((e): null => { console.error("[stock] export de l'Inventaire : stock début de mois indisponible :", e); return null; }), // agrégats, pas une requête par article ; en panne : « — » (l'export reste utile)
   ]);
   const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
@@ -43,9 +48,12 @@ export async function GET(req: Request) {
     const prix = enUSD ? Math.round(enUSD.valeur * 10000) / 10000 : null;
     const saisi = prixSaisi(a);
     const pct = hausses.get(a.id);
+    // « — » (texte) quand le stock au 1er est inconnu ou que l'article n'existait pas encore : jamais 0.
+    const debut = debutMois === null ? null : quantiteInitiale(stockInitialArticle(debutMois, a.id, a.stock ? a.stock.quantite.toString() : null).initial);
     return [
       a.code ?? "",
       libelleArticle(a),
+      debut ?? "—",
       qte,
       a.unite ?? "",
       niv ? ALERTE_LABEL[niv] : "",
@@ -70,8 +78,9 @@ export async function GET(req: Request) {
     periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Inventaire",
-      entete: ["Code", "Désignation", "Stock", "Unité", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine", "Prix FC", "Devise du prix"],
+      entete: ["Code", "Désignation", "Stock début de mois", "Stock", "Unité", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine", "Prix FC", "Devise du prix"],
       lignes,
+      autofiltre: true, // liste plate (aucune ligne-titre) : triable/filtrable, bornée aux articles par classeurExcel
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_ARGB[alerteRow[r]!] : undefined),
     }],
   });

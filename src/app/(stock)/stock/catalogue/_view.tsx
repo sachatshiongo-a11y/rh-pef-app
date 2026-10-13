@@ -11,6 +11,10 @@ import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article"
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { lirePagination } from "@/lib/pagination";
 import { contenancePourClient } from "@/lib/libelle-article";
+import { moisEnCours } from "@/lib/mouvements-article-mois";
+import { chargerDonneesStockInitial } from "@/lib/stock-initial-mois-donnees";
+import { pourEcran, stockInitialArticle, type DonneesStockInitial } from "@/lib/stock-initial-mois";
+import { MOIS_FR } from "@/lib/dates-fr";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string; page?: string; par?: string };
@@ -26,7 +30,9 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
-  const [articles, categories, fournisseurs, haussePct, enAttente, taux] = await Promise.all([
+  // Stock au 1er du mois (colonne « Stock début de mois ») : UNE série d'agrégats pour tous les articles, jamais une requête par article.
+  const { annee, mois } = moisEnCours();
+  const [articles, categories, fournisseurs, haussePct, enAttente, taux, debutMois] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true, _count: { select: { fournisseurs: true } } } }),
     prisma.categorieStock.findMany({ orderBy: [{ ordre: "asc" }, { nom: "asc" }], select: { id: true, nom: true, domaine: true, actif: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -34,14 +40,20 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
     chargerHausses(domFiltre),
     ciblesEnAttente(),
     tauxDuJour(),
+    // Une panne de ce calcul ne prive pas l'Inventaire de ses articles : la colonne dit « — » (et pourquoi), l'erreur va au journal.
+    chargerDonneesStockInitial(annee, mois).catch((e): DonneesStockInitial | null => { console.error("[stock] stock début de mois indisponible :", e); return null; }),
   ]);
 
 
   const rows: ArticleRow[] = articles.map((a) => {
     const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null;
+    const debut = debutMois
+      ? pourEcran(stockInitialArticle(debutMois, a.id, a.stock ? a.stock.quantite.toString() : null), debutMois.cloturePrecedente)
+      : { stockDebutMois: null, stockDebutNote: "Non calculable : le calcul du stock au 1er du mois a échoué (réessayez)" };
     return {
       id: a.id,
       code: a.code,
+      ...debut,
       designation: a.designation,
       ...contenancePourClient(a), // libellé affiché (désignation + contenance) : `libelleArticle`, côté écran
       surFicheCommande: a.surFicheCommande,
@@ -66,5 +78,5 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
     };
   });
 
-  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} manque={filtreInit.manque} hausse={filtreInit.hausse} pageInit={page} parInit={par} estDirection={user.role === "ADMIN"} />;
+  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} manque={filtreInit.manque} hausse={filtreInit.hausse} pageInit={page} parInit={par} estDirection={user.role === "ADMIN"} debutMoisLibelle={`1er ${MOIS_FR[mois - 1]}`} />;
 }

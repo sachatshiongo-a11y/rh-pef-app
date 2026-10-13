@@ -23,7 +23,7 @@ type ArticleRow = Parameters<typeof CatalogueTable>[0]["articles"][number];
 const base = { code: null, surFicheCommande: false, domaine: "NOURRITURE" as const, categorieId: "c1", fournisseurId: null, uniteParCarton: null, prix: "2", haussePct: null };
 const ARTICLES: ArticleRow[] = [
   { ...base, id: "ok", designation: "Riz", unite: "Kg", quantite: "78", stockMinimum: "20", niveau: "OK" },
-  { ...base, id: "bas", designation: "Farine", unite: "Kg", quantite: "4.83", stockMinimum: "5", niveau: "APPRO" },
+  { ...base, id: "bas", designation: "Farine", unite: "Kg", quantite: "4.83", stockMinimum: "5", niveau: "APPRO", stockDebutMois: 12.5, ecartCloture: { cloture: 14, ecart: -1.5, periode: "septembre 2026" } },
   { ...base, id: "rupture", designation: "Beurre", unite: "Kg", quantite: "0", stockMinimum: "3", niveau: "URGENT" },
   { ...base, id: "negatif", designation: "Sucre", unite: "Kg", quantite: "-2.5", stockMinimum: "0", niveau: "OK" },
   { ...base, id: "inconnu", designation: "Amidon", unite: null, quantite: "0", stockMinimum: "0", niveau: null },
@@ -182,23 +182,24 @@ describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", (
 
   it("valeurs en texte : catégorie, unité ; « — » pour une absence, jamais 0", () => {
     const cellules = (i: number) => [...lignes()[i].querySelectorAll("td")].map((td) => td.textContent);
-    // case, code, désignation, stock, unité, alerte, min, catégorie, fournisseur, valeur, prix, par carton
+    // case, code, désignation, stock début de mois, stock, unité, alerte, min, catégorie, fournisseur, valeur, prix, par carton
     const farine = cellules(1);
-    expect(farine[3]).toBe("4,83");
-    expect(farine[4]).toBe("Kg");
-    expect(farine[6]).toBe("5");
-    expect(farine[7]).toBe("Farines");
+    expect(farine[4]).toBe("4,83");
+    expect(farine[5]).toBe("Kg");
+    expect(farine[7]).toBe("5");
+    expect(farine[8]).toBe("Farines");
     const amidon = cellules(4);
     expect(amidon[1]).toBe("—"); // code
-    expect(amidon[4]).toBe("—"); // unité
-    expect(amidon[6]).toBe("—"); // seuil 0 = sans seuil
-    expect(amidon[8]).toBe("—"); // fournisseur
-    expect(amidon[11]).toBe("—"); // par carton
+    expect(amidon[3]).toBe("—"); // stock début de mois inconnu : « — », jamais 0
+    expect(amidon[5]).toBe("—"); // unité
+    expect(amidon[7]).toBe("—"); // seuil 0 = sans seuil
+    expect(amidon[9]).toBe("—"); // fournisseur
+    expect(amidon[12]).toBe("—"); // par carton
   });
 
   it("plus de colonne « Nom court » : l'unité suit immédiatement le stock, sur ordinateur comme sur téléphone", () => {
     const entetes = [...bloc().querySelectorAll("thead th")].map((th) => th.textContent!.replace(/[▲▼]/g, "").trim());
-    expect(entetes).toEqual(["", "Code", "Désignation", "Stock", "Unité", "Alerte", "Min", "Catégorie", "Fournisseur", "Valeur", "Prix", "Par carton"]);
+    expect(entetes).toEqual(["", "Code", "Désignation", "Stock début de mois", "Stock", "Unité", "Alerte", "Min", "Catégorie", "Fournisseur", "Valeur", "Prix", "Par carton"]);
     expect(entetes.indexOf("Unité")).toBe(entetes.indexOf("Stock") + 1);
     expect(conteneur.textContent).not.toMatch(/nom court/i);
     // Téléphone : la quantité PUIS l'unité, dans le même bloc.
@@ -208,9 +209,9 @@ describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", (
     expect(conteneur.textContent).not.toContain("Farine T55");
   });
 
-  it("nombres alignés à droite (stock, min, valeur, prix, par carton)", () => {
+  it("nombres alignés à droite (stock début de mois, stock, min, valeur, prix, par carton)", () => {
     const tds = [...lignes()[0].querySelectorAll("td")];
-    for (const i of [3, 6, 9, 10, 11]) expect(tds[i].className, `colonne ${i}`).toContain("text-right");
+    for (const i of [3, 4, 7, 10, 11, 12]) expect(tds[i].className, `colonne ${i}`).toContain("text-right");
   });
 
   it("le prix s'affiche dans sa devise de saisie, l'autre devise en petit dessous", () => {
@@ -219,12 +220,40 @@ describe("ordinateur — tableau en lecture, noms et fournisseurs cliquables", (
       { ...base, id: "fc", designation: "Sel", unite: "Kg", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null, devisePrix: "CDF", prixCDF: "7000", prixAutre: "≈ 2,50 $" },
       { ...base, id: "rien", designation: "Eau", unite: "L", quantite: "1", stockMinimum: "1", niveau: "OK", prix: null },
     ], categories: [], fournisseurs: [] })));
-    const prix = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[10];
+    const prix = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[11];
     expect(prix("usd").firstChild!.textContent).toBe("2,50 $");
     expect(prix("usd").querySelector("span")!.textContent).toBe("≈ 7 000 FC");
     expect(prix("fc").firstChild!.textContent).toBe("7 000 FC");
     expect(prix("fc").querySelector("span")!.textContent).toBe("≈ 2,50 $");
     expect(prix("rien").textContent).toBe("—");
+  });
+
+  it("« Stock début de mois » : avant la colonne Stock, même alignement ; « — » avec sa raison en infobulle, jamais 0", () => {
+    const entetes = [...bloc().querySelectorAll("thead th")];
+    const iDebut = entetes.findIndex((th) => th.textContent === "Stock début de mois");
+    const iStock = entetes.findIndex((th) => th.textContent!.replace(/[▲▼]/g, "").trim() === "Stock");
+    expect(iDebut).toBeGreaterThan(0);
+    expect(iDebut).toBe(iStock - 1);
+    expect(entetes[iDebut].className).toContain("text-right");
+    const cellule = (id: string) => bloc().querySelector(`a[href="/stock/catalogue/${id}"]`)!.closest("tr")!.querySelectorAll("td")[iDebut];
+    expect(cellule("bas").firstChild!.textContent).toBe("12,5"); // 12,5 Kg au 1er ; l'unité de la colonne suivante vaut pour les deux
+    expect(cellule("bas").className).toContain("tabular-nums");
+    expect(cellule("ok").textContent).toBe("—");
+    act(() => racine.render(h(CatalogueTable, { articles: [{ ...ARTICLES[0], stockDebutMois: null, stockDebutNote: "Absent au 1er : article créé après le 1er du mois : il n'existait pas encore" }], categories: [], fournisseurs: [] })));
+    const c = bloc().querySelector(`a[href="/stock/catalogue/ok"]`)!.closest("tr")!.querySelectorAll("td")[iDebut];
+    expect(c.textContent).toBe("—");
+    expect(c.getAttribute("title")).toContain("n'existait pas");
+  });
+
+  it("écart avec la clôture du mois précédent : pastille « Écart clôture » (ambre, libellé), l'infobulle chiffre l'écart", () => {
+    const cellule = bloc().querySelector(`a[href="/stock/catalogue/bas"]`)!.closest("tr")!.querySelectorAll("td")[3];
+    const pastille = cellule.querySelector("span")!;
+    expect(pastille.textContent).toBe("Écart clôture");
+    expect(pastille.className).toContain("bg-amber-100");
+    expect(pastille.getAttribute("title")).toContain("septembre 2026");
+    expect(pastille.getAttribute("title")).toContain("-1,5");
+    // Aucune pastille sur un article sans écart.
+    expect(bloc().querySelector(`a[href="/stock/catalogue/ok"]`)!.closest("tr")!.querySelectorAll("td")[3].querySelector("span")).toBeNull();
   });
 
   it("le total « Valeur totale du stock filtré » est toujours là", () => {
