@@ -1,5 +1,5 @@
 import "server-only";
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import fs from "node:fs";
 import path from "node:path";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
@@ -126,7 +126,7 @@ export async function classeurExcel(opts: {
   feuilles: FeuilleExcel[];
 }): Promise<Buffer> {
   const { titre, periode, feuilles } = opts;
-  const wb = new ExcelJS.Workbook();
+  const wb = await nouveauClasseurExcel();
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
 
@@ -339,7 +339,7 @@ export type FeuilleInventaire = {
  */
 export async function classeurInventaire(opts: { periode: string; feuilles: FeuilleInventaire[] }): Promise<Buffer> {
   const { periode, feuilles } = opts;
-  const wb = new ExcelJS.Workbook();
+  const wb = await nouveauClasseurExcel();
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
   const editeLe = jourKinshasa(new Date());
@@ -440,4 +440,11 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
+}
+
+/** exceljs (23 Mo) chargé à la demande, seulement quand un classeur est réellement produit ou lu : les pages et
+ *  actions qui importent ce module ne l'embarquent plus à chaque réveil de l'instance (Render gratuit, 0,1 vCPU). */
+async function nouveauClasseurExcel(): Promise<ExcelJS.Workbook> {
+  const { default: Excel } = await import("exceljs");
+  return new Excel.Workbook();
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 
 // Parse un classeur Excel « Suivi des factures fournisseurs » en factures, en détectant les
 // colonnes par leur en-tête (gère les formats 2023 et 2024/2025, et les futurs classeurs).
@@ -101,7 +101,7 @@ export function donneesMontantsImportee(r: FactureImportee) {
  * `erreurs`. Les montants sont gardés tels quels, dans leur devise, jamais convertis.
  */
 export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defautAnnee: number, erreurs: string[] = []): Promise<FactureImportee[]> {
-  const wb = new ExcelJS.Workbook();
+  const wb = await nouveauClasseurExcel();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(buffer as any);
   const out: FactureImportee[] = [];
@@ -162,4 +162,11 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
     if (sansColonneDevise > 0) erreurs.push(`${ws.name} : pas de colonne « Devise » — ${sansColonneDevise} facture(s) refusée(s). Ajoutez une colonne « Devise » (FC ou $) à chaque ligne : la devise n'est jamais devinée d'après le montant.`);
   }
   return out;
+}
+
+/** exceljs (23 Mo) chargé à la demande, seulement quand un classeur est réellement produit ou lu : les pages et
+ *  actions qui importent ce module ne l'embarquent plus à chaque réveil de l'instance (Render gratuit, 0,1 vCPU). */
+async function nouveauClasseurExcel(): Promise<ExcelJS.Workbook> {
+  const { default: Excel } = await import("exceljs");
+  return new Excel.Workbook();
 }
