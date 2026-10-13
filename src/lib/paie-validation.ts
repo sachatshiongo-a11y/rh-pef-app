@@ -82,8 +82,26 @@ export function messageNetNonPositif(lignes: { nom: string; net: number; acompte
   return `Total versé (net à payer) négatif ou nul : ${detail}. Réduisez l'acompte ou décidez du report de l'échéance de prêt avant d'approuver — le logiciel ne plafonne rien de lui-même.`;
 }
 
-export function messagePaieChangee(noms: string[]): string {
-  return `La paie de ${noms.join(", ")} a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant d'approuver.`;
+/** Au-delà, le message résume (« et N autres ») : les premiers nommés sont les causes (ordre de
+ *  `DECISIONS_CHAMPS`), les suivants en découlent. */
+const CHAMPS_NOMMES_MAX = 6;
+
+/** Au-delà de ce nombre de salariés, seuls les premiers gardent le détail de leurs champs : les autres sont
+ *  nommés seuls. Une clôture dont les 56 bulletins ont bougé (taux de change changé) donnait un message de
+ *  6 à 10 Ko, renvoyé dans l'ADRESSE de la page (`/paie?erreur=…`) : au-delà des limites des serveurs. */
+const SALARIES_DETAILLES_MAX = 8;
+
+/** Refus « la paie a changé » : chaque salarié avec les champs qui ont bougé depuis l'affichage. */
+export function messagePaieChangee(changees: { nom: string; champs: readonly string[] }[]): string {
+  const detail = changees.slice(0, SALARIES_DETAILLES_MAX).map(({ nom, champs }) => {
+    const libelles = champs.map((c) => LIBELLES_CHAMPS_COMPARES[c] ?? c);
+    const reste = libelles.length - CHAMPS_NOMMES_MAX;
+    const noms = reste > 0 ? `${libelles.slice(0, CHAMPS_NOMMES_MAX).join(", ")} et ${reste} autre${reste > 1 ? "s" : ""}` : libelles.join(", ");
+    return `${nom} (${noms})`;
+  });
+  const autres = changees.slice(SALARIES_DETAILLES_MAX).map(({ nom }) => nom);
+  const suite = autres.length > 0 ? `, ainsi que de ${autres.length} autre${autres.length > 1 ? "s" : ""} salarié${autres.length > 1 ? "s" : ""} (${autres.join(", ")})` : "";
+  return `La paie de ${detail.join(", ")}${suite} a changé depuis son calcul : rechargez la page Paie avant d'approuver.`;
 }
 
 /** Refus d'une validation : message destiné à l'écran, renvoyé comme une valeur par les actions. */
@@ -104,27 +122,124 @@ export function messageErreurValidation(e: unknown): string | null {
   return null;
 }
 
-/** Montants et heures comparés : ceux qui font le bulletin (net, brut, base imposable) et la
- *  référence d'heures qui les porte. Tous en Decimal(·, 2) en base. */
-const CHAMPS_COMPARES = [
-  "salNetUSD",
-  "salBrutUSD",
-  "netImposableUSD",
-  "heuresContractuelles",
-  "heuresTravaillees",
-  "heuresPayeesNonTravaillees",
-] as const satisfies readonly (keyof DonneesLignePaie)[];
+/**
+ * CE QUE LA VALIDATION COMPARE (relecture du 2026-10-13). Jusque-là : net, brut, base imposable,
+ * heures et source. Restaient hors contrôle la CNSS patronale, l'INPP, l'ONEM, les avantages en
+ * nature… — un taux patronal ou un avantage changé entre l'affichage et « Approuver » était figé
+ * périmé, puis déclaré (déclarations CNSS/INPP/ONEM, bulletin, livre de paie).
+ *
+ * Désormais TOUTE colonne que `calculerLignesPaie` écrit sur la ligne est soit comparée, soit
+ * exclue avec sa raison. Sont comparés : chaque montant (Decimal), chaque nombre d'heures, et les
+ * nombres de jours IMPRIMÉS sur le bulletin (jours payés non travaillés, absences retenues, maladie,
+ * prorata). Les compteurs que rien n'imprime ni ne déclare sont exclus : un congé approuvé sans effet
+ * sur un montant ne bloque pas une validation (le bulletin imprime la période de congé depuis
+ * l'instantané pris à la validation, pas depuis ce compteur).
+ *
+ * Le type (`Record<keyof DonneesLignePaie, …>`) oblige à trancher pour chaque champ ajouté plus
+ * tard, et `paie-validation.test.ts` confronte la liste aux colonnes du modèle Prisma.
+ * L'ORDRE est celui du message de refus : d'abord ce qui CAUSE (heures, jours, saisies du mois),
+ * puis ce qui en découle (brut, retenues, net, charges patronales) — le premier nommé dit pourquoi.
+ */
+type DecisionChamp =
+  | { compare: "MONTANT"; libelle: string } // Decimal(·, 2) en base : comparé au centime
+  | { compare: "EXACT"; libelle: string } // entier imprimé sur le bulletin, ou énumération : égalité stricte
+  | { compare: false; raison: string };
+
+const COMPTEUR_NON_IMPRIME = {
+  compare: false,
+  raison: "compteur sans montant propre, ni imprimé sur le bulletin ni déclaré (au plus une statistique du rapport mensuel) ; les montants qu'il fait varier sont comparés",
+} as const;
+
+const DECISIONS_CHAMPS = {
+  sourceReference: { compare: "EXACT", libelle: "source des heures de référence" },
+  heuresContractuelles: { compare: "MONTANT", libelle: "heures de référence" },
+  heuresTravaillees: { compare: "MONTANT", libelle: "heures travaillées" },
+  heuresPayeesNonTravaillees: { compare: "MONTANT", libelle: "heures payées non travaillées" },
+  heuresSupp30: { compare: "MONTANT", libelle: "heures supp. à 30 %" },
+  heuresSupp60: { compare: "MONTANT", libelle: "heures supp. à 60 %" },
+  heuresSupp100: { compare: "MONTANT", libelle: "heures de dimanche et férié" },
+  joursPayes100: COMPTEUR_NON_IMPRIME,
+  joursPayes2_3: COMPTEUR_NON_IMPRIME,
+  joursNonPayes: COMPTEUR_NON_IMPRIME,
+  nombreAbsences: COMPTEUR_NON_IMPRIME,
+  joursPayesNonTravailles: { compare: "EXACT", libelle: "jours payés non travaillés" },
+  joursAbsenceRetenus: { compare: "EXACT", libelle: "jours d'absence retenus" },
+  joursMaladieJustifies: { compare: "EXACT", libelle: "jours de maladie justifiés" },
+  joursMaladieNonJustifies: { compare: "EXACT", libelle: "jours de maladie non justifiés" },
+  joursCongePris: COMPTEUR_NON_IMPRIME,
+  prorataJoursTravailles: { compare: "EXACT", libelle: "prorata d'entrée ou de sortie" },
+  prorataJoursMois: { compare: "EXACT", libelle: "base du prorata" },
+  avantagesNatureUSD: { compare: "MONTANT", libelle: "avantages en nature" },
+  transportUSD: { compare: "MONTANT", libelle: "transport" },
+  primesUSD: { compare: "MONTANT", libelle: "primes" },
+  fraisMedicauxUSD: { compare: "MONTANT", libelle: "frais médicaux" },
+  acompteUSD: { compare: "MONTANT", libelle: "acompte" },
+  retenuePretUSD: { compare: "MONTANT", libelle: "échéance de prêt" },
+  retenueAbsencesUSD: { compare: "MONTANT", libelle: "retenue pour absences" },
+  retenueMaladieUSD: { compare: "MONTANT", libelle: "retenue pour maladie" },
+  indemniteCongesUSD: { compare: "MONTANT", libelle: "indemnité de congé" },
+  remuneration100: { compare: "MONTANT", libelle: "rémunération à 100 %" },
+  remunerationJoursPayesUSD: { compare: "MONTANT", libelle: "rémunération des jours payés non travaillés" },
+  remunerationMaladieJustifieeUSD: { compare: "MONTANT", libelle: "rémunération de la maladie justifiée" },
+  remuneration2_3: { compare: "MONTANT", libelle: "rémunération aux 2/3" },
+  hsValorisee: { compare: "MONTANT", libelle: "heures supplémentaires valorisées" },
+  salBrutUSD: { compare: "MONTANT", libelle: "salaire brut" },
+  cnssSalarieUSD: { compare: "MONTANT", libelle: "CNSS salariale" },
+  netImposableUSD: { compare: "MONTANT", libelle: "base imposable" },
+  iprCalculeUSD: { compare: "MONTANT", libelle: "IPR" },
+  allocFamilialeUSD: { compare: "MONTANT", libelle: "allocations familiales" },
+  salNetUSD: { compare: "MONTANT", libelle: "net à payer" },
+  salNetCDF: { compare: "MONTANT", libelle: "net en francs" },
+  cnssPatronalUSD: { compare: "MONTANT", libelle: "CNSS patronale" },
+  inppUSD: { compare: "MONTANT", libelle: "INPP" },
+  onemUSD: { compare: "MONTANT", libelle: "ONEM" },
+  coutEmployeurUSD: { compare: "MONTANT", libelle: "coût employeur" },
+  coutEmployeurCDF: { compare: "MONTANT", libelle: "coût employeur en francs" },
+  motifReference: { compare: false, raison: "texte qui explique la source des heures, elle-même comparée ; aucun montant" },
+  avertissementsPaie: { compare: false, raison: "avertissements jamais bloquants, sans montant ; un nouvel avertissement sans écart de montant ne change rien de payé ni de déclaré" },
+} as const satisfies Record<keyof DonneesLignePaie, DecisionChamp>;
+
+/** Libellé d'un champ comparé, tel que le message de refus le nomme. */
+export const LIBELLES_CHAMPS_COMPARES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(DECISIONS_CHAMPS).flatMap(([k, d]) => (d.compare ? [[k, d.libelle]] : [])),
+);
+
+type Decisions = typeof DECISIONS_CHAMPS;
+type ChampMontant = { [K in keyof Decisions]: Decisions[K] extends { compare: "MONTANT" } ? K : never }[keyof Decisions];
+type ChampExact = { [K in keyof Decisions]: Decisions[K] extends { compare: "EXACT" } ? K : never }[keyof Decisions];
+export type ChampCompare = ChampMontant | ChampExact;
+
+/** Champs comparés, dans l'ordre du message. */
+export const CHAMPS_COMPARES = (Object.keys(DECISIONS_CHAMPS) as (keyof Decisions)[]).filter(
+  (k): k is ChampCompare => DECISIONS_CHAMPS[k].compare !== false,
+);
+/** Champs écartés de la comparaison, avec leur raison (rapport, garde-fou). */
+export const CHAMPS_NON_COMPARES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(DECISIONS_CHAMPS).flatMap(([k, d]) => (d.compare === false ? [[k, d.raison]] : [])),
+);
+
+/** Ce qu'une requête Prisma doit lire d'une ligne pour la comparer au recalcul. */
+const SELECTION_CONTROLE = Object.fromEntries(CHAMPS_COMPARES.map((k) => [k, true])) as { [K in ChampCompare]: true };
 
 /** Valeur calculée telle que la base l'aurait enregistrée (arrondi à 2 décimales, à mi-chemin
  *  loin de zéro, comme `numeric(·, 2)` de Postgres à partir de la même écriture décimale). */
 const enBase = (v: number) => new Prisma.Decimal(v).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-type LigneEnregistree = { [K in (typeof CHAMPS_COMPARES)[number]]: Prisma.Decimal } & { sourceReference: string };
+export type LigneEnregistree = { [K in ChampMontant]: Prisma.Decimal } & { [K in ChampExact]: DonneesLignePaie[K] };
+
+/** Champs (dans l'ordre du message) où la ligne enregistrée diffère du recalcul : d'au moins un
+ *  centime pour un montant ou des heures, d'une unité pour un nombre de jours, ou de source. */
+export function champsDifferents(enregistree: LigneEnregistree, recalculee: DonneesLignePaie): ChampCompare[] {
+  return CHAMPS_COMPARES.filter((k) =>
+    DECISIONS_CHAMPS[k].compare === "MONTANT"
+      ? !new Prisma.Decimal(enregistree[k as ChampMontant]).equals(enBase(recalculee[k as ChampMontant]))
+      : enregistree[k as ChampExact] !== recalculee[k as ChampExact],
+  );
+}
 
 /** Vrai si la ligne enregistrée diffère du recalcul d'au moins un centime (ou d'une source). */
 export function ligneDiffere(enregistree: LigneEnregistree, recalculee: DonneesLignePaie): boolean {
-  if (enregistree.sourceReference !== recalculee.sourceReference) return true;
-  return CHAMPS_COMPARES.some((k) => !new Prisma.Decimal(enregistree[k]).equals(enBase(recalculee[k])));
+  return champsDifferents(enregistree, recalculee).length > 0;
 }
 
 /** Attente de verrou bornée pour le reste de la transaction (`ATTENTE_VERROU_VALIDATION`). */
@@ -176,13 +291,7 @@ export async function controlerLignesAValider(
       id: true,
       employeeId: true,
       statutPaiement: true,
-      sourceReference: true,
-      salNetUSD: true,
-      salBrutUSD: true,
-      netImposableUSD: true,
-      heuresContractuelles: true,
-      heuresTravaillees: true,
-      heuresPayeesNonTravaillees: true,
+      ...SELECTION_CONTROLE,
       tauxChangeFige: true,
       employee: { select: { nom: true } },
       payrollRun: { select: { mois: true, annee: true, tauxChangeUtilise: true } },
@@ -206,7 +315,7 @@ export async function controlerLignesAValider(
     const k = `${l.payrollRun.annee}-${l.payrollRun.mois}`;
     (parMois.get(k) ?? parMois.set(k, []).get(k)!).push(l);
   }
-  const changees: string[] = [];
+  const changees: { nom: string; champs: ChampCompare[] }[] = [];
   const nonCalcules: string[] = [];
   const netsRefuses: { nom: string; net: number; acompte: number; pret: number }[] = [];
   for (const groupe of parMois.values()) {
@@ -218,15 +327,16 @@ export async function controlerLignesAValider(
     // son historique) — le message dit comment en sortir.
     for (const l of groupe) {
       const r = parSalarie.get(l.employeeId);
+      const champs = r ? champsDifferents(l, r) : [];
       if (!r) nonCalcules.push(l.employee.nom);
-      else if (ligneDiffere(l, r)) changees.push(l.employee.nom);
+      else if (champs.length > 0) changees.push({ nom: l.employee.nom, champs });
       else if (netNonValidable(r)) netsRefuses.push({ nom: l.employee.nom, net: r.salNetUSD, acompte: r.acompteUSD, pret: r.retenuePretUSD });
     }
   }
   const trier = (noms: string[]) => [...new Set(noms)].sort((a, b) => a.localeCompare(b, "fr"));
   if (nonCalcules.length > 0) throw new ValidationPaieRefuseeError(messageNonCalcules(trier(nonCalcules)));
   if (changees.length > 0) {
-    throw new ValidationPaieRefuseeError(messagePaieChangee(trier(changees)));
+    throw new ValidationPaieRefuseeError(messagePaieChangee([...changees].sort((a, b) => a.nom.localeCompare(b.nom, "fr"))));
   }
   if (netsRefuses.length > 0) {
     throw new ValidationPaieRefuseeError(messageNetNonPositif(netsRefuses.sort((a, b) => a.nom.localeCompare(b.nom, "fr"))));
