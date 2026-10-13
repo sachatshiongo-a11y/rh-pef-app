@@ -1004,6 +1004,10 @@ model PayrollRun {
   statut            PayrollStatus @default(BROUILLON)
   dateCalcul        DateTime      @default(now())
   tauxChangeUtilise Decimal       @db.Decimal(10, 2)
+  // Empreinte des sources de la paie et des lignes écrites, prise au dernier calcul, et l'instant de ce
+  // calcul (lib/paie-empreinte.ts). Nulle = jamais enregistrée : la paie est recalculée à l'ouverture.
+  empreinteCalcul   String?
+  calculeLe         DateTime?
 
   lignes PayrollLine[]
 
