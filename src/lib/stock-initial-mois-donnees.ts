@@ -86,11 +86,18 @@ export async function chargerDonneesStockInitial(annee: number, mois: number, { 
     ]);
     // Une ligne de comptage a le jour civil et l'instant de sa session : mêmes critères de fenêtre que le mouvement qu'elle a produit.
     const lignesJ = lignes.map((l) => ({ articleId: l.articleId!, ecart: l.ecart.toString(), jour: jourCivilKinshasa(l.session.createdAt), instant: l.session.createdAt }));
+    // Index par article, construits UNE fois : le calcul reste linéaire (jamais « articles × ajustements »).
+    const parArticle = <T extends { articleId: string }>(liste: readonly T[]) => {
+      const r = new Map<string, T[]>();
+      for (const x of liste) { const l = r.get(x.articleId); if (l) l.push(x); else r.set(x.articleId, [x]); }
+      return r;
+    };
+    const ajustementsDe = parArticle(ajustements), lignesDe = parArticle(lignesJ);
     const fixer = (carte: Map<string, MouvementsAgreges>, dans: (jour: Date, instant: Date) => boolean) => {
       for (const [articleId, m] of carte) {
         if (m.ajustements.nb === 0) continue;
-        const mv = ajustements.filter((x) => x.articleId === articleId && dans(x.date, x.createdAt)).map((x) => ({ quantite: x.quantite.toString() }));
-        const li = lignesJ.filter((x) => x.articleId === articleId && dans(x.jour, x.instant)).map((x) => ({ ecart: x.ecart }));
+        const mv = (ajustementsDe.get(articleId) ?? []).filter((x) => dans(x.date, x.createdAt)).map((x) => ({ quantite: x.quantite.toString() }));
+        const li = (lignesDe.get(articleId) ?? []).filter((x) => dans(x.jour, x.instant)).map((x) => ({ ecart: x.ecart }));
         m.ajustements = resoudreAjustements(mv, li);
       }
     };

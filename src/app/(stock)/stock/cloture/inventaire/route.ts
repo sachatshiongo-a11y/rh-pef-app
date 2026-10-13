@@ -151,7 +151,6 @@ async function produire(req: Request): Promise<Response> {
       ],
       invEntete: tab.entete,
       invLignes: tab.lignes,
-      invSectionRows: tab.sectionRows,
       invFormats: tab.formats,
       invDroite: tab.droite,
       invTotauxCols: [tab.colonnes.valeur],

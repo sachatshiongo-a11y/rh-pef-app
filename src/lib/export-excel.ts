@@ -328,10 +328,9 @@ export type FeuilleInventaire = {
   invTotauxCols?: number[]; // colonnes à totaliser dans le tableau d'inventaire
   alerteCol?: number; // index de la colonne « Alerte stock » à colorer selon le statut
   /**
-   * Lignes-titres de catégorie (indices dans `invLignes`) : fusionnées sur la largeur, comme à l'écran. Pas
-   * d'autofiltre sur ce tableau (un tri mélangerait les titres) ; ni la coloration d'alerte ni les formats ne les touchent.
+   * Tableau d'inventaire TRIABLE : un autofiltre est posé sur l'en-tête et les seules lignes d'articles (jamais les
+   * indicateurs au-dessus, ni la ligne de total ni les mouvements en dessous). Aucune ligne-titre au milieu des données.
    */
-  invSectionRows?: number[];
   /** Format Excel par colonne (cellules NUMÉRIQUES seulement, totaux compris) : montants au format maison, quantités signées en rouge. */
   invFormats?: Record<number, string>;
   /** Colonnes alignées à droite, en-tête compris : les « — » (texte) s'alignent alors sur les nombres. */
@@ -408,16 +407,8 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
     const rEnteteInv = enteteTable(ws, f.invEntete);
     rEnteteInv.eachCell((cell) => { cell.alignment = { wrapText: true, vertical: "bottom" }; });
     for (const ci of f.invDroite ?? []) rEnteteInv.getCell(ci + 1).alignment = { horizontal: "right", wrapText: true, vertical: "bottom" };
-    const sections = new Set(f.invSectionRows ?? []);
-    for (const [idx, l] of f.invLignes.entries()) {
+    for (const l of f.invLignes) {
       const r = ws.addRow(l);
-      if (sections.has(idx)) {
-        ws.mergeCells(r.number, 1, r.number, Math.max(1, f.invEntete.length));
-        const c = r.getCell(1);
-        c.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
-        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_SECTION } };
-        continue;
-      }
       for (const ci of f.invDroite ?? []) r.getCell(ci + 1).alignment = { horizontal: "right" };
       for (const [ci, fmt] of Object.entries(f.invFormats ?? {})) { const c = r.getCell(Number(ci) + 1); if (typeof c.value === "number") c.numFmt = fmt; }
       // Code couleur du statut de réapprovisionnement (cellule « Alerte stock »).
@@ -427,6 +418,10 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
         const bg = txt.includes("urgent") ? "FFF8D2D5" : txt.includes("réappro") ? "FFFBE7C6" : txt.includes("satisfaisant") ? "FFD6EFDB" : null;
         if (bg) { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } }; c.font = { name: OPTIMA, size: 10, bold: true }; }
       }
+    }
+    // Autofiltre borné : de l'en-tête à la dernière ligne d'article (le total, ajouté juste après, n'en fait pas partie).
+    if (f.invLignes.length > 0) {
+      ws.autoFilter = { from: { row: rEnteteInv.number, column: 1 }, to: { row: rEnteteInv.number + f.invLignes.length, column: f.invEntete.length } };
     }
     if (f.invTotauxCols?.length) {
       const tot: (string | number)[] = new Array(f.invEntete.length).fill("");
@@ -453,8 +448,8 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
     ws.eachRow((row) => row.eachCell((cell) => { if (!cell.font?.name) cell.font = { name: OPTIMA, size: 10 }; }));
 
     // Largeurs : basées sur l'entête d'inventaire (le plus large), min pour la 1re colonne.
-    // Les lignes-titres de catégorie (fusionnées) ne comptent pas dans la largeur, et les en-têtes longs passent à la ligne (plafond 20).
-    const echantillon = [f.invEntete.map((h) => h.slice(0, 20)), ...f.invLignes.filter((_, i) => !sections.has(i)), f.mvtEntete, ...f.mvtLignes];
+    // Les en-têtes longs passent à la ligne (plafond 20).
+    const echantillon = [f.invEntete.map((h) => h.slice(0, 20)), ...f.invLignes, f.mvtEntete, ...f.mvtLignes];
     for (let i = 0; i < largeur; i++) {
       const longueurs = echantillon.map((l) => String(l[i] ?? "").length);
       ws.getColumn(i + 1).width = Math.min(44, Math.max(9, Math.max(0, ...longueurs) + 2));

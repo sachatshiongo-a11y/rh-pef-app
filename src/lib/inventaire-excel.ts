@@ -8,8 +8,10 @@
 // sorte que « début + entrées − sorties ± ajustements + après = fin » se lit sur chaque ligne. Une valeur inconnue est
 // « — » (jamais 0) ; les nombres restent de vrais nombres (virgule décimale à l'affichage par le format Excel).
 //
-// Groupement par catégorie comme à l'écran : une ligne-titre par catégorie « NOM (n) », dans l'ordre du catalogue. Les
-// lignes-titres sont incompatibles avec un autofiltre (un tri les mélangerait) : il n'y en a donc pas sur ce tableau.
+// Tableau TRIABLE (décision de la Direction, 13/10/2026 : « je préfère un tableau triable ») : AUCUNE ligne-titre de
+// catégorie (un tri les mélangerait) ; la colonne « Catégorie » reste, et les lignes sont rangées comme à l'écran —
+// catégorie (ordre du catalogue, « À classer » en dernier), puis code. L'autofiltre est posé par `classeurInventaire`,
+// borné à l'en-tête et aux lignes d'articles.
 import { alerteLabel, ligneSansPrix, type LigneInventaire } from "@/lib/cloture-inventaire";
 import { libelleArticle } from "@/lib/libelle-article";
 import { quantiteInitiale, type StockInitialArticle } from "@/lib/stock-initial-mois";
@@ -42,8 +44,6 @@ export type ParametresTableau = {
 export type TableauInventaire = {
   entete: string[];
   lignes: (string | number)[][];
-  /** Indices (dans `lignes`) des lignes-titres de catégorie. */
-  sectionRows: number[];
   colonnes: Record<"debut" | "stock" | "valeur" | "alerte", number>;
   /** Format Excel par colonne (cellules numériques seulement). */
   formats: Record<number, string>;
@@ -65,15 +65,7 @@ export function tableauInventaire(p: ParametresTableau): TableauInventaire {
   if (p.cloturePrecedente) entete.push(`Écart avec la clôture de ${p.cloturePrecedente}`);
 
   const lignes: (string | number)[][] = [];
-  const sectionRows: number[] = [];
-  let courante: string | null = null;
   for (const l of triees) {
-    if (courante !== l.categorie || lignes.length === 0) {
-      courante = l.categorie;
-      const nb = triees.filter((x) => x.categorie === l.categorie).length;
-      sectionRows.push(lignes.length);
-      lignes.push([`${(l.categorie || "À classer").toLocaleUpperCase("fr")} (${nb})`]);
-    }
     const r = p.resultat(l.articleId);
     const debut = r ? quantiteInitiale(r.initial) : null;
     const sansPrix = ligneSansPrix(l);
@@ -87,9 +79,9 @@ export function tableauInventaire(p: ParametresTableau): TableauInventaire {
     ];
     if (p.avecApres) ligne.push(r && r.apres !== null ? r3(r.apres) : TIRET);
     ligne.push(
-      r2(l.quantite), l.unite, alerteLabel(l.quantite, l.stockMinimum, l.seuilUrgent),
+      r3(l.quantite), l.unite, alerteLabel(l.quantite, l.stockMinimum, l.seuilUrgent),
       l.stockMinimum > 0 ? r3(l.stockMinimum) : TIRET, // 0 = « sans seuil » : « — » comme à l'écran
-      l.categorie, l.fournisseur,
+      l.categorie || "À classer", l.fournisseur,
       // Sans prix : cellules vides (jamais 0) — le total est partiel de ces articles.
       sansPrix ? "" : r2(l.quantite * l.prixUnitaireUSD),
       sansPrix ? "" : r2(l.prixUnitaireUSD),
@@ -109,7 +101,7 @@ export function tableauInventaire(p: ParametresTableau): TableauInventaire {
   if (p.avecApres) formats[6] = FORMAT_QUANTITE_SIGNEE;
   if (iEcart >= 0) formats[iEcart] = FORMAT_QUANTITE_SIGNEE;
   const droite = [2, 3, 4, 5, ...(p.avecApres ? [6] : []), iStock, iStock + 3, iValeur, iValeur + 1, iValeur + 2, iValeur + 3, iValeur + 4, ...(iEcart >= 0 ? [iEcart] : [])];
-  return { entete, lignes, sectionRows, colonnes: { debut: 2, stock: iStock, valeur: iValeur, alerte: iStock + 2 }, formats, droite };
+  return { entete, lignes, colonnes: { debut: 2, stock: iStock, valeur: iValeur, alerte: iStock + 2 }, formats, droite };
 }
 
 // ── Indicateurs du début de mois ───────────────────────────────────────────────────────

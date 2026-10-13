@@ -80,6 +80,7 @@ export async function GET(req: Request) {
       nom: "Inventaire",
       entete: ["Code", "Désignation", "Stock début de mois", "Stock", "Unité", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine", "Prix FC", "Devise du prix"],
       lignes,
+      autofiltre: true, // liste plate (aucune ligne-titre) : triable/filtrable, bornée aux articles par classeurExcel
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_ARGB[alerteRow[r]!] : undefined),
     }],
   });
