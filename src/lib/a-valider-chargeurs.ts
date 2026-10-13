@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { lireConfigDuRendu } from "@/lib/config-rendu";
 import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { compterDemandesRatiosEnAttente } from "@/lib/exploitation/demandes-ratios";
 import {
@@ -47,7 +48,7 @@ export async function chargerElementsAValiderRH(): Promise<ElementsAValider> {
   if (etat.cache && Date.now() - etat.cache.at < TTL) return etat.cache.elements;
   const generation = etat.generation;
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const config = await lireConfigDuRendu();
   const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
   const [conges, bulletinsAValider, bulletinsAPayer, acomptes, changements, echanges, modifs, creations, attestations] = await Promise.all([
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),

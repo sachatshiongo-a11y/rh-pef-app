@@ -1,5 +1,5 @@
 import "server-only";
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { repererDejaPresents, refusAnnulationHistoriquePorte, traceJumeau, ACTION_DEJA_PRESENT } from "./doublons-imports";
@@ -111,7 +111,7 @@ const FEUILLES: FeuilleCfg[] = [
 
 /** Lit le classeur et produit l'aperçu (aucune écriture). */
 export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewInventaire> {
-  const wb = new ExcelJS.Workbook();
+  const wb = await nouveauClasseurExcel();
   await wb.xlsx.load(buffer);
   const db = (await prisma.articleStock.findMany({ select: { id: true, designation: true, marque: true, domaine: true, code: true, unite: true, actif: true } }))
     .map((r) => ({ ...r, ex: normEx(r.designation), tk: toks(r.designation) }));
@@ -560,4 +560,11 @@ export async function annulerImport(batchId: string, userId?: string, opts: { re
     }
   }, { timeout: 120000 });
   return { stocksLaisses, remisMalgrePosterieur };
+}
+
+/** exceljs (23 Mo) chargé à la demande, seulement quand un classeur est réellement produit ou lu : les pages et
+ *  actions qui importent ce module ne l'embarquent plus à chaque réveil de l'instance (Render gratuit, 0,1 vCPU). */
+async function nouveauClasseurExcel(): Promise<ExcelJS.Workbook> {
+  const { default: Excel } = await import("exceljs");
+  return new Excel.Workbook();
 }

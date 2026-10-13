@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -56,7 +55,10 @@ export type ResultatImport = {
 /** Lecture du rapport (Excel/CSV) en valeurs BRUTES — jamais la lecture « devinée » du tableur, qui
  *  prenait 05/10 pour le 10 mai et perdait le 13/10 — puis lecture explicite des dates
  *  (`extrairePointagesRapport`, pur et testé). */
-function parserFichier(buf: Buffer): LectureRapport {
+async function parserFichier(buf: Buffer): Promise<LectureRapport> {
+  // Chargé à la demande (7,8 Mo) : la page Présences n'embarque plus le lecteur de tableur à chaque démarrage
+  // de l'instance (offre gratuite de Render : 0,1 vCPU, 512 Mo), seulement quand un rapport est importé.
+  const XLSX = await import("xlsx");
   let lignes: Record<string, unknown>[];
   try {
     const wb = XLSX.read(buf, { type: "buffer", cellDates: false, raw: true });
@@ -93,7 +95,7 @@ export async function analyserPointageIVMS(
     return { ok: false, message: "Aucun fichier fourni.", lignes: [], anomalies: [] };
   }
 
-  const parse = parserFichier(Buffer.from(await fichier.arrayBuffer()));
+  const parse = await parserFichier(Buffer.from(await fichier.arrayBuffer()));
   if (!parse.ok) return { ok: false, message: parse.message, lignes: [], anomalies: [] };
 
   const resultat = calculerHeuresDepuisPointages(parse.pointages, { methode: "PREMIERE_DERNIERE" });

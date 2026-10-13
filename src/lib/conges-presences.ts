@@ -99,38 +99,57 @@ export async function poserCodesConge(
  * grille Présences ; au régime de croisière il ne fait plus rien.
  */
 export async function rattraperCodesConges(): Promise<number> {
-  const conges = await prisma.leaveRequest.findMany({ where: { statut: "APPROUVE" } });
+  const conges = await prisma.leaveRequest.findMany({
+    where: { statut: "APPROUVE" },
+    select: { employeeId: true, type: true, dateDebut: true, dateFin: true },
+  });
   if (conges.length === 0) return 0;
 
   const preload = await chargerPreloadConges();
   const moisFiges = preload.moisFiges;
 
-  let total = 0;
-  for (const c of conges) {
-    const tauxPct = preload.tauxParType.get(c.type);
-    const code: "C" | "S" = tauxPct === 0 ? "S" : "C";
-    const jours = joursOuvrablesDuConge(new Date(c.dateDebut), new Date(c.dateFin), preload.feriesIso);
-    const eligibles = jours.filter((d) => !jourFige(d, moisFiges));
-    if (eligibles.length === 0) continue;
+  const aTraiter = conges
+    .map((c) => {
+      const tauxPct = preload.tauxParType.get(c.type);
+      const code: "C" | "S" = tauxPct === 0 ? "S" : "C";
+      const jours = joursOuvrablesDuConge(new Date(c.dateDebut), new Date(c.dateFin), preload.feriesIso);
+      return { employeeId: c.employeeId, code, eligibles: jours.filter((d) => !jourFige(d, moisFiges)) };
+    })
+    .filter((c) => c.eligibles.length > 0);
+  if (aTraiter.length === 0) return 0;
 
+  // Les codes déjà saisis, lus en UNE fois pour tous les congés (par paquets), et non plus un aller-retour
+  // par congé, en série, à chaque affichage de la grille (13/10/2026). Même lecture : salarié × jours éligibles.
+  const cle = (employeeId: string, d: Date) => `${employeeId}|${iso(d)}`;
+  const deja = new Set<string>();
+  for (let i = 0; i < aTraiter.length; i += PAQUET_RATTRAPAGE) {
     const existants = await prisma.attendance.findMany({
-      where: { employeeId: c.employeeId, date: { in: eligibles } },
-      select: { date: true },
+      where: { OR: aTraiter.slice(i, i + PAQUET_RATTRAPAGE).map((c) => ({ employeeId: c.employeeId, date: { in: c.eligibles } })) },
+      select: { employeeId: true, date: true },
     });
-    const deja = new Set(existants.map((a) => iso(new Date(a.date))));
-    const manquants = eligibles.filter((d) => !deja.has(iso(d)));
+    for (const a of existants) deja.add(cle(a.employeeId, new Date(a.date)));
+  }
+
+  let total = 0;
+  for (const c of aTraiter) {
+    const manquants = c.eligibles.filter((d) => !deja.has(cle(c.employeeId, d)));
     if (manquants.length === 0) continue;
 
     await prisma.attendance.createMany({
-      data: manquants.map((d) => ({ employeeId: c.employeeId, date: d, code })),
+      data: manquants.map((d) => ({ employeeId: c.employeeId, date: d, code: c.code })),
       skipDuplicates: true,
     });
     // Pas d'heures pendant un congé : retire les heures pré-remplies des jours rattrapés.
     await prisma.overtimeEntry.deleteMany({ where: { employeeId: c.employeeId, date: { in: manquants } } });
+    // Comme la relecture d'avant : un congé suivant qui chevauche celui-ci trouve ces jours déjà posés.
+    for (const d of manquants) deja.add(cle(c.employeeId, d));
     total += manquants.length;
   }
   return total;
 }
+
+/** Congés par lecture groupée du rattrapage (borne le nombre de paramètres d'une requête). */
+const PAQUET_RATTRAPAGE = 200;
 
 /** Retire les codes C/S de la plage (refus, suppression ou annulation d'un congé). Ne touche pas aux autres codes,
  *  ni aux jours d'un mois dont la paie est validée (`figes` : combien sont restés).

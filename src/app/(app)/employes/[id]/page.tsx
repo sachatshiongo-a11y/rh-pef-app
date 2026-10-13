@@ -31,6 +31,7 @@ import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
+import { lireConfigDuRendu } from "@/lib/config-rendu";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
 import { chargerReprisesSolde } from "@/lib/solde-tout-compte";
 import { formaterUSD } from "@/lib/montant";
@@ -88,40 +89,193 @@ export default async function FicheEmployePage({
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;
-  const modifsEnAttente = await demandesFicheEnAttente(id);
   const sp = await searchParams;
   const tab = sp.tab ?? "apercu";
+
+  // LECTURES EN TROIS ÉTAGES PARALLÈLES (13/10/2026) — et non plus une vingtaine d'`await` l'un après l'autre :
+  // chaque aller-retour vers la base (Render Francfort → Supabase Paris) se payait en série. Mêmes requêtes,
+  // mêmes conditions d'onglet ; seul l'ordre d'attente change. Étage 1 : la fiche, la Config (mois RH) et ce
+  // qui ne dépend que de l'identifiant ; étage 2 : tout ce qui dépend de la fiche ou du mois ; étage 3 : ce
+  // qui dépend des bulletins et des contrats lus à l'étage 2.
+  const [modifsEnAttente, employee, liensReembauche, config] = await Promise.all([
+    demandesFicheEnAttente(id),
+    prisma.employee.findUnique({ where: { id } }),
+    // Réembauche = nouvelle fiche : lien vers la fiche archivée dont celle-ci prend la suite, et vers sa suite éventuelle.
+    // `findFirst` (même résultat) : deux `findUnique` du même tour seraient regroupés par Prisma dans une transaction (2 allers-retours de plus).
+    prisma.employee.findFirst({
+      where: { id },
+      select: {
+        ancienneFiche: { select: { id: true, nom: true, matricule: true } },
+        reembauches: { select: { id: true, nom: true, matricule: true, dateEmbauche: true }, orderBy: { dateEmbauche: "asc" } },
+      },
+    }),
+    lireConfigDuRendu(), // la même lecture que le layout et l'interrupteur de l'espace salarié
+  ]);
   // L'ancien onglet « Fin de contrat » est une section de « Contrats » (plan d'ergonomie V12) : les liens,
   // favoris et notifications d'avant arrivent à la bonne place.
   const ancienOnglet = redirectionAncienOnglet(tab);
   if (ancienOnglet) redirect(`/employes/${id}?${ancienOnglet}`);
-
-  const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
-  // Réembauche = nouvelle fiche : lien vers la fiche archivée dont celle-ci prend la suite, et vers sa suite éventuelle.
-  const liensReembauche = await prisma.employee.findUnique({
-    where: { id },
-    select: {
-      ancienneFiche: { select: { id: true, nom: true, matricule: true } },
-      reembauches: { select: { id: true, nom: true, matricule: true, dateEmbauche: true }, orderBy: { dateEmbauche: "asc" } },
-    },
-  });
-
-  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets, tachesOnboarding] = await Promise.all([
-    prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
-    prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
-    prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
-    prisma.evaluation.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
-    prisma.documentEmploye.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }),
-    // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
-    // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
-    prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
-    prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
-    prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
-  ]);
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
   const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
+  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
+  const finMois = new Date(Date.UTC(annee, mois, 0));
+  // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
+  const kinshasa = jourCivilKinshasa(new Date());
+  const lundiSemaine = lundiDe(kinshasa);
+  const dimancheSemaine = new Date(lundiSemaine);
+  dimancheSemaine.setUTCDate(dimancheSemaine.getUTCDate() + 6);
+  // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
+  const debutRapport = new Date(lundiSemaine);
+  debutRapport.setUTCDate(debutRapport.getUTCDate() - 7 * 7); // 7 semaines avant la courante
+  const finPlanning = new Date(lundiSemaine);
+  finPlanning.setUTCDate(finPlanning.getUTCDate() + 13); // dimanche de la semaine suivante
+
+  const [
+    [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets, tachesOnboarding],
+    plafondAcompte,
+    famille,
+    [attendances, leaveRequests, payrollLines, soldeConge],
+    [primes, acomptes, fraisMed, creneauxSemaine, heuresSemaine, presencesSemaine],
+    attestationsLues,
+    congesAnnees,
+    finContrats,
+    reprisesSolde,
+    joursModeleLus,
+    espaceActif,
+    tempsLus,
+    paramsDepart,
+    avantagesMoisCourant,
+    apercuBulletin,
+    parametres,
+    sortie,
+  ] = await Promise.all([
+    Promise.all([
+      prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
+      prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
+      prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
+      prisma.evaluation.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
+      prisma.documentEmploye.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }),
+      // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
+      // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
+      prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
+      prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
+      prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
+    ]),
+    // Plafond d'acompte de la période : affiché AVANT la saisie plutôt que refusé après coup.
+    chargerPlafondAcompte(prisma, { employeeId: id, mois, annee }),
+    // Composition familiale : purement documentaire. Le comptage sert à SIGNALER un écart avec le
+    // champ `enfants` qui, lui, pilote la réduction IPR et l'allocation familiale — jamais à le corriger.
+    prisma.membreFamille.findMany({
+      where: { employeeId: id },
+      orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }],
+    }),
+    Promise.all([
+      prisma.attendance.findMany({
+        where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
+        orderBy: { date: "asc" },
+      }),
+      prisma.leaveRequest.findMany({
+        where: { employeeId: id },
+        orderBy: { dateDebut: "desc" },
+        take: 15,
+      }),
+      prisma.payrollLine.findMany({
+        where: { employeeId: id },
+        // Bulletins déjà REMIS (figés à chaque validation) : jamais supprimés, consultables en archive.
+        include: { payrollRun: true, versionsBulletin: { select: { numeroVersion: true, genereLe: true }, orderBy: { numeroVersion: "asc" } } },
+        orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
+      }),
+      chargerSoldeCongeSalarie(prisma, id),
+    ]),
+    Promise.all([
+      prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
+      prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
+      prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
+      prisma.planningCreneau.findMany({
+        where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+        select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+      }),
+      prisma.overtimeEntry.findMany({
+        where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+        select: { date: true, heuresTravaillees: true },
+      }),
+      prisma.attendance.findMany({
+        where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+        select: { date: true, code: true },
+      }),
+    ]),
+    // Registre des attestations de la fiche (onglet Contrats).
+    tab === "contrats"
+      ? prisma.attestation.findMany({
+          where: { employeeId: id },
+          include: { delivreePar: { select: { nom: true } }, demandePar: { select: { nom: true } } },
+          orderBy: { demandeLe: "desc" },
+          take: 200,
+        })
+      : null,
+    // Onglet « Congés & absences » : le bilan de CHAQUE année civile depuis l'embauche et toutes les demandes
+    // (même source que le solde d'en-tête, lib/solde-conge-salarie).
+    tab === "conges" ? chargerCongesParAnnee(prisma, id) : null,
+    tab === "contrats" ? prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }) : [],
+    // Solde de tout compte : reste des prêts, acomptes non retenus, bulletin du mois déjà figé — les
+    // mêmes chiffres que l'action revérifie (lib/solde-tout-compte.ts).
+    tab === "contrats" && employee.actif ? chargerReprisesSolde(prisma, id, { mois, annee }) : null,
+    // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
+    tab === "contrats" ? prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } }) : null,
+    // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Aperçu.
+    tab === "apercu" && estAdmin ? espaceEmployeActif() : false,
+    tab === "temps"
+      ? Promise.all([
+          prisma.planningCreneau.findMany({
+            where: { employeeId: id, date: { gte: lundiSemaine, lte: finPlanning } },
+            select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+          }),
+          prisma.overtimeEntry.findMany({
+            where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+            select: { date: true, heuresTravaillees: true },
+          }),
+          prisma.attendance.findMany({
+            where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+            select: { date: true, code: true },
+          }),
+        ])
+      : null,
+    // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
+    // Exercice ACTIF seulement : avec un second exercice en base, la clé existerait deux fois.
+    tab === "contrats"
+      ? prisma.parametreLegal.findMany({
+          where: {
+            cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "indemnite_licenciement_jours_par_an"] },
+            exercice: { actif: true },
+          },
+          select: { cle: true, valeur: true },
+        })
+      : [],
+    prisma.avantageNature.findMany({
+      where: { employeeId: id, mois, annee },
+      orderBy: { createdAt: "asc" },
+    }),
+    // Le bulletin live (plusieurs requêtes + calcul) n'est utile que dans l'onglet Aperçu.
+    tab === "apercu" ? calculerBulletinLive(id, mois, annee) : null,
+    chargerParametresPaie(),
+    // Sortie (décision de la Direction du 2026-10-12) : la date arrête l'acquisition des congés. Une fiche
+    // désactivée SANS date est signalée en tête — l'outil signale, la Direction tranche (jamais de date devinée).
+    chargerSortieFiche(prisma, id),
+  ]);
+
+  // Signatures des bulletins et des contrats de cette fiche : DEUX requêtes, quel que soit
+  // l'historique. L'état affiché est relu du document à chaque rendu — un bulletin recalculé
+  // repasse de lui-même en « À resigner ». « Hors calcul » : la règle de l'écran Paie (mois passé
+  // clôturé, salarié sorti du calcul), jamais redécidée ici. Compte salarié : seulement si l'espace est actif.
+  const [sigBulletins, sigContrats, horsCalculIds, compteSalarie] = await Promise.all([
+    chargerSignatures(prisma, "BULLETIN", payrollLines.filter((l) => l.statutPaiement !== "PAS_VALIDE").map((l) => l.id)),
+    chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
+    idsLignesHorsCalcul(prisma, payrollLines),
+    espaceActif
+      ? prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true, accesStock: true } })
+      : null,
+  ]);
 
   const pretsView = prets.map((p) => {
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
@@ -147,57 +301,15 @@ export default async function FicheEmployePage({
       echeancier,
     };
   });
-  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
-  const finMois = new Date(Date.UTC(annee, mois, 0));
-  // Plafond d'acompte de la période : affiché AVANT la saisie plutôt que refusé après coup.
-  const plafondAcompte = await chargerPlafondAcompte(prisma, { employeeId: id, mois, annee });
-
-  // Composition familiale : purement documentaire. Le comptage sert à SIGNALER un écart avec le
-  // champ `enfants` qui, lui, pilote la réduction IPR et l'allocation familiale — jamais à le corriger.
-  const famille = await prisma.membreFamille.findMany({
-    where: { employeeId: id },
-    orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }],
-  });
   const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
 
-  const [attendances, leaveRequests, payrollLines, soldeConge] = await Promise.all([
-    prisma.attendance.findMany({
-      where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
-      orderBy: { date: "asc" },
-    }),
-    prisma.leaveRequest.findMany({
-      where: { employeeId: id },
-      orderBy: { dateDebut: "desc" },
-      take: 15,
-    }),
-    prisma.payrollLine.findMany({
-      where: { employeeId: id },
-      // Bulletins déjà REMIS (figés à chaque validation) : jamais supprimés, consultables en archive.
-      include: { payrollRun: true, versionsBulletin: { select: { numeroVersion: true, genereLe: true }, orderBy: { numeroVersion: "asc" } } },
-      orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
-    }),
-    chargerSoldeCongeSalarie(prisma, id),
-  ]);
-
-  // Signatures des bulletins et des contrats de cette fiche : DEUX requêtes, quel que soit
-  // l'historique. L'état affiché est relu du document à chaque rendu — un bulletin recalculé
-  // repasse de lui-même en « À resigner ».
-  const [sigBulletins, sigContrats] = await Promise.all([
-    chargerSignatures(prisma, "BULLETIN", payrollLines.filter((l) => l.statutPaiement !== "PAS_VALIDE").map((l) => l.id)),
-    chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
-  ]);
   const etatsContrats: Record<string, EtatSignature> = Object.fromEntries(
     contrats.map((c) => [c.id, etatSignature(sigContrats.get(c.id))])
   );
   // Registre des attestations de la fiche (onglet Contrats).
   const attestationsFiche =
-    tab === "contrats"
-      ? (await prisma.attestation.findMany({
-          where: { employeeId: id },
-          include: { delivreePar: { select: { nom: true } }, demandePar: { select: { nom: true } } },
-          orderBy: { demandeLe: "desc" },
-          take: 200,
-        })).map((a) => ({
+    attestationsLues
+      ? attestationsLues.map((a) => ({
           id: a.id,
           numero: a.numero,
           type: a.type,
@@ -211,30 +323,6 @@ export default async function FicheEmployePage({
   const classementsContrats: Record<string, Classement> = Object.fromEntries(
     classerContrats(contrats, new Map(Object.entries(etatsContrats).map(([id, e]) => [id, e.etat])), new Date()),
   );
-
-  // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
-  const kinshasa = jourCivilKinshasa(new Date());
-  const lundiSemaine = lundiDe(kinshasa);
-  const dimancheSemaine = new Date(lundiSemaine);
-  dimancheSemaine.setUTCDate(dimancheSemaine.getUTCDate() + 6);
-
-  const [primes, acomptes, fraisMed, creneauxSemaine, heuresSemaine, presencesSemaine] = await Promise.all([
-    prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
-    prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
-    prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
-    prisma.planningCreneau.findMany({
-      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
-      select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
-    }),
-    prisma.overtimeEntry.findMany({
-      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
-      select: { date: true, heuresTravaillees: true },
-    }),
-    prisma.attendance.findMany({
-      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
-      select: { date: true, code: true },
-    }),
-  ]);
 
   // Les 7 jours de la semaine : shift planifié (Planning) vs heures réellement travaillées
   // (Présences & heures) — le « réel » vient des saisies/pointages, pas d'un modèle théorique.
@@ -263,55 +351,18 @@ export default async function FicheEmployePage({
   const totalPrevuSemaine = Math.round(joursSemaine.reduce((a, j) => a + j.prevuHeures, 0) * 100) / 100;
   const totalRealiseSemaine = Math.round(joursSemaine.reduce((a, j) => a + (j.realise ?? 0), 0) * 100) / 100;
   const labelSemaine = `${lundiSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} → ${dimancheSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })}`;
-  // Onglet « Congés & absences » : le bilan de CHAQUE année civile depuis l'embauche et toutes les demandes
-  // (même source que le solde d'en-tête, lib/solde-conge-salarie).
   const anneeHorloge = anneeCouranteKinshasa();
-  const congesAnnees = tab === "conges" ? await chargerCongesParAnnee(prisma, id) : null;
   // Salarié parti : la dernière année du bilan est celle de sa sortie (les années d'après n'ont plus de bilan).
   const anneeFinConges = congesAnnees && congesAnnees.dateSortie && congesAnnees.bilans.length > 0 ? congesAnnees.bilans[congesAnnees.bilans.length - 1].annee : anneeHorloge;
   const anneeVueConges = congesAnnees ? lireAnneeFiche(sp.annee, anneesDeConges(congesAnnees.bilans, congesAnnees.demandes, anneeFinConges), anneeFinConges) as number : anneeHorloge;
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
-  const finContrats =
-    tab === "contrats"
-      ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
-      : [];
-  // Solde de tout compte : reste des prêts, acomptes non retenus, bulletin du mois déjà figé — les
-  // mêmes chiffres que l'action revérifie (lib/solde-tout-compte.ts).
-  const reprisesSolde = tab === "contrats" && employee.actif ? await chargerReprisesSolde(prisma, id, { mois, annee }) : null;
-  // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
-  const joursModele =
-    tab === "contrats"
-      ? [...new Set((await prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } })).map((m) => m.jour))]
-      : [];
-
-  // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Aperçu.
-  const espaceActif = tab === "apercu" && estAdmin ? await espaceEmployeActif() : false;
-  const compteSalarie = espaceActif
-    ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true, accesStock: true } })
-    : null;
+  const joursModele = joursModeleLus ? [...new Set(joursModeleLus.map((m) => m.jour))] : [];
 
   // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
   const lundiCourantIso = isoDe(lundiSemaine);
   let donneesTemps: { creneaux: { iso: string; nom: string; heures: number }[]; heures: { iso: string; h: number }[]; codes: { iso: string; code: string }[] } | null = null;
-  if (tab === "temps") {
-    const debutRapport = new Date(lundiSemaine);
-    debutRapport.setUTCDate(debutRapport.getUTCDate() - 7 * 7); // 7 semaines avant la courante
-    const finPlanning = new Date(lundiSemaine);
-    finPlanning.setUTCDate(finPlanning.getUTCDate() + 13); // dimanche de la semaine suivante
-    const [creneauxTemps, heuresTemps, codesTemps] = await Promise.all([
-      prisma.planningCreneau.findMany({
-        where: { employeeId: id, date: { gte: lundiSemaine, lte: finPlanning } },
-        select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
-      }),
-      prisma.overtimeEntry.findMany({
-        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
-        select: { date: true, heuresTravaillees: true },
-      }),
-      prisma.attendance.findMany({
-        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
-        select: { date: true, code: true },
-      }),
-    ]);
+  if (tempsLus) {
+    const [creneauxTemps, heuresTemps, codesTemps] = tempsLus;
     donneesTemps = {
       creneaux: creneauxTemps.map((c) => ({
         iso: isoDe(new Date(c.date)),
@@ -322,34 +373,15 @@ export default async function FicheEmployePage({
       codes: codesTemps.map((c) => ({ iso: isoDe(new Date(c.date)), code: c.code })),
     };
   }
-  // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
-  // Exercice ACTIF seulement : avec un second exercice en base, la clé existerait deux fois.
-  const paramsDepart =
-    tab === "contrats"
-      ? await prisma.parametreLegal.findMany({
-          where: {
-            cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "indemnite_licenciement_jours_par_an"] },
-            exercice: { actif: true },
-          },
-          select: { cle: true, valeur: true },
-        })
-      : [];
   const valParam = (cle: string) => {
     const p = paramsDepart.find((x) => x.cle === cle);
     return p?.valeur != null ? Number(p.valeur) : null;
   };
   const primesMoisCourant = primes.filter((p) => p.mois === mois && p.annee === annee);
-  const avantagesMoisCourant = await prisma.avantageNature.findMany({
-    where: { employeeId: id, mois, annee },
-    orderBy: { createdAt: "asc" },
-  });
-  // Le bulletin live (plusieurs requêtes + calcul) n'est utile que dans l'onglet Aperçu.
-  const apercuBulletin = tab === "apercu" ? await calculerBulletinLive(id, mois, annee) : null;
   const periodeLabel = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
   const resumePresences = resumerPresences(attendances.map((a) => a.code as CodePresence));
 
-  const parametres = await chargerParametresPaie();
   // Heures/mois = heures/semaine × 52/12 (précis) — NE suppose PAS un travail tous les jours.
   const heuresMoisContrat =
     (Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6) * 52 / 12;
@@ -379,9 +411,6 @@ export default async function FicheEmployePage({
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
   // lire deux soldes différents.
   const soldeConges = soldeConge.solde;
-  // Sortie (décision de la Direction du 2026-10-12) : la date arrête l'acquisition des congés. Une fiche
-  // désactivée SANS date est signalée en tête — l'outil signale, la Direction tranche (jamais de date devinée).
-  const sortie = await chargerSortieFiche(prisma, id);
   const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
@@ -417,8 +446,7 @@ export default async function FicheEmployePage({
   }
 
   // Historique de paie : tous les bulletins, vus par année (`?annee=`, l'année en cours par défaut ou « toutes »).
-  // « Hors calcul » : la règle de l'écran Paie (mois passé clôturé, salarié sorti du calcul), jamais redécidée ici.
-  const horsCalculIds = await idsLignesHorsCalcul(prisma, payrollLines);
+  // « Hors calcul » (`horsCalculIds`, lu plus haut) : la règle de l'écran Paie, jamais redécidée ici.
   const lignesHistoriquePaie = payrollLines.map((l) => ligneHistoriquePaie(l, etatSignature(sigBulletins.get(l.id)), horsCalculIds.has(l.id)));
   const anneeVuePaie = lireAnneeFiche(sp.annee, anneesAvecDonnees(lignesHistoriquePaie.map((l) => l.annee), anneeHorloge), anneeHorloge, true);
   const pagePaie = lirePagination(sp);
