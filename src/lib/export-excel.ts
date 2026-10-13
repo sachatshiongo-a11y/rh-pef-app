@@ -328,7 +328,7 @@ export type FeuilleInventaire = {
   invTotauxCols?: number[]; // colonnes à totaliser dans le tableau d'inventaire
   alerteCol?: number; // index de la colonne « Alerte stock » à colorer selon le statut
   /**
-   * Tableau d'inventaire TRIABLE : un autofiltre est posé sur l'en-tête et les seules lignes d'articles (jamais les
+   * Le tableau d'inventaire est TRIABLE : un autofiltre est posé sur l'en-tête et les seules lignes d'articles (jamais les
    * indicateurs au-dessus, ni la ligne de total ni les mouvements en dessous). Aucune ligne-titre au milieu des données.
    */
   /** Format Excel par colonne (cellules NUMÉRIQUES seulement, totaux compris) : montants au format maison, quantités signées en rouge. */
