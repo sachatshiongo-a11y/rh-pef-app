@@ -1,25 +1,14 @@
 import type { ReactNode } from "react";
-import fs from "node:fs";
 import path from "node:path";
 import { View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import { pdfColors, entreprise } from "./theme";
+import { SIGNATURE_DIRECTRICE_PATH, signatureDirectriceDisponible } from "@/lib/signature-directrice";
 
 export const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
 /** Logo TOLYA SARL (utilisé pour les documents contractuels ; les bulletins gardent le logo Pâtes en Folie). */
 export const logoTolyaPath = path.join(process.cwd(), "public/logo-tolya.jpg");
-/**
- * Signature manuscrite de la Direction, apposée sur les PDF générés par le SERVEUR.
- * JAMAIS dans `public/` : tout fichier de `public/` est servi tel quel, sans session (le proxy
- * exclut même les `*.png` de sa garde) — jusqu'au 2026-09-28, n'importe qui pouvait télécharger
- * la signature à l'adresse /signatures/signature-directrice.png. Elle vit dans `assets/`, à côté
- * des polices, et n'est lue que par `fs` côté serveur. Vérifié par signature-directrice.render.test.ts.
- */
-export const SIGNATURE_DIRECTRICE_PATH = path.join(process.cwd(), "assets/signatures/signature-directrice.png");
-
-/** La signature de la directrice n'est disponible que si le fichier a été déposé dans le projet. */
-export function signatureDirectriceDisponible(): boolean {
-  return fs.existsSync(SIGNATURE_DIRECTRICE_PATH);
-}
+// Chemin de la signature de la Direction : module sans React-PDF (`@/lib/signature-directrice`), réexporté ici.
+export { SIGNATURE_DIRECTRICE_PATH, signatureDirectriceDisponible };
 
 const styles = StyleSheet.create({
   header: {

@@ -1,5 +1,5 @@
 import { exigerEspaceStock } from "@/lib/garde-route";
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { renderPdfOuRefus } from "@/lib/pdf/fonts";
 import { FicheComptageDocument, rangeesFicheComptage } from "@/lib/pdf/fiche-comptage";
 import { DOMAINE_LABEL } from "@/lib/stock";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
@@ -19,13 +19,14 @@ export async function GET(req: Request) {
   const { lignes, sectionRows } = lignesFicheComptage(articles, !!domaine);
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Inventaire";
-  const buffer = await renderPdfBuffer(
+  const buffer = await renderPdfOuRefus(() =>
     FicheComptageDocument({
       titre: `Fiche de comptage — ${label}`,
       sousTitre: jourKinshasa(new Date()),
       rangees: rangeesFicheComptage(lignes, sectionRows),
     }),
   );
+  if (buffer instanceof Response) return buffer; // au-delà du plafond de lignes : 413 lisible, jamais tronqué (choisir un domaine, ou l'Excel)
 
   const fichier = `Fiche_comptage_${label}_${jourCourantKinshasaISO()}.pdf`;
   return new Response(new Uint8Array(buffer), {

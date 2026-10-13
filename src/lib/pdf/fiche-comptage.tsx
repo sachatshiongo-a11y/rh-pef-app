@@ -1,7 +1,10 @@
-import { Document, Page } from "@react-pdf/renderer";
+import type { ReactElement } from "react";
+import type { DocumentProps } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
-import { LigneDate, TableauFiche, stylePageFiche, type ColonneFiche, type RangeeFiche } from "./fiche-a-remplir";
+import { pieceLigneDate, pieceTableauFiche, stylePageFiche, type ColonneFiche, type RangeeFiche } from "./fiche-a-remplir";
+import { verifierPlafondPdf } from "./plafond";
+import { documentDuPlan } from "./blocs";
 import { formaterNombre } from "@/lib/montant";
 import { ENTETE_FICHE } from "@/app/(stock)/stock/reconciliation/fiche/comptage-data";
 
@@ -36,15 +39,15 @@ export function rangeesFicheComptage(lignes: (string | number)[][], sectionRows:
   );
 }
 
-export function FicheComptageDocument({ titre, sousTitre, rangees }: { titre: string; sousTitre: string; rangees: RangeeFiche[] }) {
-  return (
-    <Document title={titre}>
-      <Page size="A4" style={stylePageFiche}>
-        <PdfHeader title={titre} subtitle={sousTitre} />
-        <LigneDate />
-        <TableauFiche colonnes={COLONNES_FICHE_COMPTAGE} rangees={rangees} hauteurRangee={18} />
-        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
-      </Page>
-    </Document>
-  );
+export function FicheComptageDocument({ titre, sousTitre, rangees }: { titre: string; sousTitre: string; rangees: RangeeFiche[] }): ReactElement<DocumentProps> {
+  verifierPlafondPdf(rangees.length); // refus AVANT rendu au-delà du plafond (lib/pdf/plafond.ts)
+  const pieces = [pieceLigneDate, pieceTableauFiche(COLONNES_FICHE_COMPTAGE, rangees, 18)];
+  return documentDuPlan({
+    mode: "fenetres",
+    titre,
+    groupes: [{ entete: <PdfHeader title={titre} subtitle={sousTitre} />, pieces }],
+    page: { orientation: "portrait", style: stylePageFiche },
+    pied: <PdfFooter docLabel={`${titre} — ${sousTitre}`} />,
+    places: pieces.reduce((n, p) => n + p.places, 0),
+  });
 }

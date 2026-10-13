@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from "@react-pdf/renderer";
 import { pdfColors } from "./theme";
+import type { Piece } from "./blocs";
 
 /**
  * Briques communes aux FICHES À REMPLIR À LA MAIN de l'espace Stock (fiche d'achat de légumes,
@@ -40,39 +41,66 @@ const styles = StyleSheet.create({
 export const stylePageFiche = styles.page;
 
 /** « Date : » en haut à droite, suivie de la date imprimée ou d'un trait à remplir. */
-export function LigneDate({ date }: { date?: string }) {
+export function LigneDate({ date, repere }: { date?: string; repere?: { "data-i"?: number } }) {
   return (
-    <View style={styles.ligneDate}>
+    <View style={styles.ligneDate} {...repere}>
       <Text style={styles.libelleDate}>Date :</Text>
       <Text style={styles.valeurDate}>{date ?? " "}</Text>
     </View>
   );
 }
 
-/** Tableau de la fiche. `hauteurRangee` : hauteur minimale d'une rangée (place pour écrire). */
-export function TableauFiche({ colonnes, rangees, hauteurRangee }: { colonnes: ColonneFiche[]; rangees: RangeeFiche[]; hauteurRangee: number }) {
+/**
+ * Tableau de la fiche. `hauteurRangee` : hauteur minimale d'une rangée (place pour écrire).
+ * `plage`, `repere`, `suite` : rendu PAR BLOCS (voir `CorpsTableau` de tableau.tsx).
+ */
+export function TableauFiche({ colonnes, rangees, hauteurRangee, plage, repere, suite = false }: {
+  colonnes: ColonneFiche[]; rangees: RangeeFiche[]; hauteurRangee: number;
+  plage?: [number, number]; repere?: (r: number) => { "data-i"?: number }; suite?: boolean;
+}) {
+  const debut = plage?.[0] ?? 0;
   return (
-    <View style={styles.tableau}>
+    <View style={suite ? [styles.tableau, { borderTopWidth: 0 }] : styles.tableau}>
       <View style={styles.th} fixed>
         {colonnes.map((c, i) => (
           <Text key={i} style={[styles.thCellule, { width: c.largeur, textAlign: c.align ?? "left" }]}>{c.entete}</Text>
         ))}
       </View>
-      {rangees.map((r, i) =>
-        "rubrique" in r ? (
-          <View key={i} style={styles.rubrique} wrap={false} minPresenceAhead={hauteurRangee * 2}>
+      {(plage ? rangees.slice(plage[0], plage[1]) : rangees).map((r, k) => {
+        const i = debut + k;
+        return "rubrique" in r ? (
+          <View key={i} style={styles.rubrique} wrap={false} minPresenceAhead={hauteurRangee * 2} {...repere?.(i)}>
             <Text style={styles.rubriqueTexte}>{r.rubrique}</Text>
           </View>
         ) : (
-          <View key={i} style={[styles.tr, { minHeight: hauteurRangee }, r.horsListe ? styles.trHorsListe : {}]} wrap={false}>
+          <View key={i} style={[styles.tr, { minHeight: hauteurRangee }, r.horsListe ? styles.trHorsListe : {}]} wrap={false} {...repere?.(i)}>
             {colonnes.map((c, j) => (
               <View key={j} style={[styles.td, j === 0 ? styles.tdPremier : {}, { width: c.largeur }]}>
                 <Text style={[styles.tdTexte, { textAlign: c.align ?? "left" }]}>{r.cellules[j] ?? ""}</Text>
               </View>
             ))}
           </View>
-        ),
-      )}
+        );
+      })}
     </View>
   );
 }
+
+/** Pièce « tableau de la fiche » du rendu par blocs : une place pour le tableau lui-même, puis une par rangée. */
+export function pieceTableauFiche(colonnes: ColonneFiche[], rangees: RangeeFiche[], hauteurRangee: number): Piece {
+  return {
+    places: 1 + rangees.length,
+    rendre: (c) => {
+      const de = Math.max(c.de, 1) - 1;
+      const a = Math.max(c.a, 1) - 1;
+      if (!(c.de === 0 && c.a > 0) && a <= de) return null;
+      return <TableauFiche colonnes={colonnes} rangees={rangees} hauteurRangee={hauteurRangee} plage={[de, a]} repere={(r) => c.repere(1 + r)} suite={c.suite} />;
+    },
+  };
+}
+
+/** Pièce « Date : » (une place, en tête de la fiche). */
+export const pieceLigneDate: Piece = {
+  places: 1,
+  rendre: (c) => (c.de < c.a ? <LigneDate repere={c.repere(0)} /> : null),
+};

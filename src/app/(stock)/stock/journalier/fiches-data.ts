@@ -4,7 +4,7 @@ import type { DomaineStock } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { articlesRestoDeLaPeriode, chargerEntreesStockResto, designationResto } from "@/lib/stock-restaurant-charger";
 import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
-import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes";
+import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes-donnees";
 import { ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
 import { LEGUMES } from "../legumes/legumes-data";
 import { lignesLegumesCommande } from "@/lib/legumes-semaine";

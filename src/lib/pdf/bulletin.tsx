@@ -11,6 +11,7 @@ import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { congesDuBulletin, type CongeBulletin, type CategorieAbsenceBulletin } from "@/lib/conges-bulletin";
 import { MarquePage } from "./provisoire";
+import { declarerPlan } from "./blocs";
 import { tauxDeLigne } from "@/lib/paie-taux";
 
 registerPdfFonts();
@@ -637,13 +638,21 @@ export function BulletinDocument(props: BulletinProps) {
   );
 }
 
-/** Tous les bulletins d'un mois dans UN seul PDF (une page par employé). */
+/**
+ * Tous les bulletins d'un mois dans UN seul PDF (une page par employé).
+ *
+ * Rendu PAR LOTS de `PAGES_PAR_LOT` bulletins, réunis dans l'ordre (`blocs.tsx`) : 60 bulletins d'un seul tenant
+ * bloquaient le processus plusieurs secondes et approchaient 200 Mo de tas ; par lots, le blocage est celui d'un lot
+ * et la mémoire reste plate. Les bulletins sont des pages indépendantes (aucune pagination « x sur y ») : le résultat
+ * est le même.
+ */
 export function BulletinsDocument({ bulletins, devise }: { bulletins: Omit<BulletinProps, "devise">[]; devise: Devise }) {
-  return (
+  const document = (de: number, a: number) => (
     <Document>
-      {bulletins.map((b) => (
+      {bulletins.slice(de, a).map((b) => (
         <BulletinPage key={b.ligne.id} {...b} devise={devise} />
       ))}
     </Document>
   );
+  return declarerPlan(document(0, bulletins.length), { mode: "lots", pages: bulletins.length, lot: document });
 }

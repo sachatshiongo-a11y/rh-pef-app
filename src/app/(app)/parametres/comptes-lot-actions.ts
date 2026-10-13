@@ -16,7 +16,6 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { creerComptesSalaries, reinitialiserComptesSalaries, type ResultatLot } from "@/lib/comptes-salaries";
-import { genererFichesConnexionPdf, genererFichesIndividuellesPdf } from "@/lib/pdf/fiches-connexion";
 import { ORIGINE_AFFICHE } from "@/lib/pointage-origines";
 
 /** La fiche d'UN salarié : son PDF (base64) ne porte que SON mot de passe. */
@@ -70,6 +69,8 @@ async function produireFiches(
   let individuelles: Buffer[];
   let planche: Buffer;
   try {
+    // Chargé À LA DEMANDE : @react-pdf n'est pas embarqué dans la page Paramètres (pages-sans-react-pdf.garde-fou.test.ts).
+    const { genererFichesConnexionPdf, genererFichesIndividuellesPdf } = await import("@/lib/pdf/fiches-connexion");
     individuelles = await genererFichesIndividuellesPdf({ fiches: contenus, urlApplication: ORIGINE_AFFICHE });
     planche = await genererFichesConnexionPdf({ fiches: contenus, urlApplication: ORIGINE_AFFICHE });
     if (individuelles.length !== crees.length) throw new Error("fiches incomplètes");
