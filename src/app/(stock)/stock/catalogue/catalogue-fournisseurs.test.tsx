@@ -45,7 +45,7 @@ afterEach(() => { act(() => racine.unmount()); conteneur.remove(); document.body
 /** Cellule « Fournisseur » de la ligne du TABLEAU (ordinateur) d'un article. */
 const celluleFournisseur = (designation: string) => {
   const ligne = [...conteneur.querySelectorAll("table tbody tr")].find((tr) => [...tr.querySelectorAll("a")].some((a) => a.textContent === designation))!;
-  return ligne.querySelectorAll("td")[8];
+  return ligne.querySelectorAll("td")[9];
 };
 
 describe("Inventaire — fournisseur en lecture, cliquable", () => {
@@ -105,7 +105,7 @@ describe("Inventaire — plusieurs fournisseurs par article (2026-10-16)", () =>
       articles: [{ ...base, id: "a1", designation: "Riz", fournisseurId: "f1", nbFournisseurs: 3 }, { ...base, id: "a2", designation: "Farine", fournisseurId: null, nbFournisseurs: 2 }, { ...base, id: "a3", designation: "Sel", fournisseurId: "f1", nbFournisseurs: 1 }],
       categories: [{ id: "c1", nom: "Farines", domaine: "NOURRITURE" }], fournisseurs: FOURNISSEURS,
     })));
-    const cell = (nom: string) => [...conteneur.querySelectorAll("table tbody tr")].find((tr) => [...tr.querySelectorAll("a")].some((a) => a.textContent === nom))!.querySelectorAll("td")[8];
+    const cell = (nom: string) => [...conteneur.querySelectorAll("table tbody tr")].find((tr) => [...tr.querySelectorAll("a")].some((a) => a.textContent === nom))!.querySelectorAll("td")[9];
     expect(cell("Riz").textContent).toBe("Marché central+2");
     expect(cell("Riz").querySelector("a")!.getAttribute("href")).toBe("/stock/fournisseurs/f1");
     expect(cell("Farine").textContent).toBe("2 fournisseurs, sans habituel");

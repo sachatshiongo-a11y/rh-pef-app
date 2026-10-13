@@ -118,6 +118,61 @@ describe("GET /stock/cloture/inventaire", () => {
     expect((await lireTitres("2026-9")).some((t) => /COUPÉE/.test(t))).toBe(false);
   }, 180_000);
 
+  it("colonnes de l'écran Inventaire dans le même ordre, et sur chaque ligne : début + entrées − sorties ± ajustements + après = fin", async () => {
+    for (const mois of ["2026-9", "2026-8"]) {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load((await (await appel(mois, "excel")).arrayBuffer()) as never);
+      let nbLignesVerifiees = 0, nbTirets = 0;
+      for (const ws of wb.worksheets) {
+        let entete: string[] | null = null;
+        ws.eachRow((row) => {
+          const v = (row.values as unknown[]).slice(1);
+          if (v[0] === "Code" && v[2] === "Stock début de mois") { entete = v.map(String); return; }
+          if (!entete) return;
+          if (v[0] === "Total" || v[0] === undefined) { entete = null; return; } // fin du tableau d'inventaire
+          const h = (nom: RegExp) => entete!.findIndex((x) => nom.test(x));
+          if (ws.getCell(row.number, 1).isMerged) return; // ligne-titre de catégorie (fusionnée)
+          const [iDebut, iEntrees, iSorties, iAj, iApres, iFin] = [h(/^Stock début de mois$/), h(/^Entrées du mois$/), h(/^Sorties du mois$/), h(/^Ajustements du mois/), h(/^Après le mois/), h(/^Stock (actuel|fin de mois)$/)];
+          // Ordre de l'écran : Code, Désignation, début, …, Stock, Unité, Alerte, Min, Catégorie, Fournisseur, Valeur, Prix, Par carton.
+          const ordre = [/^Code$/, /^Désignation$/, /^Stock début de mois$/, /^Stock (actuel|fin de mois)$/, /^Unité$/, /^Alerte$/, /^Min$/, /^Catégorie$/, /^Fournisseur$/, /^Valeur/, /^Prix/, /^Par carton$/].map((re) => h(re));
+          expect(ordre.every((i) => i >= 0), `colonnes présentes (${mois})`).toBe(true);
+          expect(ordre).toEqual([...ordre].sort((a, b) => a - b));
+          expect(iDebut).toBeLessThan(iFin);
+          const val = (i: number) => v[i];
+          if (typeof val(iDebut) === "number") {
+            const somme = Number(val(iDebut)) + Number(val(iEntrees)) - Number(val(iSorties)) + Number(val(iAj)) + (iApres >= 0 ? Number(val(iApres)) : 0);
+            expect(somme).toBeCloseTo(Number(val(iFin)), 3);
+            nbLignesVerifiees++;
+          } else { expect(val(iDebut)).toBe("—"); nbTirets++; } // inconnu : « — », jamais 0
+        });
+      }
+      expect(nbLignesVerifiees + nbTirets, `lignes d'articles lues (${mois})`).toBeGreaterThanOrEqual(4);
+      expect(nbLignesVerifiees, `au moins une ligne recomposée (${mois})`).toBeGreaterThanOrEqual(3);
+      if (mois === "2026-8") expect(nbTirets).toBe(1); // « Farine » : 4 en stock, 5 de mouvements depuis août → le calcul serait négatif → « — »
+    }
+  }, 180_000);
+
+  it("août clôturé : la colonne « Après le mois » existe (septembre est dans l'instantané) ; septembre : écart avec la clôture d'août, 0 partout", async () => {
+    const lire = async (mois: string) => {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load((await (await appel(mois, "excel")).arrayBuffer()) as never);
+      const ws = wb.worksheets[0];
+      let entete: string[] = [];
+      const lignes: unknown[][] = [];
+      ws.eachRow((row) => { const v = (row.values as unknown[]).slice(1); if (v[0] === "Code" && v[2] === "Stock début de mois") entete = v.map(String); else if (entete.length && v[0] !== "Total" && typeof v[2] !== "undefined" && lignes.length < 100 && !ws.getCell(row.number, 1).isMerged) lignes.push(v); });
+      return { entete, lignes };
+    };
+    const aout = await lire("2026-8");
+    expect(aout.entete).toContain("Après le mois (déjà dans le stock figé)");
+    expect(aout.entete.some((h) => /^Écart avec la clôture/.test(h))).toBe(false); // juillet n'est pas clôturé
+    const sept = await lire("2026-9");
+    const iEcart = sept.entete.findIndex((h) => h === "Écart avec la clôture de août 2026");
+    expect(iEcart).toBeGreaterThan(0);
+    const ecarts = sept.lignes.filter((l) => l[0] !== undefined && /^\d+$/.test(String(l[0]))).map((l) => l[iEcart]);
+    expect(ecarts.length).toBeGreaterThanOrEqual(3);
+    expect(ecarts.every((e) => e === 0 || e === "—")).toBe(true); // rien n'a bougé hors mouvement depuis la clôture
+  }, 180_000);
+
   it("refuse un mois illisible par un texte lisible (400)", async () => {
     const res = await appel("n'importe quoi", "excel");
     expect(res.status).toBe(400);

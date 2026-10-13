@@ -75,6 +75,12 @@ export type ArticleRow = {
   valeurApprox?: boolean;
   uniteParCarton: string | null; // conditionnement : nb d'unités par carton
   quantite: string;
+  /** Stock au 1er du mois (00 h, Kinshasa), reconstitué ; null/absent = « — » (inconnu, ou article inexistant au 1er). */
+  stockDebutMois?: number | null;
+  /** Pourquoi « — » (infobulle). */
+  stockDebutNote?: string;
+  /** Le stock reconstitué diffère de ce que la clôture du mois précédent donne pour le même 1er : signalé, jamais corrigé. */
+  ecartCloture?: { cloture: number; ecart: number; periode: string };
   stockMinimum: string;
   niveau: NiveauAlerte | null;
   haussePct?: number | null; // % de hausse du dernier prix d'achat vs moyenne précédente (si anormale)
@@ -111,7 +117,7 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true, debutMoisLibelle }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte; initialManque?: ManqueKey; initialHausse?: boolean;
   /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
   pageInit?: number; parInit?: ParPage;
@@ -123,6 +129,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   estDirection?: boolean;
   /** Téléphone : boutons de l'en-tête de page (Exporter…) rangés dans le menu « Plus » du bloc du haut. */
   actionsPlus?: ReactNode;
+  /** « 1er octobre » : date du stock de la colonne « Stock début de mois » (infobulle de l'en-tête). */
+  debutMoisLibelle?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -588,12 +596,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
       {/* Ordinateur — tableau en LECTURE (2026-10-09) : le nom mène à la fiche article et le fournisseur à sa fiche, où tout se modifie. Tableau « normal » : la page défile, défilement de côté seul si l'écran est étroit (pas d'en-tête collant : un overflow-x le casse). */}
       <div className="hidden overflow-x-auto rounded-lg border lg:block">
-        <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm">
+        <table className="w-full min-w-[62rem] border-separate border-spacing-0 text-sm">
           <thead className="bg-muted text-left shadow-sm">
             <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={pageToutCochee} ref={(el) => { if (el) el.indeterminate = !pageToutCochee && page.some((a) => sel.has(a.id)); }} onChange={(e) => toutSel(e.target.checked)} aria-label={`Tout sélectionner (${page.length} de cette page)`} title="Sélectionne les articles de cette page" /></th>
               <ThTri col="code" tri={tri} onTri={trierPar}>Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
+              <th className="text-right" title={`Stock au ${debutMoisLibelle ?? "1er du mois"} à 00 h (heure de Kinshasa) : stock actuel − entrées + sorties du mois, ajustements de comptage compris. « — » = inconnu ou article créé après cette date.`}>Stock début de mois</th>
               <ThTri col="stock" tri={tri} onTri={trierPar} align="right">Stock</ThTri>
               <th className="!pl-0">Unité</th>
               <ThTri col="alerte" tri={tri} onTri={trierPar} >Alerte</ThTri>
@@ -610,7 +619,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <Fragment key={a.id}>
                 {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
                   <tr>
-                    <td colSpan={12} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    <td colSpan={13} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
@@ -618,12 +627,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 <LigneArticle a={a} categorie={a.categorieId ? catNom.get(a.categorieId) ?? null : null} fournisseur={a.fournisseurId ? fourPar.get(a.fournisseurId) ?? null : null} selected={sel.has(a.id)} onToggle={toggle} />
               </Fragment>
             ))}
-            {visibles.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
             <tfoot className="bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={9} className="text-right">Valeur totale du stock filtré{pagination.nbPages > 1 ? ` (${affichees.length} articles, toutes les pages)` : ""}</td>
+                <td colSpan={10} className="text-right">Valeur totale du stock filtré{pagination.nbPages > 1 ? ` (${affichees.length} articles, toutes les pages)` : ""}</td>
                 <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>
                 <td colSpan={2}></td>
               </tr>
@@ -685,6 +694,10 @@ const LigneArticle = memo(function LigneArticle({
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
           {a.propositionEnAttente && <BadgeProposition />}
         </div>
+      </td>
+      <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title={a.stockDebutMois == null ? a.stockDebutNote : `Stock au 1er du mois, 00 h (Kinshasa)`}>
+        {a.stockDebutMois == null ? "—" : formaterNombre(a.stockDebutMois, { maximumFractionDigits: 3 })}
+        {a.ecartCloture && <BadgeEcartCloture e={a.ecartCloture} unite={a.unite} />}
       </td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}</td>
       <td className="whitespace-nowrap !pl-1 text-muted-foreground" title="Unité du stock">{texteOuTiret(a.unite)}</td>
@@ -794,6 +807,7 @@ export const CarteArticle = memo(function CarteArticle({
             <div><dt className={champLabel}>Stock min.</dt><dd className="tabular-nums">{nombreOuTiret(a.stockMinimum)}</dd></div>
             <div><dt className={champLabel}>Prix {a.devisePrix === "CDF" ? "FC" : "$"}</dt><dd className="tabular-nums">{prixTexte(a)}{a.prixAutre && <span className="ml-1 text-[11px] text-muted-foreground">{a.prixAutre}</span>}</dd></div>
             <div><dt className={champLabel}>Unités / carton</dt><dd className="tabular-nums">{nombreOuTiret(a.uniteParCarton)}</dd></div>
+            <div><dt className={champLabel}>Stock début de mois</dt><dd className="tabular-nums text-muted-foreground" title={a.stockDebutMois == null ? a.stockDebutNote : undefined}>{a.stockDebutMois == null ? "—" : formaterNombre(a.stockDebutMois, { maximumFractionDigits: 3 })}{a.ecartCloture && <BadgeEcartCloture e={a.ecartCloture} unite={a.unite} />}</dd></div>
             <div><dt className={champLabel}>Valeur du stock</dt><dd className="tabular-nums text-muted-foreground">{texteValeur(a)}</dd></div>
           </dl>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -806,6 +820,16 @@ export const CarteArticle = memo(function CarteArticle({
     </div>
   );
 });
+
+/** Pastille « Écart clôture » : le stock reconstitué au 1er ne retombe pas sur la clôture du mois précédent (rien n'est corrigé). */
+function BadgeEcartCloture({ e, unite }: { e: NonNullable<ArticleRow["ecartCloture"]>; unite: string | null }) {
+  const u = unite?.trim() ? ` ${unite.trim()}` : "";
+  const n = (v: number) => formaterNombre(v, { maximumFractionDigits: 3 });
+  return (
+    <span title={`Clôture de ${e.periode} : ${n(e.cloture)}${u} au 1er ; reconstitué : ${n(e.cloture + e.ecart)}${u} (écart ${e.ecart > 0 ? "+" : ""}${n(e.ecart)}${u}). Un stock a changé sans mouvement depuis la clôture.`}
+      className="ml-auto mt-0.5 block w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Écart clôture</span>
+  );
+}
 
 /** Pastille « proposition en attente » (même forme que les autres pastilles de la ligne). */
 function BadgeProposition() {
