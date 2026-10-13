@@ -3,6 +3,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { verifySession, type CurrentUser } from "@/lib/auth";
 import { estRH, estStock, estExploitation } from "@/lib/espaces";
+import { noterRenduDePage } from "@/lib/journal-rendu";
 
 /**
  * GARDES DES PAGES (`page.tsx`) — LE LAYOUT NE SUFFIT PAS.
@@ -23,6 +24,7 @@ import { estRH, estStock, estExploitation } from "@/lib/espaces";
 
 /** Espace RH — même règle que `app/(app)/layout.tsx`. */
 export async function exigerPageRH(): Promise<CurrentUser> {
+  noterRenduDePage(); // journal de performance (éteint sauf JOURNAL_RENDU=1) — lib/journal-rendu
   const user = await verifySession();
   if (!estRH(user.role)) redirect("/entree");
   return user;
@@ -30,6 +32,7 @@ export async function exigerPageRH(): Promise<CurrentUser> {
 
 /** Espace Stock — même règle que `app/(stock)/layout.tsx`. */
 export async function exigerPageStock(): Promise<CurrentUser> {
+  noterRenduDePage(); // journal de performance (éteint sauf JOURNAL_RENDU=1) — lib/journal-rendu
   const user = await verifySession();
   if (!estStock(user)) redirect("/entree");
   return user;
@@ -37,6 +40,7 @@ export async function exigerPageStock(): Promise<CurrentUser> {
 
 /** Espace Exploitation — même règle que `app/(exploitation)/layout.tsx`. */
 export async function exigerPageExploitation(): Promise<CurrentUser> {
+  noterRenduDePage(); // journal de performance (éteint sauf JOURNAL_RENDU=1) — lib/journal-rendu
   const user = await verifySession();
   if (!estExploitation(user)) redirect("/entree");
   return user;

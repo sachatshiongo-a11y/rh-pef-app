@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
@@ -60,6 +61,9 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   }
 
   await effacerEchecs(email);
+  // Changement de compte sur le même onglet : le cache de navigation du navigateur (pages déjà vues,
+  // gardées 30 s — next.config.ts, staleTimes) est vidé, jamais réutilisé pour le compte suivant.
+  revalidatePath("/", "layout");
   // Retour au scan de l'affiche s'il a amené ici — revalidé côté serveur : le champ caché vient
   // du navigateur, donc de n'importe qui (seul `/scan?…` passe, jamais une autre adresse).
   redirect(retourValide(formData.get("retour")) ?? "/entree");
@@ -68,6 +72,7 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
 export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
+  revalidatePath("/", "layout"); // vide le cache de navigation du navigateur (voir login)
   redirect("/login");
 }
 

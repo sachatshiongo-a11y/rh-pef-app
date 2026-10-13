@@ -1,8 +1,12 @@
+"use client";
+
+// Composant CLIENT (2026-10-13) : la page envoie les CHIFFRES (≈ 30 Ko pour 56 salariés), le navigateur
+// dessine les deux tableaux (téléphone + ordinateur). Rendu côté serveur, ce détail replié pesait ≈ 185 Ko
+// de balises dans chaque ouverture de Présences, pour un bloc fermé par défaut. Affichage identique.
 import { Fragment } from "react";
 import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
 import type { DetailSemaineHS } from "@/lib/payroll";
-import type { EmployeeRow } from "../presences/temps-grid";
 
 export function WeeklyBreakdownTable({
   employees,
@@ -10,7 +14,8 @@ export function WeeklyBreakdownTable({
   nbSemaines,
   mentions = {},
 }: {
-  employees: EmployeeRow[];
+  /** Seuls l'identifiant et le nom servent : ne pas y passer la ligne complète de la grille. */
+  employees: { id: string; nom: string }[];
   semainesParEmploye: Record<string, DetailSemaineHS[]>;
   nbSemaines: number;
   /** Mois passé : une ligne sobre par salarié dont le détail recalculé s'écarte du bulletin figé. */

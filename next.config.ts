@@ -35,6 +35,15 @@ const nextConfig: NextConfig = {
   // pdf-parse (pdfjs) doit rester un module Node externe (pas bundlé par Next) pour l'import de BC.
   serverExternalPackages: ["pdf-parse"],
   experimental: {
+    // Cache de navigation du navigateur (2026-10-13) : une page DÉJÀ VUE il y a moins de 30 s se réaffiche
+    // sans repasser par le serveur (Render 0,1 vCPU + un aller-retour Kinshasa ↔ Francfort par clic).
+    // Sans risque de donnée périmée après un geste : toute action serveur qui revalide vide ce cache en
+    // entier (toutes les pages), connexion et déconnexion comprises — vérifié par
+    // src/app/cache-navigation.garde-fou.test.ts. Seul effet : une modification faite par QUELQU'UN D'AUTRE
+    // peut mettre jusqu'à 30 s à apparaître sur une page qu'on vient de quitter. La pastille et la cloche
+    // (rendues par le layout) n'étaient déjà relues qu'après un geste, au rechargement ou en changeant
+    // d'espace ; seul ce dernier cas peut désormais, dans les 30 s, reprendre l'espace tel qu'on l'a laissé.
+    staleTimes: { dynamic: 30 },
     // Un seul ouvrier de compilation : chacun a son propre tas, leur somme dépassait la mémoire de Render.
     cpus: 1,
     // Les Server Actions plafonnent le corps de requête à 1 Mo par défaut, ce qui fait échouer

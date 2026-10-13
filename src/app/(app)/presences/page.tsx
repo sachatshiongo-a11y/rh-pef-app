@@ -58,8 +58,6 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   const peutModifier = !passe && (user.role === "ADMIN" || user.role === "MANAGER");
   const peutEffacer = !passe && peutSupprimer(user); // vider une présence saisie = suppression → Direction
 
-  const parametres = await chargerParametresPaie();
-
   const nbJours = new Date(annee, mois, 0).getDate();
   const days = Array.from({ length: nbJours }, (_, i) => i + 1);
   const isoDates = days.map(
@@ -72,7 +70,8 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // Les congés approuvés se répercutent TOUJOURS sur la grille (rattrapage des congés validés
   // avant la synchro). Idempotent ; ne touche jamais un code existant ni un mois à paie validée.
   // Mois PASSÉ (lecture seule) : RIEN n'est écrit au chargement — pas de rattrapage.
-  if (!passe) await rattraperCodesConges();
+  // Les paramètres de paie ne dépendent pas du rattrapage : lus en même temps (2 allers-retours de moins).
+  const [parametres] = await Promise.all([chargerParametresPaie(), passe ? null : rattraperCodesConges()]);
 
   // Salariés SORTIS dans le mois (fin de contrat) : gardés pour leurs jours actifs (audit RH 2026-10-10).
   const inactifsGardes = await inactifsDeLaPeriode(prisma, debutMois, finMois);
@@ -82,10 +81,6 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
     prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
   ]);
-
-  // Horaire du jour par case : pointage RÉEL > horaire par défaut (créneau de travail planifié >
-  // modèle hebdo) — la MÊME fonction que les heures pré-remplies d'un P (lib/horaire-par-defaut).
-  const shiftMap: Record<string, InfoShift> = await chargerHorairesDuMois(prisma, annee, mois, employees.map((e) => e.id));
 
   const joursFeries = new Set(
     joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10))
@@ -110,7 +105,11 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
   // « HS valorisées » : le MONTANT de la paie (même chemin que le lot : référence du mois puis moteur),
   // plus aucun taux recalculé ici (salaire ÷ 26 ÷ heures/jour divergeait du bulletin).
   // Mois PASSÉ : le montant FIGÉ du bulletin de ce mois-là, jamais un recalcul aux paramètres d'aujourd'hui.
-  const [hsPaie, sorties, avantMois, premierMois] = await Promise.all([
+  const [shiftMap, hsPaie, sorties, avantMois, premierMois] = await Promise.all([
+    // Horaire du jour par case : pointage RÉEL > horaire par défaut (créneau de travail planifié >
+    // modèle hebdo) — la MÊME fonction que les heures pré-remplies d'un P (lib/horaire-par-defaut).
+    // Ne dépend que des salariés : lu avec le reste plutôt qu'avant lui.
+    chargerHorairesDuMois(prisma, annee, mois, employees.map((e) => e.id)) as Promise<Record<string, InfoShift>>,
     (passe ? hsValoriseesFigees(mois, annee, employees) : hsValoriseesPaie(mois, annee, employees, parametres)) as Promise<Map<string, HsPaie & Partial<Pick<HsFigee, "heures">>>>,
     datesDeSortie(prisma, employees.filter((e) => !e.actif).map((e) => e.id)),
     // Semaine à cheval sur le mois précédent : ses heures placent le seuil des HS (même règle que la paie).
@@ -297,7 +296,7 @@ export default async function PresencesPage({ searchParams }: { searchParams: Pr
         </summary>
         <div className="border-t p-5">
           <WeeklyBreakdownTable
-            employees={rows}
+            employees={rows.map((r) => ({ id: r.id, nom: r.nom }))}
             semainesParEmploye={semainesParEmploye}
             nbSemaines={nbSemaines}
             mentions={mentionsHebdo}

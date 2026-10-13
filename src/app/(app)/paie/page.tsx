@@ -62,26 +62,81 @@ export default async function PaiePage({
   // Même fonction que « À valider » : un échec ponctuel affiche le dernier état calculé.
   await rafraichirPaieAffichee(mois, annee);
 
-  const run = await prisma.payrollRun.findUnique({
-    where: { mois_annee: { mois, annee } },
-    include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
-  });
+  // LECTURES EN ÉTAGES PARALLÈLES (13/10/2026) — et non plus une dizaine d'`await` l'un après l'autre, chacun
+  // payant un aller-retour Render Francfort → Supabase Paris. Mêmes requêtes, toutes APRÈS le recalcul
+  // ci-dessus ; seul l'ordre d'attente change. Étage 1 : tout ce qui ne dépend que du mois et du compte.
+  const [run, lignesValideesAutresMois, runsPasses, { elements: enAttente }] = await Promise.all([
+    prisma.payrollRun.findUnique({
+      where: { mois_annee: { mois, annee } },
+      include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
+    }),
+    peutGerer
+      ? prisma.payrollLine.findMany({
+          where: { statutPaiement: "VALIDE", payrollRun: { NOT: { mois, annee } } },
+          select: { payrollRun: { select: { mois: true, annee: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.payrollRun.findMany({
+      where: { lignes: { some: {} }, NOT: { mois, annee } },
+      select: { mois: true, annee: true, statut: true },
+      orderBy: [{ annee: "desc" }, { mois: "desc" }],
+    }),
+    // Les décisions sur les bulletins (valider, payer) se prennent dans « À valider » : Paie y renvoie, avec les
+    // MÊMES chiffres que la pastille du menu (a-valider-compteur.ts, lus selon le rôle du compte).
+    chargerAValiderRH(user),
+  ]);
+  // Étage 2 : ce qui dépend de la paie du mois (ou de son absence).
   // Lignes HORS CALCUL (paie-hors-calcul.ts) : ligne rouverte d'un salarié sorti du calcul. Elles ne
   // comptent nulle part (totaux, frise, clôture, tableau, exports) et sont montrées À PART plus bas.
-  const { comptees: lignesRun, horsCalcul } = run ? await separerHorsCalcul(prisma, run.lignes) : { comptees: [], horsCalcul: [] };
-
   // « Réinitialiser » CONSERVE les bulletins déjà REMIS des lignes rouvertes (archive) : la
   // confirmation les nomme.
-  const bulletinsEmis = run && estAdmin ? await prisma.versionBulletin.count({ where: { payrollLine: { payrollRunId: run.id } } }) : 0;
+  // Paie EN TEMPS RÉEL : si aucune paie n'a encore été figée (pas de PayrollRun), on calcule un
+  // aperçu à la volée depuis les données courantes. Le bouton « Calculer » ne sert plus qu'à figer
+  // les bulletins pour la validation/l'export — les montants sont toujours à jour à l'affichage.
+  // Taux de l'aperçu : celui des paramètres de paie AVEC LESQUELS l'aperçu est calculé (jamais
+  // dérivé de salNetCDF / salNetUSD — un net nul donnerait NaN, voir src/lib/paie-net.ts).
+  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
+  const finMois = new Date(Date.UTC(annee, mois, 0));
+
+  // Tâches bloquantes, prêts en cours et contrats du mois : indépendants, chargés en parallèle (avec l'étage 2).
+  // Les prêts ne servent qu'à l'onglet Rémunération — non chargés pour les autres vues.
+  const tachesPretsContratsP = Promise.all([
+    run ? tachesBloquantesCloture(mois, annee) : Promise.resolve([]),
+    vue === "remuneration"
+      ? prisma.pretPersonnel.findMany({
+          where: { statut: "EN_COURS" },
+          include: { employee: { select: { id: true, nom: true } }, retenues: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
+    prisma.contrat.findMany({
+      where: {
+        statut: "ACTIF",
+        OR: [
+          { dateDebut: { gte: debutMois, lte: finMois } },
+          { dateFin: { gte: debutMois, lte: finMois } },
+          { finPeriodeEssai: { gte: debutMois, lte: finMois } },
+          // Échus mais encore ACTIF en base, quel que soit leur mois : à « Marquer expiré ».
+          { dateFin: { lt: jourCivilKinshasa(new Date()) } },
+        ],
+      },
+      include: { employee: { select: { id: true, nom: true } } },
+      orderBy: { dateFin: "asc" },
+    }),
+  ]);
+  const [{ comptees: lignesRun, horsCalcul }, bulletinsEmis, [apercu, parametresPaie], [taches, pretsEnCours, contratsDuMois]] = await Promise.all([
+    run ? separerHorsCalcul(prisma, run.lignes) : Promise.resolve({ comptees: [] as NonNullable<typeof run>["lignes"], horsCalcul: [] as NonNullable<typeof run>["lignes"] }),
+    run && estAdmin ? prisma.versionBulletin.count({ where: { payrollLine: { payrollRunId: run.id } } }) : Promise.resolve(0),
+    run ? Promise.resolve([null, null] as const) : Promise.all([calculerLignesPaie(mois, annee), chargerParametresPaie()]),
+    tachesPretsContratsP,
+  ]);
+  const enApercu = !run;
 
   // Bulletins VALIDÉS d'un AUTRE mois (clôturé : l'espace RH est passé au mois suivant) pas encore
   // payés : toujours dus, ils se paient depuis « À valider ». Annoncés ici, mois par mois.
   const aPayerAutresMois = peutGerer
     ? Object.entries(
-        (await prisma.payrollLine.findMany({
-          where: { statutPaiement: "VALIDE", payrollRun: { NOT: { mois, annee } } },
-          select: { payrollRun: { select: { mois: true, annee: true } } },
-        })).reduce<Record<string, number>>((acc, l) => {
+        lignesValideesAutresMois.reduce<Record<string, number>>((acc, l) => {
           const cle = `${l.payrollRun.annee}-${String(l.payrollRun.mois).padStart(2, "0")}`;
           acc[cle] = (acc[cle] ?? 0) + 1;
           return acc;
@@ -99,31 +154,12 @@ export default async function PaiePage({
   // Mois PASSÉS qui ont une paie calculée (du plus récent au plus ancien), pour le menu « Exporter » :
   // seuls l'identifiant du mois, son statut et son libellé sont lus — jamais les lignes. Un mois non
   // clôturé (BROUILLON) le dit dans la liste : ses bulletins non validés sortent marqués PROVISOIRE.
-  const moisPasses = (
-    await prisma.payrollRun.findMany({
-      where: { lignes: { some: {} }, NOT: { mois, annee } },
-      select: { mois: true, annee: true, statut: true },
-      orderBy: [{ annee: "desc" }, { mois: "desc" }],
-    })
-  ).map((r) => ({
+  const moisPasses = runsPasses.map((r) => ({
     mois: r.mois,
     annee: r.annee,
     libelle: `${new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}${r.statut === "VALIDE" ? "" : " (non clôturée)"}`,
   }));
 
-  // Paie EN TEMPS RÉEL : si aucune paie n'a encore été figée (pas de PayrollRun), on calcule un
-  // aperçu à la volée depuis les données courantes. Le bouton « Calculer » ne sert plus qu'à figer
-  // les bulletins pour la validation/l'export — les montants sont toujours à jour à l'affichage.
-  // Taux de l'aperçu : celui des paramètres de paie AVEC LESQUELS l'aperçu est calculé (jamais
-  // dérivé de salNetCDF / salNetUSD — un net nul donnerait NaN, voir src/lib/paie-net.ts).
-  const [apercu, parametresPaie] = run
-    ? [null, null]
-    : await Promise.all([calculerLignesPaie(mois, annee), chargerParametresPaie()]);
-  const enApercu = !run;
-
-  // Les décisions sur les bulletins (valider, payer) se prennent dans « À valider » : Paie y renvoie, avec les
-  // MÊMES chiffres que la pastille du menu (a-valider-compteur.ts, lus selon le rôle du compte).
-  const { elements: enAttente } = await chargerAValiderRH(user);
 
   const rows: PaieRow[] = run
     ? lignesRun.map((l) => ({
@@ -222,35 +258,6 @@ export default async function PaiePage({
       }));
 
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
-  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
-  const finMois = new Date(Date.UTC(annee, mois, 0));
-
-  // Tâches bloquantes, prêts en cours et contrats du mois : indépendants, chargés en parallèle.
-  // Les prêts ne servent qu'à l'onglet Rémunération — non chargés pour les autres vues.
-  const [taches, pretsEnCours, contratsDuMois] = await Promise.all([
-    run ? tachesBloquantesCloture(mois, annee) : Promise.resolve([]),
-    vue === "remuneration"
-      ? prisma.pretPersonnel.findMany({
-          where: { statut: "EN_COURS" },
-          include: { employee: { select: { id: true, nom: true } }, retenues: true },
-          orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
-    prisma.contrat.findMany({
-      where: {
-        statut: "ACTIF",
-        OR: [
-          { dateDebut: { gte: debutMois, lte: finMois } },
-          { dateFin: { gte: debutMois, lte: finMois } },
-          { finPeriodeEssai: { gte: debutMois, lte: finMois } },
-          // Échus mais encore ACTIF en base, quel que soit leur mois : à « Marquer expiré ».
-          { dateFin: { lt: jourCivilKinshasa(new Date()) } },
-        ],
-      },
-      include: { employee: { select: { id: true, nom: true } } },
-      orderBy: { dateFin: "asc" },
-    }),
-  ]);
   // Prêts en cours : encours total + échéance retenue ce mois-ci (onglet Rémunération).
   const pretsRecap = pretsEnCours.map((p) => {
     const montant = Number(p.montantUSD);
