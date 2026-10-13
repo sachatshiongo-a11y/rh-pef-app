@@ -38,7 +38,7 @@ import { ErreurMetier } from "@/lib/erreur-metier";
 export const PLAFOND_LIGNES_PDF = 600;
 
 export function messagePdfTropLong(lignes: number, plafond: number = PLAFOND_LIGNES_PDF): string {
-  return `Période trop longue : ${formaterNombre(lignes)} lignes, maximum ${formaterNombre(plafond)} pour un PDF — réduisez la période (ou exportez en Excel).`;
+  return `Document trop long : ${formaterNombre(lignes)} lignes, maximum ${formaterNombre(plafond)} pour un PDF — réduisez la période ou la sélection, ou exportez en Excel.`;
 }
 
 export class PdfTropLongError extends ErreurMetier {

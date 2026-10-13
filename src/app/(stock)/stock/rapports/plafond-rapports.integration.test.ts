@@ -83,7 +83,7 @@ describe("rapports Stock — plafond du PDF", () => {
     const t0 = Date.now();
     const r = await GET(url("pdf"));
     expect(r.status).toBe(413);
-    expect(await r.text()).toMatch(/^Période trop longue : 1 501 lignes, maximum 600/);
+    expect(await r.text()).toMatch(/^Document trop long : 1 501 lignes, maximum 600/);
     expect(Date.now() - t0).toBeLessThan(20_000); // refus avant rendu, pas après
     expect(await prisma.rapport.count()).toBe(0);
   }, 60_000);

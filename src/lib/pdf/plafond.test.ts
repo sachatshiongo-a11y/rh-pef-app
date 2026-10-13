@@ -19,7 +19,7 @@ describe("plafond des PDF tabulaires", () => {
   it("le plafond est de 600 lignes, et le message dit le compte réel et le maximum", () => {
     expect(PLAFOND_LIGNES_PDF).toBe(600);
     const m = messagePdfTropLong(4321);
-    expect(m).toMatch(/^Période trop longue : 4 321 lignes, maximum 600/);
+    expect(m).toMatch(/^Document trop long : 4 321 lignes, maximum 600/);
     expect(m).toContain("réduisez la période");
     expect(m).toContain("exportez en Excel");
     expect(m).not.toMatch(/[ −]/);
