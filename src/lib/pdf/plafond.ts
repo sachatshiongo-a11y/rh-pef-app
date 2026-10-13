@@ -9,8 +9,8 @@ import { ErreurMetier } from "@/lib/erreur-metier";
  * qui limitait était le BLOCAGE de la boucle d'événements (le contrôle de santé de Render échoue au-delà de 5 s ; l'inventaire
  * de septembre a fait redémarrer l'instance, ~3 min de 502 pour TOUT LE MONDE). Rendu par fenêtres de deux pages, le blocage
  * est celui d'une fenêtre (≤ 0,3 s en local, quel que soit le nombre de lignes), la mémoire reste plate, et le coût devient
- * LINÉAIRE. Ce qui limite désormais est le TEMPS TOTAL de la réponse (et la taille du fichier : ~0,8 Mo pour 600 lignes, chaque
- * fenêtre embarquant son sous-ensemble de police et le logo).
+ * LINÉAIRE. Ce qui limite désormais est le TEMPS TOTAL de la réponse (et la taille du fichier : ~0,27 Mo pour 600 lignes ; chaque
+ * fenêtre embarque son sous-ensemble de police, le logo n'est gardé qu'une fois, voir `dedup-objets.ts`).
  *
  * Mesuré le 13/10/2026 (tableau de 6 colonnes, Node borné à 200 Mo ; machine de développement partagée, charge de 6 à 13 sur 8
  * cœurs, meilleur de 3 passages ; blocage = plus long retard de la boucle d'événements ; pic = tas avant ramasse-miettes) :
