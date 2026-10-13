@@ -184,4 +184,16 @@ describe("messagePaieChangee", () => {
       "La paie de Dieudonné Tshala (primes, salaire brut, CNSS salariale, base imposable, IPR, net à payer et 2 autres) a changé depuis son calcul : rechargez la page Paie avant d'approuver.",
     );
   });
+
+  it("au-delà de huit salariés : le détail des champs des huit premiers, les suivants nommés seuls (l'adresse de la page reste courte)", () => {
+    const champs = ["salNetCDF", "coutEmployeurCDF"];
+    const changees = Array.from({ length: 56 }, (_, i) => ({ nom: `Salarié ${String(i).padStart(2, "0")}`, champs }));
+    const m = messagePaieChangee(changees);
+    expect(m).toContain("Salarié 07 (net en francs, coût employeur en francs), ainsi que de 48 autres salariés (Salarié 08, Salarié 09,");
+    expect(m).not.toContain("Salarié 08 (");
+    expect(m.endsWith("a changé depuis son calcul : rechargez la page Paie avant d'approuver.")).toBe(true);
+    expect(encodeURIComponent(m).length).toBeLessThan(3500);
+    // Exactement un salarié de plus que le détail : « 1 autre salarié ».
+    expect(messagePaieChangee(changees.slice(0, 9))).toContain("ainsi que de 1 autre salarié (Salarié 08) a changé");
+  });
 });

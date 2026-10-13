@@ -86,15 +86,22 @@ export function messageNetNonPositif(lignes: { nom: string; net: number; acompte
  *  `DECISIONS_CHAMPS`), les suivants en découlent. */
 const CHAMPS_NOMMES_MAX = 6;
 
+/** Au-delà de ce nombre de salariés, seuls les premiers gardent le détail de leurs champs : les autres sont
+ *  nommés seuls. Une clôture dont les 56 bulletins ont bougé (taux de change changé) donnait un message de
+ *  6 à 10 Ko, renvoyé dans l'ADRESSE de la page (`/paie?erreur=…`) : au-delà des limites des serveurs. */
+const SALARIES_DETAILLES_MAX = 8;
+
 /** Refus « la paie a changé » : chaque salarié avec les champs qui ont bougé depuis l'affichage. */
 export function messagePaieChangee(changees: { nom: string; champs: readonly string[] }[]): string {
-  const detail = changees.map(({ nom, champs }) => {
+  const detail = changees.slice(0, SALARIES_DETAILLES_MAX).map(({ nom, champs }) => {
     const libelles = champs.map((c) => LIBELLES_CHAMPS_COMPARES[c] ?? c);
     const reste = libelles.length - CHAMPS_NOMMES_MAX;
     const noms = reste > 0 ? `${libelles.slice(0, CHAMPS_NOMMES_MAX).join(", ")} et ${reste} autre${reste > 1 ? "s" : ""}` : libelles.join(", ");
     return `${nom} (${noms})`;
   });
-  return `La paie de ${detail.join(", ")} a changé depuis son calcul : rechargez la page Paie avant d'approuver.`;
+  const autres = changees.slice(SALARIES_DETAILLES_MAX).map(({ nom }) => nom);
+  const suite = autres.length > 0 ? `, ainsi que de ${autres.length} autre${autres.length > 1 ? "s" : ""} salarié${autres.length > 1 ? "s" : ""} (${autres.join(", ")})` : "";
+  return `La paie de ${detail.join(", ")}${suite} a changé depuis son calcul : rechargez la page Paie avant d'approuver.`;
 }
 
 /** Refus d'une validation : message destiné à l'écran, renvoyé comme une valeur par les actions. */
