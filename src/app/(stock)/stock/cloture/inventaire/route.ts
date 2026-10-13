@@ -8,9 +8,7 @@ import { dateHeureGenerationKinshasa } from "@/lib/heure-kinshasa";
 import { niveauAlerte, uniteAffichee } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
-import { chargerDonneesStockInitial } from "@/lib/stock-initial-mois-donnees";
-import { stockInitialArticle, type StockInitialArticle } from "@/lib/stock-initial-mois";
-import { tableauInventaire, texteValeurDebutMois, valeurDebutMois, TIRET } from "@/lib/inventaire-excel";
+import { tableauInventaire, type MouvementsDuMois } from "@/lib/inventaire-excel";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const usd = (n: number) => `${formaterNombre(r2(n), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -27,9 +25,9 @@ const num = (n: number) => formaterNombre(Math.round(n * 1000) / 1000);
  * lignes en bloquant la boucle d'événements des dizaines de secondes (le contrôle de santé de Render, 5 s, échouait).
  * Le catalogue en compte 446, l'Excel (+49 à +89 Mo, sans blocage) est le format qui convient.
  *
- * Colonnes (13/10/2026, demande de la Direction) : celles de l'écran Inventaire, dans le même ordre, avec le « Stock
- * début de mois » (stock au 1er à 00 h, Kinshasa — `stock-initial-mois.ts`) avant le stock de fin, et par article les
- * entrées, sorties et ajustements du mois qui relient les deux (`inventaire-excel.ts`).
+ * Colonnes (13/10/2026, demande de la Direction) : celles de l'écran Inventaire, dans le même ordre, avec par article
+ * les entrées, sorties et ajustements du mois juste avant le stock (`inventaire-excel.ts`). Pas de stock de début de
+ * mois : retiré le même jour (« c'est confus »).
  */
 export async function GET(req: Request) {
   const g = await exigerEspaceStock();
@@ -88,19 +86,17 @@ async function produire(req: Request): Promise<Response> {
   const mouvements = tronque ? lus.slice(0, PLAFOND_MOUVEMENTS_EXPORT) : lus;
   const mvtParDomaine = (dom: string) => mouvements.filter((x) => String(x.article.domaine) === dom);
 
-  // Stock au 1er du mois : des agrégats (jamais une requête par article). En panne, le classeur sort quand même avec « — » et le DIT.
-  const donnees = await chargerDonneesStockInitial(annee, mois, inv.fige && inv.figeLe ? { figeLe: inv.figeLe } : {}).catch((e): null => {
-    console.error("[stock] export de l'inventaire : stock début de mois indisponible :", e);
-    return null;
-  });
-  const stockFin = new Map(inv.lignes.map((l) => [l.articleId, l.quantite]));
-  const memo = new Map<string, StockInitialArticle>();
-  const resultat = (articleId: string): StockInitialArticle | null => {
-    if (!donnees) return null;
-    let r = memo.get(articleId);
-    if (!r) { r = stockInitialArticle(donnees, articleId, stockFin.get(articleId) ?? null); memo.set(articleId, r); }
-    return r;
-  };
+  // Mouvements du mois PAR ARTICLE : un seul agrégat pour tous les articles (jamais une requête par article), non coupé par le plafond de la liste.
+  const agreges = await prisma.mouvementStock.groupBy({ by: ["articleId", "type"], where: { date: { gte: debut, lt: fin } }, _sum: { quantite: true } });
+  const parArticle = new Map<string, MouvementsDuMois>();
+  for (const g of agreges) {
+    const cur = parArticle.get(g.articleId) ?? { entrees: 0, sorties: 0, ajustements: 0 };
+    const q = Number(g._sum.quantite ?? 0);
+    if (g.type === "ENTREE") cur.entrees = q;
+    else if (g.type === "SORTIE") cur.sorties = q;
+    else cur.ajustements = q; // AJUSTEMENT : quantité absolue, sens non enregistré
+    parArticle.set(g.articleId, cur);
+  }
   // Ordre des catégories = celui du catalogue (comme à l'écran) ; « Par carton » d'un instantané ancien = valeur du catalogue.
   const [categories, cartonsCatalogue] = await Promise.all([
     prisma.categorieStock.findMany({ select: { nom: true, domaine: true, ordre: true } }),
@@ -109,10 +105,6 @@ async function produire(req: Request): Promise<Response> {
       : Promise.resolve([]),
   ]);
   const carton = new Map(cartonsCatalogue.map((a) => [a.id, a.uniteParCarton !== null ? Number(a.uniteParCarton) : null]));
-  const avecApres = !!donnees && inv.lignes.some((l) => { const r = resultat(l.articleId); return r !== null && (r.apres === null || r.apres !== 0); });
-  const preced = donnees?.cloturePrecedente ? `${MOIS_FR[donnees.cloturePrecedente.mois - 1]} ${donnees.cloturePrecedente.annee}` : null;
-  const debutLibelle = `1er ${MOIS_FR[mois - 1]}`;
-  const valTotale = valeurDebutMois(inv.lignes, resultat);
 
   const feuilles: FeuilleInventaire[] = groupes.map((g) => {
     const urgents = g.lignes.filter((l) => niveauAlerte(l.quantite, l.stockMinimum, l.seuilUrgent) === "URGENT").length;
@@ -123,25 +115,15 @@ async function produire(req: Request): Promise<Response> {
     const valSor = r2(mvts.filter((x) => x.type === "SORTIE").reduce((t, x) => t + (x.montantUSD !== null ? Number(x.montantUSD) : 0), 0));
     const ordre = new Map(categories.filter((c) => String(c.domaine) === g.domaine).map((c) => [c.nom, c.ordre]));
     const tab = tableauInventaire({
-      lignes: g.lignes, resultat, fige: inv.fige, avecApres, cloturePrecedente: preced, ordreCategories: ordre,
+      lignes: g.lignes, mouvements: (id) => parArticle.get(id), fige: inv.fige, ordreCategories: ordre,
       uniteParCarton: (l) => (l.uniteParCarton !== undefined ? l.uniteParCarton : carton.get(l.articleId) ?? null),
     });
-    const valDom = valeurDebutMois(g.lignes, resultat);
-    const kpiDebut = donnees
-      ? [
-          { label: `Valeur du stock au ${debutLibelle} — ${g.label}`, valeur: texteValeurDebutMois(valDom, usd) },
-          { label: `Valeur du stock au ${debutLibelle} — TOTAL`, valeur: texteValeurDebutMois(valTotale, usd) },
-          { label: `Sans stock au ${debutLibelle} (« ${TIRET} »)`, valeur: `${valDom.nbInconnus + valDom.nbAbsents}${valDom.nbAbsents > 0 ? ` (dont ${valDom.nbAbsents} créé(s) après le 1er)` : ""}` },
-          ...(preced ? [{ label: `Écarts avec la clôture de ${preced}`, valeur: String(valDom.nbEcartsCloture) }] : []),
-        ]
-      : [{ label: `Stock au ${debutLibelle}`, valeur: "indisponible (erreur de calcul, réessayez)" }];
     return {
       nom: g.label,
       titre: `Inventaire ${g.label} — ${periodeLabel} (${etat})`,
       kpis: [
         { label: `Valeur du stock — ${g.label}`, valeur: `${usd(g.valeur)}${g.nbSansPrix > 0 ? ` (${mentionSansPrix(g.nbSansPrix)})` : ""}` },
         { label: "Valeur du stock — TOTAL", valeur: totalTexte },
-        ...kpiDebut,
         { label: "Articles", valeur: String(g.lignes.length) },
         { label: "Dont à réapprovisionner", valeur: String(urgents + appros) },
         { label: "En rupture (urgent)", valeur: String(urgents) },
@@ -173,10 +155,7 @@ async function produire(req: Request): Promise<Response> {
     };
   });
 
-  const noteDebut = donnees
-    ? ` · « Stock début de mois » = stock au ${debutLibelle} à 00 h (Kinshasa) : stock de fin − entrées + sorties ± ajustements de comptage ; « ${TIRET} » = non calculable, ou article créé après le 1er`
-    : "";
-  const buf = await classeurInventaire({ periode: `${periodeLabel} · ${etat} · stock total ${totalTexte}${noteDebut}`, feuilles });
+  const buf = await classeurInventaire({ periode: `${periodeLabel} · ${etat} · stock total ${totalTexte}`, feuilles });
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -13,7 +13,7 @@ import { PilulesDomaine, type DomaineCle as Domaine } from "@/components/stock/p
  * pour montrer les articles dès l'ouverture. La valeur du stock, le compteur et l'export y passent
  * dans le menu « Plus ». Sur ordinateur, rien ne change.
  */
-export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, manque = "", hausse = false, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true, debutMoisLibelle }: {
+export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, manque = "", hausse = false, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true }: {
   rows: ArticleRow[];
   categories: { id: string; nom: string; domaine: string; actif?: boolean }[];
   fournisseurs: { id: string; nom: string }[];
@@ -28,8 +28,6 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
   parInit?: ParPage;
   /** Hors Direction : Inventaire en lecture, modifications proposées (voir CatalogueTable). */
   estDirection?: boolean;
-  /** « 1er octobre » : date du stock de la colonne « Stock début de mois » (infobulle de l'en-tête). */
-  debutMoisLibelle?: string;
 }) {
   // Bascule de domaine en conservant recherche et filtre d'alerte (la page repart à 1, la taille de page est gardée par le lien).
   const lienDomaine = (cle: Domaine | "") => {
@@ -54,7 +52,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} initialManque={manque} initialHausse={hausse} pageInit={pageInit} parInit={parInit} actionsPlus={exporter} estDirection={estDirection} debutMoisLibelle={debutMoisLibelle} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} initialManque={manque} initialHausse={hausse} pageInit={pageInit} parInit={parInit} actionsPlus={exporter} estDirection={estDirection} />
     </div>
   );
 }

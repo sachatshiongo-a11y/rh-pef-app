@@ -148,7 +148,7 @@ describe("Inventaire paginé", () => {
 
   it("l'en-tête de catégorie est rappelé en tête de page (la catégorie continue)", () => {
     monter({ pageInit: 2, parInit: 50 }); // articles 51–100 : « Farines » (51–60) puis « Huiles »
-    const entetes = [...conteneur.querySelectorAll("table tbody td[colspan='13']")].map((e) => e.textContent);
+    const entetes = [...conteneur.querySelectorAll("table tbody td[colspan='12']")].map((e) => e.textContent);
     expect(entetes[0]).toMatch(/^Farines \(60\)/); // le compteur est celui de la catégorie dans TOUT le filtre
     expect(entetes[1]).toMatch(/^Huiles \(60\)/);
   });
