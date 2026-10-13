@@ -45,7 +45,8 @@ export type ArticleFiltrable = {
   /** Contenance enregistrée : la recherche lit aussi le libellé affiché (« Bacardi 1 l ») et ses écritures compactes. */
   contenance?: string | null;
   contenanceUnite?: string | null;
-  code: string | null;
+  /** Absent = sans code (l'Inventaire n'envoie pas les valeurs vides au navigateur). */
+  code?: string | null;
   niveau: NiveauAlerte | null;
   haussePct?: number | null;
   devisePrix?: "USD" | "CDF";

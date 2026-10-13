@@ -45,7 +45,7 @@ const nombreOuTiret = (v: string | null | undefined) => { const n = nombreDeBase
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
-  code: string | null; // code article (repris du fichier d'inventaire)
+  code?: string | null; // code article (repris du fichier d'inventaire) ; absent = sans code
   designation: string;
   /** Marque (facultative) : s'insère dans le nom AFFICHÉ avant la contenance (`libelleArticle`) et se cherche. */
   marque?: string | null;
@@ -73,7 +73,7 @@ export type ArticleRow = {
   /** Valeur du stock en dollars (null = sans prix, ou franc sans taux) ; « ≈ » si l'article est en francs. */
   valeurUSD?: number | null;
   valeurApprox?: boolean;
-  uniteParCarton: string | null; // conditionnement : nb d'unités par carton
+  uniteParCarton?: string | null; // conditionnement : nb d'unités par carton ; absent = non renseigné
   quantite: string;
   stockMinimum: string;
   niveau: NiveauAlerte | null;

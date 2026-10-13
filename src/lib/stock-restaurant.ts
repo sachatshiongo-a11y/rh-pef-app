@@ -220,6 +220,27 @@ export function conseilLivraison(etat: EtatRattachement, articleStockId: string,
   }
 }
 
+/**
+ * Conseils de livraison de TOUS les articles d'un écran, prêts à partir au navigateur (2026-10-13) : chaque
+ * conseil distinct une seule fois (`liste`), et pour chaque article en défaut le rang du sien (`parArticle`).
+ * Un article sans conseil n'y figure pas. Avant, le même texte et le même lien se répétaient pour chacun des
+ * ~400 articles non rattachés de l'écran Mouvements.
+ */
+export type ConseilsLivraison = { liste: { texte: string; href: string }[]; parArticle: Record<string, number> };
+
+export function regrouperConseils(conseils: Iterable<readonly [string, { texte: string; href: string } | null]>): ConseilsLivraison {
+  const r: ConseilsLivraison = { liste: [], parArticle: {} };
+  const rangs = new Map<string, number>();
+  for (const [articleId, c] of conseils) {
+    if (!c) continue;
+    const cle = `${c.texte}\n${c.href}`;
+    let rang = rangs.get(cle);
+    if (rang === undefined) { rang = r.liste.push(c) - 1; rangs.set(cle, rang); }
+    r.parArticle[articleId] = rang;
+  }
+  return r;
+}
+
 /** Conseil (texte + lien) d'une livraison signalée dans la grille du restaurant. */
 export function conseilSignalement(s: SignalementLivraison, articles: ArticleRestoSR[]): { texte: string; href: string } {
   const etat: EtatRattachement = s.motif === "A_REPARTIR" ? { etat: "A_REPARTIR", articleRestoIds: [s.articleRestoId] } : { etat: s.motif, articleRestoId: s.articleRestoId };

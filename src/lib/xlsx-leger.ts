@@ -1,4 +1,6 @@
-import JSZip from "jszip";
+// JSZip (et le Buffer qu'il entraîne) n'est chargé qu'à la LECTURE d'un classeur (2026-10-13) : importé en tête,
+// il partait avec chaque écran qui se sert d'un utilitaire d'ici (Fiches techniques, journalier…) dès l'ouverture.
+import type JSZip from "jszip";
 import { normTexte } from "@/lib/texte";
 
 // Lecture LÉGÈRE d'un classeur .xlsx (archive zip) pour les imports de la Direction (classeurs
@@ -24,6 +26,8 @@ export type CelluleXlsx = { col: string; ligne: number; texte: string | null; gr
 export type LectureXlsx = { ok: true; feuilles: Map<string, CelluleXlsx[][]>; noms: Map<string, string> } | { ok: false; erreur: string };
 
 export const ILLISIBLE = "Fichier illisible : un classeur Excel (.xlsx) est attendu.";
+/** Le lecteur de classeur (chargé à la demande) n'a pas pu être téléchargé : la connexion, pas le fichier. */
+export const LECTEUR_INDISPONIBLE = "Le lecteur de classeur n'a pas pu se charger (connexion interrompue ?) : réessayez.";
 
 function decoder(s: string): string {
   return s
@@ -55,9 +59,15 @@ async function lireFichier(zip: JSZip, chemin: string): Promise<string | null> {
  */
 export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder: (nom: string) => boolean): Promise<LectureXlsx> {
   if (donnees.byteLength > TAILLE_MAX_CLASSEUR) return { ok: false, erreur: "Fichier trop lourd (plus de 60 Mo) : ce n'est pas le classeur attendu." };
+  let lecteur: typeof JSZip;
+  try {
+    lecteur = (await import("jszip")).default;
+  } catch {
+    return { ok: false, erreur: LECTEUR_INDISPONIBLE };
+  }
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(donnees);
+    zip = await lecteur.loadAsync(donnees);
   } catch {
     return { ok: false, erreur: ILLISIBLE };
   }

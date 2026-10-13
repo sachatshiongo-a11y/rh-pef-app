@@ -22,11 +22,15 @@ const { MouvementForm, ColonneMouvements, BandeauPlafond, AVERTISSEMENT_LIVRAISO
 
 const ARTICLES = [{ id: "farine", designation: "Farine" }, { id: "sel", designation: "Sel" }, { id: "citron", designation: "Citron" }, { id: "vin", designation: "Vin" }, { id: "biere", designation: "Bière" }];
 // Conseils calculés par le serveur (`conseilLivraison`) : un par article en défaut, aucun pour la farine.
+// Chaque conseil distinct part une fois (`liste`), l'article n'en porte que le rang (`parArticle`).
 const CONSEILS = {
-  sel: { texte: "non rattaché : rattachez l'article", href: "/stock/restaurant" },
-  citron: { texte: "à répartir : plusieurs articles du restaurant rattachés", href: "/stock/restaurant?espace=CUISINE" },
-  vin: { texte: "unités incompatibles : corrigez l'unité du restaurant ou le rattachement", href: "/stock/restaurant?espace=BAR" },
-  biere: { texte: "unité du restaurant non renseignée : renseignez-la dans Stock restaurant", href: "/stock/restaurant?espace=BAR" },
+  liste: [
+    { texte: "non rattaché : rattachez l'article", href: "/stock/restaurant" },
+    { texte: "à répartir : plusieurs articles du restaurant rattachés", href: "/stock/restaurant?espace=CUISINE" },
+    { texte: "unités incompatibles : corrigez l'unité du restaurant ou le rattachement", href: "/stock/restaurant?espace=BAR" },
+    { texte: "unité du restaurant non renseignée : renseignez-la dans Stock restaurant", href: "/stock/restaurant?espace=BAR" },
+  ],
+  parArticle: { sel: 0, citron: 1, vin: 2, biere: 3 },
 };
 
 let conteneur: HTMLDivElement;

@@ -7,12 +7,10 @@ import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, opt
 import { OngletsAchats } from "../_achats/onglets-achats";
 import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
-import { conseilLivraison, etatRattachementLivraison } from "@/lib/stock-restaurant";
-import type { ConseilLivraison } from "./mouvements-client";
+import { conseilLivraison, etatRattachementLivraison, regrouperConseils } from "@/lib/stock-restaurant";
+import { ChoixProduitFiltre } from "./mouvements-client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { estStock } from "@/lib/espaces";
-import { ChoixRecherche } from "@/components/choix-recherche";
-import { optionsArticles } from "@/lib/recherche-options";
 import { CHAMPS_LIBELLE, contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 
 const mvtInclude = {
@@ -31,29 +29,32 @@ const valeurDe = (m: Mvt, taux: number | null): { v: number; estime: boolean } |
   return c === null ? null : { v: c.valeur, estime: true };
 };
 
-// Sérialise un mouvement Prisma (Decimal/Date) vers la forme légère consommée côté client.
+// Sérialise un mouvement Prisma (Decimal/Date) vers la forme légère consommée côté client. Une valeur VIDE
+// n'est pas écrite (2026-10-13, liaisons lentes) : sans facture, sans bon, sans fournisseur, sans DLC, sans
+// origine, sans unité, valeur exacte (non estimée) — l'écran lit l'absence comme le vide. Le motif d'une
+// SORTIE est toujours écrit (null = « sans motif », pastille affichée) ; celui d'une entrée ne s'affiche pas.
 const versLite = (m: Mvt, taux: number | null): MvtLite => {
   const bc = m.reception?.bonDeCommande;
   const va = valeurDe(m, taux);
   const fourn = fournisseurDuMouvement(m);
-  return {
+  const l: MvtLite = {
     id: m.id,
     articleId: m.articleId,
     designation: libelleArticle(m.article), // nom affiché (contenance comprise)
     dateISO: new Date(m.date).toISOString().slice(0, 10),
-    origine: m.origine,
     type: m.type,
     quantite: Number(m.quantite),
-    unite: m.article.unite, // le mouvement ne porte pas d'unité : celle de l'article
     valeur: va ? va.v : null,
-    valeurEstimee: va ? va.estime : false,
-    facture: m.facture ? { id: m.facture.id, numero: m.facture.numero } : null,
-    bc: bc ? { id: bc.id, numero: bc.numero } : null,
-    fournId: fourn?.id ?? null,
-    fournNom: fourn?.nom ?? null,
-    motif: m.categorieSortie,
-    dlcISO: m.dlc ? new Date(m.dlc).toISOString().slice(0, 10) : null, // date PURE (colonne @db.Date)
   };
+  if (m.origine) l.origine = m.origine;
+  if (m.article.unite !== null) l.unite = m.article.unite; // le mouvement ne porte pas d'unité : celle de l'article
+  if (va?.estime) l.valeurEstimee = true;
+  if (m.facture) l.facture = { id: m.facture.id, numero: m.facture.numero };
+  if (bc) l.bc = { id: bc.id, numero: bc.numero };
+  if (fourn) { l.fournId = fourn.id; l.fournNom = fourn.nom; }
+  if (m.type === "SORTIE") l.motif = m.categorieSortie;
+  if (m.dlc) l.dlcISO = new Date(m.dlc).toISOString().slice(0, 10); // date PURE (colonne @db.Date)
+  return l;
 };
 
 type SP = { mois?: string; articleId?: string; motif?: string };
@@ -77,29 +78,32 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   const where = whereMouvements(filtre);
 
   const PLAFOND = PLAFOND_AFFICHAGE;
-  const [mouvements, nbSortiesFiltre, nbEntreesFiltre, articles, restos] = await Promise.all([
+  const [mouvements, nbSortiesFiltre, nbEntreesFiltre, articles, restos, taux] = await Promise.all([
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "SORTIES") }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true, stock: { select: { quantite: true } } } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
     prisma.articleResto.findMany({ where: { actif: true, liens: { some: {} } }, select: { id: true, designation: true, espace: true, unite: true, liens: { select: { articleStock: { select: { id: true, unite: true, marque: true, contenance: true, contenanceUnite: true } } } } } }),
+    tauxDuJour(), // avec les autres lectures (il partait seul, après elles : un aller-retour de plus)
   ]);
-  const conseilsLivraison: Record<string, ConseilLivraison> = {};
   const restosSR = restos.map((r) => ({ id: r.id, designation: r.designation, espace: r.espace, unite: r.unite, rattaches: r.liens.map((l) => ({ id: l.articleStock.id, unite: l.articleStock.unite, contenance: l.articleStock.contenance?.toString() ?? null, contenanceUnite: l.articleStock.contenanceUnite })) }));
-  for (const a of articles) {
-    const c = conseilLivraison(etatRattachementLivraison(a.id, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite }, restosSR, a.domaine), a.id, restosSR);
-    if (c) conseilsLivraison[a.id] = c;
-  }
+  // Chaque conseil distinct part UNE fois au navigateur ; l'article n'en porte que le rang (voir `regrouperConseils`).
+  const conseilsLivraison = regrouperConseils(articles.map((a) => [a.id, conseilLivraison(etatRattachementLivraison(a.id, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite }, restosSR, a.domaine), a.id, restosSR)] as const));
   const nbTotal = nbSortiesFiltre + nbEntreesFiltre;
   const articleFiltre = articleId
     ? articles.find((a) => a.id === articleId) ?? (await prisma.articleStock.findUnique({ where: { id: articleId }, select: CHAMPS_LIBELLE }))
     : null;
   const designation = articleFiltre ? libelleArticle(articleFiltre) : null;
   const libelle = libelleFiltre(filtre, designation);
-  const taux = await tauxDuJour();
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map((m) => versLite(m, taux));
   const sorties = mouvements.filter((m) => m.type === "SORTIE").map((m) => versLite(m, taux));
+
+  // Articles du formulaire ET du filtre « Produit » : le MÊME tableau passé aux deux composants part une
+  // seule fois au navigateur (la sérialisation de React renvoie au premier envoi) ; chacun en tire ses options.
+  // Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09).
+  // Nom court et code ne partent que s'ils existent (la recherche les lit, absents = vides).
+  const articlesClient = articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), ...(a.nomCourt ? { nomCourt: a.nomCourt } : {}), ...(a.code ? { code: a.code } : {}), unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }));
 
   // 12 derniers mois pour le filtre, plus le mois filtré s'il est plus ancien (lien d'une carte).
   const moisOptions = optionsMoisMouvements(now, mois);
@@ -112,15 +116,14 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       </div>
       <OngletsAchats />
 
-      {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
-      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, ...contenancePourClient(a), nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
+      <MouvementForm articles={articlesClient} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
         <select name="mois" defaultValue={mois ?? "tous"} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="tous">Tous les mois</option>
           {moisOptions.map((o) => <option key={o.val} value={o.val}>{o.label}</option>)}
         </select>
-        <ChoixRecherche options={optionsArticles(articles)} name="articleId" defaultValue={articleId ?? ""} vide="Tous les produits" aria-label="Produit" className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5" />
+        <ChoixProduitFiltre articles={articlesClient} defaultValue={articleId ?? ""} />
         <select name="motif" defaultValue={filtreMotif ?? ""} aria-label="Motif" className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Tous les motifs</option>
           {Object.entries(FILTRES_MOTIF).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
