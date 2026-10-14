@@ -60,7 +60,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
-    prisma.articleStock.count(),
+    prisma.articleStock.count({ where: { actif: true } }), // articles ACTIFS, comme les autres compteurs (indicateursStock) et l'Inventaire (2026-10-14)
     prisma.fournisseur.count(),
     // Valeur du stock, alertes, factures, légumes et consommation : @/lib/indicateurs/stock (partagé
     // avec le tableau de bord de l'Exploitation). 8 articles au seuil, comme avant.

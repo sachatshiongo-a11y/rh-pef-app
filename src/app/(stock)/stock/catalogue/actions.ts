@@ -299,8 +299,8 @@ export const basculerActifArticles = actionLisible(async (articleIds: string[], 
   if (uniq.length === 0) return;
   if (!estDirection(user)) return proposer(user, actif ? "Activation en masse" : "Désactivation en masse", uniq.map((id) => ({ id, patch: { actif } })));
   const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq } }, data: { actif } });
-  await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
-  revalidatePath("/stock/catalogue");
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: uniq.length === 1 ? uniq[0] : "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
+  revalidatePath("/stock/catalogue", "layout"); // l'Inventaire ET les fiches article (badge « Inactif », bouton Désactiver / Réactiver)
   revalidatePath("/stock");
 });
 

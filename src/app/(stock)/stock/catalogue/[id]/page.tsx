@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
+import { ActivationArticle } from "./activation-article";
 import { EditerArticle } from "./editer-article";
 import { PastilleMotif, PastilleType, TEINTE_FILTRE_MOUVEMENT } from "@/components/stock/pastille-mouvement";
 import { FournisseursArticle, type LigneFournisseurArticle } from "./fournisseurs-article";
@@ -256,7 +257,7 @@ export default async function ArticleFichePage({
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl" title={complement ? `Nom enregistré : « ${a.designation} » — la contenance (${complement}) s'ajoute à l'affichage` : undefined}>{libelle}</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl" title={complement ? `Nom enregistré : « ${a.designation} » — la contenance (${complement}) s'ajoute à l'affichage` : undefined}>{libelle}{!a.actif && <span data-badge-inactif="" title="Article désactivé : il n'apparaît plus dans l'Inventaire ni dans les listes de saisie" className="ml-2 align-middle rounded bg-gray-200 px-1.5 py-0.5 text-xs font-semibold text-gray-700">Inactif</span>}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span>{DOMAINE_LABEL[a.domaine] ?? a.domaine}</span>
             <span>· {a.categorie?.nom ?? "à classer"}</span>
@@ -302,6 +303,7 @@ export default async function ArticleFichePage({
             estDirection={estDirection}
             taux={taux}
           />
+          <ActivationArticle id={a.id} actif={a.actif} libelle={libelle} estDirection={estDirection} />
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
               <ConfirmSubmitButton

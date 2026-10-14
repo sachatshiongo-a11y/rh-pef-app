@@ -74,7 +74,7 @@ describe("bon de commande PDF (texte extrait)", () => {
 describe("export Excel de l'inventaire", () => {
   it("la colonne « Désignation » porte le libellé ; la recherche « vodka 75cl » le retrouve", async () => {
     const art = (id: string, designation: string, contenance: string | null, contenanceUnite: string | null) => ({
-      id, code: null, designation, contenance: contenance === null ? null : D(contenance), contenanceUnite, domaine: "BOISSON", unite: "Bouteille",
+      id, actif: true, code: null, designation, contenance: contenance === null ? null : D(contenance), contenanceUnite, domaine: "BOISSON", unite: "Bouteille",
       devisePrix: "USD", prixUnitaireUSD: D("20"), prixUnitaireCDF: null, uniteParCarton: null, fournisseurId: null,
       categorie: { nom: "Spiritueux" }, fournisseur: null, stock: { quantite: D("3"), stockMinimum: D("1"), seuilUrgent: D("0") },
     });

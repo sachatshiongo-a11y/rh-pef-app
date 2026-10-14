@@ -18,7 +18,7 @@ import { libelleFacteur } from "@/lib/unite-resto";
 import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
-import { analyserChangementUnite } from "./unite-article";
+import { analyserChangementUnite, jetonAvertissements, type LigneUnite } from "./unite-article";
 
 /** Restes dans la devise de la facture (`devise`, absente = USD). */
 export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean; devise?: DeviseFacture };
@@ -30,7 +30,7 @@ export type ApercuLigneComptage = {
 export type ApercuChangement = { libelle: string; avant: string; apres: string; actuel: string | null };
 export type ApercuDemande = {
   id: string; nature: NatureDemande; statut: string; resume: string;
-  /** Jeton de version (updatedAt ISO) : renvoyé à la décision, qui refuse une demande retouchée depuis. */
+  /** Jeton de version (updatedAt ISO, + `#u:` et l'empreinte des avertissements d'unité affichés) : renvoyé à la décision, qui refuse une demande retouchée depuis. */
   version: string;
   auteurId: string; auteurNom: string; creeLe: string;
   decideurNom: string | null; decideLe: string | null; motifRefus: string | null;
@@ -224,11 +224,13 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       // Changement d'unité proposé (Unité en masse, ou fiche article) : la Direction voit CE QUE L'APPROBATION déclenche —
       // les mêmes constats que la confirmation de la Direction qui change l'unité elle-même (lib/validations-stock/unite-article.ts).
       const avertissementsUnite = new Map<string, string[]>();
+      const lignesUnite: LigneUnite[] = [];
       if (d.statut === "EN_ATTENTE") {
         const parUnite = new Map<string, string[]>();
         for (const a of ca.articles) { const c = a.changements.find((x) => x.champ === "unite"); if (c && typeof c.apres === "string" && c.apres.trim()) parUnite.set(c.apres, [...(parUnite.get(c.apres) ?? []), a.id]); }
         for (const [unite, idsUnite] of parUnite) {
           for (const l of (await analyserChangementUnite(prisma, idsUnite, unite)).lignes) {
+            lignesUnite.push(l);
             if (!l.confirmer) continue;
             avertissementsUnite.set(l.id, [
               `${l.avant ?? "sans unité"} → ${l.apres} : ${l.raisons.length ? `${l.raisons.join(", ")} — ` : ""}quantités et prix gardent les mêmes chiffres dans la nouvelle unité, rien n'est converti.`,
@@ -237,6 +239,8 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           }
         }
       }
+      // Jeton de version = horodatage + empreinte des avertissements AFFICHÉS : l'approbation refuse si ces avertissements ont changé (demandes.ts).
+      if (d.statut === "EN_ATTENTE" && ca.articles.some((a) => a.changements.some((c) => c.champ === "unite"))) base.version = `${base.version}${jetonAvertissements(lignesUnite)}`;
       base.article = {
         articles: ca.articles.map((a) => {
           const art = parId.get(a.id);

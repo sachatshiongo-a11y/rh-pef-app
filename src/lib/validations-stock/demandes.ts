@@ -44,6 +44,7 @@ import {
 } from "./comptage";
 import { appliquerPatchArticleTx, changementsDe, exigerCategorieDuDomaine, harmoniserPrix, lireArticlesTx, nomsReferencesTx, patchDesChangements, type PatchArticle } from "./article";
 import { ErreurMetier } from "@/lib/erreur-metier";
+import { analyserChangementUnite, ecartsAvertissements, lireJetonVersion } from "./unite-article";
 
 type Tx = Prisma.TransactionClient;
 
@@ -638,10 +639,35 @@ async function verrouillerDemande(tx: Tx, id: string, version: string | null) {
   // Jeton de version : la Direction décide de ce qu'elle a VU. Une retouche de l'auteur après
   // l'ouverture de sa page (fusion d'une proposition) change `updatedAt` : décision refusée.
   // `version` null : retrait par son auteur (il retire SA demande, quel que soit son état de retouche).
-  if (version !== null && d.updatedAt.toISOString() !== version) {
+  if (version !== null && d.updatedAt.toISOString() !== lireJetonVersion(version).horodatage) {
     throw new Error("Cette demande a été modifiée depuis que vous l'avez ouverte : rechargez la page.");
   }
   return d;
+}
+
+/**
+ * Changement d'UNITÉ approuvé : la Direction décide de ce qu'elle a VU. Les avertissements (stock, historique, prix, fiches,
+ * rattachement restaurant) sont calculés à l'affichage de « À valider » ; ici ils sont RECALCULÉS sous verrou des articles et
+ * comparés à l'empreinte du jeton de version. Un article qui a reçu du stock ou un mouvement entre-temps refuse l'approbation
+ * (rien n'est écrit) avec un message qui le nomme : la Direction recharge et lit l'avertissement à jour. Une approbation
+ * sans empreinte (jeton nu, appel direct) est refusée de même : l'avertissement n'a pas été vu. Aucune écriture ici.
+ */
+async function exigerAvertissementsUnitesVus(tx: Tx, charge: ChargeArticle, vu: string | null) {
+  const parUnite = new Map<string, string[]>();
+  for (const a of charge.articles) {
+    const c = a.changements.find((x) => x.champ === "unite");
+    if (c && typeof c.apres === "string" && c.apres.trim()) parUnite.set(c.apres, [...(parUnite.get(c.apres) ?? []), a.id]);
+  }
+  if (parUnite.size === 0) return;
+  if (vu === null) throw new Error("Cette demande change des unités : rechargez la page avant de l'approuver, pour lire les avertissements (stock, historique, rattachements) à jour. Rien n'a été approuvé.");
+  const ids = [...parUnite.values()].flat().sort();
+  await tx.$queryRaw`SELECT "id" FROM "stock"."ArticleStock" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+  const lignes = [];
+  for (const [unite, idsUnite] of parUnite) lignes.push(...(await analyserChangementUnite(tx, idsUnite, unite)).lignes);
+  const ecarts = ecartsAvertissements(vu, lignes);
+  if (ecarts.length > 0) {
+    throw new Error(`${ecarts.slice(0, 5).join(" ; ")}${ecarts.length > 5 ? ` ; et ${ecarts.length - 5} autre(s)` : ""} : rechargez la page, l'avertissement sera à jour. Rien n'a été approuvé.`);
+  }
 }
 
 /** Clés de cible qu'une charge DOIT porter — recalculées depuis la charge relue (voir validerDemande). */
@@ -702,7 +728,11 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     else if (d.nature === "MOUVEMENT_MANUEL") mouvement = await executerMouvementTx(tx, d, lireCharge("MOUVEMENT_MANUEL", d.charge), opts.motif);
     else if (d.nature === "UNITE_RESTO") await executerUniteRestoTx(tx, decideur, lireCharge("UNITE_RESTO", d.charge));
     else if (d.nature === "LIEN_RESTO") await executerLienRestoTx(tx, decideur, lireCharge("LIEN_RESTO", d.charge));
-    else await executerModifArticleTx(tx, decideur, lireCharge("MODIF_ARTICLE", d.charge));
+    else {
+      const charge = lireCharge("MODIF_ARTICLE", d.charge);
+      await exigerAvertissementsUnitesVus(tx, charge, lireJetonVersion(opts.version).avertissements);
+      await executerModifArticleTx(tx, decideur, charge);
+    }
     await tx.demandeValidationStock.update({ where: { id }, data: { statut: "VALIDEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: new Date() } });
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: "VALIDEE", userId: decideur.id });

@@ -20,9 +20,11 @@ vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 
 const C = await import("../catalogue/actions");
 const { validerDemandes, refuserDemandes } = await import("./actions");
+const { apercusDemandes } = await import("@/lib/validations-stock/apercu");
 
 /** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
-const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
+// (le jeton est celui que « À valider » AFFICHE : pour une demande qui change une unité, il porte l'empreinte des avertissements vus)
+const v = async (ids: string[]) => Object.fromEntries((await apercusDemandes({ id: { in: ids } }, { detail: true })).map((x) => [x.id, x.version]));
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;

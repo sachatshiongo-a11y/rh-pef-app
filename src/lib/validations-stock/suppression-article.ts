@@ -100,7 +100,7 @@ export async function bilanSuppression(client: Client, idsDemandes: readonly str
 
 /** Phrase d'un article conservé pour un refus unique (fiche article) : même texte qu'avant la suppression en lot. */
 export const messageConservation = (c: ArticleConserve) =>
-  `« ${c.designation} » a un historique (${c.attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (il disparaît des listes), retirez-le des fiches techniques qui l'utilisent, ou fusionnez-le avec un doublon.`;
+  `« ${c.designation} » a un historique (${c.attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (bouton « Désactiver » de sa fiche : il quitte l'Inventaire et les listes de saisie), retirez-le des fiches techniques qui l'utilisent, ou fusionnez-le avec un doublon.`;
 
 /**
  * Supprime, dans la transaction `tx`, ceux des articles demandés qui n'ont AUCUN historique ; les autres ne

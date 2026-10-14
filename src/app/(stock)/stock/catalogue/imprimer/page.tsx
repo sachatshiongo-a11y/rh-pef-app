@@ -10,7 +10,7 @@ import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { libelleArticle } from "@/lib/libelle-article";
 import { formaterDecimales } from "@/lib/montant";
 
-type SP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string };
+type SP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string; inactifs?: string };
 
 export default async function CatalogueImprimerPage({ searchParams }: { searchParams: Promise<SP> }) {
   await exigerPageStock();

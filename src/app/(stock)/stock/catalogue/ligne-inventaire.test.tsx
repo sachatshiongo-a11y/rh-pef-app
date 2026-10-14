@@ -28,7 +28,7 @@ type ArticleRow = import("./catalogue-table").ArticleRow;
 const D = (v: string | number) => new Prisma.Decimal(v);
 const stock = (q: number, min: number, urgent = 0) => ({ quantite: D(q), stockMinimum: D(min), seuilUrgent: D(urgent) });
 const base = (id: string, designation: string, x: Partial<ArticleInventaire> = {}): ArticleInventaire => ({
-  id, code: null, designation, marque: null, contenance: null, contenanceUnite: null, surFicheCommande: false, domaine: "NOURRITURE",
+  id, actif: true, code: null, designation, marque: null, contenance: null, contenanceUnite: null, surFicheCommande: false, domaine: "NOURRITURE",
   categorieId: "c1", fournisseurId: "f1", unite: "Kg", devisePrix: "USD", prixUnitaireUSD: D("2.5"), prixUnitaireCDF: null, uniteParCarton: null,
   stock: stock(10, 5), _count: { fournisseurs: 1 }, ...x,
 });

@@ -188,8 +188,8 @@ describe("autre rôle : proposé, puis approuvé par la Direction", () => {
     expect(avert[farine]!.join(" ")).toContain("kg → g : stock 12 kg, prix de référence 2,50 $ — quantités et prix gardent les mêmes chiffres dans la nouvelle unité, rien n'est converti.");
 
     en("dir");
-    const version = (await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).updatedAt.toISOString();
-    expect(await validerDemandes([d.id], {}, { [d.id]: version })).toEqual({ traitees: [d.id], echecs: [] });
+    expect(apercu.version).toContain("#u:"); // le jeton de version porte l'empreinte des avertissements affichés
+    expect(await validerDemandes([d.id], {}, { [d.id]: apercu.version })).toEqual({ traitees: [d.id], echecs: [] });
     expect(await unite(farine)).toBe("g");
     expect(await unite(cannelle)).toBe("g");
     expect((await prisma.stock.findUniqueOrThrow({ where: { articleId: farine } })).quantite.toString()).toBe("12"); // même chiffre

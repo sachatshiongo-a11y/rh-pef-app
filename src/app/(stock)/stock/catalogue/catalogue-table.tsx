@@ -47,6 +47,8 @@ const nombreOuTiret = (v: string | null | undefined) => { const n = nombreDeBase
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
+  /** Faux = article désactivé (masqué de l'Inventaire par défaut) ; absent = actif. */
+  actif?: boolean;
   code?: string | null; // code article (repris du fichier d'inventaire) ; absent = sans code
   designation: string;
   /** Marque (facultative) : s'insère dans le nom AFFICHÉ avant la contenance (`libelleArticle`) et se cherche. */
@@ -122,8 +124,10 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, initialInactifs = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte; initialManque?: ManqueKey; initialHausse?: boolean;
+  /** Vue « Désactivés » (pastille) lue dans l'adresse : par défaut l'Inventaire ne montre que les articles ACTIFS. */
+  initialInactifs?: boolean;
   /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
   pageInit?: number; parInit?: ParPage;
   /**
@@ -161,6 +165,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
   const [manque, setManque] = useState<ManqueKey>(initialManque); // vue « À compléter »
   const [hausseSeule, setHausseSeule] = useState(initialHausse); // filtre : articles dont le prix d'achat a grimpé
+  const [inactifs, setInactifs] = useState(initialInactifs); // vue « Désactivés » : les articles désactivés seuls, pour les réactiver
   const [bulkFour, setBulkFour] = useState("");
   const [bulkDom, setBulkDom] = useState<"" | Domaine>("");
   const [bulkDomCat, setBulkDomCat] = useState(""); // "" = même nom sinon à classer ; "A_CLASSER" ; id d'une catégorie du nouveau domaine
@@ -190,18 +195,25 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   // Le filtre est défini UNE fois (`lib/filtre-inventaire`) : les exports Excel / PDF relisent le même, depuis l'adresse.
   const visibles = useMemo(
-    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && articleDansFiltre(a, { q, alerte, manque, hausse: hausseSeule })),
-    [articles, q, dom, alerte, manque, hausseSeule],
+    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && articleDansFiltre(a, { q, alerte, manque, hausse: hausseSeule, visibilite: inactifs ? "inactifs" : "actifs" })),
+    [articles, q, dom, alerte, manque, hausseSeule, inactifs],
   );
+  // Compteurs, valeur et bandeaux : les articles ACTIFS seulement (règle de l'accueil du Stock, `indicateursStock`) — un article
+  // désactivé n'alerte plus, ne se valorise plus et ne s'additionne plus ; la pastille « Désactivés » les montre à part.
+  const actifs = useMemo(() => articles.filter((a) => a.actif !== false), [articles]);
+  const nbInactifs = useMemo(() => articles.filter((a) => a.actif === false && (dom === "TOUS" || a.domaine === dom)).length, [articles, dom]);
+  const nbDuDomaine = inactifs ? nbInactifs : actifs.filter((a) => dom === "TOUS" || a.domaine === dom).length;
+  // Passer d'une vue à l'autre : les filtres d'alerte, « À compléter » et hausse ne parlent que des articles actifs.
+  const basculerInactifs = () => { setInactifs((v) => !v); setAlerte(""); setManque(""); setHausseSeule(false); setSel(new Set()); };
   // Le filtre s'écrit dans l'adresse (sans rechargement) : un rechargement ou un lien le retrouve, et le menu
   // « Exporter » sort exactement l'ensemble affiché. La page et la taille de page sont écrites par `usePagination`.
   useEffect(() => {
     const u = new URL(window.location.href);
-    for (const cle of ["q", "alerte", "manque", "hausse"]) u.searchParams.delete(cle);
-    for (const [cle, v] of paramsFiltreInventaire({ q: q.trim(), alerte, manque, hausse: hausseSeule })) u.searchParams.set(cle, v);
+    for (const cle of ["q", "alerte", "manque", "hausse", "inactifs"]) u.searchParams.delete(cle);
+    for (const [cle, v] of paramsFiltreInventaire({ q: q.trim(), alerte, manque, hausse: hausseSeule, visibilite: inactifs ? "inactifs" : "actifs" })) u.searchParams.set(cle, v);
     const voulu = `${u.pathname}${u.search}${u.hash}`;
     if (voulu !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, "", voulu);
-  }, [q, alerte, manque, hausseSeule]);
+  }, [q, alerte, manque, hausseSeule, inactifs]);
 
   // La sélection EFFECTIVE = cochées ∩ filtre affiché : c'est elle qui se compte et qui part aux actions groupées.
   // Cocher la page 1 puis filtrer « Urgent » ne laisse pas 50 articles invisibles recevoir « Désactiver » (relecture du 2026-10-08).
@@ -219,13 +231,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   // Pagination (50 / 100 / Tout) : une TRANCHE de la liste filtrée et triée. Les totaux (valeur du stock,
   // compteurs de catégorie, « Remettre à 0 », sélection du filtre) restent ceux de TOUT le filtre.
   // Un autre filtre, une autre recherche ou un autre tri ramène à la page 1.
-  const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, tri?.col, tri?.dir].join("|") });
+  const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, inactifs, tri?.col, tri?.dir].join("|") });
   const { debut: debutPage, fin: finPage } = pagination;
   const page = useMemo(() => tranche(affichees, { debut: debutPage, fin: finPage }), [affichees, debutPage, finPage]);
 
   // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
   const incomplets = useMemo(() => {
-    const base = articles.filter((a) => dom === "TOUS" || a.domaine === dom);
+    const base = actifs.filter((a) => dom === "TOUS" || a.domaine === dom);
     return {
       prix: base.filter((a) => manqueDe(a, "prix")).length,
       fournisseur: base.filter((a) => manqueDe(a, "fournisseur")).length,
@@ -233,7 +245,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       unite: base.filter((a) => manqueDe(a, "unite")).length,
       negatif: base.filter((a) => manqueDe(a, "negatif")).length,
     };
-  }, [articles, dom]);
+  }, [actifs, dom]);
 
   // Puces « À compléter » (celles qui ont au moins un article) : le bandeau de l'ordinateur et le menu « Plus » du téléphone.
   const manquants = ([
@@ -247,20 +259,20 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   // Nombre d'articles dont le dernier prix d'achat a grimpé (sur le domaine courant).
   const compteHausse = useMemo(
-    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
-    [articles, dom],
+    () => actifs.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
+    [actifs, dom],
   );
 
   // Compteurs d'alerte (sur le domaine courant) pour le bandeau de réapprovisionnement.
   const compte = useMemo(() => {
     let urgent = 0, appro = 0;
-    for (const a of articles) {
+    for (const a of actifs) {
       if (dom !== "TOUS" && a.domaine !== dom) continue;
       if (a.niveau === "URGENT") urgent++;
       else if (a.niveau === "APPRO") appro++;
     }
     return { urgent, appro };
-  }, [articles, dom]);
+  }, [actifs, dom]);
 
   // Le résultat de l'action est RENDU par `fn` : une erreur s'affiche, une proposition envoyée à la
   // Direction aussi (en information) — jamais avalés.
@@ -341,7 +353,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. Sur téléphone, ces deux bandeaux (et « À compléter ») deviennent des pilules à compteur dans la rangée défilante plus bas : la même information, sans la place. */}
-      {(compte.urgent > 0 || compte.appro > 0) && (
+      {!inactifs && (compte.urgent > 0 || compte.appro > 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-amber-900">⚠ À réapprovisionner</span>
           {compte.urgent > 0 && (
@@ -365,7 +377,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* Hausse de prix : articles rachetés nettement plus cher que la moyenne précédente. Clic = filtre. */}
-      {compteHausse > 0 && (
+      {!inactifs && compteHausse > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-red-800">📈 Hausse de prix d&apos;achat</span>
           <button
@@ -396,11 +408,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </label>
         {/* Le domaine se choisit via les pilules d'en-tête (Tous / Nourriture / Boissons / Autre). */}
         <div className="flex gap-1.5 text-sm max-lg:hidden">
-          {ALERTES.map(([k, label]) => (
+          {!inactifs && ALERTES.map(([k, label]) => (
             <button key={k} onClick={() => setAlerte(k as "" | NiveauAlerte)} className={`rounded-full border px-3 py-1 ${alerte === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</button>
           ))}
+          {/* Articles désactivés (décision de la Direction, 2026-10-14) : masqués de l'Inventaire, ils se retrouvent ici, avec « Activer » pour les réactiver. */}
+          {(nbInactifs > 0 || inactifs) && (
+            <button type="button" data-pastille-desactives="" aria-pressed={inactifs} onClick={basculerInactifs} className={`rounded-full border px-3 py-1 ${inactifs ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Désactivés ({nbInactifs})</button>
+          )}
         </div>
-        <span className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {articles.length} article(s)</span>
+        <span className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {nbDuDomaine} article(s){inactifs ? " désactivé(s)" : ""}</span>
         {/* Téléphone : « Plus » range ce qui est secondaire (à compléter, valeur du stock, ajout, export). */}
         <button
           type="button"
@@ -418,7 +434,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {/* Téléphone : UNE rangée de pilules qui défile de côté (au lieu de plusieurs lignes empilées).
           Les compteurs reprennent les bandeaux « À réapprovisionner » et « Hausse de prix » ; chaque pilule filtre. */}
       <div data-filtres-mobile="" role="group" aria-label="Filtres" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 lg:hidden">
-        {ALERTES.map(([k, label]) => {
+        {!inactifs && ALERTES.map(([k, label]) => {
           const n = k === "URGENT" ? compte.urgent : k === "APPRO" ? compte.appro : 0;
           return (
             <button
@@ -432,25 +448,28 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             </button>
           );
         })}
-        {compteHausse > 0 && (
+        {!inactifs && compteHausse > 0 && (
           <button type="button" onClick={() => setHausseSeule((v) => !v)} aria-pressed={hausseSeule} className={`${PILULE_MOBILE} border-transparent bg-red-100 text-red-800 ${hausseSeule ? "font-semibold ring-2 ring-inset ring-primary" : ""}`}>
             📈 Hausse de prix<span className="ml-1 font-semibold tabular-nums">{compteHausse}</span>
           </button>
         )}
-        {manque && (
+        {!inactifs && manque && (
           <button type="button" onClick={() => setManque("")} aria-label="Retirer le filtre « À compléter »" className={`${PILULE_MOBILE} border-primary bg-primary/10 font-medium`}>
             À compléter : {manquants.find(([k]) => k === manque)?.[2] ?? manque} <span aria-hidden className="ml-1">✕</span>
           </button>
+        )}
+        {(nbInactifs > 0 || inactifs) && (
+          <button type="button" data-pastille-desactives="" onClick={basculerInactifs} aria-pressed={inactifs} className={`${PILULE_MOBILE} ${inactifs ? "border-primary bg-primary/10 font-semibold ring-2 ring-inset ring-primary" : ""}`}>Désactivés ({nbInactifs})</button>
         )}
       </div>
 
       {plus && (
         <div id="inventaire-plus" data-plus-mobile="" className="space-y-3 rounded-xl border bg-muted/30 p-3 text-sm lg:hidden">
           <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(articles)}{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(articles)}</span></span>
-            <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
+            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(actifs)}{usd(actifs.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(actifs)}</span></span>
+            <span className="text-xs text-muted-foreground">{visibles.length} / {nbDuDomaine} article(s){inactifs ? " désactivé(s)" : ""}</span>
           </p>
-          {manquants.length > 0 && (
+          {!inactifs && manquants.length > 0 && (
             <div>
               <p className="mb-1.5 font-medium text-muted-foreground">À compléter</p>
               <div className="flex flex-wrap gap-1.5">
@@ -472,7 +491,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* À compléter : champs manquants qui brident les alertes et la valorisation. Clic = filtre. */}
-      {totalManquants > 0 && (
+      {!inactifs && totalManquants > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm max-lg:hidden">
           <span className="font-medium text-muted-foreground">À compléter :</span>
           {manquants.map(([k, n, lbl]) => (
@@ -837,6 +856,7 @@ const LigneArticle = memo(function LigneArticle({
           {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
           {a.propositionEnAttente && <BadgeProposition />}
+          {a.actif === false && <BadgeInactif />}
         </div>
       </td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}</td>
@@ -915,6 +935,7 @@ export const CarteArticle = memo(function CarteArticle({
             {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
             {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
             {a.propositionEnAttente && <BadgeProposition />}
+            {a.actif === false && <BadgeInactif />}
             {categorieNom && <span className="truncate">{categorieNom}</span>}
           </span>
         </div>
@@ -959,6 +980,11 @@ export const CarteArticle = memo(function CarteArticle({
     </div>
   );
 });
+
+/** Pastille grise « Inactif » (couleur + libellé) : l'article est désactivé — vu par la pastille « Désactivés », réactivable par « Activer ». */
+function BadgeInactif() {
+  return <span data-badge-inactif="" title="Article désactivé : il n'apparaît plus dans l'Inventaire ni dans les listes de saisie" className="shrink-0 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold text-gray-700">Inactif</span>;
+}
 
 /** Pastille « proposition en attente » (même forme que les autres pastilles de la ligne). */
 function BadgeProposition() {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { apercuUnite, classerChangementUnite, type FaitsUnite } from "./unite-article";
+import { apercuUnite, classerChangementUnite, ecartsAvertissements, jetonAvertissements, lireJetonVersion, type FaitsUnite } from "./unite-article";
 
 // Changer l'unité d'un article ne convertit RIEN : ce module dit, article par article, ce qui change de sens.
 // Pur (aucune base) : les faits sont donnés, la classification est vérifiée.
@@ -140,5 +140,32 @@ describe("apercuUnite — ce que la confirmation dit", () => {
   it("un seul article : le singulier", () => {
     const a = apercuUnite(classerChangementUnite([vierge({ stock: "1" })], "g"), "g");
     expect(a.resume).toMatch(/^1 article a déjà du stock/);
+  });
+});
+
+describe("jeton de version : l'empreinte des avertissements affichés", () => {
+  const lot = (o: Partial<FaitsUnite>[]) => classerChangementUnite(o.map((x, i) => vierge({ id: `0000000${i}-aaaa-bbbb-cccc-dddddddddddd`, designation: `Art ${i}`, nom: `Art ${i}`, ...x })), "g");
+
+  it("se lit : horodatage + empreinte ; un jeton nu n'a pas d'empreinte", () => {
+    const jeton = `2026-10-14T10:00:00.000Z${jetonAvertissements(lot([{ stock: "12" }]))}`;
+    expect(lireJetonVersion(jeton).horodatage).toBe("2026-10-14T10:00:00.000Z");
+    expect(lireJetonVersion(jeton).avertissements).toMatch(/^#u:[0-9a-f]{10}~[0-9a-f]{6}$/);
+    expect(lireJetonVersion("2026-10-14T10:00:00.000Z")).toEqual({ horodatage: "2026-10-14T10:00:00.000Z", avertissements: null });
+  });
+
+  it("rien n'a changé : aucun écart ; les articles libres n'entrent pas dans l'empreinte", () => {
+    const l = lot([{ stock: "12" }, {}]);
+    expect(jetonAvertissements(l).split(",")).toHaveLength(1);
+    expect(ecartsAvertissements(jetonAvertissements(l), l)).toEqual([]);
+  });
+
+  it("un article libre qui reçoit du stock, un avertissement qui change, un avertissement qui disparaît : chacun est nommé", () => {
+    const vu = jetonAvertissements(lot([{ stock: "12" }, {}, { prix: "2 $" }]));
+    const apres = lot([{ stock: "12", nbMouvements: 3 }, { stock: "4" }, {}]);
+    expect(ecartsAvertissements(vu, apres)).toEqual([
+      "« Art 0 » a changé depuis l'affichage (stock 12 kg, 3 mouvements)",
+      "« Art 1 » a reçu du stock, de l'historique ou un rattachement depuis l'affichage (stock 4 kg)",
+      "« Art 2 » n'a plus de quoi justifier l'avertissement affiché",
+    ]);
   });
 });

@@ -185,7 +185,7 @@ export async function rubriqueNegatifs(): Promise<Rubrique | null> {
     include: { stock: true, _count: { select: { fournisseurs: true } } },
     orderBy: { designation: "asc" },
   });
-  const negatifs = filtrerArticles(candidats, new Map(), { ...FILTRE_INVENTAIRE_VIDE, manque: "negatif" });
+  const negatifs = filtrerArticles(candidats, new Map(), { ...FILTRE_INVENTAIRE_VIDE, manque: "negatif", visibilite: "tous" });
   if (negatifs.length === 0) return null;
   const lignes: Ligne[] = negatifs.map((a) => ({
     texte: `${libelleArticle(a)} — ${nombre(Number(a.stock!.quantite))}${a.unite ? ` ${a.unite}` : ""}${a.actif ? "" : " (article désactivé)"}`,

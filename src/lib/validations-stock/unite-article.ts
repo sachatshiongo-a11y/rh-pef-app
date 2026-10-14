@@ -19,6 +19,7 @@ import "server-only";
 // lignes de fiche technique (`convertirVersUniteArticle`, contenance comprise), livraisons du restaurant
 // (`convertirDepuisUniteArticle`), règle « une seule unité par produit » (`normaliserUnite`).
 
+import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import type { Prisma } from "@prisma/client";
 import type { prisma } from "@/lib/prisma";
@@ -214,4 +215,47 @@ export async function chargerFaitsUnite(client: Client, ids: readonly string[]):
 export async function analyserChangementUnite(client: Client, ids: readonly string[], uniteSaisie: string) {
   const lignes = classerChangementUnite(await chargerFaitsUnite(client, ids), uniteSaisie);
   return { lignes, apercu: apercuUnite(lignes, uniteSaisie.trim()) };
+}
+
+// ── Les avertissements vus par la Direction, revérifiés à l'approbation ─────────────────────────────────────────────
+// L'écran « À valider » calcule les avertissements à l'AFFICHAGE ; entre l'affichage et le clic « Approuver », un article
+// peut avoir reçu du stock ou un mouvement. La Direction décide de ce qu'elle a VU : le jeton de version de la demande
+// (`ApercuDemande.version`) porte donc, pour une demande qui change des unités, une EMPREINTE des avertissements affichés
+// (un court identifiant d'article + l'empreinte de ses raisons et alertes). À l'approbation, le serveur recalcule et refuse
+// si l'ensemble a changé (`ecartsAvertissements`). Approbation unique et approbation groupée passent par le même contrôle.
+
+const PREFIXE_JETON = "#u:";
+const empreinte = (l: LigneUnite) => createHash("sha1").update(JSON.stringify([l.raisons, l.alertes])).digest("hex").slice(0, 6);
+const court = (id: string) => id.replace(/-/g, "").slice(0, 10);
+
+/** Suffixe du jeton de version : les articles à confirmer (ou ayant une alerte) avec l'empreinte de leurs avertissements. */
+export function jetonAvertissements(lignes: readonly LigneUnite[]): string {
+  return `${PREFIXE_JETON}${lignes.filter((l) => l.confirmer).map((l) => `${court(l.id)}~${empreinte(l)}`).sort().join(",")}`;
+}
+
+/** Sépare un jeton de version en son horodatage et, s'il y en a un, le suffixe des avertissements (null : jeton nu). */
+export function lireJetonVersion(version: string): { horodatage: string; avertissements: string | null } {
+  const i = version.indexOf(PREFIXE_JETON);
+  return i < 0 ? { horodatage: version, avertissements: null } : { horodatage: version.slice(0, i), avertissements: version.slice(i) };
+}
+
+/**
+ * Ce qui a changé depuis l'affichage (liste vide : les avertissements vus sont toujours les bons). Chaque message nomme
+ * l'article et dit ce qu'il porte MAINTENANT. PUR.
+ */
+export function ecartsAvertissements(vu: string, lignes: readonly LigneUnite[]): string[] {
+  const avant = new Map(vu.slice(PREFIXE_JETON.length).split(",").filter(Boolean).map((e) => { const [id, h] = e.split("~"); return [id, h] as const; }));
+  const actuel = new Map(lignes.filter((l) => l.confirmer).map((l) => [court(l.id), l] as const));
+  const message: string[] = [];
+  for (const [id, l] of actuel) {
+    const maintenant = [...l.raisons, ...l.alertes.map(() => "cohérence à revoir")].join(", ");
+    if (!avant.has(id)) message.push(`« ${l.designation} » a reçu du stock, de l'historique ou un rattachement depuis l'affichage${maintenant ? ` (${maintenant})` : ""}`);
+    else if (avant.get(id) !== empreinte(l)) message.push(`« ${l.designation} » a changé depuis l'affichage${maintenant ? ` (${maintenant})` : ""}`);
+  }
+  for (const id of avant.keys()) {
+    if (actuel.has(id)) continue;
+    const l = lignes.find((x) => court(x.id) === id);
+    message.push(`« ${l?.designation ?? "Un article"} » n'a plus de quoi justifier l'avertissement affiché`);
+  }
+  return message;
 }
