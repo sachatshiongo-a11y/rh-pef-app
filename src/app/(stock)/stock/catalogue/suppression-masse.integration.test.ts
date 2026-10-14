@@ -154,6 +154,23 @@ describe("supprimerArticlesEnMasse — articles avec et sans historique", () => 
   }, 60_000);
 });
 
+describe("supprimerArticlesEnMasse — liens de configuration emportés avec l'article", () => {
+  it("fournisseurs rattachés et rattachement au restaurant partent avec l'article vierge ET sont dits au journal ; l'article du restaurant et le fournisseur restent", async () => {
+    const a = await art("Cannelle");
+    const four = await prisma.fournisseur.create({ data: { nom: "Kathy" } });
+    await prisma.articleFournisseur.create({ data: { articleId: a, fournisseurId: four.id, habituel: true } });
+    const resto = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Cannelle resto", unite: "kg" } });
+    await prisma.articleRestoStock.create({ data: { articleRestoId: resto.id, articleStockId: a } });
+    const r = await supprimerArticlesEnMasse([a]) as { supprimes: number };
+    expect(r.supprimes).toBe(1);
+    expect(await existe(a)).toBe(false);
+    expect(await prisma.articleFournisseur.count({ where: { articleId: a } })).toBe(0);
+    expect(await prisma.fournisseur.count({ where: { id: four.id } })).toBe(1);
+    expect(await prisma.articleResto.count({ where: { id: resto.id } })).toBe(1);
+    expect((await journal("suppression")).map((l) => l.ancienneValeur)).toEqual(["Cannelle — 1 rattachement au restaurant retiré(s) — 1 fournisseur rattaché(s) retiré(s)"]);
+  }, 60_000);
+});
+
 describe("supprimerArticlesEnMasse — le volume d'un vrai inventaire", () => {
   it("600 articles cochés d'un coup (dont 3 avec historique) : une transaction, les 597 vierges partent, les 3 restent", async () => {
     await prisma.articleStock.createMany({ data: Array.from({ length: 597 }, (_, i) => ({ designation: `Vierge ${i}`, domaine: "NOURRITURE" as const })) });

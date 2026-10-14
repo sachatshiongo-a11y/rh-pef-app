@@ -33,6 +33,8 @@ export type ArticleSupprimable = {
   stock: string | null;
   /** Rattachements au restaurant retirés avec l'article (cascade). */
   liensResto: number;
+  /** Fournisseurs rattachés à l'article (`ArticleFournisseur`, cascade) : liens retirés avec lui — aucun prix n'y est stocké, il se lit dans l'historique d'achats. */
+  fournisseurs: number;
 };
 export type ArticleConserve = {
   id: string; designation: string;
@@ -56,7 +58,7 @@ export async function bilanSuppression(client: Client, idsDemandes: readonly str
   const db = client as typeof prisma; // une transaction offre les mêmes lectures ; le type d'union des deux ne résout pas les `groupBy`
   const arts = await db.articleStock.findMany({
     where: { id: { in: ids } },
-    select: { id: true, ...CHAMPS_LIBELLE, unite: true, stock: { select: { quantite: true, quantiteEndommagee: true } }, _count: { select: { liensResto: true } } },
+    select: { id: true, ...CHAMPS_LIBELLE, unite: true, stock: { select: { quantite: true, quantiteEndommagee: true } }, _count: { select: { liensResto: true, fournisseurs: true } } },
   });
   const historique = await historiqueDesArticles(db, ids);
   // `IngredientFiche.articleId` est en `onDelete: Restrict` : sans ce contrôle, la suppression échouerait sur une
@@ -90,7 +92,7 @@ export async function bilanSuppression(client: Client, idsDemandes: readonly str
       q && !q.isZero() ? `${formaterNombre(Number(q), { maximumFractionDigits: 3 })}${unite}` : null,
       endommage && !endommage.isZero() ? `${formaterNombre(Number(endommage), { maximumFractionDigits: 3 })}${unite} endommagé(s)` : null,
     ].filter(Boolean);
-    supprimables.push({ id: a.id, designation, nom: a.designation, stock: morceaux.length ? morceaux.join(" + ") : null, liensResto: a._count.liensResto });
+    supprimables.push({ id: a.id, designation, nom: a.designation, stock: morceaux.length ? morceaux.join(" + ") : null, liensResto: a._count.liensResto, fournisseurs: a._count.fournisseurs });
   }
   const parNom = (x: { designation: string }, y: { designation: string }) => x.designation.localeCompare(y.designation, "fr");
   return { supprimables: supprimables.sort(parNom), conserves: conserves.sort(parNom), introuvables: ids.length - arts.length };
@@ -118,7 +120,7 @@ export async function supprimerArticlesSansHistoriqueTx(tx: Tx, userId: string, 
   await tx.articleStock.deleteMany({ where: { id: { in: aSupprimer } } });
   const journal: EntreeJournal[] = bilan.supprimables.map((a) => ({
     entite: "ArticleStock", entiteId: a.id, champ: "suppression",
-    ancienneValeur: `${a.nom}${a.stock ? ` — stock effacé avec l'article : ${a.stock}` : ""}${a.liensResto ? ` — ${pl(a.liensResto, "rattachement")} au restaurant retiré(s)` : ""}`.slice(0, 900),
+    ancienneValeur: `${a.nom}${a.stock ? ` — stock effacé avec l'article : ${a.stock}` : ""}${a.liensResto ? ` — ${pl(a.liensResto, "rattachement")} au restaurant retiré(s)` : ""}${a.fournisseurs ? ` — ${pl(a.fournisseurs, "fournisseur")} rattaché(s) retiré(s)` : ""}`.slice(0, 900),
     userId,
   }));
   if (aSupprimer.length > 1 || bilan.conserves.length > 0) {
