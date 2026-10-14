@@ -8,7 +8,7 @@ import type { Espion } from "@/lib/test/espion-ecritures";
 // fonctions qui alimentent les écrans, dollars et francs additionnés séparément, « partiel » annoncé, refus sans
 // jeton, destinataires par rôle, aucune écriture.
 const E = vi.hoisted(() => ({ espion: undefined as unknown as Espion }));
-const M = vi.hoisted(() => ({ email: vi.fn(async () => {}) }));
+const M = vi.hoisted(() => ({ email: vi.fn(async () => true) }));
 vi.mock("@/lib/prisma", async () => {
   const { creerEspion, proxyEspion } = await import("@/lib/test/espion-ecritures");
   E.espion = creerEspion();

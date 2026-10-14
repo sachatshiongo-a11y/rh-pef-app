@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   if (destinataires.length === 0) return NextResponse.json({ envoye: false, nombre: envoi.nombre, destinataires: 0 });
 
   const nbAlertes = envoi.rubriques.find((r) => r.cle === "alertes")?.nombre ?? 0;
-  await Promise.all([
+  const [emailOk] = await Promise.all([
     envoyerEmail(destinataires.map((d) => d.email), envoi.sujet, envoi.corps),
     envoyerPush(destinataires.map((d) => d.id), {
       title: `Pâtes en Folie · Stock : ${envoi.nombre} point(s)`,
@@ -46,5 +46,6 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  if (!emailOk) return NextResponse.json({ envoye: false, erreur: "courriel", nombre: envoi.nombre }, { status: 502 });
   return NextResponse.json({ envoye: true, nombre: envoi.nombre, rubriques: envoi.rubriques.map((r) => r.cle), articlesEnAlerte: nbAlertes, destinataires: destinataires.length });
 }

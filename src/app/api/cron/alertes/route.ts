@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  await Promise.all([
+  const [emailOk] = await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
       `Pâtes en Folie · ${aEnvoyer.length} rappel(s) du jour`,
@@ -73,5 +73,7 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  // Courriel tenté mais refusé (SMTP injoignable…) : 502, pour que le déclencheur GitHub passe au rouge et prévienne.
+  if (!emailOk) return NextResponse.json({ envoye: false, erreur: "courriel", nombre: aEnvoyer.length }, { status: 502 });
   return NextResponse.json({ envoye: true, nombre: aEnvoyer.length, urgents: urgents.length });
 }

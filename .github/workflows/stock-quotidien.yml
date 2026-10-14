@@ -13,8 +13,14 @@ jobs:
   stock-quotidien:
     runs-on: ubuntu-latest
     steps:
+      # Réveil d'abord (2026-10-14) : l'instance Render gratuite s'endort après 15 min ; son démarrage à froid
+      # mangeait le délai de l'envoi (curl : code 28). On attend qu'elle réponde, sans rien déclencher.
+      - name: Réveiller l'application
+        run: |
+          curl -fsS --max-time 60 --retry 6 --retry-delay 20 --retry-all-errors \
+            https://gestion.patesenfolie.cd/api/version
       - name: Déclencher le courriel quotidien du Stock
         run: |
-          curl -fsS --max-time 120 -X GET \
+          curl -fsS --max-time 180 -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             https://gestion.patesenfolie.cd/api/cron/stock-quotidien

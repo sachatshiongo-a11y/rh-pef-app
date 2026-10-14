@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
   if (apercu) {
     return NextResponse.json({ envoye: false, apercu: true, mois: rapport.mois.libelle, destinataires: destinataires.length, sujet: rapport.sujet, corps: rapport.corps });
   }
-  if (destinataires.length > 0) await envoyerEmail(destinataires.map((d) => d.email), rapport.sujet, rapport.corps);
+  if (destinataires.length > 0 && !(await envoyerEmail(destinataires.map((d) => d.email), rapport.sujet, rapport.corps))) {
+    return NextResponse.json({ envoye: false, erreur: "courriel", mois: rapport.mois.libelle }, { status: 502 });
+  }
 
   return NextResponse.json({ envoye: destinataires.length > 0, destinataires: destinataires.length, mois: rapport.mois.libelle });
 }

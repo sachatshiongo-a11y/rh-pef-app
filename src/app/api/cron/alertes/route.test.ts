@@ -7,7 +7,7 @@ import type { Alerte } from "@/lib/alertes";
 // (`/api/cron/stock-quotidien`), mêmes destinataires (ADMIN) : la répéter ici serait un doublon.
 const M = vi.hoisted(() => ({
   alertes: [] as Alerte[],
-  email: vi.fn(async (_a: string[], _s: string, _c: string) => {}),
+  email: vi.fn(async (_a: string[], _s: string, _c: string) => true),
   push: vi.fn(async () => {}),
   admins: [{ id: "a1", email: "direction@exemple.cd" }],
 }));
@@ -50,5 +50,16 @@ describe("rappels RH quotidiens : pas d'alerte du Stock", () => {
     expect(body).toEqual({ envoye: false, nombre: 0 });
     expect(M.email).not.toHaveBeenCalled();
     expect(M.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("rappels RH quotidiens : un courriel refusé se voit", () => {
+  beforeEach(() => { process.env.CRON_SECRET = "secret-de-test"; M.email.mockClear(); M.push.mockClear(); });
+  it("SMTP injoignable : réponse 502 (le déclencheur GitHub passe au rouge), jamais un faux « envoyé »", async () => {
+    M.alertes = [{ type: "JOUR_PAIE", espace: "RH", niveau: "urgent", message: "Jour de paie demain.", lien: "/paie" }];
+    M.email.mockResolvedValueOnce(false);
+    const r = await appel();
+    expect(r.status).toBe(502);
+    expect(await r.json()).toMatchObject({ envoye: false, erreur: "courriel" });
   });
 });

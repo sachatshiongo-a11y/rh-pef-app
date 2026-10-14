@@ -22,16 +22,26 @@ function getTransporteur(): nodemailer.Transporter | null {
       port,
       secure: port === 465,
       auth: { user, pass },
+      // Délais courts (2026-10-14) : par défaut nodemailer attend 2 min une connexion SMTP qui ne vient pas.
+      // Un port SMTP bloqué faisait dépasser les 120 s du déclencheur GitHub (curl, code 28) sans que
+      // l'échec soit dit nulle part. Désormais l'envoi échoue en ~15 s et le journal le dit.
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
   }
   return transporteur;
 }
 
-/** Envoie un e-mail. Ne lève jamais : les erreurs sont journalisées, l'app continue. */
-export async function envoyerEmail(destinataires: string[], sujet: string, texte: string): Promise<void> {
+/**
+ * Envoie un e-mail. Ne lève jamais : les erreurs sont journalisées, l'app continue.
+ * Renvoie `false` seulement si un envoi a été TENTÉ et a échoué (SMTP absent ou aucun destinataire :
+ * `true`, rien à signaler) — les déclencheurs planifiés s'en servent pour se mettre en échec.
+ */
+export async function envoyerEmail(destinataires: string[], sujet: string, texte: string): Promise<boolean> {
   const t = getTransporteur();
   const to = destinataires.filter(Boolean);
-  if (!t || to.length === 0) return;
+  if (!t || to.length === 0) return true;
   // Nom d'expéditeur affiché dans les boîtes mail (l'adresse vient de SMTP_FROM/SMTP_USER,
   // qui peut déjà être au format « Nom <adresse> » — on n'en garde que l'adresse).
   const brut = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "";
@@ -43,7 +53,9 @@ export async function envoyerEmail(destinataires: string[], sujet: string, texte
       subject: sujet,
       text: texte,
     });
+    return true;
   } catch (e) {
     console.error("[email] échec d'envoi :", e instanceof Error ? e.message : e);
+    return false;
   }
 }

@@ -112,8 +112,8 @@ export async function GET(request: NextRequest) {
     select: { email: true },
   });
   const emails = admins.map((a) => a.email).filter(Boolean);
-  if (emails.length > 0) {
-    await envoyerEmail(emails, `📊 Rapport mensuel — ${labelMois}`, corps);
+  if (emails.length > 0 && !(await envoyerEmail(emails, `📊 Rapport mensuel — ${labelMois}`, corps))) {
+    return NextResponse.json({ envoye: false, erreur: "courriel", mois: labelMois }, { status: 502 });
   }
 
   return NextResponse.json({ envoye: emails.length > 0, destinataires: emails.length, mois: labelMois });
