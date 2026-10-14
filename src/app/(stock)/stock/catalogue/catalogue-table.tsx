@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { creerArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, ajouterFournisseurEnMasse, retirerFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
+import { creerArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, ajouterFournisseurEnMasse, retirerFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs, changerUniteEnMasse, apercuSuppressionArticles, supprimerArticlesEnMasse, type ApercuSuppression, type ResultatSuppression } from "./actions";
+import { BoutonDanger, BoutonNeutre, CLASSES_DANGER, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
+import type { ApercuUnite } from "@/lib/validations-stock/unite-article";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
@@ -45,6 +47,8 @@ const nombreOuTiret = (v: string | null | undefined) => { const n = nombreDeBase
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
+  /** Faux = article désactivé (masqué de l'Inventaire par défaut) ; absent = actif. */
+  actif?: boolean;
   code?: string | null; // code article (repris du fichier d'inventaire) ; absent = sans code
   designation: string;
   /** Marque (facultative) : s'insère dans le nom AFFICHÉ avant la contenance (`libelleArticle`) et se cherche. */
@@ -101,6 +105,15 @@ const valeurTri = (a: ArticleRow, col: TriCol, catNom: Map<string, string>, four
 /** Pilule tactile de la rangée de filtres du téléphone (36 px de haut, jamais coupée sur deux lignes). */
 const PILULE_MOBILE = "inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-full border px-3 text-sm";
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
+// Boutons de la barre d'actions groupées : la géométrie de la norme `action-buttons` (forme, espacement, taille de texte),
+// seules les couleurs changent — principal (aplat), neutre (contour), danger (contour rouge plein), vert, ambre.
+const BTN_PRINCIPAL = `${CLASSES_GEOMETRIE} bg-primary text-primary-foreground hover:bg-primary/90`;
+const BTN_ACTIVER = `${CLASSES_GEOMETRIE} border border-emerald-300 text-emerald-800 hover:bg-emerald-50`;
+const BTN_ATTENTION = `${CLASSES_GEOMETRIE} border border-amber-400 text-amber-800 hover:bg-amber-50`;
+/** Unités proposées d'office dans la liste de l'action groupée, avec celles que le catalogue emploie déjà. */
+const UNITES_USUELLES = ["kg", "g", "L", "cl", "Pièce", "Bouteille", "Carton", "Paquet", "Boîte"];
+/** Nombre de lignes montrées d'une liste de confirmation avant « Voir les N autres » (pas de défilement interne). */
+const LIGNES_VISIBLES = 8;
 /** Tris proposés sur téléphone (même `tri` que les en-têtes de l'ordinateur) : valeur = « colonne:sens ». */
 const TRIS_MOBILE: readonly (readonly [string, string])[] = [
   ["", "↕ Catégories"],
@@ -111,8 +124,10 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, initialInactifs = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte; initialManque?: ManqueKey; initialHausse?: boolean;
+  /** Vue « Désactivés » (pastille) lue dans l'adresse : par défaut l'Inventaire ne montre que les articles ACTIFS. */
+  initialInactifs?: boolean;
   /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
   pageInit?: number; parInit?: ParPage;
   /**
@@ -150,10 +165,18 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
   const [manque, setManque] = useState<ManqueKey>(initialManque); // vue « À compléter »
   const [hausseSeule, setHausseSeule] = useState(initialHausse); // filtre : articles dont le prix d'achat a grimpé
+  const [inactifs, setInactifs] = useState(initialInactifs); // vue « Désactivés » : les articles désactivés seuls, pour les réactiver
   const [bulkFour, setBulkFour] = useState("");
   const [bulkDom, setBulkDom] = useState<"" | Domaine>("");
   const [bulkDomCat, setBulkDomCat] = useState(""); // "" = même nom sinon à classer ; "A_CLASSER" ; id d'une catégorie du nouveau domaine
   const [bulkSeuil, setBulkSeuil] = useState("");
+  const [bulkUnite, setBulkUnite] = useState("");
+  // Unité en masse : la Direction confirme quand des articles ont du stock, un historique, un prix, une fiche ou un rattachement.
+  const [confUnite, setConfUnite] = useState<{ ids: string[]; apercu: ApercuUnite } | null>(null);
+  // Suppression en masse : l'aperçu (ce qui part, ce qui reste) puis le compte rendu (avec le bouton « Désactiver »).
+  const [confSuppr, setConfSuppr] = useState<{ ids: string[]; apercu: ApercuSuppression } | null>(null);
+  const [resSuppr, setResSuppr] = useState<ResultatSuppression | null>(null);
+  const [toutVoir, setToutVoir] = useState(false);
   // Seuil en masse lu à la française (« 2,5 ») ; null = vide ou illisible → bouton inactif.
   const seuilEnMasse = (() => { const l = lireSaisieNombre(bulkSeuil); return l.ok && l.valeur !== null && l.valeur >= 0 ? l.valeur : null; })();
   const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null); // null = groupé par catégorie
@@ -172,18 +195,25 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   // Le filtre est défini UNE fois (`lib/filtre-inventaire`) : les exports Excel / PDF relisent le même, depuis l'adresse.
   const visibles = useMemo(
-    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && articleDansFiltre(a, { q, alerte, manque, hausse: hausseSeule })),
-    [articles, q, dom, alerte, manque, hausseSeule],
+    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && articleDansFiltre(a, { q, alerte, manque, hausse: hausseSeule, visibilite: inactifs ? "inactifs" : "actifs" })),
+    [articles, q, dom, alerte, manque, hausseSeule, inactifs],
   );
+  // Compteurs, valeur et bandeaux : les articles ACTIFS seulement (règle de l'accueil du Stock, `indicateursStock`) — un article
+  // désactivé n'alerte plus, ne se valorise plus et ne s'additionne plus ; la pastille « Désactivés » les montre à part.
+  const actifs = useMemo(() => articles.filter((a) => a.actif !== false), [articles]);
+  const nbInactifs = useMemo(() => articles.filter((a) => a.actif === false && (dom === "TOUS" || a.domaine === dom)).length, [articles, dom]);
+  const nbDuDomaine = inactifs ? nbInactifs : actifs.filter((a) => dom === "TOUS" || a.domaine === dom).length;
+  // Passer d'une vue à l'autre : les filtres d'alerte, « À compléter » et hausse ne parlent que des articles actifs.
+  const basculerInactifs = () => { setInactifs((v) => !v); setAlerte(""); setManque(""); setHausseSeule(false); setSel(new Set()); };
   // Le filtre s'écrit dans l'adresse (sans rechargement) : un rechargement ou un lien le retrouve, et le menu
   // « Exporter » sort exactement l'ensemble affiché. La page et la taille de page sont écrites par `usePagination`.
   useEffect(() => {
     const u = new URL(window.location.href);
-    for (const cle of ["q", "alerte", "manque", "hausse"]) u.searchParams.delete(cle);
-    for (const [cle, v] of paramsFiltreInventaire({ q: q.trim(), alerte, manque, hausse: hausseSeule })) u.searchParams.set(cle, v);
+    for (const cle of ["q", "alerte", "manque", "hausse", "inactifs"]) u.searchParams.delete(cle);
+    for (const [cle, v] of paramsFiltreInventaire({ q: q.trim(), alerte, manque, hausse: hausseSeule, visibilite: inactifs ? "inactifs" : "actifs" })) u.searchParams.set(cle, v);
     const voulu = `${u.pathname}${u.search}${u.hash}`;
     if (voulu !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, "", voulu);
-  }, [q, alerte, manque, hausseSeule]);
+  }, [q, alerte, manque, hausseSeule, inactifs]);
 
   // La sélection EFFECTIVE = cochées ∩ filtre affiché : c'est elle qui se compte et qui part aux actions groupées.
   // Cocher la page 1 puis filtrer « Urgent » ne laisse pas 50 articles invisibles recevoir « Désactiver » (relecture du 2026-10-08).
@@ -201,13 +231,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   // Pagination (50 / 100 / Tout) : une TRANCHE de la liste filtrée et triée. Les totaux (valeur du stock,
   // compteurs de catégorie, « Remettre à 0 », sélection du filtre) restent ceux de TOUT le filtre.
   // Un autre filtre, une autre recherche ou un autre tri ramène à la page 1.
-  const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, tri?.col, tri?.dir].join("|") });
+  const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, inactifs, tri?.col, tri?.dir].join("|") });
   const { debut: debutPage, fin: finPage } = pagination;
   const page = useMemo(() => tranche(affichees, { debut: debutPage, fin: finPage }), [affichees, debutPage, finPage]);
 
   // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
   const incomplets = useMemo(() => {
-    const base = articles.filter((a) => dom === "TOUS" || a.domaine === dom);
+    const base = actifs.filter((a) => dom === "TOUS" || a.domaine === dom);
     return {
       prix: base.filter((a) => manqueDe(a, "prix")).length,
       fournisseur: base.filter((a) => manqueDe(a, "fournisseur")).length,
@@ -215,7 +245,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       unite: base.filter((a) => manqueDe(a, "unite")).length,
       negatif: base.filter((a) => manqueDe(a, "negatif")).length,
     };
-  }, [articles, dom]);
+  }, [actifs, dom]);
 
   // Puces « À compléter » (celles qui ont au moins un article) : le bandeau de l'ordinateur et le menu « Plus » du téléphone.
   const manquants = ([
@@ -229,20 +259,20 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   // Nombre d'articles dont le dernier prix d'achat a grimpé (sur le domaine courant).
   const compteHausse = useMemo(
-    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
-    [articles, dom],
+    () => actifs.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
+    [actifs, dom],
   );
 
   // Compteurs d'alerte (sur le domaine courant) pour le bandeau de réapprovisionnement.
   const compte = useMemo(() => {
     let urgent = 0, appro = 0;
-    for (const a of articles) {
+    for (const a of actifs) {
       if (dom !== "TOUS" && a.domaine !== dom) continue;
       if (a.niveau === "URGENT") urgent++;
       else if (a.niveau === "APPRO") appro++;
     }
     return { urgent, appro };
-  }, [articles, dom]);
+  }, [actifs, dom]);
 
   // Le résultat de l'action est RENDU par `fn` : une erreur s'affiche, une proposition envoyée à la
   // Direction aussi (en information) — jamais avalés.
@@ -258,6 +288,48 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       }
     });
   };
+  // Unités déjà employées au catalogue (les plus fréquentes d'abord) + les usuelles : la liste de l'action groupée. On peut écrire une autre unité, comme sur la fiche.
+  const unitesProposees = useMemo(() => {
+    const frequences = new Map<string, number>();
+    for (const a of articles) { const u = a.unite?.trim(); if (u) frequences.set(u, (frequences.get(u) ?? 0) + 1); }
+    const connues = [...frequences.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "fr")).map(([u]) => u);
+    const dejaLa = new Set(connues.map((u) => u.toLowerCase()));
+    return [...connues.slice(0, 30), ...UNITES_USUELLES.filter((u) => !dejaLa.has(u.toLowerCase()))];
+  }, [articles]);
+  // Changer l'unité : sans risque, c'est écrit (ou proposé) tout de suite ; sinon le serveur renvoie la confirmation à lire, rien n'est écrit.
+  const changerUnite = (ids: string[], unite: string, confirmes?: string[]) =>
+    run(async () => {
+      const r = await changerUniteEnMasse(ids, unite, confirmes);
+      if (estErreur(r)) return r;
+      if ("confirmation" in r) { setConfUnite({ ids, apercu: r.apercu }); setToutVoir(false); return null; }
+      setConfUnite(null); setSel(new Set()); setBulkUnite("");
+      return r;
+    });
+  // Supprimer : d'abord l'aperçu (Direction seule), puis la suppression des seuls articles sans historique.
+  const apercuSupprimer = (ids: string[]) =>
+    run(async () => {
+      setResSuppr(null);
+      const r = await apercuSuppressionArticles(ids);
+      if (estErreur(r)) return r;
+      setConfSuppr({ ids, apercu: r }); setToutVoir(false);
+      return null;
+    });
+  const supprimerLesVierges = (ids: string[]) =>
+    run(async () => {
+      const r = await supprimerArticlesEnMasse(ids);
+      if (estErreur(r)) return r;
+      setConfSuppr(null); setResSuppr(r);
+      setSel(new Set(r.conserves.map((c) => c.id))); // les conservés restent cochés : désactiver ou fusionner
+      return null;
+    });
+  const desactiverLesConserves = (ids: string[]) =>
+    run(async () => {
+      const r = await basculerActifArticles(ids, false);
+      if (estErreur(r)) return r;
+      setConfSuppr(null); setResSuppr(null); setSel(new Set());
+      setFait(`${ids.length} article${ids.length > 1 ? "s" : ""} désactivé${ids.length > 1 ? "s" : ""} : ${ids.length > 1 ? "ils disparaissent" : "il disparaît"} des listes, l'historique reste.`);
+      return null;
+    });
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // Téléphone : un seul article déplié à la fois (ses détails), un nouvel appui le replie.
   const [ouvert, setOuvert] = useState<string | null>(null);
@@ -281,7 +353,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. Sur téléphone, ces deux bandeaux (et « À compléter ») deviennent des pilules à compteur dans la rangée défilante plus bas : la même information, sans la place. */}
-      {(compte.urgent > 0 || compte.appro > 0) && (
+      {!inactifs && (compte.urgent > 0 || compte.appro > 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-amber-900">⚠ À réapprovisionner</span>
           {compte.urgent > 0 && (
@@ -305,7 +377,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* Hausse de prix : articles rachetés nettement plus cher que la moyenne précédente. Clic = filtre. */}
-      {compteHausse > 0 && (
+      {!inactifs && compteHausse > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-red-800">📈 Hausse de prix d&apos;achat</span>
           <button
@@ -336,11 +408,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </label>
         {/* Le domaine se choisit via les pilules d'en-tête (Tous / Nourriture / Boissons / Autre). */}
         <div className="flex gap-1.5 text-sm max-lg:hidden">
-          {ALERTES.map(([k, label]) => (
+          {!inactifs && ALERTES.map(([k, label]) => (
             <button key={k} onClick={() => setAlerte(k as "" | NiveauAlerte)} className={`rounded-full border px-3 py-1 ${alerte === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</button>
           ))}
+          {/* Articles désactivés (décision de la Direction, 2026-10-14) : masqués de l'Inventaire, ils se retrouvent ici, avec « Activer » pour les réactiver. */}
+          {(nbInactifs > 0 || inactifs) && (
+            <button type="button" data-pastille-desactives="" aria-pressed={inactifs} onClick={basculerInactifs} className={`rounded-full border px-3 py-1 ${inactifs ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Désactivés ({nbInactifs})</button>
+          )}
         </div>
-        <span className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {articles.length} article(s)</span>
+        <span className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {nbDuDomaine} article(s){inactifs ? " désactivé(s)" : ""}</span>
         {/* Téléphone : « Plus » range ce qui est secondaire (à compléter, valeur du stock, ajout, export). */}
         <button
           type="button"
@@ -358,7 +434,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {/* Téléphone : UNE rangée de pilules qui défile de côté (au lieu de plusieurs lignes empilées).
           Les compteurs reprennent les bandeaux « À réapprovisionner » et « Hausse de prix » ; chaque pilule filtre. */}
       <div data-filtres-mobile="" role="group" aria-label="Filtres" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 lg:hidden">
-        {ALERTES.map(([k, label]) => {
+        {!inactifs && ALERTES.map(([k, label]) => {
           const n = k === "URGENT" ? compte.urgent : k === "APPRO" ? compte.appro : 0;
           return (
             <button
@@ -372,25 +448,28 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             </button>
           );
         })}
-        {compteHausse > 0 && (
+        {!inactifs && compteHausse > 0 && (
           <button type="button" onClick={() => setHausseSeule((v) => !v)} aria-pressed={hausseSeule} className={`${PILULE_MOBILE} border-transparent bg-red-100 text-red-800 ${hausseSeule ? "font-semibold ring-2 ring-inset ring-primary" : ""}`}>
             📈 Hausse de prix<span className="ml-1 font-semibold tabular-nums">{compteHausse}</span>
           </button>
         )}
-        {manque && (
+        {!inactifs && manque && (
           <button type="button" onClick={() => setManque("")} aria-label="Retirer le filtre « À compléter »" className={`${PILULE_MOBILE} border-primary bg-primary/10 font-medium`}>
             À compléter : {manquants.find(([k]) => k === manque)?.[2] ?? manque} <span aria-hidden className="ml-1">✕</span>
           </button>
+        )}
+        {(nbInactifs > 0 || inactifs) && (
+          <button type="button" data-pastille-desactives="" onClick={basculerInactifs} aria-pressed={inactifs} className={`${PILULE_MOBILE} ${inactifs ? "border-primary bg-primary/10 font-semibold ring-2 ring-inset ring-primary" : ""}`}>Désactivés ({nbInactifs})</button>
         )}
       </div>
 
       {plus && (
         <div id="inventaire-plus" data-plus-mobile="" className="space-y-3 rounded-xl border bg-muted/30 p-3 text-sm lg:hidden">
           <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(articles)}{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(articles)}</span></span>
-            <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
+            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(actifs)}{usd(actifs.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(actifs)}</span></span>
+            <span className="text-xs text-muted-foreground">{visibles.length} / {nbDuDomaine} article(s){inactifs ? " désactivé(s)" : ""}</span>
           </p>
-          {manquants.length > 0 && (
+          {!inactifs && manquants.length > 0 && (
             <div>
               <p className="mb-1.5 font-medium text-muted-foreground">À compléter</p>
               <div className="flex flex-wrap gap-1.5">
@@ -412,7 +491,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* À compléter : champs manquants qui brident les alertes et la valorisation. Clic = filtre. */}
-      {totalManquants > 0 && (
+      {!inactifs && totalManquants > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm max-lg:hidden">
           <span className="font-medium text-muted-foreground">À compléter :</span>
           {manquants.map(([k, n, lbl]) => (
@@ -455,13 +534,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <option value="">Choisir une catégorie…</option>
             {categoriesChoix.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
-          <button disabled={isPending || !bulkCat} onClick={() => run(async () => { const r = await categoriserEnMasse([...sel], bulkCat); if (!estErreur(r)) { setSel(new Set()); setBulkCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
+          <button disabled={isPending || !bulkCat} onClick={() => run(async () => { const r = await categoriserEnMasse([...sel], bulkCat); if (!estErreur(r)) { setSel(new Set()); setBulkCat(""); } return r; })} className={BTN_PRINCIPAL}>{estDirection ? "Appliquer" : "Proposer"}</button>
           <span className="text-muted-foreground">· fournisseur :</span>
           <ChoixRecherche options={optionsFour} value={bulkFour} vide="Choisir un fournisseur…" onChange={setBulkFour} aria-label="Fournisseur de l'action groupée" className="w-52 rounded border border-input bg-background px-2 py-1 text-xs" />
           {/* Un article a PLUSIEURS fournisseurs (2026-10-16) : en lot, on en fait l'habituel, on l'ajoute à la liste, ou on l'en retire. */}
-          <button disabled={isPending || !bulkFour} title="Ce fournisseur devient l'habituel des articles cochés (il rejoint leur liste ; l'ancien habituel y reste)" onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Définir habituel" : "Proposer habituel"}</button>
-          <button disabled={isPending || !bulkFour} title="Ajoute ce fournisseur à la liste des articles cochés, sans changer leur habituel" onClick={() => run(async () => { const r = await ajouterFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">{estDirection ? "Ajouter" : "Proposer l'ajout"}</button>
-          <button disabled={isPending || !bulkFour} title="Retire ce fournisseur de la liste des articles cochés (s'il était l'habituel, l'article reste sans habituel)" onClick={() => run(async () => { const r = await retirerFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md border border-destructive/50 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">{estDirection ? "Retirer" : "Proposer le retrait"}</button>
+          <button disabled={isPending || !bulkFour} title="Ce fournisseur devient l'habituel des articles cochés (il rejoint leur liste ; l'ancien habituel y reste)" onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className={BTN_PRINCIPAL}>{estDirection ? "Définir habituel" : "Proposer habituel"}</button>
+          <button disabled={isPending || !bulkFour} title="Ajoute ce fournisseur à la liste des articles cochés, sans changer leur habituel" onClick={() => run(async () => { const r = await ajouterFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className={CLASSES_NEUTRE}>{estDirection ? "Ajouter" : "Proposer l'ajout"}</button>
+          <button disabled={isPending || !bulkFour} title="Retire ce fournisseur de la liste des articles cochés (s'il était l'habituel, l'article reste sans habituel)" onClick={() => run(async () => { const r = await retirerFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className={CLASSES_DANGER}>{estDirection ? "Retirer" : "Proposer le retrait"}</button>
           {/* Domaine (2026-10-09) : Nourriture ↔ Boissons ↔ Autre. La catégorie suit : même nom dans le
               nouveau domaine si elle existe, sinon « à classer » — ou une catégorie du nouveau domaine choisie ici. */}
           <span className="text-muted-foreground">· domaine :</span>
@@ -476,18 +555,111 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               {categoriesChoix.filter((c) => c.domaine === bulkDom).map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
           )}
-          <button disabled={isPending || !bulkDom} data-changer-domaine onClick={() => run(async () => { const r = await changerDomaineEnMasse([...sel], bulkDom, bulkDomCat); if (!estErreur(r)) { setSel(new Set()); setBulkDom(""); setBulkDomCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? `Changer le domaine (${sel.size})` : `Proposer le domaine (${sel.size})`}</button>
+          <button disabled={isPending || !bulkDom} data-changer-domaine onClick={() => run(async () => { const r = await changerDomaineEnMasse([...sel], bulkDom, bulkDomCat); if (!estErreur(r)) { setSel(new Set()); setBulkDom(""); setBulkDomCat(""); } return r; })} className={BTN_PRINCIPAL}>{estDirection ? `Changer le domaine (${sel.size})` : `Proposer le domaine (${sel.size})`}</button>
           <span className="text-muted-foreground">· seuil min :</span>
           <input type="text" inputMode="decimal" autoComplete="off" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" aria-invalid={seuilEnMasse === null && bulkSeuil.trim() !== "" ? true : undefined} className="w-16 rounded border border-input bg-background px-2 py-1 text-xs aria-[invalid=true]:border-destructive" />
-          <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { const r = await definirSeuilEnMasse([...sel], seuilEnMasse!); if (!estErreur(r)) { setSel(new Set()); setBulkSeuil(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
-          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">{estDirection ? "Activer" : "Proposer l'activation"}</button>
-          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">{estDirection ? "Désactiver" : "Proposer la désactivation"}</button>
-          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium hover:bg-primary/10 disabled:opacity-50">Mettre sur la fiche commande</button>
-          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Retirer de la fiche commande</button>
+          <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { const r = await definirSeuilEnMasse([...sel], seuilEnMasse!); if (!estErreur(r)) { setSel(new Set()); setBulkSeuil(""); } return r; })} className={BTN_PRINCIPAL}>{estDirection ? "Appliquer" : "Proposer"}</button>
+          {/* Unité (2026-10-14) : mêmes valeurs que le formulaire article (texte libre, avec les unités du catalogue en suggestion).
+              Rien n'est converti : un article qui a du stock, un historique, un prix, une fiche ou un rattachement passe par une confirmation. */}
+          <span className="text-muted-foreground">· unité :</span>
+          <input type="text" list="unites-inventaire" autoComplete="off" maxLength={40} value={bulkUnite} onChange={(e) => setBulkUnite(e.target.value)} placeholder="ex. kg" aria-label="Nouvelle unité des articles sélectionnés" className="w-24 rounded border border-input bg-background px-2 py-1 text-xs" />
+          <datalist id="unites-inventaire">{unitesProposees.map((u) => <option key={u} value={u} />)}</datalist>
+          <button disabled={isPending || !bulkUnite.trim()} data-changer-unite onClick={() => changerUnite([...sel], bulkUnite)} className={BTN_PRINCIPAL}>{estDirection ? `Appliquer (${sel.size})` : `Proposer (${sel.size})`}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className={BTN_ACTIVER}>{estDirection ? "Activer" : "Proposer l'activation"}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className={CLASSES_NEUTRE}>{estDirection ? "Désactiver" : "Proposer la désactivation"}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className={CLASSES_NEUTRE}>Mettre sur la fiche commande</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className={CLASSES_NEUTRE}>Retirer de la fiche commande</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
-          {sel.size >= 2 && estDirection && (
-            <button disabled={isPending} onClick={() => setFusionKeep([...sel][0])} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1…</button>
+          {/* Fusion et suppression : Direction seule (le serveur refuse les autres rôles, le bouton n'apparaît pas pour eux). */}
+          {estDirection && (
+            <span className="ml-auto flex flex-wrap items-center gap-2">
+              {sel.size >= 2 && <button disabled={isPending} onClick={() => setFusionKeep([...sel][0])} className={BTN_ATTENTION}>Fusionner en 1…</button>}
+              <BoutonDanger type="button" disabled={isPending} data-supprimer-lot onClick={() => apercuSupprimer([...sel])}>Supprimer ({sel.size})</BoutonDanger>
+            </span>
           )}
+        </div>
+      )}
+
+      {/* Changement d'unité à confirmer : des articles ont du stock, un historique, un prix, une fiche ou un rattachement. Rien n'est converti. */}
+      {confUnite && (() => {
+        const a = confUnite.apercu;
+        const lignes = toutVoir ? a.aConfirmer : a.aConfirmer.slice(0, LIGNES_VISIBLES);
+        const sansRisque = a.nbChangent - a.aConfirmer.length;
+        return (
+          <div data-confirmation-unite="" className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-sm">
+            <p className="mb-1 font-medium text-amber-900">Changer l&apos;unité en « {a.unite} » : {a.aConfirmer.length} article{a.aConfirmer.length > 1 ? "s" : ""} à confirmer</p>
+            <p className="mb-2 text-xs text-amber-900">{a.resume}</p>
+            <ul className="mb-2 space-y-1.5 text-xs">
+              {lignes.map((l) => (
+                <li key={l.id} className="rounded-md border bg-background px-2 py-1.5">
+                  <Link href={`/stock/catalogue/${l.id}`} className="font-medium text-primary hover:underline">{l.designation}</Link>
+                  <span className="ml-2 text-muted-foreground">{l.avant ?? "sans unité"} → {l.apres}</span>
+                  {l.raisons.length > 0 && <span className="ml-2">{l.raisons.join(" · ")}</span>}
+                  {l.alertes.map((t, i) => <span key={i} className="mt-0.5 block text-amber-900">⚠ {t}</span>)}
+                </li>
+              ))}
+            </ul>
+            {a.aConfirmer.length > LIGNES_VISIBLES && <button type="button" onClick={() => setToutVoir((v) => !v)} className="mb-2 text-xs font-medium text-primary underline">{toutVoir ? "Réduire la liste" : `Voir les ${a.aConfirmer.length - LIGNES_VISIBLES} autres`}</button>}
+            {sansRisque > 0 && <p className="mb-2 text-xs text-muted-foreground">{sansRisque} autre{sansRisque > 1 ? "s" : ""} article{sansRisque > 1 ? "s" : ""} sans stock ni historique : changement libre.{a.nbInchanges > 0 ? ` ${a.nbInchanges} déjà en « ${a.unite} ».` : ""}</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              <button disabled={isPending} data-confirmer-unite onClick={() => changerUnite(confUnite.ids, a.unite, a.confirmes)} className={BTN_PRINCIPAL}>{estDirection ? `Appliquer quand même (${a.nbChangent})` : `Proposer quand même (${a.nbChangent})`}</button>
+              <button onClick={() => setConfUnite(null)} className="text-xs text-muted-foreground underline">Annuler</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Suppression : l'aperçu (ce qui part, ce qui reste faute d'être supprimable) avant d'effacer quoi que ce soit. */}
+      {confSuppr && estDirection && (() => {
+        const { supprimables, conserves } = confSuppr.apercu;
+        const lignes = toutVoir ? supprimables : supprimables.slice(0, LIGNES_VISIBLES);
+        const avecStock = supprimables.filter((x) => x.stock);
+        return (
+          <div data-confirmation-suppression="" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <p className="mb-1 font-medium text-destructive">
+              {supprimables.length === 0
+                ? "Aucun de ces articles ne peut être supprimé"
+                : `Supprimer définitivement ${supprimables.length} article${supprimables.length > 1 ? "s" : ""} ?`}
+            </p>
+            {supprimables.length > 0 && (
+              <>
+                <p className="mb-1 text-xs text-muted-foreground">Sans historique (aucun mouvement, facture, bon de commande, commande, comptage ni fiche technique). Leur ligne de stock part avec eux ; l&apos;opération est journalisée.</p>
+                {avecStock.length > 0 && <p className="mb-1 text-xs font-medium text-destructive">{avecStock.length} {avecStock.length > 1 ? "ont" : "a"} un stock non nul qui sera effacé avec l&apos;article : {avecStock.slice(0, 5).map((x) => `${x.designation} (${x.stock})`).join(", ")}{avecStock.length > 5 ? "…" : ""}.</p>}
+                <ul className="mb-2 list-disc pl-5 text-xs">{lignes.map((x) => <li key={x.id}>{x.designation}</li>)}</ul>
+                {supprimables.length > LIGNES_VISIBLES && <button type="button" onClick={() => setToutVoir((v) => !v)} className="mb-2 text-xs font-medium text-primary underline">{toutVoir ? "Réduire la liste" : `Voir les ${supprimables.length - LIGNES_VISIBLES} autres`}</button>}
+              </>
+            )}
+            {conserves.length > 0 && (
+              <div className="mb-2 rounded-md border border-amber-300 bg-amber-50/70 p-2 text-xs text-amber-900">
+                <p className="mb-1 font-medium">{conserves.length} conservé{conserves.length > 1 ? "s" : ""} car {conserves.length > 1 ? "ils ont" : "il a"} un historique (désactivez-{conserves.length > 1 ? "les" : "le"} ou fusionnez-{conserves.length > 1 ? "les" : "le"}) :</p>
+                <ul className="list-disc pl-5">{conserves.slice(0, LIGNES_VISIBLES).map((c) => <li key={c.id}><Link href={`/stock/catalogue/${c.id}`} className="font-medium text-primary hover:underline">{c.designation}</Link> : {c.attaches.join(", ")}</li>)}</ul>
+                {conserves.length > LIGNES_VISIBLES && <p className="mt-1">… et {conserves.length - LIGNES_VISIBLES} autre{conserves.length - LIGNES_VISIBLES > 1 ? "s" : ""} (listés après la suppression).</p>}
+              </div>
+            )}
+            {confSuppr.apercu.introuvables > 0 && <p className="mb-2 text-xs text-muted-foreground">{confSuppr.apercu.introuvables} article{confSuppr.apercu.introuvables > 1 ? "s" : ""} introuvable{confSuppr.apercu.introuvables > 1 ? "s" : ""} (déjà supprimé{confSuppr.apercu.introuvables > 1 ? "s" : ""} ou fusionné{confSuppr.apercu.introuvables > 1 ? "s" : ""}).</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              {supprimables.length > 0 && <BoutonDanger type="button" disabled={isPending} data-confirmer-suppression onClick={() => supprimerLesVierges(confSuppr.ids)}>Supprimer définitivement ({supprimables.length})</BoutonDanger>}
+              {conserves.length > 0 && <BoutonNeutre type="button" disabled={isPending} onClick={() => desactiverLesConserves(conserves.map((c) => c.id))}>Désactiver les {conserves.length} conservé{conserves.length > 1 ? "s" : ""}</BoutonNeutre>}
+              <button onClick={() => setConfSuppr(null)} className="text-xs text-muted-foreground underline">Annuler</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Compte rendu d'une suppression en masse : ce qui est parti, ce qui est resté et pourquoi, avec le geste suivant. */}
+      {resSuppr && estDirection && (
+        <div role="status" data-resultat-suppression="" className={`rounded-md border px-3 py-2 text-sm ${resSuppr.conserves.length > 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>
+          <p className="font-medium">{resSuppr.message}</p>
+          {resSuppr.conserves.length > 0 && (
+            <>
+              <ul className="mt-1 list-disc pl-5 text-xs">{resSuppr.conserves.map((c) => <li key={c.id}><Link href={`/stock/catalogue/${c.id}`} className="font-medium text-primary hover:underline">{c.designation}</Link> : {c.attaches.join(", ")}</li>)}</ul>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <BoutonNeutre type="button" disabled={isPending} data-desactiver-conserves onClick={() => desactiverLesConserves(resSuppr.conserves.map((c) => c.id))}>Désactiver les {resSuppr.conserves.length} conservé{resSuppr.conserves.length > 1 ? "s" : ""}</BoutonNeutre>
+                <span className="text-xs">Ils restent cochés : vous pouvez aussi les fusionner avec un doublon.</span>
+              </div>
+            </>
+          )}
+          <button onClick={() => setResSuppr(null)} className="mt-1 text-xs underline">Fermer</button>
         </div>
       )}
 
@@ -684,6 +856,7 @@ const LigneArticle = memo(function LigneArticle({
           {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
           {a.propositionEnAttente && <BadgeProposition />}
+          {a.actif === false && <BadgeInactif />}
         </div>
       </td>
       <td className="whitespace-nowrap text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}</td>
@@ -762,6 +935,7 @@ export const CarteArticle = memo(function CarteArticle({
             {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
             {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
             {a.propositionEnAttente && <BadgeProposition />}
+            {a.actif === false && <BadgeInactif />}
             {categorieNom && <span className="truncate">{categorieNom}</span>}
           </span>
         </div>
@@ -806,6 +980,11 @@ export const CarteArticle = memo(function CarteArticle({
     </div>
   );
 });
+
+/** Pastille grise « Inactif » (couleur + libellé) : l'article est désactivé — vu par la pastille « Désactivés », réactivable par « Activer ». */
+function BadgeInactif() {
+  return <span data-badge-inactif="" title="Article désactivé : il n'apparaît plus dans l'Inventaire ni dans les listes de saisie" className="shrink-0 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold text-gray-700">Inactif</span>;
+}
 
 /** Pastille « proposition en attente » (même forme que les autres pastilles de la ligne). */
 function BadgeProposition() {

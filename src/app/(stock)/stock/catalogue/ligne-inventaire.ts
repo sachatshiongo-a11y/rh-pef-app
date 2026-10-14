@@ -17,7 +17,7 @@ import type { ArticleRow } from "./catalogue-table";
  *  - `valeurUSD` est TOUJOURS écrit : null y veut dire « sans prix » (« — »), alors qu'absent ferait recalculer prix × stock.
  */
 export const CHAMPS_LIGNE_INVENTAIRE = {
-  id: true, code: true, designation: true, marque: true, contenance: true, contenanceUnite: true,
+  id: true, actif: true, code: true, designation: true, marque: true, contenance: true, contenanceUnite: true,
   surFicheCommande: true, domaine: true, categorieId: true, fournisseurId: true, unite: true,
   devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true,
   stock: { select: { quantite: true, stockMinimum: true, seuilUrgent: true } },
@@ -47,6 +47,7 @@ export function versLigneInventaire(
     stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
     niveau: a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null,
   };
+  if (!a.actif) ligne.actif = false; // désactivé : masqué de l'Inventaire par défaut, vu par la pastille « Désactivés »
   if (a.code !== null) ligne.code = a.code;
   if (a.surFicheCommande) ligne.surFicheCommande = true;
   // Prix en francs (2026-10-08) : la devise de saisie fait foi, l'autre « ≈ » au taux du jour.

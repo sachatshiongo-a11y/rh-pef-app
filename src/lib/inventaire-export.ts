@@ -34,6 +34,7 @@ export async function chargerHausses(domaine?: Domaine): Promise<Map<string, num
 export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null; _count?: { fournisseurs: number } }, hausses: Map<string, number>): ArticleFiltrable {
   return {
     designation: a.designation,
+    ...(a.actif ? {} : { actif: false }),
     ...contenancePourClient(a),
     code: a.code,
     niveau: a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum, a.stock.seuilUrgent) : null,

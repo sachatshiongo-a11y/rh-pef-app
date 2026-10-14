@@ -34,6 +34,7 @@ const SANS_REVALIDATION: Record<string, string> = {
   "(app)/planning/decisions-lot-actions.ts#refuserEchangesEnLot": "Délègue à l'action individuelle de ./actions, qui revalide.",
   "(app)/presences/import-actions.ts#analyserPointageIVMS": "Lecture seule : analyse un fichier avant import.",
   "(exploitation)/exploitation/journal/actions.ts#exporterJournalExcel": "Lecture seule : export.",
+  "(stock)/stock/catalogue/actions.ts#apercuSuppressionArticles": "Lecture seule : aperçu de la suppression en masse (ce qui partirait, ce qui serait conservé) ; la suppression elle-même revalide.",
   "(stock)/stock/entree/actions.ts#verifierDoublonsListe": "Lecture seule : recherche de doublons.",
   "(stock)/stock/journalier/actions.ts#saisirCommandeResto": "Saisie case par case : la grille appelle rafraichirJournalier (qui revalide) au repos et en quittant l'écran.",
   "(stock)/stock/journalier/actions.ts#saisirCommandeLegume": "Idem.",

@@ -11,7 +11,7 @@ import { lirePagination } from "@/lib/pagination";
 import { CHAMPS_LIGNE_INVENTAIRE, versLigneInventaire } from "./ligne-inventaire";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
-export type CatalogueSP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string; page?: string; par?: string };
+export type CatalogueSP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string; inactifs?: string; page?: string; par?: string };
 
 /** Vue catalogue unique : le domaine se choisit par pilules (?domaine=), plus d'onglets dédiés. */
 export async function CatalogueView({ searchParams }: { searchParams: Promise<CatalogueSP> }) {
@@ -37,5 +37,5 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
   const rows: ArticleRow[] = articles.map((a) => versLigneInventaire(a, { hausses: haussePct, enAttente: enAttente.articles, taux }));
 
-  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} manque={filtreInit.manque} hausse={filtreInit.hausse} pageInit={page} parInit={par} estDirection={user.role === "ADMIN"} />;
+  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} manque={filtreInit.manque} hausse={filtreInit.hausse} inactifs={filtreInit.visibilite === "inactifs"} pageInit={page} parInit={par} estDirection={user.role === "ADMIN"} />;
 }

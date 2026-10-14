@@ -213,6 +213,12 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
                 </li>
               ))}
             </ul>
+            {art.avertissements && art.avertissements.length > 0 && (
+              <div data-avertissement-unite="" className="border-t bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+                <p className="font-semibold">À savoir avant d&apos;approuver</p>
+                <ul className="mt-0.5 list-disc pl-4">{art.avertissements.map((t, i) => <li key={i}>{t}</li>)}</ul>
+              </div>
+            )}
           </div>
         ))}
       </div>

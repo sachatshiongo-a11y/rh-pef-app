@@ -346,6 +346,51 @@ describe("suppressions douces (désactiver, annuler, clôturer) : Direction seul
   });
 });
 
+/**
+ * SUPPRESSION D'ARTICLES EN MASSE (Direction, 2026-10-14). L'action qui supprime plusieurs articles à la fois est une
+ * Server Action exportée : elle appelle la garde Direction ELLE-MÊME (le bouton masqué ne protège rien), son aperçu aussi,
+ * et la suppression passe par l'unique routine qui refuse tout article ayant un historique (la cascade de
+ * `MouvementStock` effacerait sinon l'historique du stock).
+ */
+describe("suppression groupée d'articles : Direction seule, historique protégé", () => {
+  const actions = () => lire("(stock)/stock/catalogue/actions.ts");
+  const corpsDe = (nom: string) => declarations(sansCommentaires(actions())).find((d) => d.nom === nom)!.corps;
+  /** Exports sans garde Direction qui ne figurent pas dans la liste fermée EXCEPTIONS (les propositions « hors Direction = À valider »). */
+  const horsExceptions = (source: string) => nonGardees(source, DELETEURS).filter((nom) => !(`(stock)/stock/catalogue/actions.ts#${nom}` in EXCEPTIONS));
+
+  it("supprimerArticlesEnMasse et apercuSuppressionArticles appellent la garde Direction, avant toute lecture", () => {
+    for (const nom of ["supprimerArticlesEnMasse", "apercuSuppressionArticles"]) {
+      const corps = corpsDe(nom);
+      expect(corps, nom).toMatch(/exigerDirectionPourSupprimer\(user\)/);
+      expect(corps.indexOf("exigerDirectionPourSupprimer("), nom).toBeLessThan(corps.search(/\bprisma\b/));
+    }
+    expect(horsExceptions(actions())).toEqual([]);
+  });
+
+  it("la suppression de plusieurs articles et celle d'un seul passent par la MÊME routine (même règle d'historique)", () => {
+    expect(corpsDe("supprimerArticlesEnMasse")).toContain("supprimerArticlesSansHistoriqueTx(");
+    expect(corpsDe("supprimerArticle")).toContain("supprimerArticlesSansHistoriqueTx(");
+    expect(DELETEURS).toContain("supprimerArticlesSansHistoriqueTx");
+    // Aucune suppression d'article écrite à la main dans l'action : la règle de l'historique ne se contourne pas.
+    for (const nom of ["supprimerArticlesEnMasse", "supprimerArticle", "apercuSuppressionArticles"]) expect(corpsDe(nom), nom).not.toMatch(/articleStock\.delete(?:Many)?\(/);
+  });
+
+  it("la routine contrôle l'historique SOUS VERROU avant de supprimer (un mouvement concurrent n'est pas effacé par la cascade)", () => {
+    const src = sansCommentaires(fs.readFileSync(path.join(LIB, "validations-stock/suppression-article.ts"), "utf8"));
+    const corps = declarations(src).find((d) => d.nom === "supprimerArticlesSansHistoriqueTx")!.corps;
+    expect(corps.indexOf("FOR UPDATE")).toBeGreaterThan(-1);
+    expect(corps.indexOf("FOR UPDATE")).toBeLessThan(corps.indexOf("bilanSuppression("));
+    expect(corps.indexOf("bilanSuppression(")).toBeLessThan(corps.indexOf(".articleStock.deleteMany("));
+  });
+
+  it("falsification : garde Direction retirée de l'action en masse → signalée", () => {
+    const vrai = actions();
+    const f = vrai.replace(/(export const supprimerArticlesEnMasse[\s\S]*?)exigerDirectionPourSupprimer\(user\);/, "$1");
+    expect(f).not.toBe(vrai);
+    expect(horsExceptions(f)).toEqual(["supprimerArticlesEnMasse"]);
+  });
+});
+
 describe("le garde-fou des suppressions mord (falsification en mémoire)", () => {
   it("garde Direction retirée d'une vraie action → signalée", () => {
     const vrai = lire("(stock)/stock/fiches/actions.ts");

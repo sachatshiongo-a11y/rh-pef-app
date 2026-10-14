@@ -10,8 +10,16 @@ export type ManqueKey = "" | "prix" | "fournisseur" | "seuil" | "unite" | "negat
 export const MANQUES: readonly ManqueKey[] = ["prix", "fournisseur", "seuil", "unite", "negatif"];
 export const ALERTES_FILTRE: readonly NiveauAlerte[] = ["URGENT", "APPRO", "OK"];
 
-export type FiltreInventaire = { q: string; alerte: "" | NiveauAlerte; manque: ManqueKey; hausse: boolean };
-export const FILTRE_INVENTAIRE_VIDE: FiltreInventaire = { q: "", alerte: "", manque: "", hausse: false };
+/**
+ * Quels articles l'Inventaire montre (décision de la Direction, 2026-10-14) : les articles ACTIFS par défaut — un article
+ * désactivé quitte l'Inventaire, ses compteurs et ses exports — ou, par la pastille « Désactivés », les seuls articles
+ * désactivés (pour les réactiver). « tous » n'existe pas dans l'adresse : c'est le choix d'un code qui veut tout voir
+ * (le courriel quotidien des stocks négatifs, qui nomme aussi les articles désactivés).
+ */
+export type VisibiliteInventaire = "actifs" | "inactifs" | "tous";
+
+export type FiltreInventaire = { q: string; alerte: "" | NiveauAlerte; manque: ManqueKey; hausse: boolean; visibilite: VisibiliteInventaire };
+export const FILTRE_INVENTAIRE_VIDE: FiltreInventaire = { q: "", alerte: "", manque: "", hausse: false, visibilite: "actifs" };
 
 export const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -24,6 +32,7 @@ export function lireFiltreInventaire(get: (cle: string) => string | null | undef
     alerte: ALERTES_FILTRE.includes(alerte as NiveauAlerte) ? (alerte as NiveauAlerte) : "",
     manque: MANQUES.includes(manque as ManqueKey) ? (manque as ManqueKey) : "",
     hausse: get("hausse") === "1",
+    visibilite: get("inactifs") === "1" ? "inactifs" : "actifs",
   };
 }
 
@@ -34,12 +43,15 @@ export function paramsFiltreInventaire(f: FiltreInventaire): URLSearchParams {
   if (f.alerte) p.set("alerte", f.alerte);
   if (f.manque) p.set("manque", f.manque);
   if (f.hausse) p.set("hausse", "1");
+  if (f.visibilite === "inactifs") p.set("inactifs", "1");
   return p;
 }
 
 /** Ce qu'il faut savoir d'un article pour le filtrer (l'écran et les exports le construisent de la même façon). */
 export type ArticleFiltrable = {
   designation: string;
+  /** Faux = article désactivé ; absent = actif (l'Inventaire n'envoie pas les valeurs par défaut au navigateur). */
+  actif?: boolean;
   /** Marque : la recherche la trouve (« président »), seule ou avec le nom (« beurre doux président »). */
   marque?: string | null;
   /** Contenance enregistrée : la recherche lit aussi le libellé affiché (« Bacardi 1 l ») et ses écritures compactes. */
@@ -72,6 +84,7 @@ export const manqueDe = (a: ArticleFiltrable, m: ManqueKey): boolean =>
 export function articleDansFiltre(a: ArticleFiltrable, f: FiltreInventaire): boolean {
   const nq = norm(f.q.trim());
   return (
+    (f.visibilite === "tous" || (f.visibilite === "inactifs") === (a.actif === false)) &&
     (!f.alerte || a.niveau === f.alerte) &&
     (!f.manque || manqueDe(a, f.manque)) &&
     (!f.hausse || (a.haussePct !== null && a.haussePct !== undefined)) &&

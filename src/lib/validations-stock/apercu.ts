@@ -18,6 +18,7 @@ import { libelleFacteur } from "@/lib/unite-resto";
 import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
 import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { CHAMPS_CONTENANCE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
+import { analyserChangementUnite, jetonAvertissements, type LigneUnite } from "./unite-article";
 
 /** Restes dans la devise de la facture (`devise`, absente = USD). */
 export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean; devise?: DeviseFacture };
@@ -29,7 +30,7 @@ export type ApercuLigneComptage = {
 export type ApercuChangement = { libelle: string; avant: string; apres: string; actuel: string | null };
 export type ApercuDemande = {
   id: string; nature: NatureDemande; statut: string; resume: string;
-  /** Jeton de version (updatedAt ISO) : renvoyé à la décision, qui refuse une demande retouchée depuis. */
+  /** Jeton de version (updatedAt ISO, + `#u:` et l'empreinte des avertissements d'unité affichés) : renvoyé à la décision, qui refuse une demande retouchée depuis. */
   version: string;
   auteurId: string; auteurNom: string; creeLe: string;
   decideurNom: string | null; decideLe: string | null; motifRefus: string | null;
@@ -57,7 +58,9 @@ export type ApercuDemande = {
     lot: null | { verse: "USD" | "CDF" | "SA_DEVISE"; totalVerse: TotalDevises | null; tauxActuel: number | null; conversion: boolean };
   };
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
-  article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
+  article: null | { articles: { id: string; designation: string; changements: ApercuChangement[];
+    /** Changement d'unité qui touche du stock, un historique, un prix, une fiche ou un rattachement : ce que la Direction approuve (rien n'est converti). */
+    avertissements?: string[] }[] };
   /** Rattachement au restaurant : les opérations demandées (AJOUT / RETRAIT d'une marque). */
   /** Alignement d'unité : l'effet demandé, article par article. */
   uniteResto?: null | { articles: { designation: string; uniteAvant: string | null; uniteApres: string; facteur: string; nbComptages: number }[] };
@@ -218,6 +221,26 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const catNom = new Map(cats.map((c) => [c.id, c.nom]));
       const fourNom = new Map(fours.map((f) => [f.id, f.nom]));
       const dec = (v: { toString(): string } | null | undefined) => (v === null || v === undefined ? null : v.toString());
+      // Changement d'unité proposé (Unité en masse, ou fiche article) : la Direction voit CE QUE L'APPROBATION déclenche —
+      // les mêmes constats que la confirmation de la Direction qui change l'unité elle-même (lib/validations-stock/unite-article.ts).
+      const avertissementsUnite = new Map<string, string[]>();
+      const lignesUnite: LigneUnite[] = [];
+      if (d.statut === "EN_ATTENTE") {
+        const parUnite = new Map<string, string[]>();
+        for (const a of ca.articles) { const c = a.changements.find((x) => x.champ === "unite"); if (c && typeof c.apres === "string" && c.apres.trim()) parUnite.set(c.apres, [...(parUnite.get(c.apres) ?? []), a.id]); }
+        for (const [unite, idsUnite] of parUnite) {
+          for (const l of (await analyserChangementUnite(prisma, idsUnite, unite)).lignes) {
+            lignesUnite.push(l);
+            if (!l.confirmer) continue;
+            avertissementsUnite.set(l.id, [
+              `${l.avant ?? "sans unité"} → ${l.apres} : ${l.raisons.length ? `${l.raisons.join(", ")} — ` : ""}quantités et prix gardent les mêmes chiffres dans la nouvelle unité, rien n'est converti.`,
+              ...l.alertes,
+            ]);
+          }
+        }
+      }
+      // Jeton de version = horodatage + empreinte des avertissements AFFICHÉS : l'approbation refuse si ces avertissements ont changé (demandes.ts).
+      if (d.statut === "EN_ATTENTE" && ca.articles.some((a) => a.changements.some((c) => c.champ === "unite"))) base.version = `${base.version}${jetonAvertissements(lignesUnite)}`;
       base.article = {
         articles: ca.articles.map((a) => {
           const art = parId.get(a.id);
@@ -232,6 +255,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           return {
             // Nom affiché (contenance comprise) ; les valeurs « avant → après » restent les vraies.
             id: a.id, designation: art ? libelleArticle({ designation: a.designation, marque: art.marque, contenance: art.contenance, contenanceUnite: art.contenanceUnite }) : a.designation,
+            ...(avertissementsUnite.has(a.id) ? { avertissements: avertissementsUnite.get(a.id) } : {}),
             changements: a.changements.map((c) => {
               let actuel: string | null = null;
               if (valeurs && !valeursEgales(c.champ, valeurs[c.champ], c.avant)) {
