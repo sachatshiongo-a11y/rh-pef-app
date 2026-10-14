@@ -9,7 +9,7 @@ import { estDirection, proposerModifications, type Acteur } from "@/lib/validati
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
-import { journaliser } from "@/lib/audit";
+import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { derniereClotureStock, exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
@@ -21,6 +21,9 @@ import { decisionArticle } from "@/lib/article-proche";
 import { cleArticleExacte, memeArticle, type ArticleCandidat } from "@/lib/achats-doublons";
 import { ajouterFournisseursEnMasseTx, definirHabituelEnMasseTx, definirHabituelTx, idsFournisseursParArticleTx, reporterFournisseursDesDoublonsTx, retirerFournisseursEnMasseTx } from "@/lib/article-fournisseurs";
 import { valeurListeIds } from "@/lib/validations-stock/charge";
+import { bilanSuppression, messageConservation, supprimerArticlesSansHistoriqueTx, type ArticleConserve, type ArticleSupprimable } from "@/lib/validations-stock/suppression-article";
+import { analyserChangementUnite, type ApercuUnite } from "@/lib/validations-stock/unite-article";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 
 
 async function garde() {
@@ -512,9 +515,10 @@ export const definirSeuilEnMasse = actionLisible(async (articleIds: string[], se
 
 /**
  * Supprime un article du catalogue (Direction). GARDE-FOU : un article avec un HISTORIQUE
- * (mouvements, lignes de facture ou de bon de commande, comptages, commandes resto) ne peut
- * pas être supprimé — la traçabilité prime : désactivez-le (il disparaît des listes) ou
- * fusionnez-le. Un article vierge est supprimé avec sa ligne de stock, et journalisé.
+ * (mouvements, lignes de facture ou de bon de commande, comptages, commandes resto, fiches techniques,
+ * demande « À valider » en attente) ne peut pas être supprimé — la traçabilité prime : désactivez-le
+ * (il disparaît des listes) ou fusionnez-le. Un article vierge est supprimé avec sa ligne de stock, et
+ * journalisé. Même règle, même code que la suppression groupée (lib/validations-stock/suppression-article.ts).
  */
 export async function supprimerArticle(id: string) {
   await formulaireLisible(`/stock/catalogue/${id}`, async () => {
@@ -522,45 +526,122 @@ export async function supprimerArticle(id: string) {
     requireModule(user, "stock");
     requireRole(user, ["ADMIN"]);
 
-    const a = await prisma.articleStock.findUniqueOrThrow({ where: { id }, select: { designation: true } });
-    const [mvts, lFac, lBC, cResto, cComptage, ingredients] = await Promise.all([
-      prisma.mouvementStock.count({ where: { articleId: id } }),
-      prisma.ligneFacture.count({ where: { articleId: id } }),
-      prisma.ligneBonDeCommande.count({ where: { articleId: id } }),
-      prisma.commandeResto.count({ where: { articleId: id } }),
-      prisma.ligneComptage.count({ where: { articleId: id } }),
-      // `IngredientFiche.articleId` est en `onDelete: Restrict` : sans ce contrôle, un article
-      // sans aucun autre historique passait le garde-fou, puis la suppression échouait sur une
-      // violation de contrainte Postgres — message brut, en anglais, illisible pour la Direction.
-      prisma.ingredientFiche.findMany({ where: { articleId: id }, select: { fiche: { select: { nom: true } } } }),
-    ]);
-    const attaches: string[] = [];
-    if (mvts) attaches.push(`${mvts} mouvement(s)`);
-    if (lFac) attaches.push(`${lFac} ligne(s) de facture`);
-    if (lBC) attaches.push(`${lBC} ligne(s) de bon de commande`);
-    if (cResto) attaches.push(`${cResto} commande(s) resto`);
-    if (cComptage) attaches.push(`${cComptage} comptage(s)`);
-    if (ingredients.length) {
-      // On NOMME les fiches : c'est là qu'il faut aller retirer l'ingrédient pour débloquer.
-      const noms = [...new Set(ingredients.map((i) => i.fiche.nom))];
-      attaches.push(`${ingredients.length} ligne(s) de fiche technique (${noms.map((n) => `« ${n} »`).join(", ")})`);
-    }
-    if (attaches.length > 0) {
-      throw new Error(
-        `« ${a.designation} » a un historique (${attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (il disparaît des listes), retirez-le des fiches techniques qui l'utilisent, ou fusionnez-le avec un doublon.`
-      );
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.stock.deleteMany({ where: { articleId: id } });
-      await tx.articleStock.delete({ where: { id } });
-      await journaliser(tx, { entite: "ArticleStock", entiteId: id, champ: "suppression", ancienneValeur: a.designation, userId: user.id });
-    });
+    const bilan = await prisma.$transaction((tx) => supprimerArticlesSansHistoriqueTx(tx, user.id, [id]), { timeout: 60000 });
+    if (bilan.introuvables > 0) throw new Error("Article introuvable : il a peut-être déjà été supprimé ou fusionné.");
+    if (bilan.conserves.length > 0) throw new Error(messageConservation(bilan.conserves[0]));
     revalidatePath("/stock/catalogue", "layout");
     revalidatePath("/stock");
   });
   redirect("/stock/catalogue"); // succès : retour au catalogue
 }
+
+// ── Suppression groupée (2026-10-14) ──────────────────────────────────────────────────────────────────────────
+// Demande de la Direction : « on ne peut pas supprimer des articles de l'inventaire ». Seule la Direction supprime.
+// Une seule règle (voir `supprimerArticle`) : les articles SANS historique sont supprimés, ceux qui en ont un sont
+// CONSERVÉS et nommés avec leur raison — la Direction les désactive ou les fusionne. Tout ou rien en cas d'erreur.
+
+/** Aperçu avant de supprimer : ce qui partira, ce qui restera et pourquoi. Lecture seule. */
+export type ApercuSuppression = { supprimables: ArticleSupprimable[]; conserves: ArticleConserve[]; introuvables: number };
+export type ResultatSuppression = { proposition: false; message: string; supprimes: number; conserves: ArticleConserve[] };
+
+const idsUniques = (articleIds: string[]) => [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
+
+export const apercuSuppressionArticles = actionLisible(async (articleIds: string[]): Promise<ApercuSuppression> => {
+  const user = await garde();
+  exigerDirectionPourSupprimer(user);
+  const ids = idsUniques(articleIds);
+  if (ids.length === 0) throw new Error("Aucun article sélectionné.");
+  return bilanSuppression(prisma, ids);
+});
+
+export const supprimerArticlesEnMasse = actionLisible(async (articleIds: string[]): Promise<ResultatSuppression> => {
+  const user = await garde();
+  exigerDirectionPourSupprimer(user);
+  const ids = idsUniques(articleIds);
+  if (ids.length === 0) throw new Error("Aucun article sélectionné.");
+  const bilan = await prisma.$transaction((tx) => supprimerArticlesSansHistoriqueTx(tx, user.id, ids), { timeout: 60000 });
+  revalidatePath("/stock/catalogue", "layout");
+  revalidatePath("/stock");
+  revalidatePath("/stock/restaurant");
+  const n = bilan.supprimables.length, k = bilan.conserves.length;
+  const morceaux = [
+    n === 0 ? "Aucun article supprimé" : `${n} supprimé${n > 1 ? "s" : ""}`,
+    k > 0 ? `${k} conservé${k > 1 ? "s" : ""} car ${k > 1 ? "ils ont" : "il a"} un historique (désactivez-${k > 1 ? "les" : "le"} ou fusionnez-${k > 1 ? "les" : "le"})` : null,
+    bilan.introuvables > 0 ? `${bilan.introuvables} introuvable${bilan.introuvables > 1 ? "s" : ""} (déjà supprimé${bilan.introuvables > 1 ? "s" : ""} ou fusionné${bilan.introuvables > 1 ? "s" : ""})` : null,
+  ].filter(Boolean);
+  return { proposition: false, message: morceaux.join(" · "), supprimes: n, conserves: bilan.conserves };
+});
+
+// ── Unité en masse (2026-10-14) ───────────────────────────────────────────────────────────────────────────────
+// Demande de la Direction : « on ne peut pas changer l'unité de plusieurs articles en actions groupées ». Direction :
+// écrit tout de suite ; autre compte : PROPOSITION (avant → après), comme toute modification d'article.
+//
+// RIEN n'est converti : les quantités et les prix gardent les mêmes chiffres, relus dans la nouvelle unité (2 kg
+// deviennent 2 g). Un article qui a du stock, un historique, un prix, une fiche technique ou un rattachement au
+// restaurant demande donc une CONFIRMATION qui le compte et le nomme (lib/validations-stock/unite-article.ts) ; le
+// serveur la réclame lui-même (réponse `confirmation`, rien d'écrit) et ne l'accepte que pour les articles vus.
+
+export type ReponseUnite = PropositionEnvoyee | { proposition: false; message: string } | { confirmation: true; apercu: ApercuUnite };
+
+const LONGUEUR_MAX_UNITE = 40;
+
+export const changerUniteEnMasse = actionLisible(async (articleIds: string[], uniteSaisie: string, confirmes: string[] = []): Promise<ReponseUnite> => {
+  const user = await garde();
+  const ids = idsUniques(articleIds);
+  if (ids.length === 0) throw new Error("Aucun article sélectionné.");
+  const unite = String(uniteSaisie ?? "").trim().replace(/\s+/g, " ");
+  if (!unite) throw new Error("Choisissez ou saisissez l'unité à appliquer.");
+  if (unite.length > LONGUEUR_MAX_UNITE) throw new Error(`L'unité est trop longue (${LONGUEUR_MAX_UNITE} caractères au plus).`);
+
+  if (!estDirection(user)) {
+    const r = await proposer(user, "Unité en masse", ids.map((id) => ({ id, patch: { unite } })));
+    if (!r.proposition) return r;
+    // La proposition part dans tous les cas ; on dit au demandeur ce que la Direction verra à l'approbation.
+    const { apercu } = await analyserChangementUnite(prisma, ids, unite);
+    const k = apercu.aConfirmer.length;
+    return k === 0 ? r : { ...r, message: `${r.message} ${k} article${k > 1 ? "s" : ""} ${k > 1 ? "ont" : "a"} du stock, un historique ou un rattachement : la Direction le verra à l'approbation (rien n'est converti).` };
+  }
+
+  const sortie = await prisma.$transaction(async (tx) => {
+    // Articles verrouillés (ids triés) AVANT l'analyse : un mouvement saisi au même instant est attendu, puis vu.
+    const tries = [...ids].sort();
+    await tx.$queryRaw`SELECT "id" FROM "stock"."ArticleStock" WHERE "id" IN (${Prisma.join(tries)}) ORDER BY "id" FOR UPDATE`;
+    const { lignes, apercu } = await analyserChangementUnite(tx, ids, unite);
+    if (lignes.length !== ids.length) throw new Error("Article introuvable : rechargez la page.");
+    const vus = new Set((Array.isArray(confirmes) ? confirmes : []).map(String));
+    if (apercu.aConfirmer.some((l) => !vus.has(l.id))) return { genre: "confirmation" as const, apercu };
+    const aEcrire = lignes.filter((l) => l.nature !== "INCHANGE");
+    if (aEcrire.length === 0) return { genre: "rien" as const, apercu };
+    await tx.articleStock.updateMany({ where: { id: { in: aEcrire.map((l) => l.id) } }, data: { unite } });
+    // Le journal garde l'ANCIENNE et la NOUVELLE unité de chaque article, et dit ce qui a été confirmé.
+    const journal: EntreeJournal[] = aEcrire.map((l) => ({
+      entite: "ArticleStock", entiteId: l.id, champ: "unite (masse)", ancienneValeur: l.avant, nouvelleValeur: l.apres, userId: user.id,
+    }));
+    const risque = aEcrire.filter((l) => l.confirmer);
+    journal.push({
+      entite: "ArticleStock", entiteId: `${aEcrire.length} articles`, champ: "unite (masse)", userId: user.id,
+      nouvelleValeur: `${unite} : ${aEcrire.length} article(s)${risque.length ? `, dont ${risque.length} avec stock, historique ou rattachement confirmé(s) (mêmes chiffres, rien converti) : ${risque.map((l) => `${l.nom} (${l.avant ?? "—"} → ${l.apres})`).join(" ; ")}` : ""}`.slice(0, 900),
+    });
+    await journaliserPlusieurs(tx, journal);
+    return { genre: "ecrit" as const, ecrit: aEcrire.length, apercu };
+  }, { timeout: 60000 });
+
+  if (sortie.genre === "confirmation") return { confirmation: true, apercu: sortie.apercu };
+  if (sortie.genre === "rien") return { proposition: false, message: `Rien à changer : ${ids.length > 1 ? "ces articles sont" : "cet article est"} déjà en « ${unite} ».` };
+  revalidatePath("/stock/catalogue", "layout");
+  revalidatePath("/stock");
+  revalidatePath("/stock/journalier");
+  revalidatePath("/stock/restaurant");
+  revalidatePath("/stock/fiches");
+  revalidatePath("/stock/mouvements");
+  const a = sortie.apercu;
+  const dont = a.aConfirmer.length;
+  const deja = a.nbInchanges;
+  return {
+    proposition: false,
+    message: `Unité « ${unite} » appliquée à ${sortie.ecrit} article${sortie.ecrit > 1 ? "s" : ""}${deja ? ` (${deja} déjà en « ${unite} »)` : ""}${dont ? `, dont ${dont} avec stock, historique ou rattachement : leurs quantités et prix sont restés les mêmes chiffres, rien n'a été converti` : ""}.`,
+  };
+});
 
 /** Cloche de l'espace Stock : un article créé hors Direction (Inventaire ou Liste d'achat). */
 async function signalerCreationArticle(id: string, designation: string, auteurNom: string) {

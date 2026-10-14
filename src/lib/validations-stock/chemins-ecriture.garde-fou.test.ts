@@ -27,7 +27,7 @@ const SRC = path.join(__dirname, "..", "..");
 type Sort = "DIRECTION_SEULE" | "PROPOSITION_HORS_DIRECTION" | "FLUX_NORMAL" | "COEUR_PARTAGE";
 
 const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
-  "app/(stock)/stock/catalogue/actions.ts": { sort: "PROPOSITION_HORS_DIRECTION", pourquoi: "modifierArticle + actions groupées : proposition hors Direction ; fusion et correction des stocks négatifs : Direction seule ; création : permise, signalée, sans stock initial." },
+  "app/(stock)/stock/catalogue/actions.ts": { sort: "PROPOSITION_HORS_DIRECTION", pourquoi: "modifierArticle + actions groupées (dont l'unité en masse, 2026-10-14) : proposition hors Direction ; fusion, suppression (fiche et en masse) et correction des stocks négatifs : Direction seule ; création : permise, signalée, sans stock initial." },
   "app/(stock)/stock/entree/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Liste d'achat : vrai achat (fournisseur, montant), libre — décision du 2026-10-01 ; article créé à la volée permis et signalé." },
   "app/(stock)/stock/factures/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Facture avec lignes : entrée de stock (flux normal) ; suppression (reprise du stock) : Direction seule." },
   "app/(stock)/stock/mouvements/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Suppression de mouvements (reprise du stock) : Direction seule. Les entrées/sorties manuelles passent par lib/validations-stock/mouvement.ts (appliquerMouvementManuel)." },
@@ -41,6 +41,7 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour tout compte Stock et notifiées à la Direction (décision du 2026-10-07) ; validation des ANCIENNES demandes MOUVEMENT_MANUEL encore en attente." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
   "lib/validations-stock/suppression-facture.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur de la suppression de factures (reprise du stock entré, sous verrou) : appelé seulement par factures/actions.ts, supprimerFacture/supprimerFacturesEnLot (Direction seule)." },
+  "lib/validations-stock/suppression-article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur de la suppression d'articles (fiche article et suppression en masse, 2026-10-14) : verrou, contrôle de l'historique (mouvements, factures, bons, commandes, comptages, fiches techniques, demande en attente), suppression des seuls articles vierges avec leur ligne de stock : appelé seulement par catalogue/actions.ts (supprimerArticle, supprimerArticlesEnMasse), Direction seule." },
   "lib/validations-stock/stock-positif.ts": { sort: "COEUR_PARTAGE", pourquoi: "Porte unique des quantités en stock (jamais sous 0) : n'écrit que pour les chemins classés ici, qui l'appellent." },
 };
 
@@ -118,7 +119,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement", "alimenterFournisseursTx", "definirHabituelTx", "remplacerFournisseursTx", "definirHabituelEnMasseTx", "ajouterFournisseursEnMasseTx", "retirerFournisseursEnMasseTx", "reporterFournisseursDesDoublonsTx", "reporterArticlesDuFournisseurTx", "variationsStockTx", "sortirDuStockTx", "entrerEnStockTx", "poserStocksTx"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement", "alimenterFournisseursTx", "definirHabituelTx", "remplacerFournisseursTx", "definirHabituelEnMasseTx", "ajouterFournisseursEnMasseTx", "retirerFournisseursEnMasseTx", "reporterFournisseursDesDoublonsTx", "reporterArticlesDuFournisseurTx", "variationsStockTx", "sortirDuStockTx", "entrerEnStockTx", "poserStocksTx", "supprimerArticlesSansHistoriqueTx"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {

@@ -44,8 +44,8 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/archives/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/catalogue/[id]/page.tsx": { n: 3, raisons: ["FORMULAIRE"] }, // valeur du formulaire + infobulle « nom enregistré » + ligne « Désignation enregistrée » de l'onglet Informations
-  "src/app/(stock)/stock/catalogue/actions.ts": { n: 9, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée)
-  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raisons: ["CLE"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche)
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 7, raisons: ["AUDIT_ACTION"] }, // + messages de la fusion (refus : période clôturée) ; la suppression (fiche et en masse) a déménagé dans lib/validations-stock/suppression-article.ts
+  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 6, raisons: ["CLE", "AMONT"] }, // tri par nom (le nom affiché est `libelleArticle`, en lien vers la fiche) + aperçus de suppression et d'unité en masse (2026-10-14) : noms DÉJÀ calculés par le serveur avec `libelleArticle` (lib/validations-stock/suppression-article.ts, unite-article.ts)
   "src/app/(stock)/stock/catalogue/ligne-inventaire.ts": { n: 1, raisons: ["FORMULAIRE"] }, // ligne envoyée au tableau (qui calcule le libellé) ; était dans _view.tsx
   "src/app/(stock)/stock/commandes/[id]/modifier/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/commandes/[id]/page.tsx": { n: 1, raisons: ["FIGE"] },
@@ -100,7 +100,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
 
 /** Sélections Prisma de la désignation SANS la contenance : seulement là où le nom sert de clé (nombre exact). */
 const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
-  "src/app/(stock)/stock/catalogue/actions.ts": { n: 3, raison: "anti-doublon à la création, messages et journal d'audit (vraie désignation)" },
+  "src/app/(stock)/stock/catalogue/actions.ts": { n: 2, raison: "anti-doublon à la création, messages et journal d'audit (vraie désignation)" },
   "src/app/(stock)/stock/entree/actions.ts": { n: 1, raison: "anti-doublon de la Liste d'achat, sous verrou" },
   "src/app/(stock)/stock/journalier/fiches-data.ts": { n: 1, raison: "fiche « Commande journalière » : noms du classeur de la Direction (clé)" },
   "src/app/(stock)/stock/journalier/import-commande-actions.ts": { n: 2, raison: "import du classeur Commande : rapprochement par nom" },
@@ -240,7 +240,8 @@ describe("garde-fou : le nom d'un article s'affiche par libelleArticle (contenan
     }
     // Le journal d'audit d'une création, d'une fusion, d'une suppression écrit la vraie désignation.
     const actions = sansCommentaires(lire("src/app/(stock)/stock/catalogue/actions.ts"));
-    expect(actions).toMatch(/champ: "suppression", ancienneValeur: a\.designation/);
+    // (la suppression, de la fiche comme en masse, vit dans lib/validations-stock/suppression-article.ts : son journal écrit `a.nom`, la désignation enregistrée)
+    expect(sansCommentaires(lire("src/lib/validations-stock/suppression-article.ts"))).toMatch(/champ: "suppression",\s*ancienneValeur: `\$\{a\.nom\}/);
     expect(actions).not.toMatch(/libelleArticle/);
     // La désignation n'est jamais réécrite avec le libellé (ni `designation: libelleArticle(…)`, ni par une variable qui le porte).
     for (const p of fichiers(path.join(RACINE, "src"))) expect(ecritLeLibelle(readFileSync(p, "utf8")), rel(p)).toBe(false);
