@@ -25,7 +25,7 @@ import { plafonner, rendreCourriel, type Groupe, type Ligne, type Rubrique } fro
 // Sept rubriques. Chaque chiffre vient de la fonction qui alimente l'écran correspondant du Stock (aucun calcul
 // réécrit ici) :
 //   1. articles en rupture / sous le seuil / urgents, par domaine   → `indicateursStock` (accueil Stock : mêmes articles actifs, même règle `niveauAlerte`)
-//   1 bis. articles à commander d'ici 3 jours (consommation × délai fournisseur) → `prevoir` (prevision.ts, règle unique)
+//   1 bis. articles consommés en rupture ou à commander d'ici 3 jours (consommation × délai fournisseur) → `prevoir` (prevision.ts, règle unique)
 //   2. factures échues ou à échéance sous 7 jours                    → `whereAEcheanceAvant` (la règle de l'alerte de l'accueil), `estEchue`, `montantsFacture`
 //   3. DLC dans les 7 jours                                          → `dlcProches` (bloc « DLC proches » de l'accueil Stock)
 //   4. demandes en attente de la Direction                           → les mêmes demandes que le compteur « À valider » (`chargerAValiderStock`)
@@ -99,7 +99,7 @@ export async function rubriqueACommander(maintenant: Date): Promise<Rubrique | n
 
   const [articles, enCommande] = await Promise.all([
     prisma.articleStock.findMany({
-      where: { id: { in: candidats }, actif: true, stock: { quantite: { gt: 0 } } },
+      where: { id: { in: candidats }, actif: true, stock: { isNot: null } },
       select: {
         id: true, unite: true, ...CHAMPS_LIBELLE, stock: { select: { quantite: true } },
         fournisseurs: { where: { habituel: true }, select: { fournisseur: { select: { id: true, nom: true, delaiLivraison: true } } } },
@@ -135,31 +135,38 @@ export async function rubriqueACommander(maintenant: Date): Promise<Rubrique | n
     const cle = it.fournisseur?.id ?? "";
     parFournisseur.set(cle, [...(parFournisseur.get(cle) ?? []), it]);
   }
-  const plusPresse = (l: Item[]) => Math.min(...l.map((i) => i.p.joursAvantCommande));
+  // Rang de tri : rupture d'abord, puis la date limite la plus proche.
+  const rang = (i: Item) => (i.p.enRupture ? -1e9 : i.p.joursAvantCommande);
+  const plusPresse = (l: Item[]) => Math.min(...l.map(rang));
   const ordre = [...parFournisseur].sort(([ca, a], [cb, b]) => (ca === "" ? 1 : 0) - (cb === "" ? 1 : 0) || plusPresse(a) - plusPresse(b));
   const u = (unite: string | null) => (unite ? ` ${unite}` : "");
   const groupes: Groupe[] = ordre.map(([cle, liste]) => {
-    const tries = liste.sort((x, y) => x.p.joursAvantCommande - y.p.joursAvantCommande || x.libelle.localeCompare(y.libelle, "fr"));
+    const tries = liste.sort((x, y) => rang(x) - rang(y) || x.libelle.localeCompare(y.libelle, "fr"));
     const f = tries[0]!.fournisseur;
     const lignes: Ligne[] = tries.map((i) => {
       const delai = i.p.delai === null ? "délai de livraison non renseigné (compté 0 j)" : `livraison ${i.p.delai} j`;
+      const conso = `${nombre(Math.round(i.p.consoParJour * 100) / 100)}${u(i.unite)}/jour`;
+      const suggere = `suggéré : ${nombre(i.p.quantiteSuggeree)}${u(i.unite)}`;
       return {
-        texte: `${i.libelle} — stock ${nombre(i.quantite)}${u(i.unite)} · ${nombre(Math.round(i.p.consoParJour * 100) / 100)}${u(i.unite)}/jour`
-          + ` · rupture vers le ${jjmmaaaa(i.p.ruptureISO)} · ${delai}`
-          + ` · à commander avant le ${jjmmaaaa(i.p.commanderAvantISO)} (${libelleEcheance(i.p.joursAvantCommande)})`
-          + ` · suggéré : ${nombre(i.p.quantiteSuggeree)}${u(i.unite)}`,
+        texte: i.p.enRupture
+          ? `${i.libelle} — EN RUPTURE (stock ${nombre(i.quantite)}${u(i.unite)}) · ${conso} · ${delai} · à commander AUJOURD'HUI · ${suggere}`
+          : `${i.libelle} — stock ${nombre(i.quantite)}${u(i.unite)} · ${conso} · rupture vers le ${jjmmaaaa(i.p.ruptureISO)} · ${delai}`
+            + ` · à commander avant le ${jjmmaaaa(i.p.commanderAvantISO)} (${libelleEcheance(i.p.joursAvantCommande)}) · ${suggere}`,
         lien: LIENS.article(i.articleId),
       };
     });
     return { titre: `${f ? f.nom : "Sans fournisseur habituel"} (${tries.length})`, ...plafonner(lignes, cle ? LIENS.fournisseur(cle) : LIENS.catalogue()) };
   });
-  const enRetard = items.filter((i) => i.p.joursAvantCommande < 0).length;
+  const enRupture = items.filter((i) => i.p.enRupture).length;
+  const enRetard = items.filter((i) => !i.p.enRupture && i.p.joursAvantCommande < 0).length;
+  const dont = [enRupture > 0 ? `${enRupture} déjà en rupture` : "", enRetard > 0 ? `${enRetard} en retard` : ""].filter(Boolean).join(" et ");
   return {
     cle: "a-commander", titre: `Articles à commander d'ici ${HORIZON_JOURS} jours`, nombre: items.length,
     resume: [
-      `${items.length} article(s)${enRetard > 0 ? `, dont ${enRetard} déjà en retard` : ""}, par fournisseur habituel.`,
+      `${items.length} article(s)${dont ? `, dont ${dont}` : ""}, par fournisseur habituel.`,
       `Calcul : sorties des ${FENETRE_JOURS} derniers jours ÷ ${FENETRE_JOURS} = consommation par jour ; date limite = rupture prévue − délai de livraison du fournisseur ;`
-        + ` quantité suggérée = ${COUVERTURE_JOURS} jours de consommation après la livraison. Articles sortis moins de ${JOURS_SORTIE_MIN} jours, déjà à 0`
+        + ` quantité suggérée = ${COUVERTURE_JOURS} jours de consommation après la livraison. Article à 0 mais consommé : EN RUPTURE, à commander aujourd'hui.`
+        + ` Articles sortis moins de ${JOURS_SORTIE_MIN} jours sur la période`
         + `${ecartesCommandes > 0 ? ` ou déjà sur un bon de commande en cours (${ecartesCommandes})` : " ou déjà sur un bon de commande en cours"} : non repris.`,
       "Fiable seulement si les sorties et les réceptions sont saisies chaque jour.",
     ].join("\n"),

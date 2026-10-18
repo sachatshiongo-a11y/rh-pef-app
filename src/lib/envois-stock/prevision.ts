@@ -9,8 +9,9 @@
 //   quantité suggérée     = consommation × (délai + 14 jours) − stock actuel, arrondie à l'unité supérieure
 //
 // Rien n'est supposé : un délai de livraison non renseigné (ou illisible) compte pour 0 jour ET la ligne le dit ; un
-// article sorti un seul jour sur la période n'a pas de consommation fiable et n'est pas prévu ; un article déjà à 0 n'est
-// pas prévu ici (il est « en rupture », rubrique des alertes). La prévision ne vaut que ce que valent les saisies : si
+// article sorti un seul jour sur la période n'a pas de consommation fiable et n'est pas prévu. Un article déjà à 0 (ou
+// moins) mais consommé sur la période est EN RUPTURE : à commander aujourd'hui, sans date de rupture (on ne sait pas
+// quand il est tombé à 0) — confirmé par la Direction le 2026-10-18 : les stocks à 0 de l'app sont réels. La prévision ne vaut que ce que valent les saisies : si
 // les sorties ou les réceptions ne sont pas enregistrées, la date est fausse — le courriel le rappelle.
 
 /** Période de consommation observée, en jours. */
@@ -33,6 +34,8 @@ export type EntreePrevision = {
 };
 
 export type Prevision = {
+  /** Stock déjà à 0 ou moins : à commander aujourd'hui (les dates ci-dessous valent alors aujourd'hui). */
+  enRupture: boolean;
   consoParJour: number;
   joursRestants: number;
   /** Délai lu en jours, ou null s'il n'est pas renseigné / pas lisible (compté 0 dans le calcul). */
@@ -57,17 +60,19 @@ export function decalerISO(iso: string, jours: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** La prévision d'un article, ou null quand il n'y a rien à prévoir (pas assez de sorties, déjà à 0). */
+/** La prévision d'un article, ou null quand il n'y a rien à prévoir (pas assez de sorties sur la période). */
 export function prevoir(e: EntreePrevision, aujourdhuiISO: string): Prevision | null {
-  if (e.sorties <= 0 || e.joursSortie < JOURS_SORTIE_MIN || e.quantite <= 0) return null;
+  if (e.sorties <= 0 || e.joursSortie < JOURS_SORTIE_MIN) return null;
   const consoParJour = e.sorties / FENETRE_JOURS;
-  const joursRestants = e.quantite / consoParJour;
   const delai = lireDelai(e.delaiLivraison);
+  const stock = Math.max(0, e.quantite); // un stock négatif (saisie en retard) ne réduit pas le besoin
+  const enRupture = e.quantite <= 0;
+  const joursRestants = stock / consoParJour;
   const avantRupture = Math.floor(joursRestants);
-  const joursAvantCommande = avantRupture - (delai ?? 0);
-  const besoin = consoParJour * ((delai ?? 0) + COUVERTURE_JOURS) - e.quantite;
+  const joursAvantCommande = enRupture ? 0 : avantRupture - (delai ?? 0);
+  const besoin = consoParJour * ((delai ?? 0) + COUVERTURE_JOURS) - stock;
   return {
-    consoParJour, joursRestants, delai,
+    enRupture, consoParJour, joursRestants, delai,
     ruptureISO: decalerISO(aujourdhuiISO, avantRupture),
     commanderAvantISO: decalerISO(aujourdhuiISO, joursAvantCommande),
     joursAvantCommande,

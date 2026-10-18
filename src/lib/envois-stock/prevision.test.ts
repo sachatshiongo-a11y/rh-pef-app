@@ -58,11 +58,23 @@ describe("prevoir : consommation, rupture, date limite, quantité suggérée", (
     expect(p.quantiteSuggeree).toBe(0);
   });
 
-  it("pas de prévision : un seul jour de sortie, aucune sortie, ou stock déjà à 0 (en rupture, autre rubrique)", () => {
+  it("stock à 0 mais consommé : EN RUPTURE, à commander aujourd'hui, de quoi tenir délai + 14 jours", () => {
+    const p = prevoir({ quantite: 0, sorties: 28, joursSortie: 5, delaiLivraison: "1" }, AUJ)!;
+    expect(p.enRupture).toBe(true);
+    expect(p.joursAvantCommande).toBe(0);
+    expect(p.commanderAvantISO).toBe(AUJ);
+    expect(p.quantiteSuggeree).toBe(15); // 1 × (1 + 14) − 0
+    expect(aCommander(p)).toBe(true);
+    // Un stock négatif (saisie en retard) ne grossit pas la quantité suggérée.
+    expect(prevoir({ quantite: -2, sorties: 28, joursSortie: 5, delaiLivraison: "1" }, AUJ)!.quantiteSuggeree).toBe(15);
+    expect(prevoir({ quantite: 5, sorties: 28, joursSortie: 5, delaiLivraison: "1" }, AUJ)!.enRupture).toBe(false);
+  });
+
+  it("pas de prévision : un seul jour de sortie ou aucune sortie (stock à 0 compris : article dormant)", () => {
     expect(prevoir({ quantite: 5, sorties: 10, joursSortie: 1, delaiLivraison: "1" }, AUJ)).toBeNull();
     expect(prevoir({ quantite: 5, sorties: 0, joursSortie: 0, delaiLivraison: "1" }, AUJ)).toBeNull();
-    expect(prevoir({ quantite: 0, sorties: 10, joursSortie: 5, delaiLivraison: "1" }, AUJ)).toBeNull();
-    expect(prevoir({ quantite: -2, sorties: 10, joursSortie: 5, delaiLivraison: "1" }, AUJ)).toBeNull();
+    expect(prevoir({ quantite: 0, sorties: 0, joursSortie: 0, delaiLivraison: "1" }, AUJ)).toBeNull();
+    expect(prevoir({ quantite: 0, sorties: 10, joursSortie: 1, delaiLivraison: "1" }, AUJ)).toBeNull();
     expect(aCommander(null)).toBe(false);
   });
 });
