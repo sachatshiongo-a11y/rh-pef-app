@@ -13,6 +13,12 @@ vi.mock("@/lib/prisma", async () => {
   E.espion = creerEspion();
   return { prisma: proxyEspion(E.espion) };
 });
+// L'envoi unique par jour (mémoire en journal d'audit) a ses propres tests (envoi-unique.integration.test.ts) : ici il laisse
+// passer, pour que l'espion continue de prouver que la route n'écrit RIEN dans les données du Stock.
+vi.mock("@/lib/envoi-unique", () => ({
+  cleJour: (p: string) => `${p}-test`,
+  envoiUnique: async (_c: string, _o: unknown, travail: () => Promise<{ resultat: unknown }>) => ({ dejaEnvoye: false, resultat: (await travail()).resultat }),
+}));
 vi.mock("@/lib/email", () => ({ envoyerEmail: M.email }));
 vi.mock("@/lib/push", () => ({ envoyerPush: M.push }));
 

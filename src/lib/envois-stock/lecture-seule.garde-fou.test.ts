@@ -12,7 +12,9 @@ import path from "node:path";
 //
 // Hors de ce périmètre, sciemment : les fonctions PARTAGÉES que ces envois appellent (indicateursStock, dlcProches,
 // chargerHausses…) — lecture seule elles aussi, ce que l'espion vérifie à l'exécution — et l'envoi lui-même
-// (`envoyerEmail`, `envoyerPush`), dont le seul effet de bord est de supprimer un abonnement push périmé.
+// (`envoyerEmail`, `envoyerPush`), dont le seul effet de bord est de supprimer un abonnement push périmé — et la mémoire
+// « déjà envoyé aujourd'hui » (`lib/envoi-unique.ts`, ligne de journal d'audit « EnvoiPlanifie » : jamais une donnée du Stock),
+// écrite hors des routes, testée par `lib/envoi-unique.integration.test.ts`.
 
 const RACINE = path.resolve(__dirname, "../../..");
 const SOURCES = [

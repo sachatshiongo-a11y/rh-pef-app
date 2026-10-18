@@ -3,11 +3,16 @@ name: Courriel quotidien du Stock
 # Envoie chaque matin, SEULEMENT s'il y a quelque chose à signaler, le point du Stock (articles en rupture ou
 # sous le seuil, factures échues ou à échéance sous 7 jours, DLC proches, demandes en attente, bons de commande
 # à réceptionner, stocks négatifs) par e-mail à la Direction et au rôle Stock, en appelant l'endpoint sécurisé
-# de l'application. Même jeton (CRON_SECRET) et même horaire que les rappels RH.
+# de l'application. Même jeton (CRON_SECRET) et même horaire que les rappels RH (8 h à Kinshasa, du lundi au samedi).
 on:
   schedule:
-    - cron: "0 6 * * *" # 06:00 UTC = 07:00 à Kinshasa (UTC+1), tous les jours
-  workflow_dispatch: {} # bouton « Run workflow » pour tester manuellement
+    - cron: "0 7 * * 1-6" # 07:00 UTC = 08:00 à Kinshasa (UTC+1), du lundi au samedi
+  workflow_dispatch: # bouton « Run workflow » pour tester manuellement
+    inputs:
+      forcer:
+        description: "Renvoyer même si le courriel de la période est déjà parti (sinon : un seul envoi par période)"
+        type: boolean
+        default: true
 
 jobs:
   stock-quotidien:
@@ -21,6 +26,10 @@ jobs:
             https://gestion.patesenfolie.cd/api/version
       - name: Déclencher le courriel quotidien du Stock
         run: |
+          # Un seul envoi par période : le serveur répond « dejaEnvoye » au second appel (déclencheur externe cron-job.org
+          # compris). Lancé à la main, le déclencheur ajoute ?forcer=1 (case « forcer » cochée par défaut).
+          URL=https://gestion.patesenfolie.cd/api/cron/stock-quotidien
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.forcer }}" = "true" ]; then URL="$URL?forcer=1"; fi
           curl -fsS --max-time 180 -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://gestion.patesenfolie.cd/api/cron/stock-quotidien
+            "$URL"
