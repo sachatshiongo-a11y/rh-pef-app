@@ -223,6 +223,30 @@ describe("envoi par l'API Gmail (fetch simulé)", () => {
     expect(tout).not.toContain("a@pef.cd"); // ni l'adresse d'un destinataire
   });
 
+  it("Google qui REFLÈTE une adresse ou un jeton dans son message d'erreur : masqués dans le journal (relecture 2026-10-18)", async () => {
+    reponses = [() => JETON, () => ({ status: 400, corps: { error: { message: "Invalid To header: victime@pef.cd rejected, token ya29.A0ARrdaM-abcdefghijklmnopqrstuvwxyz0123456789", errors: [{ reason: "invalidArgument" }] } } })];
+    expect(await envoyerEmail(["victime@pef.cd"], "s", "t")).toBe(false);
+    const j = erreurs.join("\n");
+    expect(j).toMatch(/HTTP 400 invalidArgument/);
+    expect(j).not.toContain("victime@pef.cd");
+    expect(j).not.toContain("ya29");
+    expect(j).not.toContain("abcdefghijklmnop");
+    // Le code d'erreur OAuth est borné : une valeur étrange renvoyée par Google n'est pas recopiée.
+    erreurs.length = 0; oublierJetonGmail();
+    reponses = [() => ({ status: 400, corps: { error: "refresh-ultra-secret et a@pef.cd" } })];
+    await envoyerEmail(["a@pef.cd"], "s", "t");
+    expect(erreurs.join("\n")).not.toContain("refresh-ultra-secret");
+    expect(erreurs.join("\n")).not.toContain("a@pef.cd");
+  });
+
+  it("SMTP : un refus qui cite l'adresse du destinataire n'est pas journalisé tel quel", async () => {
+    regler(SMTP);
+    nodemailerEnvoi.mockRejectedValueOnce(new Error("Can't send mail - all recipients were rejected: 550 5.1.1 <victime@pef.cd>: user unknown"));
+    expect(await envoyerEmail(["victime@pef.cd"], "s", "t")).toBe(false);
+    expect(erreurs.join("\n")).toMatch(/recipients were rejected/);
+    expect(erreurs.join("\n")).not.toContain("victime@pef.cd");
+  });
+
   it("expéditeur introuvable (ni GMAIL_FROM, ni SMTP_FROM, ni SMTP_USER) : false avec le nom de la variable à renseigner", async () => {
     regler(GMAIL);
     expect(await envoyerEmail(["a@pef.cd"], "s", "t")).toBe(false);

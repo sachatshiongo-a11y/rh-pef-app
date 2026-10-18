@@ -160,6 +160,22 @@ describe("réservation en cours et réservation abandonnée", () => {
     expect((await (await appeler(alertes, "alertes")).json()).envoye).toBe(true);
     expect((await marqueurs()).map((l) => l.champ)).toEqual(["envoye"]);
   });
+
+  it("relecture 2026-10-18 : une réservation orpheline d'un AUTRE jour est purgée au passage suivant (la clé change chaque jour)", async () => {
+    await poser("rappels-2026-10-12", 60 * 24 * 7);
+    await poser("stock-2026-10-19", 3); // récente, d'une autre route : intacte
+    await appeler(alertes, "alertes");
+    expect((await marqueurs()).map((l) => `${l.entiteId}:${l.champ}`).sort()).toEqual(["rappels-2026-10-19:envoye", "stock-2026-10-19:reserve"]);
+  });
+
+  it("relecture 2026-10-18 : la ligne du journal dit en clair que c'est un envoi automatique et que l'utilisateur n'a rien fait", async () => {
+    await appeler(alertes, "alertes");
+    const [l] = await marqueurs();
+    expect(l.nouvelleValeur).toMatch(/Courriel planifié ENVOYÉ par le serveur/);
+    expect(l.nouvelleValeur).toMatch(/n'a effectué aucune action/);
+    await appeler(alertes, "alertes", "?forcer=1");
+    expect((await marqueurs()).map((x) => x.nouvelleValeur).join("|")).toMatch(/renvoi forcé/);
+  });
 });
 
 describe("sans compte Direction actif : on envoie sans mémoire plutôt que de bloquer", () => {

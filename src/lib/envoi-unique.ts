@@ -53,7 +53,7 @@ export async function envoiUnique(
     await liberer(reservation.id);
     throw e;
   }
-  if (sortie.reussi) await confirmer(reservation.id);
+  if (sortie.reussi) await confirmer(reservation.id, options.forcer === true);
   else await liberer(reservation.id);
   return { dejaEnvoye: false, resultat: sortie.resultat };
 }
@@ -72,22 +72,34 @@ async function reserver(cle: string, forcer: boolean): Promise<Reservation> {
     // Réservations abandonnées : nettoyées.
     const perimees = lignes.filter((l) => l.champ === "reserve").map((l) => l.id);
     if (perimees.length > 0) await tx.journalAudit.deleteMany({ where: { id: { in: perimees } } });
+    // … y compris celles d'AUTRES périodes (la clé change chaque jour : une instance coupée en plein envoi laisserait sinon
+    // une ligne « reserve » orpheline à jamais dans le journal).
+    await tx.journalAudit.deleteMany({ where: { entite: ENTITE_ENVOI, champ: "reserve", date: { lt: new Date(maintenant - DUREE_RESERVATION_MS) } } });
 
     // JournalAudit exige un auteur : le premier compte Direction actif. Sans aucun, personne ne reçoit de courriel
     // de toute façon : on envoie sans mémoire plutôt que de bloquer.
     const auteur = await tx.user.findFirst({ where: { role: "ADMIN", actif: true }, select: { id: true }, orderBy: { id: "asc" } });
     if (!auteur) return { statut: "ok", id: null } as const;
     const creee = await tx.journalAudit.create({
-      data: { entite: ENTITE_ENVOI, entiteId: cle, champ: "reserve", nouvelleValeur: forcer ? "forcé" : null, userId: auteur.id },
+      data: { entite: ENTITE_ENVOI, entiteId: cle, champ: "reserve", nouvelleValeur: libelle("reserve", forcer), userId: auteur.id },
       select: { id: true },
     });
     return { statut: "ok", id: creee.id } as const;
   }, { timeout: 15_000, maxWait: 15_000 });
 }
 
-async function confirmer(id: string | null) {
+/**
+ * Le texte lu dans l'export Excel du journal d'audit (réservé à la Direction). L'« utilisateur » de la ligne est le premier
+ * compte Direction actif, imposé par la table : il n'a RIEN fait — le libellé le dit en toutes lettres.
+ */
+function libelle(etat: Marqueur, forcer: boolean): string {
+  const quoi = etat === "envoye" ? "Courriel planifié ENVOYÉ" : "Envoi de courriel planifié EN COURS";
+  return `${quoi}${forcer ? " (renvoi forcé)" : ""} par le serveur — trace automatique (un seul envoi par période) ; l'utilisateur indiqué n'a effectué aucune action`;
+}
+
+async function confirmer(id: string | null, forcer: boolean) {
   if (!id) return;
-  await prisma.journalAudit.update({ where: { id }, data: { champ: "envoye", date: new Date() } }).catch((e) => {
+  await prisma.journalAudit.update({ where: { id }, data: { champ: "envoye", nouvelleValeur: libelle("envoye", forcer), date: new Date() } }).catch((e) => {
     console.error("[envoi-unique] marqueur « envoyé » non écrit (un second appel pourrait renvoyer) :", e instanceof Error ? e.message : e);
   });
 }

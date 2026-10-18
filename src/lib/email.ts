@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import nodemailer from "nodemailer";
+import { ErreurMetier } from "@/lib/erreur-metier";
 
 /**
  * Envoi d'e-mail. Deux transports, choisis par les variables d'environnement (à renseigner sur le serveur, jamais
@@ -117,8 +118,21 @@ export function oublierJetonGmail(): void {
   jetonEnCours = null;
 }
 
+/**
+ * Rend un texte venu de l'extérieur (corps d'erreur de Google, message de nodemailer) SANS DANGER pour le journal :
+ * Google ou un serveur SMTP peut y refléter une adresse de destinataire (« Invalid To header: a@b.cd », « 550 <a@b.cd>… »)
+ * ou un jeton d'accès (« ya29.… »). Les adresses et toute suite opaque de 24 caractères ou plus sont masquées.
+ */
+export function assainirPourJournal(texte: string): string {
+  return texte
+    .replace(/[^\s<>(),;:"'\\]+@[^\s<>(),;:"'\\]+/g, "<adresse>")
+    .replace(/[A-Za-z0-9._~+/=-]{24,}/g, "<masqué>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Une erreur de l'API, déjà formulée pour la Direction (jamais de secret dedans). */
-class ErreurGmail extends Error {
+class ErreurGmail extends ErreurMetier {
   constructor(message: string, readonly statut?: number) {
     super(message);
   }
@@ -131,7 +145,7 @@ async function appeler(url: string, init: RequestInit): Promise<Response> {
     return await fetch(url, { ...init, signal: controle.signal });
   } catch (e) {
     if (controle.signal.aborted) throw new ErreurGmail(`délai dépassé (${DELAI_MS / 1000} s) : ${new URL(url).host} n'a pas répondu`);
-    throw new ErreurGmail(`réseau : ${e instanceof Error ? e.message : "appel impossible"}`);
+    throw new ErreurGmail(`réseau : ${e instanceof Error ? assainirPourJournal(e.message) : "appel impossible"}`);
   } finally {
     clearTimeout(minuteur);
   }
@@ -159,7 +173,7 @@ async function demanderJeton(env: NodeJS.ProcessEnv): Promise<string> {
   });
   const j = await corpsJson(r);
   if (!r.ok) {
-    const code = typeof j.error === "string" ? j.error : `HTTP ${r.status}`;
+    const code = typeof j.error === "string" && /^[a-z_]{1,40}$/.test(j.error) ? j.error : `HTTP ${r.status}`;
     const aide =
       code === "invalid_grant"
         ? "le jeton d'actualisation GMAIL_REFRESH_TOKEN est révoqué ou expiré (mot de passe du compte changé, accès retiré, ou écran de consentement en mode test) : en générer un nouveau"
@@ -200,7 +214,7 @@ async function envoyerParGmail(raw: string, env: NodeJS.ProcessEnv): Promise<voi
     const j = await corpsJson(r);
     const err = (j.error && typeof j.error === "object" ? j.error : {}) as { message?: unknown; status?: unknown; errors?: { reason?: unknown }[] };
     const raison = typeof err.errors?.[0]?.reason === "string" ? err.errors[0].reason : typeof err.status === "string" ? err.status : "";
-    const detail = typeof err.message === "string" ? err.message.slice(0, 200) : "";
+    const detail = typeof err.message === "string" ? assainirPourJournal(err.message).slice(0, 200) : "";
     const aide =
       r.status === 403
         ? "API Gmail non activée dans le projet Google Cloud, ou portée gmail.send non accordée au jeton d'actualisation (le regénérer avec la portée https://www.googleapis.com/auth/gmail.send)"
@@ -267,7 +281,9 @@ export async function envoyerEmail(destinataires: string[], sujet: string, texte
     }
     return true;
   } catch (e) {
-    const cause = e instanceof Error ? e.message : "erreur inconnue";
+    // Assaini une dernière fois : un refus SMTP cite souvent l'adresse du destinataire.
+    // (Les ErreurGmail sont déjà formulées par nous, avec le détail de Google assaini à la source.)
+    const cause = e instanceof ErreurGmail ? e.message : assainirPourJournal(e instanceof Error ? e.message : "erreur inconnue");
     console.error(`[email] échec d'envoi (transport : ${transport === "gmail" ? "API Gmail" : "SMTP"}) : ${cause}`);
     return false;
   }

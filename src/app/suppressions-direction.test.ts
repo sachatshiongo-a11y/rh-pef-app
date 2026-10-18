@@ -57,6 +57,7 @@ const SUPPRESSION_DIRECTE = [
 const TECHNIQUES_LIB: Record<string, string> = {
   supprimerNotificationsPour: "Nettoie les notifications d'une demande une fois traitée (la cloche, pas la donnée).",
   envoyerPush: "Purge les abonnements push expirés (410) renvoyés par le service.",
+  envoiUnique: "Courriels planifiés (lib/envoi-unique.ts) : ne supprime que SES PROPRES réservations « EnvoiPlanifie » du journal d'audit (envoi échoué ou abandonné) ; aucune donnée métier.",
   effacerEchecs: "Remet à zéro le compteur d'échecs de connexion d'un compte (anti-force brute).",
   supprimerUtilisateurAuth: "Annule la création d'un compte d'authentification quand la suite a échoué (rien d'existant).",
   // Demandes à valider de l'espace Stock (lib/validations-stock/demandes.ts) : CibleDemandeStock est le
