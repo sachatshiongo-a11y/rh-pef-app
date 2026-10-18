@@ -3,6 +3,7 @@ import { jetonCronValide } from "@/lib/jeton-cron";
 import { envoyerEmail } from "@/lib/email";
 import { destinatairesStock } from "@/lib/envois-stock/destinataires";
 import { preparerRapportMensuel } from "@/lib/envois-stock/mensuel";
+import { envoiUnique } from "@/lib/envoi-unique";
 
 // Toujours exécuté à la demande (jamais mis en cache) : c'est un déclencheur.
 export const dynamic = "force-dynamic";
@@ -14,6 +15,9 @@ export const dynamic = "force-dynamic";
  *
  * Appelé par un planning GitHub Actions (`.github/workflows/stock-mensuel.yml`), protégé par le même jeton partagé
  * `CRON_SECRET` que les rappels RH (`Authorization: Bearer …` ou `?token=`).
+ *
+ * UN SEUL ENVOI PAR MOIS RAPPORTÉ (`lib/envoi-unique.ts`) : un second appel répond 200 `{ envoye: false, dejaEnvoye: true }` ;
+ * un envoi échoué n'est pas mémorisé ; `?forcer=1` renvoie malgré tout.
  *
  * `?apercu=1` (avec le jeton) : rend le sujet et le texte du rapport SANS rien envoyer. Lecture seule : aucune écriture.
  */
@@ -28,9 +32,14 @@ export async function GET(request: NextRequest) {
   if (apercu) {
     return NextResponse.json({ envoye: false, apercu: true, mois: rapport.mois.libelle, destinataires: destinataires.length, sujet: rapport.sujet, corps: rapport.corps });
   }
-  if (destinataires.length > 0 && !(await envoyerEmail(destinataires.map((d) => d.email), rapport.sujet, rapport.corps))) {
-    return NextResponse.json({ envoye: false, erreur: "courriel", mois: rapport.mois.libelle }, { status: 502 });
-  }
 
-  return NextResponse.json({ envoye: destinataires.length > 0, destinataires: destinataires.length, mois: rapport.mois.libelle });
+  const forcer = request.nextUrl.searchParams.get("forcer") === "1";
+  const sortie = await envoiUnique(`stock-mensuel-${rapport.mois.cle}`, { forcer }, async () => {
+    if (destinataires.length > 0 && !(await envoyerEmail(destinataires.map((d) => d.email), rapport.sujet, rapport.corps))) {
+      return { reussi: false, resultat: { corps: { envoye: false, erreur: "courriel", mois: rapport.mois.libelle }, status: 502 } };
+    }
+    return { reussi: destinataires.length > 0, resultat: { corps: { envoye: destinataires.length > 0, destinataires: destinataires.length, mois: rapport.mois.libelle }, status: 200 } };
+  });
+  if (sortie.dejaEnvoye) return NextResponse.json({ envoye: false, dejaEnvoye: true, mois: rapport.mois.libelle, ...(sortie.enCours ? { enCours: true } : {}) });
+  return NextResponse.json(sortie.resultat.corps, { status: sortie.resultat.status });
 }

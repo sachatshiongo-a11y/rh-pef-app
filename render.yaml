@@ -63,6 +63,15 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       # --- E-mail (Google Workspace) ---
+      # Depuis le 2026-10-18 les courriels partent par l'API Gmail (HTTPS) : l'offre gratuite de Render bloque le SMTP
+      # sortant (ports 465/587). Les trois valeurs sont SECRÈTES : à coller dans Render uniquement. Tant qu'elles sont
+      # absentes, l'app retombe sur le SMTP ci-dessous (qui ne passe pas sur l'offre gratuite).
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
@@ -74,7 +83,7 @@ services:
       - key: SMTP_FROM
         value: RH Pâtes en Folie <sachatshiongo@patesenfolie.cd>
       # --- Rappels quotidiens (planning GitHub Actions -> /api/cron/alertes) et envois du Stock
-      #     (-> /api/cron/stock-quotidien à 7 h, /api/cron/stock-mensuel le 1er) : même jeton ---
+      #     (-> /api/cron/stock-quotidien à 8 h, du lundi au samedi, /api/cron/stock-mensuel le 1er) : même jeton ---
       # Jeton partagé : même valeur ici (dashboard Render) et en secret GitHub Actions « CRON_SECRET ».
       - key: CRON_SECRET
         sync: false

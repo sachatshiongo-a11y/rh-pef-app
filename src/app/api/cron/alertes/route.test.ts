@@ -14,6 +14,11 @@ const M = vi.hoisted(() => ({
 vi.mock("@/lib/alertes", () => ({ calculerAlertes: async () => M.alertes }));
 vi.mock("@/lib/email", () => ({ envoyerEmail: M.email }));
 vi.mock("@/lib/push", () => ({ envoyerPush: M.push }));
+// L'envoi unique par jour a ses propres tests (envoi-unique.integration.test.ts, base réelle) : ici il laisse passer.
+vi.mock("@/lib/envoi-unique", () => ({
+  cleJour: (p: string) => `${p}-test`,
+  envoiUnique: async (_c: string, _o: unknown, travail: () => Promise<{ resultat: unknown }>) => ({ dejaEnvoye: false, resultat: (await travail()).resultat }),
+}));
 vi.mock("@/lib/prisma", () => ({ prisma: { user: { findMany: async () => M.admins } } }));
 
 const { GET } = await import("./route");

@@ -5,7 +5,12 @@ name: Rapport mensuel automatique
 on:
   schedule:
     - cron: "0 6 1 * *" # 06:00 UTC le 1er du mois = 07:00 à Kinshasa (UTC+1)
-  workflow_dispatch: {} # bouton « Run workflow » pour tester manuellement
+  workflow_dispatch: # bouton « Run workflow » pour tester manuellement
+    inputs:
+      forcer:
+        description: "Renvoyer même si le courriel de la période est déjà parti (sinon : un seul envoi par période)"
+        type: boolean
+        default: true
 
 jobs:
   rapport:
@@ -19,6 +24,10 @@ jobs:
             https://gestion.patesenfolie.cd/api/version
       - name: Déclencher l'envoi du rapport mensuel
         run: |
+          # Un seul envoi par période : le serveur répond « dejaEnvoye » au second appel (déclencheur externe cron-job.org
+          # compris). Lancé à la main, le déclencheur ajoute ?forcer=1 (case « forcer » cochée par défaut).
+          URL=https://gestion.patesenfolie.cd/api/cron/rapport-mensuel
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.forcer }}" = "true" ]; then URL="$URL?forcer=1"; fi
           curl -fsS --max-time 180 -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://gestion.patesenfolie.cd/api/cron/rapport-mensuel
+            "$URL"

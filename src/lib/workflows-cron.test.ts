@@ -18,11 +18,15 @@ describe("tâches planifiées GitHub", () => {
     expect(appels.map((a) => a.f).sort()).toEqual(expect.arrayContaining(["rapport-mensuel.yml", "rappels-quotidiens.yml", "stock-mensuel.yml", "stock-quotidien.yml"]));
   });
 
-  // Chaque tâche appelle la route de SON nom, avec le jeton partagé, à l'heure promise (7 h à Kinshasa = 06:00 UTC).
+  // Chaque tâche appelle la route de SON nom, avec le jeton partagé, à l'heure promise. Décision de la Direction
+  // (2026-10-18) : les deux envois QUOTIDIENS partent à 8 h à Kinshasa (UTC+1) = 07:00 UTC, du lundi au samedi
+  // (jours 1-6, pas de dimanche) ; les rapports MENSUELS restent le 1er à 7 h (06:00 UTC).
   it.each([
-    ["stock-quotidien.yml", "/api/cron/stock-quotidien", '"0 6 * * *"'],
+    ["rappels-quotidiens.yml", "/api/cron/alertes", '"0 7 * * 1-6"'],
+    ["stock-quotidien.yml", "/api/cron/stock-quotidien", '"0 7 * * 1-6"'],
     ["stock-mensuel.yml", "/api/cron/stock-mensuel", '"0 6 1 * *"'],
-  ])("%s : bonne route, jeton CRON_SECRET, 06:00 UTC", (fichier, route, planning) => {
+    ["rapport-mensuel.yml", "/api/cron/rapport-mensuel", '"0 6 1 * *"'],
+  ])("%s : bonne route, jeton CRON_SECRET, planning promis", (fichier, route, planning) => {
     const src = fs.readFileSync(path.join(DOSSIER, fichier), "utf8");
     expect(src).toContain(`https://gestion.patesenfolie.cd${route}`);
     expect(src).toContain("Authorization: Bearer ${{ secrets.CRON_SECRET }}");
@@ -30,6 +34,18 @@ describe("tâches planifiées GitHub", () => {
     expect(src).toContain("workflow_dispatch");
     // `-f` : un 401/500 de la route fait échouer la tâche (rouge dans GitHub) au lieu de passer pour un succès.
     expect(src).toMatch(/curl -fsS/);
+  });
+
+  // Un seul envoi par période côté serveur : le bouton « Run workflow » doit pouvoir renvoyer (?forcer=1), mais la
+  // tâche planifiée, JAMAIS (sinon le second déclencheur renverrait chaque jour).
+  it.each(["rappels-quotidiens.yml", "stock-quotidien.yml", "stock-mensuel.yml", "rapport-mensuel.yml"])("%s : ?forcer=1 seulement au lancement manuel", (fichier) => {
+    const src = fs.readFileSync(path.join(DOSSIER, fichier), "utf8");
+    expect(src).toMatch(/workflow_dispatch:[^\n]*\n\s*inputs:\s*\n\s*forcer:/);
+    expect(src).toContain("github.event_name == 'workflow_dispatch' && inputs.forcer");
+    expect(src).toContain('URL="$URL?forcer=1"');
+    // Le `forcer` n'est jamais dans l'adresse écrite en dur : la tâche planifiée appelle l'adresse nue.
+    expect(src).not.toMatch(/api\/cron\/[\w-]+\?forcer/);
+    expect(src).toMatch(/"\$URL"\s*$/);
   });
 
   it.each([["gestion.patesenfolie.cd"]])("toutes appellent %s, jamais une adresse redirigée", (attendu) => {

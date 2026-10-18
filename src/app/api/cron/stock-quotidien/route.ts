@@ -4,6 +4,7 @@ import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
 import { destinatairesStock } from "@/lib/envois-stock/destinataires";
 import { preparerEnvoiQuotidien } from "@/lib/envois-stock/quotidien";
+import { cleJour, envoiUnique } from "@/lib/envoi-unique";
 
 // Toujours exécuté à la demande (jamais mis en cache) : c'est un déclencheur.
 export const dynamic = "force-dynamic";
@@ -19,6 +20,11 @@ export const dynamic = "force-dynamic";
  *
  * `?apercu=1` (avec le jeton) : rend le sujet et le texte du courriel SANS rien envoyer — pour tester sans écrire à personne.
  * Cette route n'écrit RIEN dans les données du Stock (lecture seule) ; l'envoi se fait par courriel et notification.
+ * Seule trace : la mémoire « déjà envoyé aujourd'hui » (`lib/envoi-unique.ts`, journal d'audit « EnvoiPlanifie »), écrite
+ * hors de cette route.
+ *
+ * UN SEUL ENVOI PAR JOUR CIVIL DE KINSHASA : GitHub et cron-job.org peuvent tous deux appeler la route ; le second appel
+ * répond 200 `{ envoye: false, dejaEnvoye: true }`. Un envoi échoué n'est pas mémorisé. `?forcer=1` renvoie malgré tout.
  */
 export async function GET(request: NextRequest) {
   if (!jetonCronValide(request)) {
@@ -26,26 +32,38 @@ export async function GET(request: NextRequest) {
   }
   const apercu = request.nextUrl.searchParams.get("apercu") === "1";
 
-  const envoi = await preparerEnvoiQuotidien(new Date());
-  if (!envoi) return NextResponse.json({ envoye: false, apercu, nombre: 0 });
-
-  const destinataires = await destinatairesStock();
   if (apercu) {
+    const envoi = await preparerEnvoiQuotidien(new Date());
+    if (!envoi) return NextResponse.json({ envoye: false, apercu, nombre: 0 });
+    const destinataires = await destinatairesStock();
     return NextResponse.json({ envoye: false, apercu: true, nombre: envoi.nombre, destinataires: destinataires.length, sujet: envoi.sujet, corps: envoi.corps });
   }
-  if (destinataires.length === 0) return NextResponse.json({ envoye: false, nombre: envoi.nombre, destinataires: 0 });
 
-  const nbAlertes = envoi.rubriques.find((r) => r.cle === "alertes")?.nombre ?? 0;
-  const [emailOk] = await Promise.all([
-    envoyerEmail(destinataires.map((d) => d.email), envoi.sujet, envoi.corps),
-    envoyerPush(destinataires.map((d) => d.id), {
-      title: `Pâtes en Folie · Stock : ${envoi.nombre} point(s)`,
-      body: envoi.rubriques.map((r) => r.titre).join(" · ").slice(0, 180),
-      url: "/stock",
-      tag: "stock-du-jour",
-    }),
-  ]);
+  const forcer = request.nextUrl.searchParams.get("forcer") === "1";
+  const sortie = await envoiUnique(cleJour("stock"), { forcer }, async () => {
+    const envoi = await preparerEnvoiQuotidien(new Date());
+    if (!envoi) return { reussi: false, resultat: { corps: { envoye: false, apercu, nombre: 0 }, status: 200 } };
 
-  if (!emailOk) return NextResponse.json({ envoye: false, erreur: "courriel", nombre: envoi.nombre }, { status: 502 });
-  return NextResponse.json({ envoye: true, nombre: envoi.nombre, rubriques: envoi.rubriques.map((r) => r.cle), articlesEnAlerte: nbAlertes, destinataires: destinataires.length });
+    const destinataires = await destinatairesStock();
+    if (destinataires.length === 0) return { reussi: false, resultat: { corps: { envoye: false, nombre: envoi.nombre, destinataires: 0 }, status: 200 } };
+
+    const nbAlertes = envoi.rubriques.find((r) => r.cle === "alertes")?.nombre ?? 0;
+    const [emailOk] = await Promise.all([
+      envoyerEmail(destinataires.map((d) => d.email), envoi.sujet, envoi.corps),
+      envoyerPush(destinataires.map((d) => d.id), {
+        title: `Pâtes en Folie · Stock : ${envoi.nombre} point(s)`,
+        body: envoi.rubriques.map((r) => r.titre).join(" · ").slice(0, 180),
+        url: "/stock",
+        tag: "stock-du-jour",
+      }),
+    ]);
+
+    if (!emailOk) return { reussi: false, resultat: { corps: { envoye: false, erreur: "courriel", nombre: envoi.nombre }, status: 502 } };
+    return {
+      reussi: true,
+      resultat: { corps: { envoye: true, nombre: envoi.nombre, rubriques: envoi.rubriques.map((r) => r.cle), articlesEnAlerte: nbAlertes, destinataires: destinataires.length }, status: 200 },
+    };
+  });
+  if (sortie.dejaEnvoye) return NextResponse.json({ envoye: false, dejaEnvoye: true, ...(sortie.enCours ? { enCours: true } : {}) });
+  return NextResponse.json(sortie.resultat.corps, { status: sortie.resultat.status });
 }
