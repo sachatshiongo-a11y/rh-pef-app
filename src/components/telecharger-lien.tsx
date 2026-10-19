@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { donneesPdfValides } from "@/lib/pdf/navigateur/donnees";
 
 /**
  * Ce que dit la réponse d'une route de document. Fonction PURE, séparée du composant parce que ce
@@ -275,6 +276,64 @@ export async function telechargerDocumentEnParties(
 }
 
 /**
+ * Un PDF FABRIQUÉ PAR LE NAVIGATEUR : la route `urlDonnees` renvoie les documents à imprimer et la
+ * police (lib/pdf/navigateur/donnees), l'appareil de la personne les rend (quelques secondes, contre
+ * 2 à 3 minutes sur l'instance gratuite) puis enregistre le fichier.
+ *
+ * Une réponse qui n'est pas la bonne (session expirée, refus) se dit et s'arrête, comme partout. Mais
+ * si c'est le RENDU qui échoue (navigateur trop ancien, mémoire), on ne laisse pas la personne sans
+ * document : `repli` le fait fabriquer par le serveur (plus lent, mais sûr).
+ */
+export async function telechargerPdfFabriqueParLeNavigateur(
+  urlDonnees: string,
+  repli: () => Promise<IssueEnregistrement | "echec">,
+  auProgres?: (faites: number, total: number) => void,
+): Promise<IssueEnregistrement | "echec"> {
+  let res: Response;
+  try {
+    res = await fetch(urlDonnees, { credentials: "same-origin" });
+  } catch {
+    window.alert(messageEchecDocument("erreur"));
+    return "echec";
+  }
+  const verdict = verdictReponseDocument({
+    redirected: res.redirected,
+    ok: res.ok,
+    status: res.status,
+    url: res.url,
+    origine: window.location.origin,
+    contentType: res.headers.get("Content-Type"),
+  });
+  // Serveur en difficulté (5xx, coupure de Cloudflare) : le chemin par parties, plus court par requête.
+  if (verdict === "erreur") return repli();
+  if (verdict !== "ok") {
+    window.alert(messageEchecDocument(verdict, verdict === "refuse" ? await texteDeLaReponse(res) : null));
+    return "echec";
+  }
+  let donnees: unknown;
+  try {
+    donnees = await res.json();
+  } catch {
+    return repli(); // réponse tronquée
+  }
+  if (!donneesPdfValides(donnees)) return repli();
+  let pdf: Uint8Array;
+  try {
+    const { fabriquerPdf } = await import("@/lib/pdf/navigateur/rendre");
+    pdf = await fabriquerPdf(donnees, auProgres);
+  } catch (err) {
+    console.error("PDF fabriqué par le navigateur : échec, le serveur prend le relais.", err);
+    return repli();
+  }
+  try {
+    return await enregistrerFichier(new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), donnees.fichier);
+  } catch {
+    window.alert(messageEchecDocument("erreur"));
+    return "echec";
+  }
+}
+
+/**
  * Téléchargement fiable, y compris en PWA mobile installée (iOS/Android).
  *
  * Le simple `<a href>` (même en `target="_blank"` ou avec `download`) NAVIGUE vers le PDF dans la
@@ -289,6 +348,8 @@ export async function telechargerDocumentEnParties(
  *
  * `enParties` : PDF long servi jour par jour (`telechargerDocumentEnParties`) ; le lien affiche
  * l'avancement (« 3/7 »).
+ * `fabriqueParLeNavigateur` : adresse des données d'un PDF que le navigateur fabrique lui-même
+ * (`telechargerPdfFabriqueParLeNavigateur`) ; `href` (avec `enParties`) reste le repli.
  */
 export function TelechargerLien({
   href,
@@ -297,6 +358,7 @@ export function TelechargerLien({
   title,
   onClick: auClic,
   enParties = false,
+  fabriqueParLeNavigateur,
   children,
 }: {
   href: string;
@@ -305,6 +367,7 @@ export function TelechargerLien({
   title?: string;
   onClick?: () => void;
   enParties?: boolean;
+  fabriqueParLeNavigateur?: string;
   children: React.ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
@@ -316,11 +379,17 @@ export function TelechargerLien({
     if (busy) return;
     setBusy(true);
     try {
-      if (enParties) {
+      const progres = (faites: number, total: number) => setProgres(`${faites}/${total}`);
+      const serveur = () => {
+        if (!enParties) return telechargerDocument(href, nomFichier);
         setProgres("…");
-        await telechargerDocumentEnParties(href, nomFichier, (faites, total) => setProgres(`${faites}/${total}`));
+        return telechargerDocumentEnParties(href, nomFichier, progres);
+      };
+      if (fabriqueParLeNavigateur) {
+        setProgres("…");
+        await telechargerPdfFabriqueParLeNavigateur(fabriqueParLeNavigateur, serveur, progres);
       } else {
-        await telechargerDocument(href, nomFichier);
+        await serveur();
       }
     } finally {
       setBusy(false);

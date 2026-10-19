@@ -1,11 +1,7 @@
 import { Document, Image, Page, Text, View } from "@react-pdf/renderer";
 import type { Style } from "@react-pdf/types";
-import { registerPdfFonts } from "@/lib/pdf/fonts";
-import { formaterNombre } from "@/lib/montant";
-import { estFormatDate, largeurColonne, texteCellule, type Gabarit, type StyleCellule, type Trait, type Zone } from "./gabarit";
-import type { CelluleSortie, Contenu, FeuilleSortie, RangeeSortie } from "./remplir";
-
-registerPdfFonts();
+import type { StyleCellule, Trait, Zone } from "./gabarit";
+import type { CelluleImprimable, DocumentImprimable, FeuilleImprimable, RangeeImprimable } from "./imprimable";
 
 // IMPRESSION d'une feuille du gabarit remplie, comme Excel l'imprime : zone d'impression, marges,
 // échelle, logo à son ancrage, largeurs de colonnes et hauteurs de rangées du classeur, polices,
@@ -18,61 +14,35 @@ registerPdfFonts();
 //
 // Règles maison : rangées insécables (jamais le tableau entier), une rubrique ne reste jamais seule
 // en bas de page, en-tête de colonnes répété en haut de chaque page de suite ; nombres par
-// `formaterNombre` (jamais d'espace fine U+202F, absente d'Optima).
+// `formaterNombre` (jamais d'espace fine U+202F, absente d'Optima), résolus dans ./imprimable.
+//
+// Ce module ne lit que le `DocumentImprimable` (JSON) et n'importe que react-pdf : il se rend sur le
+// serveur (pdfModele, police enregistrée par lib/pdf/fonts) comme dans le navigateur
+// (lib/pdf/navigateur). La police Optima doit être enregistrée par l'appelant.
 
 const PT_PAR_UNITE = 6.0;
 const FACTEUR_HAUTEUR = 0.91;
 /** Interligne du texte imprimé (hauteur d'une ligne / corps). */
 const INTERLIGNE = 1.15;
 const A4 = { largeur: 595.28, hauteur: 841.89 };
-const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const RANG_TRAIT: Record<string, number> = { hair: 1, dotted: 2, dashDotDot: 2, dashDot: 2, dashed: 2, thin: 3, mediumDashDotDot: 4, mediumDashDot: 4, mediumDashed: 4, medium: 5, double: 6, thick: 7 };
 const EPAISSEUR = (t: Trait) => ((RANG_TRAIT[t.style] ?? 3) >= 7 ? 1.4 : (RANG_TRAIT[t.style] ?? 3) >= 4 ? 0.9 : 0.45);
 const plusFort = (a: Trait | null | undefined, b: Trait | null | undefined): Trait | null =>
   !a ? b ?? null : !b ? a : (RANG_TRAIT[b.style] ?? 3) > (RANG_TRAIT[a.style] ?? 3) ? b : a;
 
-/** Date Excel (numéro de série) → texte, au format de la case (« 28-sept. » pour « d-mmm »). */
-function texteDate(serie: number, format: string): string {
-  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serie) * 86_400_000);
-  const j = d.getUTCDate(), m = d.getUTCMonth();
-  const f = format.replace(/\[[^\]]*\]/g, "").replace(/;.*$/, "");
-  if (/mmm/i.test(f) && !/y/i.test(f)) return `${j}-${MOIS_COURTS[m]}`;
-  return `${String(j).padStart(2, "0")}/${String(m + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
-}
-
-/** Texte imprimé d'une cellule. */
-export function texteImprime(c: Contenu, st: StyleCellule | undefined, g: Gabarit): string {
-  const format = st?.format ?? "General";
-  const nombre = (n: number) => (estFormatDate(format) ? texteDate(n, format) : formaterNombre(n, { maximumFractionDigits: 3 }));
-  switch (c.genre) {
-    case "vide": return "";
-    case "texte": return c.texte;
-    case "nombre": return formaterNombre(c.valeur, { maximumFractionDigits: 3 }); // quantité : jamais au format date
-    case "formule": return typeof c.cache === "number" ? nombre(c.cache) : c.cache;
-    case "brut": {
-      const t = texteCellule(c.cellule, g.partages);
-      if (t !== null) return t;
-      if (c.cellule.v === null || c.cellule.t === "b" || c.cellule.t === "e") return "";
-      const n = Number(c.cellule.v);
-      return Number.isFinite(n) ? nombre(n) : c.cellule.v;
-    }
-  }
-}
-
 type Mesures = {
-  g: Gabarit;
-  f: FeuilleSortie;
+  f: FeuilleImprimable;
   zone: Zone;
   echelle: number;
   x: (col: number) => number; // bord gauche de la colonne, en points (échelle comprise), depuis la zone
   l: (col: number) => number;
   h: (r: number) => number;
-  rangee: Map<number, RangeeSortie>;
-  cellule: (r: number, col: number) => CelluleSortie | undefined;
+  rangee: Map<number, RangeeImprimable>;
+  cellule: (r: number, col: number) => CelluleImprimable | undefined;
   style: (r: number, col: number) => StyleCellule | undefined;
 };
 
-function zoneDe(f: FeuilleSortie): Zone {
+function zoneDe(f: FeuilleImprimable): Zone {
   if (f.zone) return f.zone;
   const cols = f.rangees.flatMap((r) => r.cellules.map((c) => c.col));
   return { c1: 1, r1: 1, c2: Math.max(1, ...cols), r2: Math.max(1, ...f.rangees.map((r) => r.r)) };
@@ -85,9 +55,9 @@ function zoneDe(f: FeuilleSortie): Zone {
  * doit tenir. Plancher : 70 % de l'échelle du classeur — au-delà, on passe à la page suivante
  * (en-tête répété) plutôt que d'imprimer illisible.
  */
-function echelleDe(f: FeuilleSortie, zone: Zone, utile: { largeur: number; hauteur: number }, hauteurNominale: (r: number) => number): number {
-  const gf = f.gabarit;
-  const sq = f.squelette!;
+function echelleDe(f: FeuilleImprimable, zone: Zone, utile: { largeur: number; hauteur: number }, hauteurNominale: (r: number) => number): number {
+  const gf = f;
+  const sq = f.squelette;
   let largeur = 0;
   for (let c = zone.c1; c <= zone.c2; c++) largeur += (f.colonnes.find((k) => k.min <= c && c <= k.max)?.largeur ?? gf.largeurDefaut) * PT_PAR_UNITE;
   const presentes = new Set(f.rangees.map((r) => r.r));
@@ -153,13 +123,13 @@ function BlocFixe({ m, lignes, premier }: { m: Mesures; lignes: number[]; premie
   const cases: React.ReactNode[] = [];
   for (const r of lignes) {
     for (let col = zone.c1; col <= zone.c2; col++) {
-      const fusion = m.f.gabarit.fusions.find((z) => z.c1 <= col && col <= z.c2 && m.f.nouvelleLigne(z.r1) <= r && r <= m.f.nouvelleLigne(z.r2));
-      if (fusion && (fusion.c1 !== col || m.f.nouvelleLigne(fusion.r1) !== r)) continue;
-      const bas = fusion ? Math.min(m.f.nouvelleLigne(fusion.r2), lignes.at(-1)!) : r;
+      const fusion = m.f.fusions.find((z) => z.c1 <= col && col <= z.c2 && z.r1 <= r && r <= z.r2);
+      if (fusion && (fusion.c1 !== col || fusion.r1 !== r)) continue;
+      const bas = fusion ? Math.min(fusion.r2, lignes.at(-1)!) : r;
       const droite = fusion ? fusion.c2 : col;
       const c = m.cellule(r, col);
       const st = m.style(r, col);
-      const texte = c ? texteImprime(c.contenu, st, m.g) : "";
+      const texte = c?.texte ?? "";
       const largeur = m.x(droite + 1) - m.x(col);
       let hauteur = 0;
       for (let rr = r; rr <= bas; rr++) hauteur += m.h(rr);
@@ -171,7 +141,7 @@ function BlocFixe({ m, lignes, premier }: { m: Mesures; lignes: number[]; premie
       let largeurTexte = largeur;
       if (texte && !st?.retour && (st?.horizontal ?? "left") === "left") {
         let k = droite + 1;
-        while (k <= zone.c2 && !(m.cellule(r, k) && texteImprime(m.cellule(r, k)!.contenu, m.style(r, k), m.g))) k++;
+        while (k <= zone.c2 && !m.cellule(r, k)?.texte) k++;
         largeurTexte = m.x(k) - m.x(col);
       }
       cases.push(
@@ -186,35 +156,33 @@ function BlocFixe({ m, lignes, premier }: { m: Mesures; lignes: number[]; premie
         const v = st?.vertical === "center" ? (hauteur - boite) / 2 : st?.vertical === "top" ? 0 : hauteur - boite;
         cases.push(
           <View key={`t${r}-${col}`} style={{ position: "absolute", left: m.x(col), top: haut.get(r)! + v, width: largeurTexte, height: boite, justifyContent: alignementVertical(st), paddingHorizontal: 1.5 * echelle + 0.5 }}>
-            <Text style={styleTexte(st, echelle, c?.contenu.genre === "nombre")}>{texte}</Text>
+            <Text style={styleTexte(st, echelle, c?.nombre ?? false)}>{texte}</Text>
           </View>,
         );
       }
     }
   }
   // Logo, à son ancrage, s'il commence dans ce bloc.
-  const d = m.f.gabarit.dessin;
+  const d = m.f.logo;
   if (premier && d) {
     const a = d.ancre;
     const col = a.col + 1, rangee = a.ligne + 1;
     if (col >= zone.c1 && haut.has(rangee)) {
       // Décalages de l'ancre : proportionnels à la case (Excel les compte dans sa propre mesure des colonnes).
-      const largeurExcel = Math.max(1, largeurColonne(m.f.gabarit, col) * 7 + 5) * 0.75;
+      const largeurClasseur = m.f.colonnesGabarit.find((k) => k.min <= col && col <= k.max)?.largeur ?? m.f.largeurDefaut;
+      const largeurExcel = Math.max(1, largeurClasseur * 7 + 5) * 0.75;
       const fx = Math.min(1, a.decalageCol / largeurExcel);
-      const fy = Math.min(1, a.decalageLigne / ((m.rangee.get(rangee)?.hauteur ?? m.f.gabarit.hauteurDefaut) || 1));
-      const png = m.g.parties.get(d.media);
-      if (png) {
-        cases.push(
-          // eslint-disable-next-line jsx-a11y/alt-text -- Image de react-pdf : pas d'attribut alt dans un PDF
-          <Image key="logo" src={{ data: Buffer.from(png), format: "png" }} style={{
-            position: "absolute",
-            left: m.x(col) + fx * (m.x(col + 1) - m.x(col)),
-            top: haut.get(rangee)! + fy * m.h(rangee),
-            width: a.largeur * echelle,
-            height: a.hauteur * echelle,
-          }} />,
-        );
-      }
+      const fy = Math.min(1, a.decalageLigne / ((m.rangee.get(rangee)?.hauteur ?? m.f.hauteurDefaut) || 1));
+      cases.push(
+        // eslint-disable-next-line jsx-a11y/alt-text -- Image de react-pdf : pas d'attribut alt dans un PDF
+        <Image key="logo" src={`data:image/png;base64,${d.png}`} style={{
+          position: "absolute",
+          left: m.x(col) + fx * (m.x(col + 1) - m.x(col)),
+          top: haut.get(rangee)! + fy * m.h(rangee),
+          width: a.largeur * echelle,
+          height: a.hauteur * echelle,
+        }} />,
+      );
     }
   }
   return <View style={{ position: "relative", width: largeurTotale, height: y }}>{cases}</View>;
@@ -228,11 +196,11 @@ function RangeeCorps({ m, r, dessous }: { m: Mesures; r: number; dessous: number
   for (let col = zone.c1; col <= zone.c2; col++) {
     const c = m.cellule(r, col);
     const st = m.style(r, col);
-    const texte = c ? texteImprime(c.contenu, st, m.g) : "";
+    const texte = c?.texte ?? "";
     const bord = bordures(m, r, col, r, col, col === zone.c1, false, dessous);
     cases.push(
       <View key={col} style={{ width: m.l(col), backgroundColor: st?.fond ?? undefined, justifyContent: alignementVertical(st), paddingHorizontal: 1.5 * echelle + 0.5, ...bord }}>
-        {texte ? <Text style={styleTexte(st, echelle, c?.contenu.genre === "nombre")}>{texte}</Text> : null}
+        {texte ? <Text style={styleTexte(st, echelle, c?.nombre ?? false)}>{texte}</Text> : null}
       </View>,
     );
   }
@@ -244,11 +212,11 @@ function RangeeCorps({ m, r, dessous }: { m: Mesures; r: number; dessous: number
   );
 }
 
-const rangeeDe = (f: FeuilleSortie, r: number) => f.rangees.find((x) => x.r === r);
+const rangeeDe = (f: FeuilleImprimable, r: number) => f.rangees.find((x) => x.r === r);
 
-function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: string }) {
-  const gf = f.gabarit;
-  const sq = f.squelette!;
+function PageFeuille({ styles, f, pied }: { styles: StyleCellule[]; f: FeuilleImprimable; pied?: string }) {
+  const gf = f;
+  const sq = f.squelette;
   const zone = zoneDe(f);
   const marges = {
     gauche: Math.max(12, gf.marges.gauche * 72), droite: Math.max(12, gf.marges.droite * 72),
@@ -261,7 +229,7 @@ function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: stri
   // texte si elle est plus haute (le corps s'agrandit plutôt que de couper un texte).
   const hauteurRangee = (r: number) => {
     const x = rangeeDe(f, r);
-    const police = Math.max(0, ...(x?.cellules ?? []).filter((c) => texteImprime(c.contenu, g.styles.cellules[c.s], g)).map((c) => g.styles.cellules[c.s]?.police.taille ?? 0));
+    const police = Math.max(0, ...(x?.cellules ?? []).filter((c) => c.texte).map((c) => styles[c.s]?.police.taille ?? 0));
     return Math.max((x?.hauteur ?? gf.hauteurDefaut) * FACTEUR_HAUTEUR, police * INTERLIGNE + 1);
   };
   const echelle = echelleDe(f, zone, utile, hauteurRangee) * 0.99;
@@ -272,7 +240,7 @@ function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: stri
   let x = 0;
   for (let c = zone.c1; c <= zone.c2 + 1; c++) { xs.set(c, x); x += largeurs.get(c)!; }
   const m: Mesures = {
-    g, f, zone, echelle,
+    f, zone, echelle,
     x: (c) => xs.get(c) ?? x,
     l: (c) => largeurs.get(c) ?? 0,
     h: (r) => hauteurRangee(r) * echelle,
@@ -280,7 +248,7 @@ function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: stri
     cellule: (r, c) => rangee.get(r)?.cellules.find((k) => k.col === c),
     style: (r, c) => {
       const k = rangee.get(r)?.cellules.find((y) => y.col === c);
-      return k ? g.styles.cellules[k.s] : undefined;
+      return k ? styles[k.s] : undefined;
     },
   };
 
@@ -296,7 +264,7 @@ function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: stri
     const groupe = f.entetesRepetes.find((gr) => gr[0] === x.r);
     if (groupe) { segments.push({ entete: groupe, corps: [] }); continue; }
     if (repetes.has(x.r)) continue;
-    if (x.genre === "hors" && !x.cellules.some((c) => texteImprime(c.contenu, g.styles.cellules[c.s], g))) continue;
+    if (x.genre === "hors" && !x.cellules.some((c) => c.texte)) continue;
     segments.at(-1)!.corps.push(x.r);
   }
 
@@ -318,11 +286,11 @@ function PageFeuille({ g, f, pied }: { g: Gabarit; f: FeuilleSortie; pied?: stri
 }
 
 /** Document PDF : une page (ou plus) par feuille, dans l'ordre. `pied` : mention sous la dernière feuille. */
-export function DocumentModele({ titre, feuilles, pied }: { titre: string; feuilles: { g: Gabarit; f: FeuilleSortie }[]; pied?: string }) {
+export function DocumentImprime({ doc }: { doc: DocumentImprimable }) {
   return (
-    <Document title={titre} author="Pâtes en Folie">
-      {/* Une feuille sans tableau (« Fiche commande Salle », vide) n'imprime rien, comme dans Excel. */}
-      {feuilles.filter(({ f }) => f.squelette).map(({ g, f }, i, t) => <PageFeuille key={i} g={g} f={f} pied={i === t.length - 1 ? pied : undefined} />)}
+    <Document title={doc.titre} author="Pâtes en Folie">
+      {/* Une feuille sans tableau (« Fiche commande Salle », vide) n'imprime rien, comme dans Excel : écartée par ./imprimable. */}
+      {doc.feuilles.map((f, i, t) => <PageFeuille key={i} styles={doc.styles} f={f} pied={i === t.length - 1 ? doc.pied : undefined} />)}
     </Document>
   );
 }

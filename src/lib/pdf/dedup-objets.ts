@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256";
 import {
   PDFArray, PDFBool, PDFDict, PDFHexString, PDFName, PDFNull, PDFNumber, PDFRef, PDFStream, PDFString,
   type PDFContext, type PDFDocument, type PDFObject,
@@ -36,11 +36,8 @@ const N = (nom: string) => PDFName.of(nom);
 /** Clés dont la valeur est un flux candidat, hors images (les images se reconnaissent à /Subtype /Image). */
 const CLES_FLUX_POLICE = ["FontFile", "FontFile2", "FontFile3", "ToUnicode"].map(N);
 
-const sha = (...morceaux: (string | Uint8Array)[]) => {
-  const h = createHash("sha256");
-  for (const m of morceaux) { h.update(m); h.update("\u0000"); }
-  return h.digest("hex");
-};
+/** Chaque morceau suivi d'un octet nul, comme avant (node:crypto) : sha256Hex tourne aussi dans le navigateur. */
+const sha = (...morceaux: (string | Uint8Array)[]) => sha256Hex(...morceaux.flatMap((m) => [m, "\u0000"]));
 
 /**
  * Empreinte canonique d'un objet PDF : les références sont suivies et remplacées par l'empreinte de leur cible, les clés de

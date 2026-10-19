@@ -3,14 +3,15 @@ import path from "node:path";
 import { cleTexte, lireFeuillesXlsx } from "@/lib/xlsx-leger";
 import { lireClasseurVentes } from "@/lib/classeur-ventes";
 import { lireClasseurCommande } from "@/lib/classeur-commande";
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { registerPdfFonts, renderPdfBuffer } from "@/lib/pdf/fonts";
 import { reunirPdf } from "@/lib/pdf/reunir-pdf";
 import { semaineIso, type EspaceFiche, type Fiche } from "@/lib/fiches-conso";
 import { lireGabarit, type FeuilleGabarit, type Gabarit } from "./gabarit";
 import { squelette, type LigneModele, type Squelette } from "./squelette";
 import { feuilleTelleQuelle, remplirFeuille, type FeuilleSortie, type LigneDonnees } from "./remplir";
 import { ecrireClasseur, nomOnglet } from "./classeur";
-import { DocumentModele } from "./impression";
+import { DocumentImprime } from "./impression";
+import { documentImprimable } from "./imprimable";
 
 // Documents « Rapport journalier cuisine et bar » et « Commande journalière » sur les MODÈLES de la
 // Direction (assets/modeles/, copies allégées de ses classeurs — cf. scripts/modeles-journaliers.ts).
@@ -138,12 +139,13 @@ export async function excelModele(r: { modele: Modele; feuilles: FeuilleSortie[]
 export const FEUILLES_PAR_DOCUMENT_PDF = 2;
 
 export async function pdfModele(r: { modele: Modele; feuilles: FeuilleSortie[] }, titre: string, pied?: string): Promise<Buffer> {
+  registerPdfFonts();
   // Une feuille sans tableau (« Fiche commande Salle », vide) n'imprime rien : elle ne compte pas.
   const imprimees = r.feuilles.filter((f) => f.squelette);
   const lots: FeuilleSortie[][] = [];
   for (let i = 0; i < imprimees.length; i += FEUILLES_PAR_DOCUMENT_PDF) lots.push(imprimees.slice(i, i + FEUILLES_PAR_DOCUMENT_PDF));
   const rendre = (feuilles: FeuilleSortie[], dernier: boolean) =>
-    renderPdfBuffer(DocumentModele({ titre, feuilles: feuilles.map((f) => ({ g: r.modele.gabarit, f })), ...(dernier && pied ? { pied } : {}) }));
+    renderPdfBuffer(DocumentImprime({ doc: documentImprimable(r.modele.gabarit, feuilles, titre, dernier ? pied : undefined) }));
   if (lots.length <= 1) return rendre(lots[0] ?? [], true);
 
   // Un lot après l'autre (jamais en parallèle : c'est le but), puis les pages mises bout à bout.
