@@ -4,6 +4,7 @@ import { cleTexte, lireFeuillesXlsx } from "@/lib/xlsx-leger";
 import { lireClasseurVentes } from "@/lib/classeur-ventes";
 import { lireClasseurCommande } from "@/lib/classeur-commande";
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
+import { reunirPdf } from "@/lib/pdf/reunir-pdf";
 import { semaineIso, type EspaceFiche, type Fiche } from "@/lib/fiches-conso";
 import { lireGabarit, type FeuilleGabarit, type Gabarit } from "./gabarit";
 import { squelette, type LigneModele, type Squelette } from "./squelette";
@@ -146,14 +147,7 @@ export async function pdfModele(r: { modele: Modele; feuilles: FeuilleSortie[] }
   if (lots.length <= 1) return rendre(lots[0] ?? [], true);
 
   // Un lot après l'autre (jamais en parallèle : c'est le but), puis les pages mises bout à bout.
-  const { PDFDocument } = await import("pdf-lib");
-  const reuni = await PDFDocument.create();
-  reuni.setTitle(titre);
-  reuni.setAuthor("Pâtes en Folie");
-  for (const [i, lot] of lots.entries()) {
-    const partie = await PDFDocument.load(await rendre(lot, i === lots.length - 1));
-    for (const page of await reuni.copyPages(partie, partie.getPageIndices())) reuni.addPage(page);
-  }
-  // Sans flux d'objets : le dictionnaire des polices reste lisible en clair (contrôle des glyphes manquants).
-  return Buffer.from(await reuni.save({ useObjectStreams: false }));
+  const parties: Uint8Array[] = [];
+  for (const [i, lot] of lots.entries()) parties.push(await rendre(lot, i === lots.length - 1));
+  return Buffer.from(await reunirPdf(parties, { titre, auteur: "Pâtes en Folie" }));
 }
