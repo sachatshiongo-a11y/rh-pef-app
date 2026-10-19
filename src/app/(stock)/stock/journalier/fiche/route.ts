@@ -1,5 +1,7 @@
 import { exigerEspaceStock } from "@/lib/garde-route";
-import { renderPdfOuRefus } from "@/lib/pdf/fonts";
+import { policesOptimaBase64, renderPdfOuRefus } from "@/lib/pdf/fonts";
+import { compacterDonnees } from "@/lib/pdf/navigateur/donnees";
+import { documentImprimable, type DocumentImprimable } from "@/lib/modeles-journaliers/imprimable";
 import { TableauxParPartieDocument } from "@/lib/pdf/tableau";
 import { classeurExcel } from "@/lib/export-excel";
 import { lundiDe } from "@/lib/dates-fr";
@@ -24,6 +26,10 @@ import { chargerCommandesJournalieres, chargerCommandesSemaine, chargerConsommat
  *   semaine d'une seule traite coûte ~9 s de processeur sur un poste récent, soit 1 min 30 à 2 min
  *   sur l'instance gratuite (un dixième de processeur) : Cloudflare coupe toute réponse au-delà de
  *   100 s, le téléchargement échouait (Direction, 19/10/2026). Un jour tient en ~20 s.
+ *   `format=donnees` : le PDF n'est PAS rendu ici ; la route renvoie, en JSON, chaque jour sous la
+ *   forme que l'impression lit (lib/modeles-journaliers/imprimable) et la police, et c'est le
+ *   NAVIGATEUR qui fabrique le PDF (lib/pdf/navigateur) : quelques secondes au lieu de 2 à 3 minutes.
+ *   Les parties ci-dessus restent le repli quand le navigateur n'y arrive pas.
  * `domaine` (NOURRITURE / BOISSON), comme le filtre de l'écran : une seule fiche ; sinon les deux.
  *
  * Rapport et commande sortent sur les MODÈLES de la Direction (lib/modeles-journaliers) : l'Excel
@@ -49,6 +55,8 @@ export async function GET(req: Request) {
   const type = sp.get("type");
   if (type !== "rapport" && type !== "consommation" && type !== "commande") return new Response("Fiche inconnue.", { status: 400 });
   const format = sp.get("format") === "excel" ? "excel" : "pdf";
+  const donnees = sp.get("format") === "donnees";
+  if (donnees && !(type === "commande" && sp.get("tout") === "1")) return new Response("Format inconnu pour cette fiche.", { status: 400 });
   const domaine = sp.get("domaine");
   const espaces: EspaceFiche[] = domaine === "NOURRITURE" ? ["CUISINE"] : domaine === "BOISSON" ? ["BAR"] : ["CUISINE", "BAR"];
   const suffixe = espaces.length === 1 ? (espaces[0] === "CUISINE" ? "_cuisine" : "_bar") : "";
@@ -89,7 +97,7 @@ export async function GET(req: Request) {
     const jours = fichesCommandeSemaine(tous, espaces);
     const brutPartie = sp.get("partie");
     let partie: number | null = null;
-    if (brutPartie !== null && format === "pdf") {
+    if (brutPartie !== null && format === "pdf" && !donnees) {
       partie = /^\d+$/.test(brutPartie) ? Number(brutPartie) : -1;
       if (partie < 0 || partie >= jours.length) return new Response("Partie invalide.", { status: 400 });
       parties = jours.length;
@@ -107,6 +115,15 @@ export async function GET(req: Request) {
     pied = derniere && sansMotif.length
       ? `Sorties sans motif, non comptées comme livrées : ${sansMotif.map((j) => `${formaterNombre(j.sansMotif)} le ${dateLongue(j.date).split(" ")[0]} ${JJMM(j.date).slice(0, 5)}`).join(", ")}.`
       : "";
+    if (donnees) {
+      // Un document par jour, comme les parties : le navigateur les rend un à un (avancement, mémoire d'un jour).
+      const docs: DocumentImprimable[] = [];
+      for (const [i, j] of jours.entries()) {
+        const r = await feuillesCommande([j]);
+        docs.push(documentImprimable(r.modele.gabarit, r.feuilles, `${titre} — ${periode}`, i === jours.length - 1 ? pied || undefined : undefined));
+      }
+      return Response.json(compacterDonnees(`${fichier}.pdf`, policesOptimaBase64(), docs), { headers: { "Cache-Control": "private, no-store" } });
+    }
   } else {
     const date = sp.get("date") === null ? jourKinshasaISO() : datePure(sp.get("date"));
     if (!date) return new Response("Date invalide (attendu : AAAA-MM-JJ).", { status: 400 });

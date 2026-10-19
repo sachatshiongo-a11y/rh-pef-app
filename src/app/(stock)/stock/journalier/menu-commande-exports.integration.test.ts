@@ -3,6 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 import { pagesDuPdf, policesDeRepli } from "@/lib/test/pdf-lecture";
 import { reunirPdf } from "@/lib/pdf/reunir-pdf";
+import { donneesPdfValides } from "@/lib/pdf/navigateur/donnees";
+import { fabriquerPdf } from "@/lib/pdf/navigateur/rendre";
 
 /**
  * Menu « Commande journalière (PDF / Excel) » de l'onglet Commande, bout à bout : chaque lien du menu
@@ -124,6 +126,35 @@ describe("menu Commande : chaque lien produit un fichier valide", () => {
     expect(attendu.at(-1)).toContain("Sorties sans motif");
     expect(obtenu.filter((t) => t.includes("Sorties sans motif"))).toHaveLength(1);
   }, 300_000);
+
+  it("Toute la semaine, PDF fabriqué par le navigateur : les données donnent les pages du document complet", async () => {
+    const complet = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=pdf`);
+    const { r, buf } = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=donnees`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("Content-Type")).toContain("application/json");
+    expect(r.headers.get("Cache-Control")).toContain("no-store");
+    const donnees = JSON.parse(buf.toString("utf8"));
+    expect(donneesPdfValides(donnees)).toBe(true);
+    expect(donnees.parties).toHaveLength(7);
+    expect(donnees.fichier).toMatch(/^Commande_journaliere_semaine_2026-10-12\.pdf$/);
+    // Le pied (sorties sans motif) : sous la dernière partie seulement.
+    expect(donnees.parties.map((p: { pied?: string }) => !!p.pied)).toEqual([false, false, false, false, false, false, true]);
+    const nav = Buffer.from(await fabriquerPdf(donnees));
+    expect(policesDeRepli(nav)).toEqual([]);
+    expect((await pagesDuPdf(nav)).map((p) => p.plat)).toEqual((await pagesDuPdf(complet.buf)).map((p) => p.plat));
+  }, 300_000);
+
+  it("données pour le navigateur : seulement la semaine de commande", async () => {
+    for (const qs of [`type=rapport&semaine=${SEMAINE}`, `type=consommation&semaine=${SEMAINE}`, `type=commande&date=${JOURS[1]}`]) {
+      const { r } = await ficheGet(`${qs}&format=donnees`);
+      expect(r.status, qs).toBe(400);
+    }
+    // `partie` ne s'applique qu'au PDF rendu par le serveur : avec les données, la semaine entière (pied compris).
+    const { r, buf } = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=donnees&partie=0`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("X-Pdf-Parties")).toBeNull();
+    expect(JSON.parse(buf.toString("utf8")).parties).toHaveLength(7);
+  }, 120_000);
 
   it("Toute la semaine, partie hors de la semaine : refusée, jamais un autre jour", async () => {
     for (const p of ["7", "-1", "x", "1.5", ""]) {

@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { ReactElement } from "react";
 import { Font, renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
 import { reponsePdfTropLong } from "./plafond";
+import type { PolicesOptima } from "./navigateur/donnees";
 import { planDe, rendreParBlocs, rendreParLots, respirer, SEUIL_PLACES_BLOCS, PAGES_PAR_LOT } from "./blocs";
 
 const FAMILLE = "Optima";
@@ -33,6 +35,15 @@ export function registerPdfFonts() {
   });
 }
 
+
+/** Les quatre fichiers Optima, en base64 : envoyés au navigateur qui fabrique un PDF lui-même (lib/pdf/navigateur), derrière la session. */
+let policesBase64: PolicesOptima | null = null;
+export function policesOptimaBase64(): PolicesOptima {
+  if (policesBase64) return policesBase64;
+  const lire = (nom: string) => fs.readFileSync(path.join(process.cwd(), "assets/fonts", nom)).toString("base64");
+  policesBase64 = { regular: lire("Optima-Regular.ttf"), bold: lire("Optima-Bold.ttf"), italic: lire("Optima-Italic.ttf"), boldItalic: lire("Optima-BoldItalic.ttf") };
+  return policesBase64;
+}
 
 /**
  * ⚠️ Contournement d'un bug de cache CROSS-DOCUMENT dans @react-pdf/font, CONSTATÉ EN PRODUCTION

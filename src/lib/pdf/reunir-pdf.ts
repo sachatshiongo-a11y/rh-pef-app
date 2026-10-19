@@ -1,5 +1,8 @@
+import { dedupliquerObjets } from "./dedup-objets";
+
 /**
- * Réunit plusieurs PDF en un seul, pages bout à bout, dans l'ordre. Sans dépendance au serveur :
+ * Réunit plusieurs PDF en un seul, pages bout à bout, dans l'ordre. Le logo et les polices, recopiés par
+ * chaque partie, ne sont gardés qu'une fois (./dedup-objets). Sans dépendance au serveur :
  * sert au serveur (rendu par lots, lib/modeles-journaliers) ET au navigateur (document trop long pour
  * une seule requête, récupéré partie par partie : components/telecharger-lien.tsx).
  *
@@ -15,5 +18,6 @@ export async function reunirPdf(parties: Uint8Array[], meta: { titre?: string; a
     const partie = await PDFDocument.load(octets);
     for (const page of await reuni.copyPages(partie, partie.getPageIndices())) reuni.addPage(page);
   }
+  dedupliquerObjets(reuni);
   return reuni.save({ useObjectStreams: false });
 }

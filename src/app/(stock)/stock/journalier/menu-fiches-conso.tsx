@@ -86,7 +86,7 @@ export function MenuFicheCommande({ semaine, jours, jourDefaut, domaine, libelle
         <p className="text-sm font-medium">Toute la semaine</p>
         <p className="text-xs text-muted-foreground">Un seul fichier, jour par jour · {libelleSemaine}</p>
         <div className="flex gap-2">
-          <TelechargerLien href={toute("pdf")} enParties className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
+          <TelechargerLien href={toute("pdf")} enParties fabriqueParLeNavigateur={toute("donnees")} className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
           <TelechargerLien href={toute("excel")} className={`${classeLienFiche} flex-1`}>Excel</TelechargerLien>
         </div>
       </div>
