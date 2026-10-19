@@ -177,6 +177,22 @@ async function texteDeLaReponse(res: Response): Promise<string | null> {
   }
 }
 
+/** Récupère un document ; toute réponse qui n'en est pas un se DIT (boîte de dialogue) → null. */
+async function recupererDocument(href: string): Promise<Response | null> {
+  const res = await fetch(href, { credentials: "same-origin" });
+  const verdict = verdictReponseDocument({
+    redirected: res.redirected,
+    ok: res.ok,
+    status: res.status,
+    url: res.url,
+    origine: window.location.origin,
+    contentType: res.headers.get("Content-Type"),
+  });
+  if (verdict === "ok") return res;
+  window.alert(messageEchecDocument(verdict, verdict === "erreur" || verdict === "refuse" ? await texteDeLaReponse(res) : null));
+  return null;
+}
+
 /**
  * RÉCUPÈRE un document par `fetch` (la session voyage avec) puis l'ENREGISTRE (feuille de partage
  * ou téléchargement) — SANS JAMAIS faire naviguer la fenêtre. C'est le seul chemin de la maison
@@ -192,22 +208,66 @@ async function texteDeLaReponse(res: Response): Promise<string | null> {
  */
 export async function telechargerDocument(href: string, nomFichier?: string): Promise<IssueEnregistrement | "echec"> {
   try {
-    const res = await fetch(href, { credentials: "same-origin" });
-    const verdict = verdictReponseDocument({
-      redirected: res.redirected,
-      ok: res.ok,
-      status: res.status,
-      url: res.url,
-      origine: window.location.origin,
-      contentType: res.headers.get("Content-Type"),
-    });
-    if (verdict !== "ok") {
-      window.alert(messageEchecDocument(verdict, verdict === "erreur" || verdict === "refuse" ? await texteDeLaReponse(res) : null));
-      return "echec";
-    }
+    const res = await recupererDocument(href);
+    if (!res) return "echec";
     const blob = await res.blob();
     const nom = nomFichier ?? nomDepuisEntetes(res.headers, "document.pdf");
     return await enregistrerFichier(blob, nom);
+  } catch {
+    window.alert(messageEchecDocument("erreur"));
+    return "echec";
+  }
+}
+
+/** Adresse de la partie `i` (0 = la première) d'un PDF servi par parties. Fonction PURE. */
+export function adressePartie(href: string, i: number): string {
+  return `${href}${href.includes("?") ? "&" : "?"}partie=${i}`;
+}
+
+/**
+ * Nombre de parties annoncé par la route (en-tête `X-Pdf-Parties`). `null` : la route a renvoyé le
+ * document complet (ou un nombre absurde, qu'on ne suit pas). Fonction PURE.
+ */
+export function nombreDeParties(entete: string | null): number | null {
+  if (!entete || !/^\d{1,2}$/.test(entete)) return null;
+  const n = Number(entete);
+  return n >= 1 ? n : null;
+}
+
+/**
+ * Un PDF trop long pour une seule requête (Cloudflare coupe toute réponse au-delà de 100 s, et
+ * l'instance gratuite n'a qu'un dixième de processeur) : récupéré PARTIE PAR PARTIE (`&partie=N`,
+ * l'une après l'autre), puis réuni dans le navigateur en un seul fichier. La première réponse dit
+ * combien il y a de parties ; sans cet en-tête, c'est déjà le document complet. Une partie qui
+ * échoue arrête tout et se dit : jamais de document à moitié.
+ */
+export async function telechargerDocumentEnParties(
+  href: string,
+  nomFichier?: string,
+  auProgres?: (faites: number, total: number) => void,
+): Promise<IssueEnregistrement | "echec"> {
+  try {
+    const premiere = await recupererDocument(adressePartie(href, 0));
+    if (!premiere) return "echec";
+    const nom = nomFichier ?? nomDepuisEntetes(premiere.headers, "document.pdf");
+    const total = nombreDeParties(premiere.headers.get("X-Pdf-Parties"));
+    if (total === null || total === 1) return await enregistrerFichier(await premiere.blob(), nom);
+    const octets: Uint8Array[] = [new Uint8Array(await premiere.arrayBuffer())];
+    auProgres?.(1, total);
+    for (let i = 1; i < total; i++) {
+      const res = await recupererDocument(adressePartie(href, i));
+      if (!res) return "echec";
+      // La semaine a changé entre deux requêtes (un dimanche ajouté ou retiré) : jamais un jour en double ou manquant.
+      if (nombreDeParties(res.headers.get("X-Pdf-Parties")) !== total) {
+        window.alert("Le document a changé pendant sa préparation. Réessayez.");
+        return "echec";
+      }
+      octets.push(new Uint8Array(await res.arrayBuffer()));
+      auProgres?.(i + 1, total);
+    }
+    const { reunirPdf } = await import("@/lib/pdf/reunir-pdf");
+    const reuni = await reunirPdf(octets, { auteur: "Pâtes en Folie" });
+    return await enregistrerFichier(new Blob([new Uint8Array(reuni)], { type: "application/pdf" }), nom);
   } catch {
     window.alert(messageEchecDocument("erreur"));
     return "echec";
@@ -226,6 +286,9 @@ export async function telechargerDocument(href: string, nomFichier?: string): Pr
  *
  * `onClick` (facultatif) est appelé au clic, avant la récupération : les menus s'en servent pour se
  * refermer.
+ *
+ * `enParties` : PDF long servi jour par jour (`telechargerDocumentEnParties`) ; le lien affiche
+ * l'avancement (« 3/7 »).
  */
 export function TelechargerLien({
   href,
@@ -233,6 +296,7 @@ export function TelechargerLien({
   className,
   title,
   onClick: auClic,
+  enParties = false,
   children,
 }: {
   href: string;
@@ -240,9 +304,11 @@ export function TelechargerLien({
   className?: string;
   title?: string;
   onClick?: () => void;
+  enParties?: boolean;
   children: React.ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
+  const [progres, setProgres] = useState<string | null>(null);
 
   async function onClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault();
@@ -250,15 +316,22 @@ export function TelechargerLien({
     if (busy) return;
     setBusy(true);
     try {
-      await telechargerDocument(href, nomFichier);
+      if (enParties) {
+        setProgres("…");
+        await telechargerDocumentEnParties(href, nomFichier, (faites, total) => setProgres(`${faites}/${total}`));
+      } else {
+        await telechargerDocument(href, nomFichier);
+      }
     } finally {
       setBusy(false);
+      setProgres(null);
     }
   }
 
   return (
     <a href={href} onClick={onClick} className={className} title={title} aria-busy={busy} data-telechargement="">
       {children}
+      {progres && <span className="ml-1 tabular-nums text-muted-foreground">{progres}</span>}
     </a>
   );
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 import { pagesDuPdf, policesDeRepli } from "@/lib/test/pdf-lecture";
+import { reunirPdf } from "@/lib/pdf/reunir-pdf";
 
 /**
  * Menu « Commande journalière (PDF / Excel) » de l'onglet Commande, bout à bout : chaque lien du menu
@@ -96,6 +97,40 @@ describe("menu Commande : chaque lien produit un fichier valide", () => {
     expect((await pagesDuPdf(buf)).length).toBeGreaterThan(6);
     expect(policesDeRepli(buf)).toEqual([]);
   }, 180_000);
+
+  it("Toute la semaine, PDF par parties (un jour par requête) : réunies, ce sont les pages du document complet", async () => {
+    // Une sortie sans motif le dimanche : le pied de la semaine, imprimé UNE fois, sous la dernière fiche.
+    const unArticle = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Filet pur Boeuf" } });
+    await prisma.mouvementStock.create({ data: { articleId: unArticle.id, type: "SORTIE", quantite: 1, date: le(JOURS[6]!) } });
+    const complet = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=pdf`);
+    expect(complet.r.headers.get("X-Pdf-Parties")).toBeNull();
+    const premiere = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=pdf&partie=0`);
+    expect(premiere.r.status).toBe(200);
+    const total = Number(premiere.r.headers.get("X-Pdf-Parties"));
+    expect(total).toBe(7);
+    expect(premiere.r.headers.get("Content-Disposition")).toBe(complet.r.headers.get("Content-Disposition"));
+    const parties = [premiere.buf];
+    for (let i = 1; i < total; i++) {
+      const p = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=pdf&partie=${i}`);
+      expect(p.r.status).toBe(200);
+      expect(estPdf(p.buf)).toBe(true);
+      parties.push(p.buf);
+    }
+    const reuni = Buffer.from(await reunirPdf(parties));
+    expect(policesDeRepli(reuni)).toEqual([]);
+    const attendu = (await pagesDuPdf(complet.buf)).map((p) => p.plat);
+    const obtenu = (await pagesDuPdf(reuni)).map((p) => p.plat);
+    expect(obtenu).toEqual(attendu);
+    expect(attendu.at(-1)).toContain("Sorties sans motif");
+    expect(obtenu.filter((t) => t.includes("Sorties sans motif"))).toHaveLength(1);
+  }, 300_000);
+
+  it("Toute la semaine, partie hors de la semaine : refusée, jamais un autre jour", async () => {
+    for (const p of ["7", "-1", "x", "1.5", ""]) {
+      const { r } = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=pdf&partie=${p}`);
+      expect(r.status, p).toBe(400);
+    }
+  }, 120_000);
 
   it("Toute la semaine, Excel", async () => {
     const { r, buf } = await ficheGet(`type=commande&tout=1&semaine=${SEMAINE}&format=excel`);

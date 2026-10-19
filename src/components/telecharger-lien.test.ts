@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { verdictReponseDocument, messageEchecDocument, adresseDeFormulaire, issuePartage } from "./telecharger-lien";
+import { verdictReponseDocument, messageEchecDocument, adresseDeFormulaire, issuePartage, adressePartie, nombreDeParties } from "./telecharger-lien";
 
 /**
  * Le piège : `fetch` suit les redirections et le garde d'auth REDIRIGE vers /login au lieu de
@@ -129,5 +129,21 @@ describe("issuePartage", () => {
     expect(issuePartage({ erreur: new TypeError("boom") })).toBe("repli");
     expect(issuePartage({ erreur: null })).toBe("repli");
     expect(issuePartage({ erreur: "chaîne" })).toBe("repli");
+  });
+});
+
+describe("PDF servi par parties (semaine de commande)", () => {
+  it("l'adresse d'une partie garde les paramètres existants", () => {
+    expect(adressePartie("/stock/journalier/fiche?type=commande&tout=1&format=pdf", 3)).toBe("/stock/journalier/fiche?type=commande&tout=1&format=pdf&partie=3");
+    expect(adressePartie("/x", 0)).toBe("/x?partie=0");
+  });
+  it("sans en-tête, ou avec un nombre absurde : le document est complet, on ne boucle pas", () => {
+    expect(nombreDeParties(null)).toBeNull();
+    expect(nombreDeParties("")).toBeNull();
+    expect(nombreDeParties("0")).toBeNull();
+    expect(nombreDeParties("-2")).toBeNull();
+    expect(nombreDeParties("7.5")).toBeNull();
+    expect(nombreDeParties("1000")).toBeNull();
+    expect(nombreDeParties("7")).toBe(7);
   });
 });
