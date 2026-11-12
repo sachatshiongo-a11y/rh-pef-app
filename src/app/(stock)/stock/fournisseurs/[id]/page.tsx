@@ -26,6 +26,7 @@ import { CommandesListe } from "../../commandes/commandes-liste";
 import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 import { whereEchues } from "@/lib/facture-echue";
 import { Indicateur } from "@/components/indicateur";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 const s = (v: string | null) => v ?? "";
 
@@ -149,11 +150,14 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
             {f._count.liensArticles} article(s) · {nbBonsValides} bon(s) de commande validé(s) · {nbFactures} facture(s) · {nbAchatsDirects} achat(s) direct(s)
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <TelechargerLien href={`/stock/fournisseurs/pdf?ids=${id}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⭳ Fiche PDF</TelechargerLien>
         {estDirection && <EditerFournisseur f={{
           id: f.id, nom: f.nom, contactNom: s(f.contactNom), telephone: s(f.telephone), email: s(f.email),
           ville: s(f.ville), pays: s(f.pays), rccm: s(f.rccm), idNational: s(f.idNational),
           delaiPaiement: s(f.delaiPaiement), delaiLivraison: s(f.delaiLivraison), modePaiement: s(f.modePaiement), produits: s(f.produits),
         }} />}
+        </div>
       </div>
 
       {/* KPIs factures — au-dessus des onglets, visibles quel que soit l'onglet : le solde dû au fournisseur est ce qu'on vient chercher sur sa fiche. */}

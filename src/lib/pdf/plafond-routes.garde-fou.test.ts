@@ -9,7 +9,7 @@ import path from "node:path";
  * 500 muette au lieu du 413 lisible. Le test parcourt `src/app` à chaque passage : une nouvelle
  * route qui rend l'un de ces documents sans `renderPdfOuRefus` le fait échouer.
  */
-const DOCUMENTS_PLAFONNES = ["TableauDocument", "TablesDocument", "TableauxParPartieDocument", "ComparaisonDocument", "RapportExploitationDocument", "LivrePaieDocument", "FicheComptageDocument", "FichesInventaireDocument"];
+const DOCUMENTS_PLAFONNES = ["TableauDocument", "TablesDocument", "TableauxParPartieDocument", "ComparaisonDocument", "RapportExploitationDocument", "LivrePaieDocument", "FicheComptageDocument", "FichesInventaireDocument", "FicheFournisseurDocument"];
 const APP = path.resolve(__dirname, "../../app");
 
 function routes(dir: string): string[] {
