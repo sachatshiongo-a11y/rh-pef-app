@@ -55,6 +55,7 @@ const SUPPRESSION_DIRECTE = [
  * donnée métier) : elles ne rendent pas leurs appelants « suppresseurs ». Liste fermée.
  */
 const TECHNIQUES_LIB: Record<string, string> = {
+  majPrixCatalogueDepuisBon: "Prix du catalogue depuis un bon de commande (lib/validations-stock/prix-depuis-bon.ts) : le patch ne porte QUE le prix de référence (jamais un retrait de fournisseur) ; Direction = écriture directe journalisée, autre compte = proposition à valider (appliquerPatchArticleTx / proposerModifications).",
   supprimerNotificationsPour: "Nettoie les notifications d'une demande une fois traitée (la cloche, pas la donnée).",
   envoyerPush: "Purge les abonnements push expirés (410) renvoyés par le service.",
   envoiUnique: "Courriels planifiés (lib/envoi-unique.ts) : ne supprime que SES PROPRES réservations « EnvoiPlanifie » du journal d'audit (envoi échoué ou abandonné) ; aucune donnée métier.",

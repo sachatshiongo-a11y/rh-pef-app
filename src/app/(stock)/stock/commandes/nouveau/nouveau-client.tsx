@@ -33,7 +33,7 @@ const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 type Devise = "USD" | "CDF";
 type Art = { id: string; designation: string; contenance?: string | null; contenanceUnite?: string | null; nomCourt?: string | null; code?: string | null; prix: string | null; prixCDF?: string | null; prixFC?: string | null; refDevise?: Devise | null; prixRef?: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
-type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string };
+type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string; /** Prix modifié à la main sur cette ligne : seul un prix touché met à jour le catalogue. */ prixTouche?: boolean };
 export type BonInitial = {
   bcId: string; fournisseurId: string | null; /** Devise du bon (absente = dollars). */ devise?: Devise; delaiPaiement: string; modePaiement: string; commentaire: string;
   lignes: Ligne[];
@@ -70,7 +70,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
     if (d === devise) return;
     const libres = lignes.filter((l) => !l.articleId && l.prix.trim() !== "").length;
     setDevise(d);
-    setLignes((ls) => ls.map((l) => ({ ...l, prix: l.articleId ? prixPropose(l.articleId, d) : "" })));
+    setLignes((ls) => ls.map((l) => ({ ...l, prix: l.articleId ? prixPropose(l.articleId, d) : "", prixTouche: false })));
     setNoteDevise(`Bon en ${d === "USD" ? "dollars ($)" : "francs (FC)"} : prix catalogue proposés dans cette devise${libres > 0 ? ` ; ${libres} prix saisi(s) à la main effacé(s), à ressaisir en ${d === "USD" ? "dollars" : "francs"}` : ""}.`);
   };
   const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
@@ -92,7 +92,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   const { racine, onEntreeDerniereLigne } = useLigneSuivante(lignes.length, ajouterLigne);
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
-    maj(i, { articleId, designation: a ? a.designation : "", prix: prixPropose(articleId, devise), uniteParCarton: canoniqueVersSaisie(a?.uniteParCarton) });
+    maj(i, { articleId, designation: a ? a.designation : "", prix: prixPropose(articleId, devise), prixTouche: false, uniteParCarton: canoniqueVersSaisie(a?.uniteParCarton) });
   };
   // Dollars : quantité × prix. Francs : prix au centime de franc, total de ligne au centime (comme l'enregistrement).
   const totalLigneNum = (l: Ligne) => (devise === "USD" ? nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix) : totalLigneFrancs(nombreDeSaisie(l.quantite), nombreDeSaisie(l.prix)));
@@ -169,15 +169,17 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                 </td>
                 <td className="px-2 py-1">
                   <input type="hidden" name="ligne_prix" value={l.prix} />
+                  {/* « 1 » = prix modifié à la main : le serveur met alors à jour le prix du catalogue (Direction) ou le propose. */}
+                  <input type="hidden" name="ligne_prixTouche" value={l.articleId && l.prixTouche && l.prix.trim() !== "" ? "1" : "0"} />
                   <CelluleNombre
-                    ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v) })}
+                    ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v), prixTouche: true })}
                     onEntreeDerniereLigne={onEntreeDerniereLigne}
-                    readOnly={!!l.articleId}
-                    title={l.articleId ? "Prix fixé dans l'onglet Inventaire (modifiable là-bas)" : "Prix libre"}
+                    title={l.articleId ? "Prix modifiable : il met à jour le catalogue à l'enregistrement" : "Prix libre"}
                     min={0}
-                    className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
+                    className={`${inp} w-24 text-right`}
                     aria-label={`Prix unitaire, ligne ${i + 1}`}
                   />
+                  {l.articleId && l.prixTouche && l.prix.trim() !== "" && <span data-maj-catalogue className="block text-[10px] text-sky-800">met à jour le catalogue</span>}
                   {(() => {
                     // Prix de référence dans l'AUTRE devise que le bon : le prix proposé est une conversion au taux du jour, annoncée « ≈ ».
                     const a = l.articleId ? articles.find((x) => x.id === l.articleId) : null;

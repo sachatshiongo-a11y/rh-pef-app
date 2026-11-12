@@ -24,6 +24,7 @@ import { appliquerReception, exigerBonReceptionnable, lireQuantitesRecues } from
 import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { alimenterFournisseursTx } from "@/lib/article-fournisseurs";
 import { STATUTS_BON_ENGAGES } from "@/lib/prix-fournisseurs";
+import { majPrixCatalogueDepuisBon } from "@/lib/validations-stock/prix-depuis-bon";
 import type { Prisma } from "@prisma/client";
 
 
@@ -150,7 +151,8 @@ function lireDeviseBon(formData: FormData, defaut: DeviseBon = "USD"): DeviseBon
   return d;
 }
 
-type LigneSaisie = { articleId: string | null; designation: string; quantite: number; prix: number | null; uniteParCarton: number | null };
+/** `prixTouche` : le prix de la ligne a été modifié à l'écran (un prix seulement proposé ne touche jamais le catalogue). */
+type LigneSaisie = { articleId: string | null; designation: string; quantite: number; prix: number | null; uniteParCarton: number | null; prixTouche: boolean };
 
 /** Lit les lignes du formulaire : prix VIDE = SANS PRIX (null), jamais 0. */
 function lireLignesBon(formData: FormData): LigneSaisie[] {
@@ -159,8 +161,9 @@ function lireLignesBon(formData: FormData): LigneSaisie[] {
   const qtes = colonne(formData, "ligne_quantite", "quantité");
   const prixs = colonneOptionnelle(formData, "ligne_prix", "prix");
   const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
+  const touches = formData.getAll("ligne_prixTouche").map(String);
   const lignes = desigs
-    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prix: prixs[i] ?? null, uniteParCarton: cartons[i] || null }))
+    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prix: prixs[i] ?? null, uniteParCarton: cartons[i] || null, prixTouche: touches[i] === "1" }))
     .filter((l) => l.designation && l.quantite > 0);
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
   return lignes;
@@ -203,6 +206,20 @@ async function garde() {
   const user = await verifySession();
   requireModule(user, "stock");
   return user;
+}
+
+/**
+ * Prix du catalogue mis à jour depuis le bon (Direction : écrit tout de suite ; autre compte : proposition « À valider »).
+ * Ne lève jamais (le bon est déjà enregistré) ; rend le paramètre de redirection qui porte le message éventuel.
+ */
+async function prixCatalogueDuBon(user: Awaited<ReturnType<typeof garde>>, bon: { id: string; numero: string }, devise: DeviseBon, lignes: LigneSaisie[]): Promise<string> {
+  // Sans la permission « Catalogue et prix », le prix retouché vaut pour CE bon seulement : le catalogue ne bouge pas.
+  if (!aPermission(user, "stock.catalogue")) {
+    return lignes.some((l) => l.prixTouche) ? `?catalogue=${encodeURIComponent("Prix retouchés appliqués à ce bon seulement : votre compte n'a pas la permission « Catalogue et prix », le catalogue n'a pas été modifié.")}` : "";
+  }
+  const r = await majPrixCatalogueDepuisBon({ id: user.id, nom: user.nom, role: user.role }, bon, devise, lignes);
+  if (r.appliques > 0 || r.proposes > 0) { revalidatePath("/stock/catalogue"); revalidatePath("/stock/a-valider"); }
+  return r.message ? `?catalogue=${encodeURIComponent(r.message)}` : "";
 }
 
 /**
@@ -275,14 +292,15 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
 
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
-  redirect(`/stock/commandes/${bc.id}`);
+  const notePrix = await prixCatalogueDuBon(user, bc, devise, lignes);
+  redirect(`/stock/commandes/${bc.id}${notePrix}`);
 });
 
 /** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
 export const modifierBonCommande = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   requirePermission(user, "stock.bon_creer");
-  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true, devise: true } });
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true, devise: true, numero: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
   // La devise du bon se choisit (2026-10-16) : un bon en francs — créé à l'écran ou importé d'un PDF — se modifie comme
   // un bon en dollars, dans SA devise. Champ absent = celle du bon. Changer de devise remplace les prix par ceux saisis
@@ -320,7 +338,8 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "modification", nouvelleValeur: `${lignes.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${id}`);
   revalidatePath("/stock/commandes");
-  redirect(`/stock/commandes/${id}`);
+  const notePrix = await prixCatalogueDuBon(user, { id, numero: bc.numero }, devise, lignes);
+  redirect(`/stock/commandes/${id}${notePrix}`);
 });
 
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
