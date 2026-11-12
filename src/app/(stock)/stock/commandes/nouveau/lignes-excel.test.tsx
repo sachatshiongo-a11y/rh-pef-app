@@ -150,30 +150,49 @@ describe.each(Object.entries(ECRANS))("lignes — %s", (_nom, ecran) => {
   });
 });
 
-describe("lignes — bon de commande, prix fixé au catalogue", () => {
-  it("le prix d'un article du catalogue est en lecture seule, sauté par Entrée, et envoyé tel quel", async () => {
-    monter(() => createElement(NouveauBonForm, {
-      articles: [{ id: "a1", designation: "Farine", prix: "12.5", uniteParCarton: null }], fournisseurs: [],
-    }));
+describe("lignes — bon de commande, prix du catalogue modifiable (2026-11-12)", () => {
+  const monterFarine = () => monter(() => createElement(NouveauBonForm, {
+    articles: [{ id: "a1", designation: "Farine", prix: "12.5", uniteParCarton: null }, { id: "a2", designation: "Sucre", prix: "4", uniteParCarton: null }], fournisseurs: [],
+  }));
+  const touche = () => [...conteneur.querySelectorAll<HTMLInputElement>('input[name="ligne_prixTouche"]')].map((i) => i.value);
+
+  it("le prix d'un article du catalogue est PROPOSÉ mais modifiable ; non touché, il n'est pas marqué (le catalogue ne bouge pas)", async () => {
+    monterFarine();
     await choisirOption(champArticle(2), "a1");
-    expect(pu(2).readOnly).toBe(true);
+    expect(pu(2).readOnly).toBe(false);
     expect(pu(2).value).toBe("12,5");
     await saisir(qte(2), "2");
     expect(totalLigne(2)).toBe(`${fmt(25)} $`);
-    act(() => pu(1).focus());
-    await entree(pu(1));
-    expect(document.activeElement).toBe(pu(3)); // ligne 2 sautée
+    expect(touche()).toEqual(["0", "0", "0"]);
     expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[1]).toBe("12,5");
   });
 
-  it("Entrée n'ajoute une ligne que depuis la DERNIÈRE ligne (pas quand les cases du dessous sont en lecture seule)", async () => {
-    monter(() => createElement(NouveauBonForm, {
-      articles: [{ id: "a1", designation: "Farine", prix: "12.5", uniteParCarton: null }], fournisseurs: [],
-    }));
-    await choisirOption(champArticle(3), "a1");
-    act(() => pu(2).focus());
-    await entree(pu(2));
-    expect(qte(4)).toBeNull();
+  it("modifier le prix d'un article du catalogue : nouveau total, ligne marquée « prix touché » (envoyé au serveur), annonce « met à jour le catalogue »", async () => {
+    monterFarine();
+    await choisirOption(champArticle(2), "a1");
+    await saisir(qte(2), "2");
+    await saisir(pu(2), "15");
+    expect(totalLigne(2)).toBe(`${fmt(30)} $`);
+    expect(touche()).toEqual(["0", "1", "0"]);
+    expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[1]).toBe("15");
+    expect(conteneur.querySelector("[data-maj-catalogue]")).toBeTruthy();
+    // Changer d'article remet le prix proposé : plus rien à transmettre au catalogue.
+    await choisirOption(champArticle(2), "a2");
+    expect(pu(2).value).toBe("4");
+    expect(touche()[1]).toBe("0");
+  });
+
+  it("une ligne libre (sans article) n'est jamais marquée : aucun article à mettre à jour", async () => {
+    monterFarine();
+    await saisir(pu(1), "9");
+    expect(touche()[0]).toBe("0");
+  });
+
+  it("Entrée descend sur la ligne suivante, prix modifiable compris", async () => {
+    monterFarine();
+    await choisirOption(champArticle(2), "a1");
+    act(() => pu(1).focus());
+    await entree(pu(1));
     expect(document.activeElement).toBe(pu(2));
   });
 });
