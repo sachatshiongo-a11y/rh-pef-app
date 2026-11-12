@@ -58,7 +58,9 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   const totalLigne = (l: { totalLigneUSD: unknown; totalLigneCDF: unknown }) => Number(enFC ? l.totalLigneCDF : l.totalLigneUSD);
   const bc = facture.bonDeCommande;
   // Correction de l'en-tête (Direction) : le montant n'est modifiable que si rien n'en dépend (lignes, entrées en stock).
-  const nbEntrees = estDirection ? await prisma.mouvementStock.count({ where: { factureId: facture.id, type: "ENTREE" } }) : 0;
+  // Compté pour TOUS (2026-11-12) : l'employé du Stock doit voir si sa facture a fait entrer le stock.
+  const nbEntrees = await prisma.mouvementStock.count({ where: { factureId: facture.id, type: "ENTREE" } });
+  const nbLignesArticle = facture.lignes.filter((l) => l.articleId).length;
   const montantBloque = facture.lignes.length > 0 || nbEntrees > 0
     ? `Le montant est la somme des ${facture.lignes.length} ligne(s) d'articles${nbEntrees > 0 ? ` et ${nbEntrees} entrée(s) en stock en dépendent` : ""} : non modifiable ici (supprimez la facture et ressaisissez-la).`
     : null;
@@ -148,6 +150,16 @@ export default async function FactureDetailPage({ params, searchParams }: { para
         <Info label="Payé" val={fm(m.regle)} />
         <Info label="Reste à payer" val={fm(m.reste)} accent={m.reste > 0} sous={enFC && m.reste > 0 ? libelleAutreDevise(m.reste, "CDF", tauxCDF) + " au taux du jour" : undefined} />
         <Info label="Mode de paiement" val={facture.modePaiement ?? "—"} />
+        {facture.lignes.length > 0 && (
+          <div data-entrees-stock className="col-span-2 sm:col-span-4">
+            <p className={`text-xs ${nbEntrees === 0 ? "font-medium text-amber-700" : "text-muted-foreground"}`}>
+              Stock : {nbEntrees === 0
+                ? "aucune entrée en stock pour cette facture"
+                : `${nbEntrees} entrée(s) en stock`}
+              {facture.lignes.length - nbLignesArticle > 0 ? ` · ${facture.lignes.length - nbLignesArticle} ligne(s) sans article du catalogue, hors stock` : ""}.
+            </p>
+          </div>
+        )}
         {enFC && (
           <div className="col-span-2 sm:col-span-4">
             <p className="text-xs text-muted-foreground">

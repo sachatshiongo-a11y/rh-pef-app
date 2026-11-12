@@ -81,7 +81,11 @@ export const attacherDocumentFacture = actionLisible(async (id: string, formData
   revalidatePath(`/stock/factures/${id}`);
 });
 
-/** Lit un PDF de facture et renvoie un pré-remplissage complet (fournisseur, date, n°, LIGNES) — Direction. À CONFIRMER. */
+/**
+ * Lit un PDF de facture et renvoie un pré-remplissage complet (fournisseur, date, n°, LIGNES). À CONFIRMER.
+ * Ouvert à tout compte de l'espace Stock (2026-11-12) : c'est une LECTURE, elle n'écrit rien ; l'écran
+ * « Nouvelle facture » (ouvert au Stock) propose ce bouton, qui était refusé hors Direction.
+ */
 export type LigneAnalyse = {
   /** Le libellé LU dans le PDF — conservé tel quel, jamais réécrit par le nom d'un article du catalogue. */
   designation: string; quantite: number; prixUnitaireUSD: number; total: number;
@@ -105,7 +109,6 @@ const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, devise: 
 export const analyserFacturePDF = actionLisible(async (formData: FormData): Promise<AnalyseFacture> => {
   const user = await verifySession();
   requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
   const file = formData.get("facturePdf");
   if (!(file instanceof File) || file.size === 0) return VIDE;
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -258,6 +261,17 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   if (devise === "CDF" && entrerEnStock && tauxFC === null) {
     const rangs = lignes.map((l, i) => (l.articleId && l.total > 0 ? i + 1 : 0)).filter((x) => x > 0);
     if (rangs.length > 0) throw new Error(`Facture en francs (FC) à entrer en stock : le taux de change CDF/USD n'est pas défini (Paramètres), la valeur en dollars ${rangs.length > 1 ? `des lignes ${rangs.join(", ")}` : `de la ligne ${rangs[0]}`} est impossible. Rien n'a été enregistré — faites définir le taux, ou décochez « entrer en stock ».`);
+  }
+
+  // Lignes « libres » (aucun article du catalogue choisi) alors qu'on demande l'entrée en stock (2026-11-12) :
+  // elles n'entrent PAS en stock. Avant, la facture s'enregistrait en silence et l'employé croyait le stock
+  // à jour. On le dit, et on n'enregistre qu'avec « Enregistrer quand même ».
+  if (entrerEnStock && formData.get("forcerLibres") == null) {
+    const libres = lignes.filter((l) => !l.articleId).map((l) => `« ${l.designation} »`);
+    if (libres.length > 0) {
+      const tout = libres.length === lignes.length;
+      throw new Error(`LIGNES_LIBRES|${libres.length === 1 ? "La ligne" : `Les ${libres.length} lignes`} ${libres.slice(0, 8).join(", ")}${libres.length > 8 ? "…" : ""} ${libres.length === 1 ? "n'est reliée" : "ne sont reliées"} à aucun article du catalogue : ${libres.length === 1 ? "elle n'entrera" : "elles n'entreront"} PAS en stock${tout ? " (aucune entrée en stock ne sera faite)" : ""}. Choisissez l'article dans la colonne « Article (catalogue) », ou confirmez avec « Enregistrer quand même ». Rien n'a été enregistré.`);
+    }
   }
 
   // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée
