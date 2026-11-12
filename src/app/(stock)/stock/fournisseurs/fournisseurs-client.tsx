@@ -15,6 +15,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
 import { MAX_EXPORT_SELECTION } from "@/lib/export-selection";
+import { MAX_FICHES_PDF } from "@/lib/fiche-fournisseur-export";
 import { ErreurAction } from "@/components/erreur-action";
 import { EtatVide } from "@/components/etat-vide";
 
@@ -181,6 +182,11 @@ export function FournisseursClient({ fournisseurs, estDirection, pageInit = 1, p
             <button type="button" disabled className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">Export : {MAX_EXPORT_SELECTION} fournisseurs au plus</button>
           ) : (
             <TelechargerLien href={`/stock/fournisseurs/export?ids=${ids.join(",")}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⭳ Exporter ({ids.length})</TelechargerLien>
+          )}
+          {ids.length > MAX_FICHES_PDF ? (
+            <button type="button" disabled className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">Fiches PDF : {MAX_FICHES_PDF} au plus</button>
+          ) : (
+            <TelechargerLien href={`/stock/fournisseurs/pdf?ids=${ids.join(",")}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⭳ Fiches PDF ({ids.length})</TelechargerLien>
           )}
           {estDirection && ids.length === 2 && <BoutonNeutre onClick={fusionnerCoches}>⤵ Fusionner les 2</BoutonNeutre>}
           {estDirection && <BoutonDanger disabled={isPending} onClick={supprimerSelection}>✕ Supprimer ({ids.length})</BoutonDanger>}
