@@ -25,6 +25,10 @@ describe("Factures : rôles", () => {
     expect(corps(n)).toMatch(/requireRole\(user, \["ADMIN"\]\)/);
   });
 
+  it.each(["creerFactureAvecLignes", "analyserFacturePDF"])("%s : gouvernée par la case « Factures : enregistrer » (stock.facture)", (n) => {
+    expect(corps(n)).toMatch(/requirePermission\(user, "stock\.facture"\)/);
+  });
+
   it("la création refuse un montant déjà payé hors Direction", () => {
     expect(corps("creerFactureAvecLignes")).toMatch(/montantRegle !== 0 && !estDirection\(user\)/);
   });

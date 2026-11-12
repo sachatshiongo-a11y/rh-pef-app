@@ -7,6 +7,7 @@ import { cleAlnum as normNom } from "@/lib/texte";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { lireDateJour } from "@/lib/achats-liste";
@@ -109,6 +110,7 @@ const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, devise: 
 export const analyserFacturePDF = actionLisible(async (formData: FormData): Promise<AnalyseFacture> => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.facture");
   const file = formData.get("facturePdf");
   if (!(file instanceof File) || file.size === 0) return VIDE;
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -193,6 +195,7 @@ export const lierFactureABon = actionLisible(async (factureId: string, bonDeComm
  */
 export const creerFactureAvecLignes = actionLisible(async (formData: FormData) => {
   const user = await garde();
+  requirePermission(user, "stock.facture"); // case « Factures : enregistrer » (oui par défaut)
   const fournisseurNom = String(formData.get("fournisseurNom") ?? "").trim();
   if (!fournisseurNom) throw new Error("Le fournisseur est requis.");
   const deviseBrute = String(formData.get("devise") ?? "USD").trim() || "USD";

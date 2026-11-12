@@ -291,6 +291,8 @@ const ECRITURES_DOUCES: { modele: string; champ: RegExp }[] = [
 ];
 const DOUCES_OUVERTES: Record<string, string> = {
   "(stock)/stock/commandes/actions.ts#receptionnerBonCommande": "Réception : passe le bon en REÇU / REÇU PARTIEL (le bon reste visible).",
+  "(stock)/stock/commandes/actions.ts#validerBonCommande": "Approbation d'un bon : Direction, ou personne à qui la Direction a coché « Approuver un bon » (stock.bon_valider, non par défaut — 12/11/2026). Fait avancer le bon, ne le fait pas disparaître.",
+  "(stock)/stock/commandes/actions.ts#validerBonsEnLot": "Même règle que validerBonCommande, en lot (stock.bon_valider).",
   "(app)/paie/contrat-actions.ts#transformerContrat": "CDD → CDI : l'ancien passe TRANSFORMÉ, un nouveau est créé, l'historique reste lisible (à trancher : même effet que la clôture « Transformé » d'ajouterContrat).",
   "(app)/paie/contrat-actions.ts#marquerContratsExpires": "Constat d'échéance : seul un contrat dont la date de fin est passée devient EXPIRÉ.",
 };

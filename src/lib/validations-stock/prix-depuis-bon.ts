@@ -24,6 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import type { DevisePrix } from "@/lib/prix-article";
 import { messageLisible } from "@/lib/erreur-metier";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 import { appliquerPatchArticleTx, changementsDe, lireArticlesTx, nomsReferencesTx, texteChangements, type PatchArticle } from "./article";
 import { estDirection, proposerModifications, type Acteur } from "./demandes";
 
@@ -69,12 +70,12 @@ export async function majPrixCatalogueDepuisBon(user: Acteur, bon: { id: string;
   const refus: string[] = [];
 
   try {
-    const articles = await prisma.articleStock.findMany({ where: { id: { in: aTransmettre.map((a) => a.articleId) } }, select: { id: true, designation: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } });
+    const articles = await prisma.articleStock.findMany({ where: { id: { in: aTransmettre.map((a) => a.articleId) } }, select: { id: true, ...CHAMPS_LIBELLE, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } });
     const parId = new Map(articles.map((a) => [a.id, a]));
     const patchs = aTransmettre.flatMap((t) => {
       const a = parId.get(t.articleId);
       const patch = a ? patchPrix(a, devise, t.prix) : null;
-      return a && patch ? [{ id: a.id, designation: a.designation, patch }] : [];
+      return a && patch ? [{ id: a.id, designation: libelleArticle(a), patch }] : [];
     });
     if (patchs.length === 0) return { appliques: 0, proposes: 0, message: null };
 

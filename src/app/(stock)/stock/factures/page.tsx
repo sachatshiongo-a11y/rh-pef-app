@@ -6,6 +6,7 @@ import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { aPermission } from "@/lib/permissions";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 import { versFactureRow } from "./facture-row";
@@ -183,7 +184,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Factures</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
+          {aPermission(user, "stock.facture") && <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>}
           {estDirection && <Link href="/stock/imports" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent" title="Aperçu, doublons signalés, devise obligatoire, import annulable">Importer des factures</Link>}
           <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} pdfHref="/stock/factures/imprimer" pdfPage excelHref="/stock/factures/export" />
         </div>

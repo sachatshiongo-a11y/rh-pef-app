@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import type { Style } from "@react-pdf/types";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader } from "./layout";
 import { pdfColors } from "./theme";
@@ -47,7 +48,7 @@ const COULEUR_STATUT: Record<string, string> = { REGLEE: VERT, ECHUE_NON_REGLEE:
 /** « 15 plus récentes sur 42 » / « 3 » : le nombre réel est toujours écrit. */
 const comptage = (montre: number, total: number) => (total > montre ? `${montre} plus récent(e)s sur ${total}` : String(total));
 
-function Rubrique({ titre, enteteCols, vide, children, note }: { titre: string; enteteCols: { texte: string; style: object }[]; vide: string | null; children?: ReactNode; note?: string | null }) {
+function Rubrique({ titre, enteteCols, vide, children, note }: { titre: string; enteteCols: { texte: string; style: Style }[]; vide: string | null; children?: ReactNode; note?: string | null }) {
   return (
     <View>
       <PdfSectionHeader>{titre}</PdfSectionHeader>

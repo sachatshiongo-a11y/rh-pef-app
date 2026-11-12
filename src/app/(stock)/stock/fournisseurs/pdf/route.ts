@@ -7,7 +7,7 @@ import { FicheFournisseurDocument } from "@/lib/pdf/fiche-fournisseur";
 
 /** Fiche(s) fournisseur en PDF : `?ids=a` (une fiche) ou `?ids=a,b,c` (un lot, une fiche après l'autre). */
 export async function GET(request: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const brut = new URL(request.url).searchParams.get("ids") ?? "";

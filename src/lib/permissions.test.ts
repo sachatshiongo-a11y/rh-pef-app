@@ -20,9 +20,9 @@ describe("registre des permissions", () => {
     expect(new Set(cles).size).toBe(cles.length);
     for (const d of DEFINITIONS_PERMISSIONS) expect(d.cle.startsWith(`${d.espace}.`)).toBe(true);
   });
-  it("Valider un bon et Enregistrer une facture sont fermés par défaut au rôle Stock (comportement actuel : Direction seule)", () => {
+  it("Valider un bon est fermé par défaut au rôle Stock (Direction seule) ; Enregistrer une facture est ouvert (décision du 12/11/2026)", () => {
     expect(aPermission({ role: "STOCK" }, "stock.bon_valider")).toBe(false);
-    expect(aPermission({ role: "STOCK" }, "stock.facture")).toBe(false);
+    expect(aPermission({ role: "STOCK" }, "stock.facture")).toBe(true);
   });
 });
 
@@ -59,10 +59,10 @@ describe("écarts par personne", () => {
   });
   it("une permission d'un autre espace n'est jamais accordée par un écart stocké", () => {
     expect(aPermission({ role: "STOCK", permissions: { "rh.paie": true } }, "rh.paie")).toBe(false);
-    expect(aPermission({ role: "MANAGER", permissions: { "stock.facture": true } }, "stock.facture")).toBe(false);
+    expect(aPermission({ role: "MANAGER", permissions: { "stock.bon_valider": true } }, "stock.bon_valider")).toBe(false);
   });
   it("lireSurcharges ignore clés inconnues, valeurs non booléennes et formes invalides", () => {
-    expect(lireSurcharges({ "rh.paie": false, "rh.inconnue": true, "stock.facture": "oui" })).toEqual({ "rh.paie": false });
+    expect(lireSurcharges({ "rh.paie": false, "rh.inconnue": true, "stock.bon_valider": "oui" })).toEqual({ "rh.paie": false });
     expect(lireSurcharges(null)).toEqual({});
     expect(lireSurcharges([true])).toEqual({});
     expect(lireSurcharges("x")).toEqual({});
@@ -70,10 +70,10 @@ describe("écarts par personne", () => {
   it("surchargesDepuisCases ne stocke que ce qui diffère du défaut, et null quand tout est par défaut", () => {
     const defauts = Object.fromEntries(PERMISSIONS_STOCK.map((d) => [d.cle, d.defaut]));
     expect(surchargesDepuisCases("stock", defauts)).toBeNull();
-    expect(surchargesDepuisCases("stock", { ...defauts, "stock.facture": true, "stock.exports": false })).toEqual({ "stock.facture": true, "stock.exports": false });
+    expect(surchargesDepuisCases("stock", { ...defauts, "stock.bon_valider": true, "stock.exports": false })).toEqual({ "stock.bon_valider": true, "stock.exports": false });
   });
   it("surchargesDepuisCases conserve les écarts de l'autre espace", () => {
-    expect(surchargesDepuisCases("stock", { "stock.facture": true }, { "rh.paie": false })).toEqual({ "rh.paie": false, "stock.facture": true });
+    expect(surchargesDepuisCases("stock", { "stock.bon_valider": true }, { "rh.paie": false })).toEqual({ "rh.paie": false, "stock.bon_valider": true });
   });
 });
 

@@ -59,7 +59,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/entree/entree-telephone.tsx": { n: 5, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/entree/page.tsx": { n: 1, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/[id]/page.tsx": { n: 5, raisons: ["CLE", "FIGE"] }, // clé du rapprochement bon/facture, ligne libre
-  "src/app/(stock)/stock/factures/actions.ts": { n: 3, raisons: ["IMPORT", "AUDIT_ACTION"] }, // lecture du PDF : libellé LU conservé (rapprochement par `rapprocherLignePdf`, nom affiché par libelleArticle) ; filtre des lignes saisies
+  "src/app/(stock)/stock/factures/actions.ts": { n: 4, raisons: ["IMPORT", "AUDIT_ACTION", "FIGE"] }, // lignes libres (sans article) nommées dans l’avertissement LIGNES_LIBRES ; lecture du PDF : libellé LU conservé (rapprochement par `rapprocherLignePdf`, nom affiché par libelleArticle) ; filtre des lignes saisies
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": { n: 4, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/factures/nouveau/page.tsx": { n: 2, raisons: ["FORMULAIRE"] },
   "src/app/(stock)/stock/fiches/[id]/disponibilite-fiche.tsx": { n: 2, raisons: ["AMONT"] }, // lib/fiches/disponibilite
@@ -95,6 +95,7 @@ const RECENSES: Record<string, { n: number; raisons: Raison[] }> = {
   "src/app/(stock)/stock/restaurant/restaurant-ecran.tsx": { n: 1, raisons: ["AMONT"] },
   "src/app/(exploitation)/exploitation/page.tsx": { n: 2, raisons: ["AMONT"] }, // indicateurs/stock
   "src/lib/pdf/fiche-achat-legumes.tsx": { n: 1, raisons: ["LEGUMES"] },
+  "src/lib/pdf/fiche-fournisseur.tsx": { n: 1, raisons: ["AMONT"] },
   "src/lib/pdf/fiche-inventaire-resto.tsx": { n: 2, raisons: ["RESTO"] },
 };
 

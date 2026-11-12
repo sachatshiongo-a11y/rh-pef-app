@@ -42,7 +42,7 @@ export const DEFINITIONS_PERMISSIONS = [
   // ── Espace Stock (rôle « Stock ») ─────────────────────────────────────────────────
   { cle: "stock.bon_creer", espace: "stock", defaut: true, libelle: "Bons de commande : créer et suivre", description: "Créer, modifier et réceptionner un bon de commande" },
   { cle: "stock.bon_valider", espace: "stock", defaut: false, libelle: "Bons de commande : approuver", description: "Approuver un bon de commande (réservé à la Direction par défaut)" },
-  { cle: "stock.facture", espace: "stock", defaut: false, libelle: "Factures : enregistrer", description: "Enregistrer une facture fournisseur avec entrée en stock (réservé à la Direction par défaut)" },
+  { cle: "stock.facture", espace: "stock", defaut: true, libelle: "Factures : enregistrer", description: "Enregistrer une facture fournisseur avec son entrée en stock (le paiement reste à valider par la Direction)" },
   { cle: "stock.mouvement", espace: "stock", defaut: true, libelle: "Entrées et sorties", description: "Saisir une entrée, une sortie ou une consommation de stock" },
   { cle: "stock.inventaire", espace: "stock", defaut: true, libelle: "Inventaire et comptage", description: "Faire un comptage et le réconcilier avec le stock" },
   { cle: "stock.catalogue", espace: "stock", defaut: true, libelle: "Catalogue et prix", description: "Créer des articles, proposer des modifications du catalogue et des prix" },

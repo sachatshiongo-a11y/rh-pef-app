@@ -61,12 +61,12 @@ describe("definirPermissionsUtilisateur", () => {
 
   it("une case non envoyée ne change pas l'état actuel", async () => {
     H.cible = stock({ "stock.exports": false });
-    await definirPermissionsUtilisateur("s1", { "stock.facture": true });
-    expect(H.ecritures[0]).toMatchObject({ data: { permissions: { "stock.exports": false, "stock.facture": true } } });
+    await definirPermissionsUtilisateur("s1", { "stock.bon_valider": true });
+    expect(H.ecritures[0]).toMatchObject({ data: { permissions: { "stock.exports": false, "stock.bon_valider": true } } });
   });
 
   it("aucun changement : aucune écriture, aucune ligne de journal", async () => {
-    await definirPermissionsUtilisateur("s1", { "stock.mouvement": true, "stock.facture": false });
+    await definirPermissionsUtilisateur("s1", { "stock.mouvement": true, "stock.bon_valider": false });
     expect(H.ecritures).toEqual([]);
     expect(H.journal).toEqual([]);
   });
@@ -74,7 +74,7 @@ describe("definirPermissionsUtilisateur", () => {
   it("refuse les permissions d'un autre espace, les clés inconnues et les valeurs non booléennes", async () => {
     expect(await definirPermissionsUtilisateur("s1", { "rh.paie": false })).toMatchObject({ erreur: expect.stringContaining("ne concerne pas") });
     expect(await definirPermissionsUtilisateur("s1", { "stock.inventee": true })).toMatchObject({ erreur: expect.stringContaining("inconnue") });
-    expect(await definirPermissionsUtilisateur("s1", { "stock.facture": "oui" as unknown as boolean })).toMatchObject({ erreur: expect.stringContaining("invalide") });
+    expect(await definirPermissionsUtilisateur("s1", { "stock.bon_valider": "oui" as unknown as boolean })).toMatchObject({ erreur: expect.stringContaining("invalide") });
     expect(H.ecritures).toEqual([]);
   });
 

@@ -16,7 +16,7 @@ function delaiEnJours(s: string | null): number | null {
 }
 
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.facture");
   const { bc } = await searchParams;
   const [articles, taux, fournisseurs, bons, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),

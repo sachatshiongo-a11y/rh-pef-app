@@ -339,11 +339,10 @@ export function EmployeeForm({
                   <input
                     id="dureeContratMois"
                     name="dureeContratMois"
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={1}
-                    max={cddDureeMaxMois}
-                    step={1}
+                    pattern="[0-9]{1,3}"
+                    title={`Nombre de mois, de 1 à ${cddDureeMaxMois}`}
                     required
                     defaultValue=""
                     className={champCls}
