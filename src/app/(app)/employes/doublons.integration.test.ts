@@ -54,7 +54,7 @@ function formulaire(champs: Record<string, string>): FormData {
     matricule: "", sexe: "M", etatCivil: "Célibataire", poste: "Cuisinier", secteur: "Cuisine", categorie: "BRIGADE",
     categorieProfessionnelle: "", salaireMensuel: "300", heuresHebdomadaires: "48", heuresParJour: "8", transportJourCDF: "",
     transportMoisCDF: "", transportMoisUSD: "", cnssMontant: "", fraisMedicauxMoisCourant: "0", enfants: "0", type: "NATIONAL",
-    contrat: "CDD", dateEmbauche: "2026-10-01", dateNaissance: "", telephone: "", email: "", adresse: "", banque: "",
+    contrat: "CDD", dureeContratMois: "6", dateEmbauche: "2026-10-01", dateNaissance: "", telephone: "", email: "", adresse: "", banque: "",
     compteBancaire: "", mobileMoney: "", modePaiement: "ESPECES", idExterneIVMS: "",
   };
   for (const [k, v] of Object.entries({ ...base, ...champs })) fd.set(k, v);

@@ -20,6 +20,8 @@ import {
 } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 import { controlerDonneesCreation } from "@/lib/creation-fiche-donnees";
+import { chargerReglesContrats } from "@/lib/regles-contrats";
+import { lireDureeMois } from "@/lib/duree-contrat";
 import { creerDemandeCreation, creerFicheTx, exigerIdentifiantsLibres, lisibleSiDoublon, notifierNouvelleCreation, verifierReembauche } from "@/lib/creation-fiche";
 
 // Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
@@ -99,10 +101,12 @@ export async function creerEmploye(formData: FormData) {
     // partagé avec « Modifier » (qui écraserait le lien).
     const ancienneFicheId = String(formData.get("ancienneFicheId") ?? "").trim() || null;
     if (ancienneFicheId) await verifierReembauche(prisma, ancienneFicheId);
-    const data = { ...toEmployeeInput(formData), ancienneFicheId };
+    // Durée du CDD (mois) : propre à la création (le Contrat naît avec la fiche) — hors `toEmployeeInput`, partagé avec « Modifier ».
+    const dureeContratMois = lireDureeMois(formData.get("dureeContratMois"));
+    const data = { ...toEmployeeInput(formData), ancienneFicheId, dureeContratMois };
     // `modePaiement` est lu brut : `toEmployeeInput` remplacerait une valeur inconnue par « espèces ».
     const modeBrut = formData.get("modePaiement");
-    const ctrl = controlerDonneesCreation({ ...data, ...(modeBrut !== null ? { modePaiement: String(modeBrut) as typeof data.modePaiement } : {}) });
+    const ctrl = controlerDonneesCreation({ ...data, ...(modeBrut !== null ? { modePaiement: String(modeBrut) as typeof data.modePaiement } : {}) }, (await chargerReglesContrats()).cddDureeTotaleMaxMois);
     if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
     const ecartes = await exigerDoublonsTranches(data, formData, ancienneFicheId ?? undefined);
 

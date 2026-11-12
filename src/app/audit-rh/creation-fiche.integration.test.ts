@@ -43,7 +43,7 @@ const comme = (qui: "ADMIN" | "MANAGER") => { A.user = { ...A.user, id: qui === 
 const nouveau = (o: Record<string, string> = {}) => fd({
   matricule: "", nom: "Jean Mukendi", sexe: "M", etatCivil: "Célibataire", poste: "Commis", secteur: "Cuisine", categorie: "BRIGADE", categorieProfessionnelle: "",
   salaireMensuel: "320", transportJourCDF: "3000", transportMoisCDF: "0", transportMoisUSD: "0", cnssMontant: "0", enfants: "2",
-  type: "NATIONAL", dateEmbauche: "2026-10-01", contrat: "CDD", heuresParJour: "8", heuresHebdomadaires: "48", fraisMedicauxMoisCourant: "0",
+  type: "NATIONAL", dateEmbauche: "2026-10-01", contrat: "CDD", dureeContratMois: "6", heuresParJour: "8", heuresHebdomadaires: "48", fraisMedicauxMoisCourant: "0",
   modePaiement: "VIREMENT", banque: "BGFI", compteBancaire: "05100-77", mobileMoney: "", telephone: "0990001111", email: "", adresse: "", dateNaissance: "1995-04-02", idExterneIVMS: "", ...o,
 });
 const nbEmployes = () => prisma.employee.count();
@@ -81,6 +81,8 @@ describe("la RH crée une fiche : rien n'est créé, une demande part à la Dire
     expect(await url(RH.creerEmploye(nouveau({ nom: "Autre Personne", categorie: "CHEF" })))).toContain("n'est pas une valeur admise");
     expect(await url(RH.creerEmploye(nouveau({ nom: "Autre Personne", modePaiement: "CHEQUE" })))).toContain("n'est pas une valeur admise");
     expect(await url(RH.creerEmploye(nouveau({ nom: "Autre Personne", dateEmbauche: "" })))).toContain("Date d'embauche invalide");
+    expect(await url(RH.creerEmploye(nouveau({ nom: "Autre Personne", dureeContratMois: "" })))).toContain("durée du CDD est obligatoire");
+    expect(await url(RH.creerEmploye(nouveau({ nom: "Autre Personne", dureeContratMois: "60" })))).toContain("ne peut pas dépasser");
     expect(await url(RH.creerEmploye(nouveau({ nom: "Jean Mukendi", telephone: "0970000000", dateNaissance: "1980-01-01" })))).toContain("est déjà en attente de validation");
     expect(await enAttente()).toHaveLength(n);
     await prisma.employee.create({ data: { matricule: "PRIS-1", nom: "Quelqu Un", sexe: "M", etatCivil: "Célibataire", poste: "x", secteur: "x", categorie: "BRIGADE", salaireMensuel: 1, dateEmbauche: new Date("2020-01-01"), contrat: "CDI" } });
@@ -109,6 +111,9 @@ describe("la Direction décide", () => {
     expect([e.dateEmbauche.toISOString().slice(0, 10), e.dateNaissance?.toISOString().slice(0, 10)]).toEqual(["2026-12-31", "1990-05-05"]);
     expect(e.matricule).toMatch(/-PEF$/i);
     expect(await prisma.tacheOnboarding.count({ where: { employeeId: e.id } })).toBe(1);
+    // CDD : le Contrat naît avec la fiche ; fin = embauche (31/12/2026) + 6 mois, jour de fin inclus.
+    const c = await prisma.contrat.findFirstOrThrow({ where: { employeeId: e.id } });
+    expect([c.type, c.statut, c.dateDebut.toISOString().slice(0, 10), c.dateFin?.toISOString().slice(0, 10)]).toEqual(["CDD", "ACTIF", "2026-12-31", "2027-06-30"]);
     const apres = await prisma.demandeCreationFiche.findUniqueOrThrow({ where: { id: d.id } });
     expect([apres.statut, apres.employeeId, apres.decideurId]).toEqual(["VALIDEE", e.id, ids.direction]);
     const n = await prisma.notification.findFirstOrThrow({ where: { destinataireUserId: ids.rh, refId: `decision:${d.id}` } });

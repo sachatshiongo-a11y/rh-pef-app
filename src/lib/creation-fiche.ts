@@ -13,6 +13,8 @@ import { fichesProches, libelleMotif, memeNom, JOURNAL_DOUBLON_ECARTE, type Iden
 import { controlerDonneesCreation, donneesPourEcriture, lignesCreation, type DonneesCreation } from "@/lib/creation-fiche-donnees";
 import { estDirection, LIEN_SECTION, type Acteur, type RapportFiche } from "@/lib/demandes-fiche";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { chargerReglesContrats } from "@/lib/regles-contrats";
+import { contratADuree, dateFinCdd } from "@/lib/duree-contrat";
 
 // CRÉATION D'UNE FICHE SALARIÉ SOUS VALIDATION (2026-10-13, décision de Sacha : « la création passe par la
 // validation également »).
@@ -95,7 +97,15 @@ export async function verifierReembauche(db: Db, ancienneFicheId: string) {
  * est vide, unicité, création, doublons écartés tracés, checklist d'intégration. Dans la transaction de l'appelant.
  */
 export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: string[], userId: string) {
-  const data = { ...saisie, ancienneFicheId: saisie.ancienneFicheId || null };
+  // `dureeContratMois` n'est pas une colonne de la fiche : elle sert au Contrat créé plus bas.
+  const { dureeContratMois, ...saisieFiche } = saisie;
+  const data = { ...saisieFiche, ancienneFicheId: saisie.ancienneFicheId || null };
+  // CDD : durée obligatoire et plafonnée (Paramètres légaux), revérifiée ICI — chemin de la Direction comme de l'approbation.
+  const dureeCdd = contratADuree(data.contrat) ? dureeContratMois : null;
+  if (contratADuree(data.contrat)) {
+    const refus = controlerDonneesCreation(saisie, (await chargerReglesContrats()).cddDureeTotaleMaxMois);
+    if (refus) throw new Error(`${refus} Rien n'a été enregistré.`);
+  }
   // Réembauche : revérifiée ICI, dans la transaction de création (Direction directe comme approbation).
   if (data.ancienneFicheId) await verifierReembauche(tx, data.ancienneFicheId);
   if (!data.matricule) {
@@ -106,6 +116,14 @@ export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: str
   const nouvel = await tx.employee.create({ data: data as Prisma.EmployeeUncheckedCreateInput });
   if (data.ancienneFicheId) {
     await journaliser(tx, { entite: "Employee", entiteId: nouvel.id, champ: "reembauche", nouvelleValeur: `Réembauche : nouvelle fiche, suite de la fiche archivée ${data.ancienneFicheId}`, userId });
+  }
+  // CDD : le Contrat naît avec la fiche ; sa date de fin = date d'embauche + durée saisie (jour de fin inclus).
+  const fin = dureeCdd ? dateFinCdd(nouvel.dateEmbauche, dureeCdd) : null;
+  if (fin) {
+    await tx.contrat.create({
+      data: { employeeId: nouvel.id, type: "CDD", dateDebut: nouvel.dateEmbauche, dateFin: fin, heuresHebdo: nouvel.heuresHebdomadaires, salaireMensuel: nouvel.salaireMensuel, poste: nouvel.poste },
+    });
+    await journaliser(tx, { entite: "Contrat", entiteId: nouvel.id, champ: "creation-contrat", nouvelleValeur: `CDD de ${dureeCdd} mois, du ${jourKinshasa(nouvel.dateEmbauche)} au ${jourKinshasa(fin)}`, userId });
   }
   // Première ligne de l'historique salarial (décision de Sacha, 2026-10-13) : « Salaire d'embauche », à la date d'embauche.
   await enregistrerSalaireEmbauche(tx, { employeeId: nouvel.id, salaire: nouvel.salaireMensuel, poste: nouvel.poste, dateEmbauche: nouvel.dateEmbauche, userId });
@@ -123,7 +141,7 @@ export async function creerFicheTx(tx: Tx, saisie: DonneesCreation, ecartes: str
 
 /** Crée la demande (hors Direction). Refuse un doublon de demande en attente. Rien n'est créé dans `Employee`. */
 export async function creerDemandeCreation(p: { donnees: DonneesCreation; ecartes: string[]; auteur: Acteur }) {
-  const ctrl = controlerDonneesCreation(p.donnees);
+  const ctrl = controlerDonneesCreation(p.donnees, (await chargerReglesContrats()).cddDureeTotaleMaxMois);
   if (ctrl) throw new Error(`${ctrl} Rien n'a été enregistré.`);
   const demande = await prisma.$transaction(async (tx) => {
     await verrouillerCreations(tx);
@@ -174,7 +192,7 @@ async function approuverUne(id: string, decideur: Acteur, maintenant: Date) {
     if (!d) throw new Error("Demande introuvable.");
     if (d.statut !== "EN_ATTENTE") throw new Error("Demande déjà traitée.");
     const donnees = donneesPourEcriture(d.donnees);
-    const ctrl = controlerDonneesCreation(donnees);
+    const ctrl = controlerDonneesCreation(donnees, (await chargerReglesContrats()).cddDureeTotaleMaxMois);
     if (ctrl) throw new Error(`${ctrl} Rien n'a été créé ; refusez la demande.`);
     // Anti-doublon revérifié : une fiche proche apparue depuis la demande (et non tranchée à la saisie) bloque la création.
     const vus = new Set(d.doublonsEcartes.split(",").filter(Boolean));

@@ -10,6 +10,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
 import type { Employee } from "@prisma/client";
+import { chargerReglesContrats } from "@/lib/regles-contrats";
 import { verifierReembauche } from "@/lib/creation-fiche";
 import { chargerFichesIdentite } from "@/lib/employe-doublon-serveur";
 import { fichesPourEcran } from "../fiches-doublon";
@@ -75,6 +76,7 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
         postes={postes}
         parametres={parametres}
         impact={impact}
+        cddDureeMaxMois={(await chargerReglesContrats()).cddDureeTotaleMaxMois}
         champsDirection={user.role === "ADMIN" ? "modifiables" : "validation"}
         doublons={{ fiches: fichesPourEcran(identites), ecartees: [], peutReactiver: user.role === "ADMIN" }}
       />

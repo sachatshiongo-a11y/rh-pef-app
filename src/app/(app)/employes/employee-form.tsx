@@ -15,6 +15,7 @@ import { CHAMP_ORIGINES, estChampSensible, originesDe } from "@/lib/fiche-sensib
 import { EnvoiEnCours, useEnvoiGarde } from "@/components/formulaire-garde";
 import { BoutonEnvoi } from "@/components/bouton-envoi";
 import { ErreurAction } from "@/components/erreur-action";
+import { CDD_DUREE_MAX_MOIS_DEFAUT, contratADuree, dateFinCdd, lireDureeMois } from "@/lib/duree-contrat";
 
 /** Mode « validation » (hors Direction) : les champs sensibles portent la pastille « à valider ». */
 const ModeValidation = createContext(false);
@@ -95,6 +96,7 @@ export function EmployeeForm({
   famille,
   champsDirection = "modifiables",
   dateSortieFinContrat = null,
+  cddDureeMaxMois = CDD_DUREE_MAX_MOIS_DEFAUT,
 }: {
   employee?: Employee;
   /** RÉEMBAUCHE : formulaire « Nouvel employé » pré-rempli depuis la fiche archivée (sans date d'embauche, ni salaire, ni matricule). */
@@ -115,6 +117,8 @@ export function EmployeeForm({
   champsDirection?: "modifiables" | "validation";
   /** Date de la fin de contrat enregistrée (AAAA-MM-JJ) : elle fait foi pour la sortie, la fiche n'en porte pas une seconde. */
   dateSortieFinContrat?: string | null;
+  /** Plafond légal de durée d'un CDD, en mois (Paramètres légaux) ; le serveur le revérifie. */
+  cddDureeMaxMois?: number;
 }) {
   // Valeurs par défaut des champs : la fiche modifiée, ou (réembauche) le modèle tiré de la fiche archivée.
   const base = employee ?? (reembauche?.modele as Employee | undefined);
@@ -134,6 +138,11 @@ export function EmployeeForm({
     transportMoisUSD: Number(base?.transportMoisUSD ?? 0),
     transportMoisCDF: 0,
   });
+
+  // Durée du CDD : type de contrat, embauche et durée suivis à la frappe pour afficher la date de fin calculée.
+  const [cdd, setCdd] = useState({ contrat: base?.contrat ?? "CDD", embauche: toDateInput(base?.dateEmbauche), duree: "" });
+  const dureeCdd = lireDureeMois(cdd.duree);
+  const finCdd = dureeCdd && cdd.embauche ? dateFinCdd(cdd.embauche, dureeCdd) : null;
 
   // Anti-doublon : identité suivie à la frappe ; fiches proches recalculées (règle partagée avec le serveur).
   const initiale = useMemo<IdentiteFiche>(
@@ -173,6 +182,7 @@ export function EmployeeForm({
             onInput={(e) => {
               const fd = new FormData(e.currentTarget);
               if (parametres) setSim(lireValeursSimulation(fd));
+              setCdd({ contrat: String(fd.get("contrat") ?? ""), embauche: String(fd.get("dateEmbauche") ?? ""), duree: String(fd.get("dureeContratMois") ?? "") });
               if (doublons) {
                 setIdentite({ nom: String(fd.get("nom") ?? ""), telephone: String(fd.get("telephone") ?? ""), dateNaissance: String(fd.get("dateNaissance") ?? "") });
                 setDoublonBloque(false);
@@ -321,6 +331,30 @@ export function EmployeeForm({
                 defaultValue={toDateInput(base?.dateEmbauche)}
                 required
               />
+              {/* DURÉE DU CDD (création et réembauche seulement) : le Contrat naît avec la fiche, sa date de fin = embauche + durée.
+                  Après coup, la durée se change par une prolongation du contrat (garde-fous légaux). */}
+              {!employee && contratADuree(cdd.contrat) && (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="dureeContratMois" className="text-sm font-medium">Durée du contrat (mois)</label>
+                  <input
+                    id="dureeContratMois"
+                    name="dureeContratMois"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={cddDureeMaxMois}
+                    step={1}
+                    required
+                    defaultValue=""
+                    className={champCls}
+                  />
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    {finCdd
+                      ? <>Fin du contrat : <strong>{finCdd.toISOString().slice(0, 10).split("-").reverse().join("/")}</strong> (dernier jour inclus)</>
+                      : <>Maximum {cddDureeMaxMois} mois. La date de fin se calcule à partir de la date d&apos;embauche.</>}
+                  </p>
+                </div>
+              )}
               {/* DATE DE SORTIE (décision de la Direction du 2026-10-12) : fiche désactivée seulement. Une fin de
                   contrat enregistrée fait foi (pas de seconde date) ; sinon la date se saisit ici — « à valider » hors Direction. */}
               {employee && !employee.actif && (dateSortieFinContrat ? (
