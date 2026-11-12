@@ -113,6 +113,7 @@ const AVANT_CREATION: [string, string][] = [
   ["contrat", "CDD"],
   ["dateEmbauche", ""],
   ["dateNaissance", ""],
+  ["dureeContratMois", ""], // ajout voulu : durée du CDD (contrat par défaut « CDD »), obligatoire à la création
   ["email", ""],
   ["enfants", "0"],
   ["etatCivil", "Célibataire"],

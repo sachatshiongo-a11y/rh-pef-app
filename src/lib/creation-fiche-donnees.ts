@@ -2,6 +2,7 @@
 // `donnees` = les valeurs saisies au formulaire « Nouvel employé » (lecture de `toEmployeeInput`), stockées en
 // JSON (dates en ISO). Ce module les relit en valeurs d'écriture et les met en lignes lisibles pour « À valider ».
 
+import { contratADuree, controlerDureeCdd, dateFinCdd } from "@/lib/duree-contrat";
 import { CHAMPS_SENSIBLES, canonique, libelleChamp, libelleValeur, valeurRefusee } from "@/lib/fiche-sensible";
 
 export type DonneesCreation = {
@@ -15,13 +16,19 @@ export type DonneesCreation = {
   modePaiement: "ESPECES" | "VIREMENT" | "MOBILE_MONEY";
   /** RÉEMBAUCHE : la fiche archivée (inactive) dont cette nouvelle fiche prend la suite. */
   ancienneFicheId?: string | null;
+  /** CDD : durée en mois (obligatoire) ; la date de fin du Contrat créé avec la fiche en découle. Sans objet hors CDD. */
+  dureeContratMois?: number | null;
 };
 
 /** Contrôles de la saisie (les mêmes à la demande et à l'approbation) : message lisible ou null. */
-export function controlerDonneesCreation(d: Partial<DonneesCreation>): string | null {
+export function controlerDonneesCreation(d: Partial<DonneesCreation>, dureeCddMaxMois?: number): string | null {
   if (!d.nom || !String(d.nom).trim()) return "Le nom est obligatoire.";
   const date = new Date(d.dateEmbauche as string);
   if (!d.dateEmbauche || Number.isNaN(date.getTime())) return "Date d'embauche invalide.";
+  if (contratADuree(d.contrat)) {
+    const duree = controlerDureeCdd(d.dureeContratMois, dureeCddMaxMois);
+    if (duree) return duree;
+  }
   const refus = CHAMPS_SENSIBLES.map((c) => valeurRefusee(c, canonique(c, (d as Record<string, unknown>)[c]))).filter((m): m is string => m !== null);
   return refus.length > 0 ? refus.join(" ") : null;
 }
@@ -55,6 +62,10 @@ export function lignesCreation(json: unknown, ancienneNom?: string | null): stri
     if (v !== null && v !== undefined && String(v).trim() !== "") out.push(`${lib} : ${String(v)}`);
   }
   if (d.dateNaissance) out.push(`Date de naissance : ${new Date(d.dateNaissance).toISOString().slice(0, 10).split("-").reverse().join("/")}`);
+  if (contratADuree(d.contrat) && d.dureeContratMois) {
+    const fin = dateFinCdd(d.dateEmbauche, d.dureeContratMois);
+    out.push(`Durée du contrat : ${d.dureeContratMois} mois${fin ? ` (jusqu'au ${fin.toISOString().slice(0, 10).split("-").reverse().join("/")})` : ""}`);
+  }
   for (const c of CHAMPS_SENSIBLES) {
     const cano = canonique(c, (d as Record<string, unknown>)[c]);
     if (cano === null || (cano === "0" && c !== "salaireMensuel")) continue;
