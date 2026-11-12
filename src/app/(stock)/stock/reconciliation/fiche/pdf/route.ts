@@ -11,7 +11,7 @@ import { chargerArticlesFiche, domaineDeFiche } from "../charger-articles";
  * mêmes articles (`chargerArticlesFiche`), les mêmes colonnes et le même regroupement. Mêmes droits que la fiche Excel.
  */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const domaine = domaineDeFiche(new URL(req.url).searchParams.get("domaine"));

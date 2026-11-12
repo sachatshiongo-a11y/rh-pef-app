@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
 import { estRH, estStock, estExploitation, estSalarie } from "@/lib/espaces";
 import { MOTIF_SESSION_FERMEE, sessionRevoquee } from "@/lib/sessions-revoquees";
+import { lireSurcharges, type SurchargesPermissions } from "@/lib/permissions";
 
 export type CurrentUser = {
   id: string;
@@ -16,6 +17,7 @@ export type CurrentUser = {
   role: Role;
   accesStock: boolean; // compte salarié (EMPLOYE) ayant AUSSI accès à l'espace Stock
   employeeId: string | null; // fiche employé liée → ouvre l'espace salarié (self-service)
+  permissions?: SurchargesPermissions | null; // écarts décidés par la Direction (lib/permissions.ts) ; absent = défaut du rôle
 };
 
 // Cache mémoire du profil (le serveur `next start` est un process durable). Évite une requête
@@ -70,6 +72,7 @@ export const verifySession = cache(async (): Promise<CurrentUser> => {
     role: profile.role,
     accesStock: profile.accesStock,
     employeeId: profile.employeeId,
+    permissions: lireSurcharges(profile.permissions),
   };
   cacheProfil.set(sub, { profil, revoqueesLe: profile.sessionsRevoqueesLe, expire: Date.now() + CACHE_PROFIL_MS });
   return profil;

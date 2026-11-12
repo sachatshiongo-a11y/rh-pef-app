@@ -10,7 +10,7 @@ import { LEGUMES } from "../legumes-data";
  * - `?date=AAAA-MM-JJ` : fiche REMPLIE avec les achats de légumes enregistrés ce jour-là.
  */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const brut = (new URL(req.url).searchParams.get("date") ?? "").trim();

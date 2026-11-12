@@ -9,7 +9,7 @@ import { formaterNombre } from "@/lib/montant";
 
 /** Export PDF de la grille de transport — mêmes filtres, colonnes et montants que l'onglet, total en pied. */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.paie" });
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const [tous, parametres] = await Promise.all([

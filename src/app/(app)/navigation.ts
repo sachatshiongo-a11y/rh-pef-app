@@ -15,24 +15,24 @@ export const NAV_GROUPS: GroupeMenu[] = [
   {
     titre: "Équipe",
     items: [
-      { href: "/employes", label: "Employés", icone: "employes" },
-      { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
+      { href: "/employes", label: "Employés", icone: "employes", permission: "rh.employes" },
+      { href: "/fiches-poste", label: "Fiches de poste", icone: "document", permission: "rh.fiches_poste" },
     ],
   },
   {
     // Les déclarations découlent de la paie du mois : elles vivent à côté d'elle.
     titre: "Paie",
     items: [
-      { href: "/paie", label: "Paie", icone: "billet" },
-      { href: "/declarations", label: "Déclarations", icone: "recu" },
+      { href: "/paie", label: "Paie", icone: "billet", permission: "rh.paie" },
+      { href: "/declarations", label: "Déclarations", icone: "recu", permission: "rh.declarations" },
     ],
   },
   {
     titre: "Temps de travail",
     items: [
-      { href: "/planning", label: "Planning", icone: "calendrier" },
-      { href: "/presences", label: "Présences & heures", icone: "presence" },
-      { href: "/conges", label: "Congés & absences", icone: "parasol" },
+      { href: "/planning", label: "Planning", icone: "calendrier", permission: "rh.planning" },
+      { href: "/presences", label: "Présences & heures", icone: "presence", permission: "rh.presences" },
+      { href: "/conges", label: "Congés & absences", icone: "parasol", permission: "rh.conges" },
       // « Pointages » garde l'adresse /pointer : la Direction et la RH y lisent le SUIVI (bouton « Pointer
       // moi-même » pour leur propre pointage) ; un compte en consultation y trouve son pointage personnel.
       { href: "/pointer", label: "Pointages", icone: "horloge" },
@@ -40,7 +40,7 @@ export const NAV_GROUPS: GroupeMenu[] = [
   },
   {
     titre: "Archives",
-    items: [{ href: "/documents", label: "Documents & archives", icone: "dossier" }],
+    items: [{ href: "/documents", label: "Documents & archives", icone: "dossier", permission: "rh.documents" }],
   },
   {
     titre: "Configuration",

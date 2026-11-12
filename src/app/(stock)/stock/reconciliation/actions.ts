@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { lireComptesSaisis } from "@/lib/validations-stock/comptage";
 import { appliquerOuDemanderComptage, type ResultatComptage } from "@/lib/validations-stock/demandes";
 
@@ -18,6 +19,7 @@ import { appliquerOuDemanderComptage, type ResultatComptage } from "@/lib/valida
 export const appliquerComptage = actionLisible(async (formData: FormData): Promise<ResultatComptage> => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.inventaire");
   const r = await appliquerOuDemanderComptage(user, lireComptesSaisis(formData));
   revalidatePath("/stock/reconciliation");
   revalidatePath("/stock/archives");

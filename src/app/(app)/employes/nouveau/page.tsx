@@ -15,7 +15,7 @@ import { chargerFichesIdentite } from "@/lib/employe-doublon-serveur";
 import { fichesPourEcran } from "../fiches-doublon";
 
 export default async function NouvelEmployePage({ searchParams }: { searchParams: Promise<{ erreur?: string; reembauche?: string }> }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.employes");
   requireRole(user, ["ADMIN", "MANAGER"]);
   const sp = await searchParams;
   const [parametres, postes, dernierRun, identites] = await Promise.all([

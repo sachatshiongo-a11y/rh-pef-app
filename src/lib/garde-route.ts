@@ -6,6 +6,7 @@ import { estRH, estStock, estExploitation, estSalarie } from "@/lib/espaces";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { prisma } from "@/lib/prisma";
 import { peutLireFichier } from "@/lib/acces-fichier";
+import { aPermission, type Permission } from "@/lib/permissions";
 
 /**
  * GARDES DES ROUTE HANDLERS (`route.ts`).
@@ -47,12 +48,15 @@ export function refus(message: string = MESSAGE_ACCES_REFUSE): { ok: false; repo
 type Options = {
   /** Restreint en plus à ces rôles (ex. ["ADMIN", "MANAGER"]) — l'ancien `requireRole`, en 403. */
   roles?: Role[];
+  /** Permission réglée par la Direction pour cette personne (lib/permissions.ts) — 403 si elle manque. */
+  permission?: Permission;
   /** Texte du refus, si la route en a un plus parlant que « Accès refusé. ». */
   message?: string;
 };
 
 function filtrerRoles(user: CurrentUser, opts?: Options): Garde {
   if (opts?.roles && !opts.roles.includes(user.role)) return refus(opts.message);
+  if (opts?.permission && !aPermission(user, opts.permission)) return refus(opts.message);
   return { ok: true, user };
 }
 

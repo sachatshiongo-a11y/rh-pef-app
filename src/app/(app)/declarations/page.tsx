@@ -18,7 +18,7 @@ export default async function DeclarationsPage({
 }: {
   searchParams: Promise<{ mois?: string; annee?: string; erreur?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.declarations");
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 

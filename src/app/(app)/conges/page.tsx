@@ -23,7 +23,7 @@ const AVEC_SALARIE = { employee: true, approuvePar: true } satisfies Prisma.Leav
 type LigneBase = Prisma.LeaveRequestGetPayload<{ include: typeof AVEC_SALARIE }>;
 
 export default async function CongesPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.conges");
   const sp = await searchParams;
 
   // Vue Calendrier (fusion de l'ancien onglet /absences) : même donnée, deux présentations.

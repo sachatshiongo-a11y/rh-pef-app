@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { estDirection } from "@/lib/validations-stock/demandes";
 import { DOMAINE_LABEL } from "@/lib/stock";
@@ -19,6 +20,7 @@ import { doublonDeCategorie, messageDoublonCategorie, nomCategorieNet, NOM_CATEG
 async function garde(quoi: string) {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.catalogue");
   if (!estDirection(user)) throw new Error(`${quoi} est réservé à la Direction.`);
   return user;
 }

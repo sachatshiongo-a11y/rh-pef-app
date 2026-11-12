@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { journaliser } from "@/lib/audit";
 import { decSaisi } from "@/lib/nombre";
@@ -12,6 +13,7 @@ export async function creerPret(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     // Lus à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux.
     const montant = decSaisi(formData.get("montantUSD"), "Montant du prêt");

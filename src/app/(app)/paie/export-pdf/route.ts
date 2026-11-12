@@ -11,7 +11,7 @@ import { lireMoisAnnee } from "@/lib/mois-route";
  * puis une page « Récapitulatif ».
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.paie" });
   if (!g.ok) return g.reponse;
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const lu = lireMoisAnnee(new URL(request.url).searchParams, { mois: config.moisCourant, annee: config.anneeCourante });

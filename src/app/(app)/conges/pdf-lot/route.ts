@@ -10,7 +10,7 @@ import { MAX_DEMANDES_PAR_LOT } from "@/lib/conges-liste";
  * droits que la route unitaire (`/conges/demande/[id]`) : toute l'équipe RH.
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.conges" });
   if (!g.ok) return g.reponse;
   const ids = [...new Set((new URL(request.url).searchParams.get("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
   if (ids.length === 0) return new Response("Aucune demande sélectionnée", { status: 400 });

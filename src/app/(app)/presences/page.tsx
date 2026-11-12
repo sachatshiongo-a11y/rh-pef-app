@@ -36,7 +36,7 @@ const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
 ];
 
 export default async function PresencesPage({ searchParams }: { searchParams: Promise<{ vue?: string; sem?: string; emp?: string; mois?: string; annee?: string }> }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.presences");
   const sp = await searchParams;
 
   // Mois affiché : le mois RH courant sans `?mois=&annee=` (comme avant) ; un mois PASSÉ se consulte en

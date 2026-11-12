@@ -4,7 +4,7 @@ import { exemplaireAttestation } from "@/lib/pdf/attestation-buffer";
 
 /** Exemplaire d'une attestation délivrée — pour la RH (même règle que le layout RH : `estRH`). */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.documents" });
   if (!g.ok) return g.reponse;
   const { id } = await params;
   const a = await prisma.attestation.findUnique({ where: { id } });

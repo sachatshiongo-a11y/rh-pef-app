@@ -4,7 +4,7 @@ import { ParametreLegalManquantError } from "@/lib/config";
 
 /** Contrat de travail (PDF) généré depuis la fiche — Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; contratId: string }> }) {
-  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  const g = await exigerEspaceRH({ permission: "rh.employes", roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
   const { id, contratId } = await params;
 

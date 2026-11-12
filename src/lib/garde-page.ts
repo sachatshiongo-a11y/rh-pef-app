@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { verifySession, type CurrentUser } from "@/lib/auth";
 import { estRH, estStock, estExploitation } from "@/lib/espaces";
 import { noterRenduDePage } from "@/lib/journal-rendu";
+import { aPermission, type Permission } from "@/lib/permissions";
 
 /**
  * GARDES DES PAGES (`page.tsx`) — LE LAYOUT NE SUFFIT PAS.
@@ -23,18 +24,22 @@ import { noterRenduDePage } from "@/lib/journal-rendu";
  */
 
 /** Espace RH — même règle que `app/(app)/layout.tsx`. */
-export async function exigerPageRH(): Promise<CurrentUser> {
+export async function exigerPageRH(permission?: Permission): Promise<CurrentUser> {
   noterRenduDePage(); // journal de performance (éteint sauf JOURNAL_RENDU=1) — lib/journal-rendu
   const user = await verifySession();
   if (!estRH(user.role)) redirect("/entree");
+  // Permission réglée par la Direction pour CETTE personne : refusée → retour à l'accueil RH (jamais /entree : boucle).
+  if (permission && !aPermission(user, permission)) redirect("/accueil");
   return user;
 }
 
 /** Espace Stock — même règle que `app/(stock)/layout.tsx`. */
-export async function exigerPageStock(): Promise<CurrentUser> {
+export async function exigerPageStock(permission?: Permission): Promise<CurrentUser> {
   noterRenduDePage(); // journal de performance (éteint sauf JOURNAL_RENDU=1) — lib/journal-rendu
   const user = await verifySession();
   if (!estStock(user)) redirect("/entree");
+  // Permission réglée par la Direction pour CETTE personne : refusée → retour à l'accueil Stock.
+  if (permission && !aPermission(user, permission)) redirect("/stock");
   return user;
 }
 

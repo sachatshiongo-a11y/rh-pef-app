@@ -9,7 +9,7 @@ const ECART = "FFC2410C"; // orange = consommé en écart avec le livré (compar
 const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
   const d = await donneesJournalier(new URL(req.url).searchParams);
 

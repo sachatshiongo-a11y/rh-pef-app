@@ -9,6 +9,8 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
+import { aPermission } from "@/lib/permissions";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -216,6 +218,7 @@ async function alimenterDepuisBons(tx: Prisma.TransactionClient, bonIds: string[
 /** Crée un bon de commande avec numérotation NNN/PEF/MOIS/AA (séquence remise à zéro chaque année). */
 export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const user = await garde();
+  requirePermission(user, "stock.bon_creer");
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
 
   const devise = lireDeviseBon(formData);
@@ -236,7 +239,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   // La Direction n'a pas à valider ses propres bons : créé directement VALIDÉ (prêt à exporter/envoyer),
   // sauf si elle coche « Enregistrer comme brouillon ». Le circuit brouillon → validation ne
   // s'applique qu'aux autres rôles (ex. responsable stock).
-  const autoValide = user.role === "ADMIN" && formData.get("enregistrerBrouillon") == null;
+  const autoValide = aPermission(user, "stock.bon_valider") && formData.get("enregistrerBrouillon") == null;
 
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
@@ -266,7 +269,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   // « à valider » quand un autre rôle l'émet, « créé et validé » quand la Direction auto-valide.
   if (autoValide) {
     await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${libelleTotalBon(calcul.entete, nbSansPrix, lignes.length)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
-  } else if (user.role !== "ADMIN") {
+  } else if (!aPermission(user, "stock.bon_valider")) {
     await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${libelleTotalBon(calcul.entete, nbSansPrix, lignes.length)})`, lien: "/stock/a-valider", refId: bc.id });
   }
 
@@ -278,6 +281,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
 /** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
 export const modifierBonCommande = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
+  requirePermission(user, "stock.bon_creer");
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true, devise: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
   // La devise du bon se choisit (2026-10-16) : un bon en francs — créé à l'écran ou importé d'un PDF — se modifie comme
@@ -322,7 +326,7 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
   const user = await garde();
-  requireRole(user, ["ADMIN"]); // seule la Direction valide un bon de commande
+  requirePermission(user, "stock.bon_valider"); // la Direction, ou la personne à qui elle l'a accordé
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
   if (bc.statut !== "BROUILLON") throw new Error("Ce bon de commande est déjà validé.");
   await prisma.$transaction(async (tx) => {
@@ -358,6 +362,7 @@ export async function supprimerBonCommande(id: string, _formData: FormData) {
 export async function changerStatutBonCommande(id: string, formData: FormData) {
   await formulaireLisible(`/stock/commandes/${id}`, async () => {
     const user = await garde();
+    requirePermission(user, "stock.bon_creer");
     const statut = String(formData.get("statut") ?? "") as Statut;
     if (!STATUTS.includes(statut)) throw new Error("Statut invalide.");
     // ANNULER un bon le fait disparaître (archives, rattachement des factures, PDF) ; le REPASSER en
@@ -391,6 +396,7 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
  */
 export const receptionnerBonCommande = actionLisible(async (bcId: string, formData: FormData) => {
   const user = await garde();
+  requirePermission(user, "stock.bon_creer");
   const ligneIds = formData.getAll("recu_ligneId").map(String);
   const qtes = formData.getAll("recu_quantite").map((v, i) => decSaisi(v, `quantité reçue, ligne ${i + 1}`)); // illisible : refus lisible
 
@@ -419,7 +425,7 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
 /** Valide plusieurs bons de commande à l'état BROUILLON d'un coup (Direction). */
 export const validerBonsEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
-  requireRole(user, ["ADMIN"]);
+  requirePermission(user, "stock.bon_valider");
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
   const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true, creeParId: true } });

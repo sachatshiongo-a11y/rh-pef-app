@@ -1,3 +1,4 @@
+import { permissionsRefusees } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { chargerBadgesRH } from "@/lib/a-valider-chargeurs";
@@ -30,6 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       badges={badges}
       userNom={user.nom}
       userRole={user.role}
+      permissionsRefusees={permissionsRefusees(user)}
       maPhoto={maPhoto}
       employeeId={monEmployeId}
       autresEspaces={ciblesAutresEspaces(user, salarieActif, "rh")}

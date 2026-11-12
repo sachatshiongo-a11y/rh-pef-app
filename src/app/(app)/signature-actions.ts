@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { CibleSignature } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { actionLisible } from "@/lib/action-lisible";
 import { documentSignable, decoderTrace } from "@/lib/signature";
 import { signerDocument } from "@/lib/signer-document";
@@ -41,6 +42,7 @@ export const faireSignerDocument = actionLisible(
   async (cible: CibleSignature, cibleId: string, pngDataUrl: string): Promise<void> => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.documents");
 
     const etat = await documentSignable(prisma, cible, cibleId);
     if (!etat.ok) throw new Error(etat.raison);

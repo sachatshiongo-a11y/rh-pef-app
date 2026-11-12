@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 
 /** Génère la checklist d'intégration d'un employé depuis le modèle (si elle n'existe pas encore). */
 export async function genererOnboarding(employeeId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.employes");
   const dejaLa = await prisma.tacheOnboarding.count({ where: { employeeId } });
   if (dejaLa === 0) {
     const modele = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
@@ -24,6 +26,7 @@ export async function genererOnboarding(employeeId: string) {
 export async function basculerTacheOnboarding(employeeId: string, tacheId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.employes");
   const t = await prisma.tacheOnboarding.findUnique({ where: { id: tacheId } });
   if (!t || t.employeeId !== employeeId) return;
   await prisma.tacheOnboarding.update({

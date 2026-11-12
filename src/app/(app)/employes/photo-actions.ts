@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 const BUCKET = "employes";
@@ -17,6 +18,7 @@ export async function uploadPhotoEmploye(employeeId: string, formData: FormData)
   await formulaireLisible(`/employes/${employeeId}/modifier`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     const file = formData.get("photo");
     if (!(file instanceof File) || file.size === 0) return;

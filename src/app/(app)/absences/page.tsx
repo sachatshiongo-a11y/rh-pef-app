@@ -8,7 +8,7 @@ export default async function AbsencesPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await exigerPageRH();
+  await exigerPageRH("rh.conges");
   const sp = await searchParams;
   const p = new URLSearchParams({ vue: "calendrier" });
   if (sp.vue === "semaine" || sp.vue === "mois") p.set("cal", sp.vue);

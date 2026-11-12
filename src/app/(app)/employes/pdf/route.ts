@@ -6,7 +6,7 @@ import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereS
 
 /** Export PDF de la liste des employés — mêmes colonnes et filtres que l'onglet. */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.employes" });
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const refus = refusSelectionTropGrande(sp);

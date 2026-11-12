@@ -27,7 +27,7 @@ export default async function EmployesPage({
 }: {
   searchParams: Promise<{ creation?: string; poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string; page?: string; par?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.employes");
   const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   // Doublons probables déjà en base : encadré réservé à la Direction (toutes les fiches, actives et inactives).

@@ -42,7 +42,7 @@ export default async function PaiePage({
 }: {
   searchParams: Promise<{ vue?: string; erreur?: string; msg?: string } & SPHistorique>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.paie");
   const sp = await searchParams;
   const vue = sp.vue ?? "bulletins";
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";

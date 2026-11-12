@@ -7,7 +7,7 @@ import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 /** Fiche de comptage en Excel téléchargeable (par domaine) — génération instantanée, à imprimer/compter. */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;

@@ -5,7 +5,7 @@ import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 import { MAX_EXPORT_SELECTION } from "@/lib/export-selection";
 
 export async function GET(request: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   // `?ids=a,b` : seulement les fournisseurs cochés sur l'écran (sans ce paramètre, tous — export historique).

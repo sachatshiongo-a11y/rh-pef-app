@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { messageDecisionAcompte } from "@/lib/libelles-espace";
@@ -28,6 +29,7 @@ export async function ajouterPrime(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const nom = String(formData.get("nom") ?? "").trim() || "Prime";
     // Lu à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux.
     const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de la prime");
@@ -140,6 +142,7 @@ export async function ajouterFraisMedical(employeeId: string, formData: FormData
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const montantUSD = decSaisi(formData.get("montantUSD"), "Montant du frais médical");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant de frais médical invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
@@ -197,6 +200,7 @@ export async function ajouterAvantageNature(employeeId: string, formData: FormDa
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const nature = String(formData.get("nature") ?? "").trim();
     if (!nature) throw new Error("Indiquez la nature de l'avantage (logement, nourriture…).");
     const montantUSD = decSaisi(formData.get("montantUSD"), "Valeur de l'avantage");
@@ -254,6 +258,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de l'acompte");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant d'acompte invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;

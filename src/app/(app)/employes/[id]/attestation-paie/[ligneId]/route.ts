@@ -8,7 +8,7 @@ import { refusAttestationPaie } from "@/lib/attestation-paie-regle";
 
 /** Attestation de paie d'UN MOIS (PDF) — dérivée de la ligne de paie PAYÉE. Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; ligneId: string }> }) {
-  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  const g = await exigerEspaceRH({ permission: "rh.employes", roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
   const { id, ligneId } = await params;
 

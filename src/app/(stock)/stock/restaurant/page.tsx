@@ -24,7 +24,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 type SP = { espace?: string; semaine?: string; desactives?: string };
 
 export default async function RestaurantPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.restaurant");
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";

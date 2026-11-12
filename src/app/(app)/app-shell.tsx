@@ -21,6 +21,7 @@ export function AppShell({
   badges,
   userNom,
   userRole,
+  permissionsRefusees = [],
   maPhoto,
   employeeId,
   autresEspaces = [],
@@ -30,6 +31,8 @@ export function AppShell({
   badges: Record<string, number>;
   userNom: string;
   userRole: string;
+  /** Permissions retirées à cette personne par la Direction : leurs entrées de menu sont masquées. */
+  permissionsRefusees?: string[];
   maPhoto: string | null;
   employeeId: string | null;
   autresEspaces?: { href: string; icone: string; label: string }[];
@@ -92,7 +95,7 @@ export function AppShell({
 
           <nav className="flex flex-1 flex-col gap-4 lg:overflow-y-auto">
             {NAV_GROUPS.map((groupe) => {
-              const items = entreesVisibles(groupe.items, userRole);
+              const items = entreesVisibles(groupe.items, userRole, permissionsRefusees);
               if (items.length === 0) return null;
               return (
               <div key={groupe.titre}>
@@ -190,7 +193,7 @@ export function AppShell({
 
       {/* Barre du bas — téléphone et tablette : le composant commun à tous les espaces. */}
       <BarreDuBas
-        entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges)}
+        entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges, permissionsRefusees)}
         estActif={actif}
         menuOuvert={open}
         onMenu={ouvrir}

@@ -17,7 +17,7 @@ const LIBELLE_STATUT: Record<string, string> = {
  * (`?mois=&annee=`, le même que l'écran et le PDF) ; sans paramètre, le mois courant de la paie.
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.declarations" });
   if (!g.ok) return g.reponse;
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const lu = lireMoisAnnee(new URL(request.url).searchParams, { mois: config.moisCourant, annee: config.anneeCourante });

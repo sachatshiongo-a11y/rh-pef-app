@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { aPermission } from "@/lib/permissions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { formaterMontantFacture, libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { FilAriane } from "@/components/fil-ariane";
@@ -23,6 +24,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
   const { id } = await params;
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
+  const peutValider = aPermission(user, "stock.bon_valider"); // la Direction, ou la personne à qui elle a accordé la validation
   const [bc, acheteur] = await Promise.all([
     prisma.bonDeCommande.findUnique({
       where: { id },
@@ -91,7 +93,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
           {estBrouillon ? (
             <>
               <Link href={`/stock/commandes/${bc.id}/modifier`} className={CLASSES_NEUTRE}>Modifier le brouillon</Link>
-              {estDirection ? (
+              {peutValider ? (
                 <form action={validerBonCommande.bind(null, bc.id)}>
                   <BoutonApprouver type="submit">Approuver le bon de commande</BoutonApprouver>
                 </form>

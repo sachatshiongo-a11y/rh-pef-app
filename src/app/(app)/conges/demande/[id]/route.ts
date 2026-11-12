@@ -8,7 +8,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.conges" });
   if (!g.ok) return g.reponse;
   const { id } = await params;
 

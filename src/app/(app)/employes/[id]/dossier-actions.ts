@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { chargerParametresPaie } from "@/lib/config";
@@ -230,6 +231,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     // Fichier du contrat téléversé (prioritaire), sinon URL fournie.
     const fichier = formData.get("fichier");
@@ -330,6 +332,7 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
     const nouveauSalaire = decSaisi(formData.get("nouveauSalaire"), "Nouveau salaire");
@@ -394,6 +397,7 @@ export async function ajouterDisciplinaire(employeeId: string, formData: FormDat
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     await prisma.dossierDisciplinaire.create({
       data: {
@@ -424,6 +428,7 @@ export async function ajouterEvaluation(employeeId: string, formData: FormData) 
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     const note = decSaisiOptionnel(formData.get("note"), "Note");
     if (note !== null && (note < 0 || note > 100 || !Number.isInteger(note))) throw new Error("Note : un nombre entier entre 0 et 100.");
@@ -488,6 +493,7 @@ export async function ajouterDocument(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     // Fichier téléversé prioritaire, sinon URL fournie (rétrocompatibilité).
     const file = formData.get("fichier");

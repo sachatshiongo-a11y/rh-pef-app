@@ -10,7 +10,7 @@ import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
  * Optionnel : ?entite=PayrollLine pour filtrer, ?depuis=YYYY-MM-DD pour borner dans le temps.
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH({ roles: ["ADMIN"] });
+  const g = await exigerEspaceRH({ permission: "rh.paie", roles: ["ADMIN"] });
   if (!g.ok) return g.reponse;
 
   const url = new URL(request.url);

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { journaliser } from "@/lib/audit";
 import { lireNombreSaisi } from "@/lib/nombre";
@@ -61,6 +62,7 @@ async function appliquerHeures(employeeId: string, date: string, heures: string,
 export async function saisirHeures(employeeId: string, date: string, heures: string): Promise<{ erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   // Mois PASSÉ (antérieur au mois RH courant) : lecture seule, rien n'est écrit (lib/presences-mois-serveur).
   // Refus RENVOYÉ (pas levé) : une exception d'action serveur perd son message en production, et la grille
@@ -85,6 +87,7 @@ export async function saisirHeuresEnLot(
 ): Promise<{ ignores: { employeeId: string; date: string }[]; erreur?: string }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   // Mois PASSÉ : le lot entier est refusé si un seul de ses jours y tombe, avant la première écriture
   // (refus renvoyé, pas levé : voir saisirHeures).

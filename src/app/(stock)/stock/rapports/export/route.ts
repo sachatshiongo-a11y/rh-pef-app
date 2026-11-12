@@ -18,7 +18,7 @@ function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
 }
 
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
   const user = g.user;
 

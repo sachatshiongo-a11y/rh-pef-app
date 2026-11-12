@@ -5,6 +5,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { decSaisi } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { lireDateJour } from "@/lib/achats-liste";
@@ -18,6 +19,7 @@ import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
 
   const date = new Date(lireDateJour(String(formData.get("date") ?? ""), "de l'achat")); // jour civil de Kinshasa par défaut ; futur refusé
   await exigerPeriodeOuverte(date);
@@ -54,6 +56,7 @@ export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
 export const supprimerAchatLegume = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const a = await prisma.achatLegume.findUniqueOrThrow({ where: { id } });
   await exigerPeriodeOuverte(new Date(a.date));

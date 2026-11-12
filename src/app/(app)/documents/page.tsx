@@ -66,7 +66,7 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string; type?: string; page?: string; par?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.documents");
   const peutFaireSigner = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const onglet = sp.onglet ?? "bulletins";

@@ -15,7 +15,7 @@ export default async function FichesPostePage({
 }: {
   searchParams: Promise<{ erreur?: string; msg?: string; poste?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.fiches_poste");
   const sp = await searchParams;
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -92,6 +93,7 @@ export async function creerEmploye(formData: FormData) {
   return formulaireLisible("/employes/nouveau", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     // RÉEMBAUCHE (décision du 2026-10-12 n°10) : nouvelle fiche liée à une fiche ARCHIVÉE. Hors de `toEmployeeInput`,
     // partagé avec « Modifier » (qui écraserait le lien).
@@ -129,6 +131,7 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
   return formulaireLisible(`/employes/${employeeId}/modifier`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     const direction = estDirection(user);
     const complet = toEmployeeInput(formData);
@@ -218,6 +221,7 @@ export async function ajouterMembreFamille(employeeId: string, formData: FormDat
   return formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.employes");
 
     const lien = String(formData.get("lien") ?? "ENFANT") as "CONJOINT" | "ENFANT";
     if (lien !== "CONJOINT" && lien !== "ENFANT") throw new Error("Lien de parenté invalide.");
@@ -260,6 +264,7 @@ export async function ajouterMembreFamille(employeeId: string, formData: FormDat
 export async function supprimerMembreFamille(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.employes");
 
   const membre = await prisma.membreFamille.findUnique({ where: { id } });
   if (!membre) return;

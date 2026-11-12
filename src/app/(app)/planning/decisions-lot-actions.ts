@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { erreurDeRedirection, estRedirectionNext } from "@/lib/erreur-formulaire";
 import { messageLisible } from "@/lib/erreur-metier";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "./actions";
@@ -20,6 +21,7 @@ type Decision = (id: string) => Promise<void>;
 async function enLot(ids: string[], decider: Decision, nommer: (ids: string[]) => Promise<Map<string, string>>): Promise<RapportLotShifts> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const uniques = [...new Set(ids)];
   if (uniques.length === 0) return { traitees: 0, echecs: [] };
   if (uniques.length > MAX_DECISIONS_SHIFT_PAR_LOT) {

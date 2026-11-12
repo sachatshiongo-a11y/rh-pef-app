@@ -9,6 +9,7 @@ import { estDirection, proposerModifications, type Acteur } from "@/lib/validati
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { derniereClotureStock, exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -29,6 +30,7 @@ import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 async function garde() {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.catalogue");
   return user;
 }
 
@@ -524,6 +526,7 @@ export async function supprimerArticle(id: string) {
   await formulaireLisible(`/stock/catalogue/${id}`, async () => {
     const user = await verifySession();
     requireModule(user, "stock");
+    requirePermission(user, "stock.catalogue");
     requireRole(user, ["ADMIN"]);
 
     const bilan = await prisma.$transaction((tx) => supprimerArticlesSansHistoriqueTx(tx, user.id, [id]), { timeout: 60000 });

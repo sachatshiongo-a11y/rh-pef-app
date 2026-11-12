@@ -8,7 +8,7 @@ import type { Devise } from "@/lib/pdf/theme";
 
 /** Tous les bulletins d'un mois (le mois courant, ou `?mois=&annee=` pour un mois clôturé) dans UN seul PDF (une page par employé). */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.paie" });
   if (!g.ok) return g.reponse;
   const devise: Devise = new URL(request.url).searchParams.get("devise") === "CDF" ? "CDF" : "USD";
 

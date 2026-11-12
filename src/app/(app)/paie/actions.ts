@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { cloturePeutValider, roleRequisPour, ROLES_CLOTURE, transitionAutorisee, transitionPermise } from "@/lib/paie-etats";
@@ -56,6 +57,7 @@ function messageAnnulerPaiementMoisClos(nom: string, periode: Periode, moisEnCou
 export async function calculerPaieDuMois() {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.paie");
 
   // Cœur partagé avec le rafraîchissement automatique de la page Paie (lib/paie-refresh) :
   // crée le run du mois si besoin et (re)calcule toutes les lignes non figées, avec audit.

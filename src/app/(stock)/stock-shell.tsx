@@ -17,6 +17,7 @@ import { BARRE_DU_BAS, NAV_GROUPS, lienActif } from "./navigation";
 export function StockShell({
   userNom,
   userRole,
+  permissionsRefusees = [],
   maPhoto,
   autresEspaces = [],
   badges = {},
@@ -25,6 +26,8 @@ export function StockShell({
 }: {
   userNom: string;
   userRole: string;
+  /** Permissions retirées à cette personne par la Direction : leurs entrées de menu sont masquées. */
+  permissionsRefusees?: string[];
   maPhoto: string | null;
   autresEspaces?: { href: string; icone: string; label: string }[];
   badges?: Record<string, number>;
@@ -64,7 +67,7 @@ export function StockShell({
 
           <nav className="flex flex-1 flex-col gap-4 lg:overflow-y-auto">
             {NAV_GROUPS.map((groupe) => {
-              const items = entreesVisibles(groupe.items, userRole);
+              const items = entreesVisibles(groupe.items, userRole, permissionsRefusees);
               if (items.length === 0) return null;
               return (
               <div key={groupe.titre}>
@@ -134,7 +137,7 @@ export function StockShell({
       {/* Barre du bas — téléphone et tablette : le composant commun à tous les espaces. Le menu
           s'ouvre depuis son bouton « Menu », plus de hamburger en haut. */}
       <BarreDuBas
-        entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges)}
+        entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges, permissionsRefusees)}
         estActif={actif}
         menuOuvert={open}
         onMenu={ouvrir}
