@@ -16,7 +16,7 @@ const ALERTE_BG: Record<NiveauAlerte, string> = { URGENT: "#fbe0e0", APPRO: "#fb
 
 /** Catalogue en PDF (téléchargement direct) : groupé par catégorie, lignes colorées par alerte. */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;

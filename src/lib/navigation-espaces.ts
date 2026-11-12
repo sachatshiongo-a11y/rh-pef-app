@@ -8,7 +8,11 @@
 // (`roles`) : « À valider » n'est le quatrième bouton que de la Direction (plan d'ergonomie, V10) ;
 // les autres rôles reçoivent l'entrée suivante au lieu d'un trou dans la barre.
 
-export type EntreeMenu = { href: string; label: string; icone: string; adminOnly?: boolean };
+import type { Permission } from "@/lib/permissions";
+
+/** `permission` : l'entrée est masquée à la personne à qui la Direction a retiré cette permission (lib/permissions.ts).
+ *  Ce n'est qu'un confort d'affichage : la page et les actions refusent côté serveur. */
+export type EntreeMenu = { href: string; label: string; icone: string; adminOnly?: boolean; permission?: Permission };
 export type GroupeMenu = { titre: string; items: EntreeMenu[] };
 
 /**
@@ -25,8 +29,8 @@ export type EntreeBarre = { href: string; icone: string; court: string; badge?: 
 export const ENTREES_BARRE_MAX = 4;
 
 /** Les entrées du menu visibles pour ce rôle (les entrées « Direction » sont masquées aux autres). */
-export function entreesVisibles(items: EntreeMenu[], role: string): EntreeMenu[] {
-  return items.filter((it) => !it.adminOnly || role === "ADMIN");
+export function entreesVisibles(items: EntreeMenu[], role: string, refusees: readonly string[] = []): EntreeMenu[] {
+  return items.filter((it) => (!it.adminOnly || role === "ADMIN") && !(it.permission && refusees.includes(it.permission)));
 }
 
 /**
@@ -38,8 +42,9 @@ export function choisirBarreDuBas(
   candidats: CandidatBarre[],
   role: string,
   badges: Record<string, number> = {},
+  refusees: readonly string[] = [],
 ): EntreeBarre[] {
-  const visibles = new Map(entreesVisibles(groupes.flatMap((g) => g.items), role).map((it) => [it.href, it]));
+  const visibles = new Map(entreesVisibles(groupes.flatMap((g) => g.items), role, refusees).map((it) => [it.href, it]));
   const out: EntreeBarre[] = [];
   for (const c of candidats) {
     const it = visibles.get(c.href);

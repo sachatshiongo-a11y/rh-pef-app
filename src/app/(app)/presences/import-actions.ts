@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import {
   calculerHeuresDepuisPointages,
@@ -89,6 +90,7 @@ export async function analyserPointageIVMS(
 ): Promise<AnalysePointage> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   const fichier = formData.get("fichier") as File | null;
   if (!fichier || fichier.size === 0) {
@@ -223,6 +225,7 @@ export async function appliquerPointageIVMS(
 ): Promise<ResultatImport> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   // Tout ou rien : une seule ligne illisible ou hors bornes (0–24 h, jamais négatif) refuse le lot
   // ENTIER avant la première écriture — plus de ligne écartée en silence.

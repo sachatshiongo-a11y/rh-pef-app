@@ -5,6 +5,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
@@ -26,6 +27,7 @@ const MAX_RATTACHEMENT_AUTO = 200;
 async function garde() {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
   return user;
 }
 

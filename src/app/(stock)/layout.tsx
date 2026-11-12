@@ -1,3 +1,4 @@
+import { permissionsRefusees } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
@@ -40,6 +41,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
     <StockShell
       userNom={user.nom}
       userRole={user.role}
+      permissionsRefusees={permissionsRefusees(user)}
       maPhoto={moi?.employe?.photoUrl ?? null}
       autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{

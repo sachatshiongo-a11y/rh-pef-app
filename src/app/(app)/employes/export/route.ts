@@ -5,7 +5,7 @@ import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereS
 
 /** Export Excel de la liste des employés — FIDÈLE à l'onglet (mêmes filtres, brigade puis backoffice). */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.employes" });
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const refus = refusSelectionTropGrande(sp);

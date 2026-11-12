@@ -9,7 +9,7 @@ import { MAX_FICHES_PAR_LOT } from "@/lib/fiches-poste-liste";
  * même modèle que les bulletins (`paie/bulletins-zip`). Direction / Manager, comme l'unitaire.
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  const g = await exigerEspaceRH({ permission: "rh.fiches_poste", roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
   const ids = [...new Set((new URL(request.url).searchParams.get("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
   if (ids.length === 0) return new Response("Aucune fiche sélectionnée", { status: 400 });

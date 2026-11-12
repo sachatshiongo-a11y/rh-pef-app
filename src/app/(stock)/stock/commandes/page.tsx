@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { aPermission } from "@/lib/permissions";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { ImportBonsCommandeBtn } from "./import-bc-btn";
 import { CommandesListe } from "./commandes-liste";
@@ -48,7 +49,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "BONS_COMMANDE", label: "Bons de commande" }]} />
           {estDirection && <ImportBonsCommandeBtn />}
-          <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">+ Nouveau bon de commande</Link>
+          {aPermission(user, "stock.bon_creer") && <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">+ Nouveau bon de commande</Link>}
         </div>
       </div>
 

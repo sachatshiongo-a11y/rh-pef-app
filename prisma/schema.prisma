@@ -146,6 +146,9 @@ model User {
   // Toute session ouverte AVANT cet instant est refusée (réinitialisation du mot de passe,
   // désactivation) — src/lib/sessions-revoquees.ts. Null = aucune révocation.
   sessionsRevoqueesLe DateTime?
+  // Écarts de permissions décidés par la Direction pour CETTE personne (src/lib/permissions.ts) :
+  // { "stock.bon_valider": true, "rh.paie": false }. Null = comportement historique du rôle.
+  permissions Json?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

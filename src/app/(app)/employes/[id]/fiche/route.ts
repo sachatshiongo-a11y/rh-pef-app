@@ -15,7 +15,7 @@ const usd = (n: number) =>
   formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.employes" });
   if (!g.ok) return g.reponse;
   const { id } = await params;
 

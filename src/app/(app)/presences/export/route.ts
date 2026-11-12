@@ -19,7 +19,7 @@ import { lirePeriodeCouranteRH } from "@/lib/presences-mois-serveur";
  * comme avant. Illisible : 400 lisible ; mois à venir : refusé (400). La garde reste la première instruction.
  */
 export async function GET(req: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.presences" });
   if (!g.ok) return g.reponse;
 
   const courant = await lirePeriodeCouranteRH();

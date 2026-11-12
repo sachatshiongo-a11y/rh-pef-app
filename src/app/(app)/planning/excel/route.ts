@@ -4,7 +4,7 @@ import { donneesPlanning } from "../export-data";
 
 /** Planning (semaine ou mois) en Excel : employés × jours, groupé Brigade/Backoffice. */
 export async function GET(req: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.planning" });
   if (!g.ok) return g.reponse;
   const { titre, sousTitre, fichierBase, labels, lignes, sectionRows } = await donneesPlanning(new URL(req.url).searchParams);
 

@@ -20,7 +20,7 @@ import { fichesAExporter, MAX_FICHES_PDF, MESSAGE_TROP_DE_FICHES } from "../_dat
 const slug = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "fiche";
 
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;

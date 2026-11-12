@@ -27,7 +27,7 @@ export default async function ModifierEmployePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erreur?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.employes");
   const sp = await searchParams;
   requireRole(user, ["ADMIN", "MANAGER"]);
 

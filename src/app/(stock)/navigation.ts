@@ -17,7 +17,7 @@ export const NAV_GROUPS: GroupeMenu[] = [
     items: [
       { href: "/stock/catalogue", label: "Inventaire", icone: "marmite" },
       ENTREE_MENU_ACHATS, // Mouvements · Liste d'achat · Légumes frais (sous-onglets)
-      { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" }, // + onglet « Comptages passés »
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance", permission: "stock.inventaire" }, // + onglet « Comptages passés »
       // La clôture du mois se fait ici, comme la paie dans Paie et l'exploitation dans Exploitation (V8).
       // Direction seule : la page refuse les autres comptes et les actions revérifient ADMIN.
       { href: "/stock/cloture", label: "Clôture du mois", icone: "calendrier", adminOnly: true },
@@ -26,9 +26,9 @@ export const NAV_GROUPS: GroupeMenu[] = [
   {
     titre: "Restaurant",
     items: [
-      { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
-      { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
-      { href: "/stock/fiches", label: "Fiches techniques", icone: "document" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours", permission: "stock.restaurant" },
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts", permission: "stock.restaurant" },
+      { href: "/stock/fiches", label: "Fiches techniques", icone: "document", permission: "stock.restaurant" },
     ],
   },
   {

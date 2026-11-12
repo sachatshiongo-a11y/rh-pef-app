@@ -120,7 +120,7 @@ describe("le garde-fou des pages mord (falsification en mémoire)", () => {
   });
 
   it("garde remplacée par verifySession seul → refusé", () => {
-    const f = vrai.replace("await exigerPageRH()", "await verifySession()");
+    const f = vrai.replace(/await exigerPageRH\([^)]*\)/, "await verifySession()");
     expect(f).not.toBe(vrai);
     expect(manquements(rel, f).join("\n")).toMatch(/PREMIER await/);
   });

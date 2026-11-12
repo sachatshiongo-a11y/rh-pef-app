@@ -14,7 +14,7 @@ import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 // jamais un arrondi maison.
 
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const libelleFamille = new Map(FAMILLES_BOISSON.map((f) => [f.valeur, f.libelle]));

@@ -6,7 +6,7 @@ import { CHAMPS_CONTENANCE } from "@/lib/libelle-article";
 import { chargerEntreprise } from "@/lib/entreprise";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
   const { id } = await params;
 

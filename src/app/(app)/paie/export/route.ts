@@ -11,7 +11,7 @@ import { lireMoisAnnee } from "@/lib/mois-route";
  * par catégorie (Brigade, puis Back-office), chacun trié par nom, puis un onglet « Récapitulatif ».
  */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.paie" });
   if (!g.ok) return g.reponse;
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });

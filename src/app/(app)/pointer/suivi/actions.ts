@@ -9,6 +9,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliser } from "@/lib/audit";
 import { SCAN_VALABLE } from "@/lib/pointage-annulation";
@@ -21,6 +22,7 @@ import { SCAN_VALABLE } from "@/lib/pointage-annulation";
 export const marquerVerifies = actionLisible(async (pointageIds: string[]): Promise<{ scansVerifies: number }> => {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   const ids = [...new Set((pointageIds ?? []).filter((id): id is string => typeof id === "string" && id.length > 0))];
   if (ids.length === 0) return { scansVerifies: 0 };

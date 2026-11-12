@@ -9,7 +9,7 @@ import { peutSupprimer } from "@/lib/suppression-direction";
 import { ongletFiche } from "@/lib/fiches/famille-boisson";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.restaurant");
   const { id } = await params;
 
   const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesSelectionnables(), chargerStocksDesFiches()]);

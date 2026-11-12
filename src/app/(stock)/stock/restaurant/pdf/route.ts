@@ -9,7 +9,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /** Stock restaurant (Cuisine ou Bar) en PDF paysage : grille hebdo groupée par catégorie. */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;

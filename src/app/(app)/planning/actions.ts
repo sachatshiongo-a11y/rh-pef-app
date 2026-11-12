@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { exigerDirectionPourSupprimer, refusSuppression } from "@/lib/suppression-direction";
 import { dureeShift } from "./creneaux";
 import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
@@ -43,6 +44,7 @@ async function ecrireOuRefuser(userId: string, operations: OperationCreneau[], o
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string): Promise<{ erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
 
   // Date stockée en UTC minuit du bon jour (évite le décalage de fuseau). Une modif manuelle retire
   // le marqueur ✨ (genereAuto: false), même quand le shift ressaisi est le même.
@@ -57,6 +59,7 @@ export async function saisirCreneau(employeeId: string, dateIso: string, shiftId
 export async function saisirModele(employeeId: string, jour: number, shiftId: string, semaine = 0) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   if (jour < 0 || jour > 6 || semaine < 0 || semaine > 2) return;
   // Le modèle donne les heures dues des jours de congé ou de maladie sans créneau : il touche la
   // paie, chaque changement est donc journalisé (avant → après).
@@ -104,6 +107,7 @@ export async function genererPlanningAuto(
 ): Promise<ResumeGeneration> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
 
   const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], personnesEnDepassement: 0, sousHeures: 0, shiftsInconnus: [] };
   const debut = new Date(debutIso + "T00:00:00.000Z");
@@ -338,6 +342,7 @@ async function renumeroterShiftsPoste(tx: Prisma.TransactionClient, poste: strin
 export async function definirShiftPoste(poste: string, shiftId: string, ordre: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const p = poste.trim();
   if (!p || !shiftId) return;
   await prisma.shiftPoste.upsert({
@@ -354,6 +359,7 @@ export async function definirShiftPoste(poste: string, shiftId: string, ordre: n
 export async function supprimerShiftPoste(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const refus = refusSuppression(user);
   if (refus) return refus;
   await prisma.$transaction(async (tx) => {
@@ -373,6 +379,7 @@ export async function supprimerShiftPoste(id: string): Promise<{ erreur: string 
 export async function deplacerShiftPoste(id: string, direction: "haut" | "bas") {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   await prisma.$transaction(async (tx) => {
     const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
     if (!sp) return;
@@ -392,6 +399,7 @@ export async function saisirCreneauxEnLot(
 ): Promise<{ erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   // Saisie manuelle groupée → retire le marqueur ✨ ; tout ou rien si un salarié est verrouillé.
   const r = await ecrireOuRefuser(
     user.id,
@@ -418,6 +426,7 @@ export async function creerShift(formData: FormData) {
   await formulaireLisible("/planning", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.planning");
 
     const nom = String(formData.get("nom") ?? "").trim();
     if (!nom) throw new Error("Le nom du shift est requis.");
@@ -445,6 +454,7 @@ export async function modifierShift(formData: FormData) {
   await formulaireLisible("/planning", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.planning");
 
     const id = String(formData.get("id"));
     const nom = String(formData.get("nom") ?? "").trim();
@@ -483,6 +493,7 @@ export async function supprimerShift(id: string) {
   await formulaireLisible("/planning", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.planning");
     exigerDirectionPourSupprimer(user); // règle de Sacha (2026-10-01) : seule la Direction supprime
 
     const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
@@ -503,6 +514,7 @@ export async function supprimerShift(id: string) {
 export async function reactiverShift(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   await prisma.shift.update({ where: { id }, data: { actif: true } });
   revalidatePath("/planning");
 }
@@ -514,6 +526,7 @@ export async function reactiverShift(id: string) {
 export async function definirBesoin(shiftId: string, posteBrut: string, jourSemaine: number, nombreRequis: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const poste = posteBrut.trim(); // espaces fantômes = besoins jamais matchés
   if (!shiftId || !poste || jourSemaine < 0 || jourSemaine > 6) return;
   const n = Math.round(Number(nombreRequis) || 0);
@@ -533,6 +546,7 @@ export async function definirBesoin(shiftId: string, posteBrut: string, jourSema
 export async function definirPolyvalence(posteSource: string, posteCible: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const src = posteSource.trim(), cible = posteCible.trim();
   if (!src || !cible || src === cible) return;
   await prisma.polyvalencePoste.upsert({
@@ -546,6 +560,7 @@ export async function definirPolyvalence(posteSource: string, posteCible: string
 export async function supprimerPolyvalence(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const refus = refusSuppression(user);
   if (refus) return refus;
   await prisma.polyvalencePoste.delete({ where: { id } });
@@ -556,6 +571,7 @@ export async function supprimerPolyvalence(id: string): Promise<{ erreur: string
 export async function publierSemaine(lundiIso: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const lundi = new Date(lundiIso + "T00:00:00Z");
   const dejaPubliee = await prisma.semainePubliee.findUnique({ where: { lundi }, select: { id: true } });
   await prisma.semainePubliee.upsert({
@@ -597,6 +613,7 @@ export async function publierSemaine(lundiIso: string) {
 export async function depublierSemaine(lundiIso: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const lundi = new Date(lundiIso + "T00:00:00Z");
   await prisma.semainePubliee.deleteMany({ where: { lundi } });
   revalidatePath("/planning");
@@ -608,6 +625,7 @@ export async function depublierSemaine(lundiIso: string) {
 export async function approuverChangementShift(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
   if (!dem || dem.statut !== "EN_ATTENTE") return;
 
@@ -646,6 +664,7 @@ export async function approuverChangementShift(id: string) {
 export async function refuserChangementShift(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
   if (!dem || dem.statut !== "EN_ATTENTE") return;
   await prisma.demandeChangementShift.update({ where: { id }, data: { statut: "REFUSE", decideParId: user.id } });
@@ -668,6 +687,7 @@ export async function refuserChangementShift(id: string) {
 export async function approuverEchange(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE") return;
   // Collègue d'accord : l'approbation et la permutation passent ensemble, ou rien (refus du verrou
@@ -698,6 +718,7 @@ export async function approuverEchange(id: string) {
 export async function refuserEchange(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.planning");
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE") return;
   await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "REFUSE", statut: "REFUSE" } });

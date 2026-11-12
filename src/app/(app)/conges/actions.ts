@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
@@ -41,6 +42,7 @@ export async function demanderConge(formData: FormData) {
   return formulaireLisible("/conges", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.conges");
 
     const employeeId = String(formData.get("employeeId"));
     const type = String(formData.get("type"));

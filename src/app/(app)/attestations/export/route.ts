@@ -4,7 +4,7 @@ import { chargerRegistre, filtresRegistre, ENTETE_REGISTRE, ligneRegistre } from
 
 /** Export Excel du registre des attestations — FIDÈLE à l'onglet (mêmes filtres type et statut). */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.documents" });
   if (!g.ok) return g.reponse;
   const filtres = filtresRegistre(new URL(request.url).searchParams);
   const lignes = (await chargerRegistre(filtres)).map(ligneRegistre);

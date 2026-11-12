@@ -12,7 +12,7 @@ const fmtEcart = (n: number) => `${n > 0 ? "↑" : n < 0 ? "↓" : ""} ${n >= 0 
 /** Export Excel de la vue « Écart prévu/réalisé » : mêmes données que l'écran, deux feuilles
  *  (Couverture non tenue, Heures par salarié), même motif que /planning/excel (route.ts). */
 export async function GET(req: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.planning" });
   if (!g.ok) return g.reponse;
   const sp = new URL(req.url).searchParams;
   const annee = Number(sp.get("annee")) || anneeCouranteKinshasa();

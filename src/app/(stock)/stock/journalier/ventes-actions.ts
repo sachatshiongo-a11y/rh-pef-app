@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliser } from "@/lib/audit";
 import { derniereClotureStock, estDansPeriodeFigee } from "@/lib/cloture-stock";
@@ -33,6 +34,7 @@ const estDoublon = (e: unknown) => typeof e === "object" && e !== null && (e as 
 export const saisirVente = actionLisible(async (ligne: string, dateIso: string, quantite: number | null) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
 
   const date = lireJour(dateIso);
   const cible = lireCleLigne(ligne);

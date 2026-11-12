@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import {
   creerUtilisateur,
   definirRoleUtilisateur,
@@ -10,6 +10,8 @@ import {
 } from "./user-actions";
 import { estErreur } from "@/lib/action-lisible";
 import { ROLE_LIBELLE, ROLE_DESCRIPTION, ROLES_ATTRIBUABLES, roleModifiableIci } from "@/lib/roles";
+import { PermissionsCompte } from "./permissions-compte";
+import type { SurchargesPermissions } from "@/lib/permissions";
 import type { Role } from "@prisma/client";
 
 export type UserRow = {
@@ -20,6 +22,8 @@ export type UserRow = {
   actif: boolean;
   employeeId: string | null;
   employeNom: string | null;
+  accesStock: boolean;
+  permissions: SurchargesPermissions; // écarts de permissions enregistrés (lib/permissions.ts)
 };
 
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
@@ -36,6 +40,7 @@ export function UsersAdmin({
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [ouvertMdp, setOuvertMdp] = useState<string | null>(null);
+  const [ouvertPermissions, setOuvertPermissions] = useState<string | null>(null);
 
   function action(fn: () => Promise<unknown>, apres?: () => void) {
     setErreur(null);
@@ -75,7 +80,8 @@ export function UsersAdmin({
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-t align-top">
+              <Fragment key={u.id}>
+              <tr className="border-t align-top">
                 <td className="px-3 py-2 font-medium">{u.nom}</td>
                 <td className="px-3 py-2 text-muted-foreground">{u.email}</td>
                 <td className="px-3 py-2">
@@ -135,6 +141,15 @@ export function UsersAdmin({
                         {u.actif ? "Désactiver" : "Réactiver"}
                       </button>
                     )}
+                    {(u.role === "MANAGER" || u.role === "STOCK") && (
+                      <button
+                        onClick={() => setOuvertPermissions(ouvertPermissions === u.id ? null : u.id)}
+                        aria-expanded={ouvertPermissions === u.id}
+                        className="rounded border px-2 py-1 text-xs hover:bg-accent"
+                      >
+                        Permissions
+                      </button>
+                    )}
                     <button
                       onClick={() => setOuvertMdp(ouvertMdp === u.id ? null : u.id)}
                       className="rounded border px-2 py-1 text-xs hover:bg-accent"
@@ -153,6 +168,14 @@ export function UsersAdmin({
                   )}
                 </td>
               </tr>
+              {ouvertPermissions === u.id && (u.role === "MANAGER" || u.role === "STOCK") && (
+                <tr className="bg-muted/10">
+                  <td colSpan={6} className="px-3 py-2">
+                    <PermissionsCompte key={`${u.id}-${u.role}`} userId={u.id} nom={u.nom} role={u.role} accesStock={u.accesStock} permissions={u.permissions} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>

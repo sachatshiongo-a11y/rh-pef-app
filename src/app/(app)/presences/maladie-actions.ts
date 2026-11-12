@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliserPlusieurs } from "@/lib/audit";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { BulletinFigeError, exigerBulletinModifiable } from "@/lib/paie-element-fige";
@@ -48,6 +49,7 @@ export async function marquerMaladieJustifiee(
 ): Promise<ResultatMaladie> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
   if (cases.length === 0) return { message: "Aucune case sélectionnée." };
   // Mois PASSÉ : lecture seule (s'ajoute au verrou « bulletin figé » ci-dessous, qui reste).
   const passe = await refusMoisPasse(cases.map((c) => c.date));
@@ -87,6 +89,7 @@ export async function marquerMaladieJustifiee(
 export async function joindreCertificatMaladie(formData: FormData): Promise<ResultatMaladie> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
   const employeeId = String(formData.get("employeeId") ?? "");
   const date = String(formData.get("date") ?? "");
   const fichier = formData.get("fichier");

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { AttendanceCode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { refusSuppression, MESSAGE_EFFACER_PRESENCE } from "@/lib/suppression-direction";
 import { datesDeSortie, apresSortie } from "@/lib/salaries-sortis";
@@ -113,6 +114,7 @@ export async function saisirPresence(
 ): Promise<ResultatPresence> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   // Mois PASSÉ (antérieur au mois RH courant) : lecture seule, rien n'est écrit (lib/presences-mois-serveur).
   const passe = await refusMoisPasse([date]);
@@ -172,6 +174,7 @@ export async function saisirPresencesEnLot(
 ): Promise<ResultatLotPresences> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.presences");
 
   // Mois PASSÉ : le lot entier est refusé si un seul de ses jours y tombe (tout ou rien, rien n'est écrit).
   const passe = await refusMoisPasse(entrees.map((e) => e.date));

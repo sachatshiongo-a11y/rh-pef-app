@@ -8,7 +8,7 @@ import { FichesInventaireDocument, type EspaceFiche } from "@/lib/pdf/fiche-inve
  * `?espace=CUISINE` (défaut) ou `BAR` : la fiche de cet espace ; `?espace=TOUS` : Cuisine puis Bar.
  */
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const demande = new URL(req.url).searchParams.get("espace");

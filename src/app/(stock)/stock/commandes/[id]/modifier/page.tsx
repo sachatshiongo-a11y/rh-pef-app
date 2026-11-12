@@ -10,7 +10,7 @@ import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 import { prixLigneBon } from "@/lib/bon-commande-devise";
 
 export default async function ModifierBonPage({ params }: { params: Promise<{ id: string }> }) {
-  await exigerPageStock();
+  await exigerPageStock("stock.bon_creer");
   const { id } = await params;
   const [bc, articles, taux, fournisseurs, liens] = await Promise.all([
     prisma.bonDeCommande.findUnique({ where: { id }, include: { lignes: true } }),

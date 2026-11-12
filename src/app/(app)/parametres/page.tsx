@@ -19,6 +19,7 @@ import { etatCompteSalarie } from "@/lib/comptes-salaries";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import { lireMoisEffet } from "@/lib/config";
 import { exigerPageRH } from "@/lib/garde-page";
+import { lireSurcharges } from "@/lib/permissions";
 import { ChampNombre } from "@/components/champ-nombre";
 import { versSaisie } from "@/lib/nombre";
 import { SommaireSections, SECTION_ANCREE } from "@/components/sommaire-sections";
@@ -88,6 +89,8 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     actif: u.actif,
     employeeId: u.employeeId,
     employeNom: u.employe?.nom ?? null,
+    accesStock: u.accesStock,
+    permissions: lireSurcharges(u.permissions),
   }));
   // Demandes par type : un type utilisé ne se renomme ni ne se supprime (il se désactive).
   const usageTypes = await prisma.leaveRequest.groupBy({ by: ["type"], _count: { _all: true } });

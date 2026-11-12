@@ -3,7 +3,7 @@ import { genererFichePostePdf } from "@/lib/pdf/fiche-poste-buffer";
 
 /** Fiche de poste (PDF) générée depuis les infos enregistrées — Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  const g = await exigerEspaceRH({ permission: "rh.fiches_poste", roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
   const { id } = await params;
 

@@ -42,7 +42,7 @@ export default async function PlanningPage({
 }: {
   searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string; erreur?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.planning");
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : sp.vue === "ecart" ? "ecart" : "semaine";

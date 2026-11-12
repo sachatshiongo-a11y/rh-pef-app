@@ -48,7 +48,7 @@ function datePure(brut: string | null): string | null {
 const JJMM = dateCourte;
 
 export async function GET(req: Request) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;

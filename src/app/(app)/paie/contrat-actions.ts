@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerReglesContrats, verifierProlongationCdd, verifierProlongationEssai } from "@/lib/regles-contrats";
@@ -36,6 +37,7 @@ export async function transformerContrat(id: string, formData: FormData) {
   await formulaireLisible(retourDe(formData), async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const type = String(formData.get("type")) as TypeContrat;
     const dateFinStr = String(formData.get("dateFin") ?? "").trim();
     const dateDebutStr = String(formData.get("dateDebut") ?? "").trim();
@@ -93,6 +95,7 @@ export async function modifierContrat(id: string, formData: FormData) {
   await formulaireLisible(retourDe(formData), async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
 
     const contrat = await prisma.contrat.findUnique({ where: { id } });
     if (!contrat) return;
@@ -171,6 +174,7 @@ export async function figerContrat(id: string) {
   const contrat = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, pdfAccepteUrl: true } });
   if (!contrat) return;
   requireRole(user, contrat.pdfAccepteUrl ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.paie");
 
   // ignorerFige : on régénère depuis les données courantes (sinon on recopierait l'ancien exemplaire).
   // Chargé À LA DEMANDE : @react-pdf n'est pas embarqué dans les pages Paie et fiche salarié (pages-sans-react-pdf.garde-fou.test.ts).
@@ -218,6 +222,7 @@ export async function prolongerContrat(id: string, formData: FormData) {
   await formulaireLisible(retourDe(formData), async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const dateFinStr = String(formData.get("dateFin") ?? "").trim();
     if (!dateFinStr) throw new Error("Nouvelle date de fin requise.");
     const contrat = await prisma.contrat.findUnique({ where: { id } });
@@ -262,6 +267,7 @@ export async function prolongerEssai(id: string, formData: FormData) {
   await formulaireLisible(retourDe(formData), async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.paie");
     const finEssaiStr = String(formData.get("finPeriodeEssai") ?? "").trim();
     if (!finEssaiStr) throw new Error("Nouvelle fin de période d'essai requise.");
     const contrat = await prisma.contrat.findUnique({ where: { id } });
@@ -305,6 +311,7 @@ export type ResultatExpiration = { traites: number; refus: { id: string; message
 export const marquerContratsExpires = actionLisible(async (ids: string[]): Promise<ResultatExpiration> => {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  requirePermission(user, "rh.paie");
 
   const contrats = await prisma.contrat.findMany({ where: { id: { in: ids } }, select: { id: true, employeeId: true } });
   const employes = [...new Set(contrats.map((c) => c.employeeId))];

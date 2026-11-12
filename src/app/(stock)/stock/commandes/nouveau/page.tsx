@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { aPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { formaterPrix, prixProposeEn, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
@@ -8,7 +9,7 @@ import { contenancePourClient } from "@/lib/libelle-article";
 import { chargerLiensFournisseurs } from "@/lib/article-fournisseurs";
 
 export default async function NouveauBonPage() {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.bon_creer");
   const [articles, taux, fournisseurs, liens] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, marque: true, contenance: true, contenanceUnite: true, nomCourt: true, code: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, uniteParCarton: true } }),
     tauxDuJour(),
@@ -40,7 +41,7 @@ export default async function NouveauBonPage() {
         <span>Nouveau</span>
       </div>
       <h1 className="text-xl font-semibold sm:text-2xl">Nouveau bon de commande</h1>
-      <NouveauBonForm articles={arts} fournisseurs={fournisseurs} liens={liens} taux={taux} estDirection={user.role === "ADMIN"} />
+      <NouveauBonForm articles={arts} fournisseurs={fournisseurs} liens={liens} taux={taux} estDirection={aPermission(user, "stock.bon_valider")} />
     </div>
   );
 }

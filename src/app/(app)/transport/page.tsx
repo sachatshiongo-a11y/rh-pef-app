@@ -3,6 +3,6 @@ import { exigerPageRH } from "@/lib/garde-page";
 
 /** L'onglet Transport a été fusionné dans « Employés » (vue Transport). On y redirige les anciens liens. */
 export default async function TransportPage() {
-  await exigerPageRH();
+  await exigerPageRH("rh.paie");
   redirect("/employes?vue=transport");
 }

@@ -85,7 +85,7 @@ export default async function FicheEmployePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string; erreur?: string; annee?: string; page?: string; par?: string }>;
 }) {
-  const user = await exigerPageRH();
+  const user = await exigerPageRH("rh.employes");
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;

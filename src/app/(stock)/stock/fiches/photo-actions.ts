@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { identifiantsSupabase, supprimerPhoto, cheminDepuisUrlPrivee } from "@/lib/fiches/photo-storage";
@@ -17,6 +18,7 @@ const ENTITE = "FicheTechnique";
 async function garde() {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
   return user;
 }
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliser } from "@/lib/audit";
 import { exigerJourSaisissable, lireJourSaisie } from "@/lib/saisie-restaurant";
@@ -33,6 +34,7 @@ function lireCase(dateIso: string, quantite: number) {
 export const saisirCommandeResto = actionLisible(async (articleId: string, dateIso: string, quantite: number) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
   if (!articleId) throw new Error("Article manquant.");
   const { date, q } = lireCase(dateIso, quantite);
   await exigerJourSaisissable(date, "les commandes");
@@ -61,6 +63,7 @@ export const saisirCommandeResto = actionLisible(async (articleId: string, dateI
 export const saisirCommandeLegume = actionLisible(async (legume: string, dateIso: string, quantite: number) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
   if (!legume) throw new Error("Légume manquant.");
   const { date, q } = lireCase(dateIso, quantite);
   await exigerJourSaisissable(date, "les commandes");
@@ -89,5 +92,6 @@ export const saisirCommandeLegume = actionLisible(async (legume: string, dateIso
 export async function rafraichirJournalier() {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.restaurant");
   revalidatePath("/stock/journalier");
 }

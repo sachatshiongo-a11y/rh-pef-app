@@ -5,7 +5,7 @@ import { BordereauDeclarationsDocument } from "@/lib/pdf/declarations";
 import { chargerEntreprise } from "@/lib/entreprise";
 
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.declarations" });
   if (!g.ok) return g.reponse;
 
   const params = new URL(request.url).searchParams;

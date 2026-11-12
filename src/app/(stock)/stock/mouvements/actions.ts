@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { appliquerMouvementManuel, lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
@@ -31,6 +32,7 @@ import { contenancePourClient } from "@/lib/libelle-article";
 export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: false; message: string } | RefusStock> => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   const m = lireMouvementSaisi(formData);
   let resultat: Awaited<ReturnType<typeof appliquerMouvementManuel>>;
   try {
@@ -94,6 +96,7 @@ async function refusAvecProches(e: StockInsuffisant): Promise<RefusStock> {
 export const supprimerMouvement = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
 
   // Ligne VERROUILLÉE avant d'être lue : deux suppressions simultanées du même mouvement n'appliquent
@@ -128,6 +131,7 @@ const MESSAGE_DEJA_SUPPRIME = (quoi: string) => `${quoi} a déjà été supprim�
 export const supprimerMouvementsEnLot = actionLisible(async (selection: SelectionMouvements) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   requireRole(user, ["ADMIN"]);
   if (Array.isArray(selection) && selection.filter(Boolean).length === 0) return;
   const r = await prisma.$transaction(async (tx) => {
@@ -185,6 +189,7 @@ const libelleMotif = (motif: string | null, raison: string | null) => `${motif ?
 export const requalifierSorties = actionLisible(async (selection: SelectionMouvements, motif: string, raison?: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   requireRole(user, ["ADMIN"]); // décision de la Direction
   // Motif OBLIGATOIRE pour toute sortie (décision du 2026-10-07) : on ne requalifie plus « sans motif ».
   // Les anciennes sorties sans motif restent visibles (filtre « Sorties : sans motif ») pour être requalifiées.
@@ -248,6 +253,7 @@ export const requalifierSorties = actionLisible(async (selection: SelectionMouve
 export const changerDateSorties = actionLisible(async (selection: SelectionMouvements, nouvelleDate: string) => {
   const user = await verifySession();
   requireModule(user, "stock"); // mêmes comptes que la saisie d'une sortie (décision du 2026-10-08)
+  requirePermission(user, "stock.mouvement");
   const r = await appliquerChangementDateSorties(user, selection, nouvelleDate);
   if ("erreur" in r) return r;
   revalidatePath("/stock/mouvements");

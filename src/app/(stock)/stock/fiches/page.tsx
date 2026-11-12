@@ -13,7 +13,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 const ETATS: EtatDispo[] = ["DISPONIBLE", "RUPTURE", "A_VERIFIER"];
 
 export default async function FichesPage({ searchParams }: { searchParams: Promise<{ etat?: string; vue?: string }> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.restaurant");
   const sp = await searchParams;
   const etatInitial = ETATS.find((e) => e === sp.etat);
   // Onglet « Plats » par défaut : les liens existants (`?etat=RUPTURE` depuis Exploitation, qui

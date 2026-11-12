@@ -14,7 +14,7 @@ import { ComptagesPasses } from "./comptages-passes";
 type SP = { vue?: string; domaine?: string; page?: string; par?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.inventaire");
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const { page, par } = lirePagination(sp);

@@ -7,6 +7,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { decSaisi } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { cleAlnum } from "@/lib/texte";
@@ -98,6 +99,7 @@ function lireDevisesParLigne(formData: FormData, nbLignes: number): Devise[] {
 export const entreeListeAchat = actionLisible(async (formData: FormData): Promise<ResultatListeAchat> => {
   const user = await verifySession();
   requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   const dateISO = lireDateAchat(String(formData.get("date") ?? ""));
   const date = new Date(`${dateISO}T00:00:00.000Z`);
   await exigerPeriodeOuverte(date);
@@ -338,7 +340,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
  * L'enregistrement REVÉRIFIE tout : cet écran informe, il ne décide pas.
  */
 export const verifierDoublonsListe = actionLisible(async (dateSaisie: string, lignes: LigneAVerifier[]): Promise<{ avertissements: string[]; lignes: (AnalyseLigne | null)[] }> => {
-  requireModule(await verifySession(), "stock");
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requirePermission(user, "stock.mouvement");
   let dateISO: string;
   try { dateISO = lireDateAchat(dateSaisie); } catch { return { avertissements: [], lignes: [] }; }
   const propres: LigneAVerifier[] = (Array.isArray(lignes) ? lignes : []).slice(0, 200).map((l) => ({

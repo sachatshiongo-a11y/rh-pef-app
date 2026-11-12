@@ -7,7 +7,7 @@ import { filtrerEmployes, statutEmployes, whereStatutEmployes } from "../../empl
 
 /** Export Excel de la grille de transport — FIDÈLE à l'onglet (mêmes filtres, montants, total mois complet). */
 export async function GET(request: Request) {
-  const g = await exigerEspaceRH();
+  const g = await exigerEspaceRH({ permission: "rh.paie" });
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const [tous, parametres] = await Promise.all([

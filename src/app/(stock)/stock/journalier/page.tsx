@@ -30,7 +30,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
 
 export default async function JournalierPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const user = await exigerPageStock();
+  const user = await exigerPageStock("stock.restaurant");
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
   const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" || sp.vue === "ecarts" ? sp.vue : "conso";

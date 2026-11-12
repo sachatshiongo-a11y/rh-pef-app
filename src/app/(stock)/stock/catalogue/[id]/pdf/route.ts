@@ -11,7 +11,7 @@ import { lireFiltreMouvements, typeDuFiltre } from "@/lib/fiche-article";
 import { bornesPeriode, libelleMoisAnnee, periodeDeRequete } from "@/lib/mouvements-article-mois";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await exigerEspaceStock();
+  const g = await exigerEspaceStock({ permission: "stock.exports" });
   if (!g.ok) return g.reponse;
   const { id } = await params;
 

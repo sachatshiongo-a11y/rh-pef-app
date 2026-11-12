@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/exiger-permission";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { slugFichier } from "@/lib/texte";
@@ -49,6 +50,7 @@ export async function creerPoste(formData: FormData) {
   await formulaireLisible("/fiches-poste", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.fiches_poste");
 
     const poste = String(formData.get("poste") ?? "").trim();
     if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Indiquez un intitulé de poste.")}`);
@@ -77,6 +79,7 @@ export async function enregistrerFichePoste(formData: FormData) {
   return formulaireLisible("/fiches-poste", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.fiches_poste");
 
     const poste = String(formData.get("poste") ?? "").trim();
     if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Intitulé de poste manquant.")}`);
@@ -173,6 +176,7 @@ export async function importerFichesEnMasse(formData: FormData) {
   await formulaireLisible("/fiches-poste", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.fiches_poste");
 
     const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
     if (fichiers.length === 0) redirect(`/fiches-poste?erreur=${encodeURIComponent("Aucun fichier sélectionné.")}`);
@@ -232,6 +236,7 @@ export async function renommerPoste(formData: FormData) {
   await formulaireLisible("/fiches-poste", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    requirePermission(user, "rh.fiches_poste");
 
     const ancien = String(formData.get("poste") ?? "").trim();
     const nouveau = String(formData.get("nouveau") ?? "").trim();
