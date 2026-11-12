@@ -8,6 +8,7 @@ import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
 import { DemandesAValider } from "./demandes-client";
 import { totalAValiderStock } from "@/lib/a-valider-compteur";
 import type { CurrentUser } from "@/lib/auth";
+import { aPermission } from "@/lib/permissions";
 import type { BlocAValider } from "@/components/espaces-a-valider";
 import type { RubriqueAValider } from "@/components/rubriques-a-valider";
 import { DernieresDecisions } from "@/components/dernieres-decisions";
@@ -23,6 +24,9 @@ const quand = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("f
  */
 export async function chargerRubriquesStock(user: CurrentUser): Promise<BlocAValider> {
   const estDirection = user.role === "ADMIN";
+  // Approuver un bon : Direction, ou personne à qui la Direction a coché « Approuver un bon » (12/11/2026).
+  // Les autres demandes (paiements, réconciliations, articles) restent tranchées par la Direction seule.
+  const peutApprouverBons = aPermission(user, "stock.bon_valider");
   const miennes = estDirection ? {} : { auteurId: user.id };
 
   const [brouillons, enAttente, decidees] = await Promise.all([
@@ -50,7 +54,7 @@ export async function chargerRubriquesStock(user: CurrentUser): Promise<BlocAVal
               </div>
               <div className="flex items-center gap-2">
                 <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>
-                {estDirection ? (
+                {peutApprouverBons ? (
                   <form action={validerBonCommande.bind(null, bc.id)}>
                     <BoutonApprouver type="submit" />
                   </form>

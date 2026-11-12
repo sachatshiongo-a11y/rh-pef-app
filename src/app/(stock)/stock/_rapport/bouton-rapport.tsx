@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { usePermissionRefusee } from "@/components/permissions-refusees";
+import { exportStockGouverne } from "@/lib/permissions";
 
 type T = { value: string; label: string };
 
@@ -15,7 +17,15 @@ type T = { value: string; label: string };
 // `pdfPage` : le « PDF » est une PAGE d'impression de l'application (/…/imprimer, avec sa coquille et
 // son bouton « Imprimer / Enregistrer en PDF »), pas un fichier : on y va dans la même fenêtre.
 // `pdfSansPrixHref` : seconde version du PDF, sans aucun montant (fiches techniques affichées au poste).
-export function BoutonRapport({ types, pdfHref, pdfSansPrixHref, excelHref, pdfPage }: { types?: T[]; pdfHref?: string; pdfSansPrixHref?: string; excelHref?: string; pdfPage?: boolean }) {
+export function BoutonRapport({ types: typesDemandes, pdfHref: pdfDemande, pdfSansPrixHref: pdfSansPrixDemande, excelHref: excelDemande, pdfPage }: { types?: T[]; pdfHref?: string; pdfSansPrixHref?: string; excelHref?: string; pdfPage?: boolean }) {
+  // « Exports » retiré à la personne (Direction, 12/11/2026) : les fichiers gouvernés disparaissent du menu ;
+  // une page d'impression (pdfPage) et les exports de factures restent. Menu vide → aucun bouton.
+  const sansExports = usePermissionRefusee("stock.exports");
+  const garde = (h?: string) => (h && sansExports && exportStockGouverne(h) ? undefined : h);
+  const pdfHref = pdfPage ? pdfDemande : garde(pdfDemande);
+  const pdfSansPrixHref = garde(pdfSansPrixDemande);
+  const excelHref = garde(excelDemande);
+  const types = sansExports ? undefined : typesDemandes; // rapports sur période : /stock/rapports/export
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   // Position calculée à l'ouverture et CLAMPÉE au viewport : le panneau reste toujours

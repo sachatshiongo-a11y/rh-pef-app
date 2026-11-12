@@ -12,6 +12,7 @@ import { formaterMontant, formaterUSD } from "@/lib/montant";
 import { aDesFrancs, additionnerTotaux, libelleEquivalent, libelleTotal, totalDepuisSommes, totalVide, type TotalDevises } from "@/lib/facture-devise";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { exigerPageStock } from "@/lib/garde-page";
+import { aPermission } from "@/lib/permissions";
 import { OngletsDefilants } from "@/components/onglets-defilants";
 import { EtatVide } from "@/components/etat-vide";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
@@ -174,7 +175,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
       />
 
       {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-payer": nbARegler, payees: nbPayees, toutes: nbFactures }} taux={taux ?? 0} />}
-      {bonsDb && <OngletBons id={id} nom={f.nom} filtre={filtreBons} estDirection={estDirection} bons={bonsDb} effectifs={{ "en-cours": nbBonsEnCours, recus: nbBonsRecus, tous: nbBons }} />}
+      {bonsDb && <OngletBons id={id} nom={f.nom} filtre={filtreBons} estDirection={estDirection} peutApprouver={aPermission(user, "stock.bon_valider")} bons={bonsDb} effectifs={{ "en-cours": nbBonsEnCours, recus: nbBonsRecus, tous: nbBons }} />}
       {achatsDirects && <OngletAchats nbAchatsDirects={nbAchatsDirects} achatsDirects={achatsDirects} />}
       {articles && <OngletArticles articles={articles} taux={taux} />}
       {onglet === "coordonnees" && (
@@ -236,8 +237,8 @@ function OngletFactures({ id, filtre, estDirection, factures, enAttente, effecti
 }
 
 // ─── Onglet Bons de commande : filtre En cours / Reçus / Tous, regroupés par mois ───
-function OngletBons({ id, nom, filtre, estDirection, bons, effectifs }: {
-  id: string; nom: string; filtre: FiltreBons; estDirection: boolean; bons: (BonDeCommande & { _count: { lignes: number }; lignes: { id: string }[] })[]; effectifs: Record<FiltreBons, number>;
+function OngletBons({ id, nom, filtre, estDirection, peutApprouver, bons, effectifs }: {
+  id: string; nom: string; filtre: FiltreBons; estDirection: boolean; peutApprouver: boolean; bons: (BonDeCommande & { _count: { lignes: number }; lignes: { id: string }[] })[]; effectifs: Record<FiltreBons, number>;
 }) {
   const lien = (v: FiltreBons) => lienFiche(id, "bons", v);
   return (
@@ -254,7 +255,7 @@ function OngletBons({ id, nom, filtre, estDirection, bons, effectifs }: {
         />
       ) : (
         <CommandesListe
-          key={filtre} estDirection={estDirection} sansFournisseur suffixeRetour={suffixeRetour(lien(filtre))}
+          key={filtre} estDirection={estDirection} peutApprouver={peutApprouver} sansFournisseur suffixeRetour={suffixeRetour(lien(filtre))}
           commandes={bons.map((b) => ({
             id: b.id, numero: b.numero, fournisseurId: b.fournisseurId ?? null, fournisseurNom: nom,
             date: new Date(b.date).toISOString(), nbLignes: b._count.lignes, total: totalBon(b), devise: deviseBon(b), sansPrix: b.lignes.length, statut: b.statut, documentUrl: b.documentUrl ?? null,

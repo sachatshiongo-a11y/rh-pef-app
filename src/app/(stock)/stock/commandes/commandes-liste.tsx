@@ -31,7 +31,7 @@ export type BCRow = {
  * bons du filtre sont chargés : les mois gardent leur compteur et leur total sur TOUT le filtre et ne montrent que
  * les lignes de la page ; « Tout sélectionner » = la page, un lien prend tout le filtre.
  */
-export function CommandesListe({ commandes, estDirection, sansFournisseur = false, suffixeRetour = "", paginer = false, pageInit = 1, parInit = 50, cleFiltre = "" }: { commandes: BCRow[]; estDirection: boolean; sansFournisseur?: boolean; suffixeRetour?: string; paginer?: boolean; pageInit?: number; parInit?: ParPage; /** Filtres de la page : la page repart à 1 quand ils changent, pas après une action groupée. */ cleFiltre?: string }) {
+export function CommandesListe({ commandes, estDirection, peutApprouver = estDirection, sansFournisseur = false, suffixeRetour = "", paginer = false, pageInit = 1, parInit = 50, cleFiltre = "" }: { commandes: BCRow[]; estDirection: boolean; /** Direction, ou personne à qui la Direction a coché « Approuver un bon » (stock.bon_valider) : sélection + « Approuver » en lot. */ peutApprouver?: boolean; sansFournisseur?: boolean; suffixeRetour?: string; paginer?: boolean; pageInit?: number; parInit?: ParPage; /** Filtres de la page : la page repart à 1 quand ils changent, pas après une action groupée. */ cleFiltre?: string }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
     <div className="space-y-2">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
-      {estDirection && commandes.length > 0 && (
+      {peutApprouver && commandes.length > 0 && (
         <BulkBar
           count={sel.size} total={pageCommandes.length} cochesAffichees={cocheesPage}
           libelleTout={pageCommandes.length < commandes.length ? "Tout sélectionner (cette page)" : "Tout sélectionner"}
@@ -63,7 +63,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
             </button>
           )}
           <BoutonApprouver disabled={isPending || brouillons.length === 0} onClick={() => run(() => validerBonsEnLot(brouillons))}>{`Approuver (${brouillons.length})`}</BoutonApprouver>
-          <BoutonDanger disabled={isPending} onClick={() => { if (confirm(`Supprimer ${sel.size} bon(s) de commande ?`)) run(() => supprimerBonsEnLot(ids)); }}>✕ Supprimer ({sel.size})</BoutonDanger>
+          {estDirection && <BoutonDanger disabled={isPending} onClick={() => { if (confirm(`Supprimer ${sel.size} bon(s) de commande ?`)) run(() => supprimerBonsEnLot(ids)); }}>✕ Supprimer ({sel.size})</BoutonDanger>}
           <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
         </BulkBar>
       )}
@@ -78,7 +78,7 @@ export function CommandesListe({ commandes, estDirection, sansFournisseur = fals
             <ul className="divide-y border-t text-sm">
               {affichees.map((c) => (
                 <li key={c.id} className={`flex items-center gap-2 px-3 py-1.5 ${sel.has(c.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
-                  {estDirection && <input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} className="shrink-0" aria-label={`Sélectionner ${c.numero}`} />}
+                  {peutApprouver && <input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} className="shrink-0" aria-label={`Sélectionner ${c.numero}`} />}
                   <div className="min-w-0 flex-1">
                     <Link href={`/stock/commandes/${c.id}${suffixeRetour}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
                     <span className="ml-2 text-xs text-muted-foreground">

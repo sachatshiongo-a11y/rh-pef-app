@@ -85,3 +85,19 @@ describe("total d'un bon : « — » et « incomplet », jamais « 0,00 $ » (au
     expect(conteneur.querySelector("[data-total-bon]")?.textContent).toMatch(/^2\s?300\s?000 FC$/);
   });
 });
+
+describe("personne autorisée à approuver (stock.bon_valider, hors Direction)", () => {
+  it("sélectionne et approuve en lot, sans bouton Supprimer", async () => {
+    rendre({ commandes: COMMANDES, estDirection: false, peutApprouver: true });
+    expect(conteneur.querySelectorAll('input[type="checkbox"]').length).toBeGreaterThan(0);
+    expect([...conteneur.querySelectorAll("button")].some((b) => b.textContent!.includes("Supprimer"))).toBe(false);
+    const coche = conteneur.querySelector<HTMLInputElement>('input[aria-label="Sélectionner BC-a"]')!;
+    await act(async () => coche.click());
+    await act(async () => bouton("Approuver").click());
+    expect(appels.validerBonsEnLot).toHaveBeenCalledWith(["a"]);
+  });
+  it("sans la permission : ni cases ni barre d'actions", () => {
+    rendre({ commandes: COMMANDES, estDirection: false });
+    expect(conteneur.querySelectorAll('input[aria-label^="Sélectionner"]').length).toBe(0);
+  });
+});

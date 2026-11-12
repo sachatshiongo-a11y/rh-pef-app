@@ -74,6 +74,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
 
       <CommandesListe
         estDirection={estDirection}
+        peutApprouver={aPermission(user, "stock.bon_valider")}
         paginer
         cleFiltre={[annee, mois, fournisseurId, statut].join("|")}
         pageInit={page}

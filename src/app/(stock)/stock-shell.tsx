@@ -1,5 +1,6 @@
 "use client";
 
+import { PermissionsRefuseesProvider } from "@/components/permissions-refusees";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -130,7 +131,7 @@ export function StockShell({
               <NotificationBell {...notif} />
             </div>
           )}
-          <div className="p-4 lg:p-8">{children}</div>
+          <div className="p-4 lg:p-8"><PermissionsRefuseesProvider refusees={permissionsRefusees}>{children}</PermissionsRefuseesProvider></div>
         </main>
       </div>
 

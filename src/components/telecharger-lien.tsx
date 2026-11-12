@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { donneesPdfValides } from "@/lib/pdf/navigateur/donnees";
+import { useExportMasque } from "@/components/permissions-refusees";
 
 /**
  * Ce que dit la réponse d'une route de document. Fonction PURE, séparée du composant parce que ce
@@ -372,6 +373,8 @@ export function TelechargerLien({
 }) {
   const [busy, setBusy] = useState(false);
   const [progres, setProgres] = useState<string | null>(null);
+  // « Exports » retiré par la Direction à cette personne : le bouton disparaît (la route refuse de toute façon).
+  const masque = useExportMasque(href);
 
   async function onClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault();
@@ -397,6 +400,7 @@ export function TelechargerLien({
     }
   }
 
+  if (masque) return null;
   return (
     <a href={href} onClick={onClick} className={className} title={title} aria-busy={busy} data-telechargement="">
       {children}
@@ -437,6 +441,7 @@ export function TelechargerFormulaire({
   children: React.ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
+  const masque = useExportMasque(action);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -454,6 +459,7 @@ export function TelechargerFormulaire({
     }
   }
 
+  if (masque) return null;
   return (
     <form action={action} method="get" onSubmit={onSubmit} className={className} aria-busy={busy}>
       {children}

@@ -122,3 +122,14 @@ export function surchargesDepuisCases(
   }
   return Object.keys(out).length ? out : null;
 }
+
+/**
+ * Adresses de téléchargement du Stock gouvernées par « Exports » (stock.exports) — la MÊME liste que les
+ * routes qui exigent cette permission (garde-fou : permissions.garde-fou.test.ts). Factures et clôture
+ * n'en font pas partie. Sert à MASQUER le bouton ; la route, elle, refuse de toute façon (403).
+ */
+const EXPORTS_STOCK = /^\/stock\/(?:restaurant\/(?:pdf|excel|fiche-inventaire)|legumes\/fiche|journalier\/(?:fiche|excel|pdf)|fournisseurs\/(?:pdf|export)|reconciliation\/fiche\/(?:pdf|excel)|fiches\/(?:pdf|export)|catalogue\/(?:pdf|export|[^/?]+\/pdf)|rapports\/export|commandes\/[^/?]+\/pdf)(?:[/?]|$)/;
+
+export function exportStockGouverne(href: string): boolean {
+  return EXPORTS_STOCK.test(href);
+}
