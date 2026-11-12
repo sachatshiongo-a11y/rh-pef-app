@@ -78,6 +78,23 @@ describe("facture déjà saisie", () => {
   });
 });
 
+describe("lignes sans article du catalogue (2026-11-12)", () => {
+  it("avertit qu'elles n'entreront pas en stock ; « Enregistrer quand même » renvoie forcerLibres", async () => {
+    envois.facture.mockResolvedValueOnce({ erreur: "LIGNES_LIBRES|La ligne « Sacs » n'est reliée à aucun article du catalogue : elle n'entrera PAS en stock." });
+    monter();
+    await cliquer(bouton("Enregistrer la facture"));
+    expect(envois.facture.mock.calls[0][0].get("forcerLibres")).toBeNull();
+    const boite = conteneur.querySelector("[data-lignes-libres]")!;
+    expect(boite.textContent).toContain("n'entreront pas en stock");
+    expect(boite.textContent).toContain("« Sacs »");
+    const b = bouton("restent hors stock");
+    expect(b.getAttribute("type")).toBe("button"); // jamais le bouton d'envoi par défaut
+    envois.facture.mockClear();
+    await cliquer(b);
+    expect(envois.facture.mock.calls[0][0].get("forcerLibres")).toBe("1");
+  });
+});
+
 describe("fournisseur proche", () => {
   const PROCHES = `FOURNISSEUR_PROCHE|${JSON.stringify({ candidats: [{ id: "f9", nom: "Maison Kathy" }], creationPossible: true })}`;
   it("propose « Utiliser » et « Créer » ; « Utiliser » renvoie l'identifiant et le nom choisis", async () => {

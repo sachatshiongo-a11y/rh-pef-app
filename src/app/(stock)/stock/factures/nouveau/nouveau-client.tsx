@@ -70,6 +70,8 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   // Garde-fous franchis EN CONNAISSANCE DE CAUSE : chacun reste vrai pour les envois suivants (un second garde-fou ne défait pas le premier).
   const [forcerStock, setForcerStock] = useState(false);
   const [forcerFacture, setForcerFacture] = useState(false);
+  const [forcerLibres, setForcerLibres] = useState(false);
+  const [libres, setLibres] = useState<string | null>(null);
   const [fournisseurNouveau, setFournisseurNouveau] = useState(false);
   const [doublonFacture, setDoublonFacture] = useState<DoublonFactureEcran | null>(null);
   const [proches, setProches] = useState<{ candidats: { id: string; nom: string }[]; creationPossible: boolean } | null>(null);
@@ -180,7 +182,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const totalFC = Math.round(lignes.reduce((t, l) => t + Math.round(nombreDeSaisie(l.quantite) * (Math.round(nombreDeSaisie(l.prix) * 100) / 100) * 100) / 100, 0) * 100) / 100;
 
   const submit = (fd: FormData) => {
-    setErreur(null); setDoublon(null); setDoublonFacture(null); setProches(null);
+    setErreur(null); setDoublon(null); setDoublonFacture(null); setProches(null); setLibres(null);
     start(async () => {
       let r: Awaited<ReturnType<typeof creerFactureAvecLignes>>;
       try { r = await creerFactureAvecLignes(fd); }
@@ -191,7 +193,8 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         throw e;
       }
       if (!estErreur(r)) return;
-      if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
+      if (r.erreur.startsWith("LIGNES_LIBRES|")) setLibres(r.erreur.slice("LIGNES_LIBRES|".length));
+      else if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
       else if (r.erreur.startsWith("DOUBLON_FACTURE|")) setDoublonFacture(JSON.parse(r.erreur.slice("DOUBLON_FACTURE|".length)) as DoublonFactureEcran);
       else if (r.erreur.startsWith("FOURNISSEUR_PROCHE|")) setProches(JSON.parse(r.erreur.slice("FOURNISSEUR_PROCHE|".length)) as { candidats: { id: string; nom: string }[]; creationPossible: boolean });
       else setErreur(r.erreur);
@@ -207,6 +210,16 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     const fd = new FormData(f);
     fd.set("forcerDoublons", "1");
     setForcerStock(true);
+    submit(fd);
+  };
+
+  // Lignes sans article : confirmées « hors stock » en connaissance de cause (bouton, jamais envoi implicite).
+  const enregistrerLibres = () => {
+    const f = formRef.current;
+    if (!f || !f.reportValidity()) return;
+    const fd = new FormData(f);
+    fd.set("forcerLibres", "1");
+    setForcerLibres(true);
     submit(fd);
   };
 
@@ -242,6 +255,15 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     // Entrée n'envoie jamais la facture : seul un clic sur un bouton l'enregistre.
     <form ref={formRef} action={submit} onKeyDown={empecherEnvoiParEntree} className="space-y-4">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {libres && (
+        <div data-lignes-libres className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">⚠ Des lignes n&apos;entreront pas en stock</p>
+          <p className="mt-1">{libres}</p>
+          <button type="button" onClick={enregistrerLibres} disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
+            Enregistrer quand même (ces lignes restent hors stock)
+          </button>
+        </div>
+      )}
       {doublon && (
         <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <p className="font-semibold">⚠ Achat peut-être déjà saisi</p>
@@ -270,6 +292,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
 
       {forcerStock && <input type="hidden" name="forcerDoublons" value="1" />}
       {forcerFacture && <input type="hidden" name="forcerFacture" value="1" />}
+      {forcerLibres && <input type="hidden" name="forcerLibres" value="1" />}
       {fournisseurNouveau && <input type="hidden" name="fournisseurNouveau" value="1" />}
 
       <div className="rounded-lg border bg-muted/20 p-3">

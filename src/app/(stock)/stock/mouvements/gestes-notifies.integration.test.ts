@@ -290,6 +290,7 @@ const facture = (o: { numero?: string; entrerEnStock: boolean; lignes: [string |
   f.set("fournisseurNom", "Brasimba"); f.set("date", DATE); f.set("forcerDoublons", "on");
   if (o.numero) f.set("numero", o.numero);
   if (o.entrerEnStock) f.set("entrerEnStock", "on");
+  f.set("forcerLibres", "1"); // lignes sans article confirmées hors stock (garde-fou LIGNES_LIBRES, testé ailleurs)
   for (const [id, q, p] of o.lignes) { f.append("ligne_articleId", id ?? ""); f.append("ligne_designation", "Ligne"); f.append("ligne_unite", ""); f.append("ligne_quantite", ecrireSaisieNombre(q)); f.append("ligne_prix", ecrireSaisieNombre(p)); }
   return f;
 };

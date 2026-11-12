@@ -61,6 +61,7 @@ const facture = (date: string, numero: string, lignes: LigneFac[], entrerEnStock
   const f = new FormData();
   f.set("fournisseurNom", "Grossiste Kin"); f.set("numero", numero); f.set("date", date); f.set("forcerDoublons", "1");
   if (entrerEnStock) f.set("entrerEnStock", "on");
+  f.set("forcerLibres", "1"); // lignes sans article confirmées hors stock (garde-fou LIGNES_LIBRES)
   for (const l of lignes) {
     f.append("ligne_articleId", l.articleId ?? ""); f.append("ligne_designation", l.designation); f.append("ligne_unite", "");
     f.append("ligne_quantite", ecrireSaisieNombre(l.quantite)); f.append("ligne_prix", ecrireSaisieNombre(l.prix)); // à la virgule, comme à l'écran

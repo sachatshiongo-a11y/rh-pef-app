@@ -91,6 +91,7 @@ const formFacture = (o: { devise?: string; lignes: [string | null, string, strin
   f.set("fournisseurNom", "MAMAN PAPY"); f.set("date", "2026-10-02"); f.set("forcerDoublons", "on");
   if (o.devise) f.set("devise", o.devise);
   if (o.entrer) f.set("entrerEnStock", "on");
+  f.set("forcerLibres", "1"); // lignes sans article confirmées hors stock (garde-fou LIGNES_LIBRES)
   if (o.regle) f.set("montantRegle", o.regle);
   for (const [art, des, q, p] of o.lignes) { f.append("ligne_articleId", art ?? ""); f.append("ligne_designation", des); f.append("ligne_unite", ""); f.append("ligne_quantite", q); f.append("ligne_prix", p); }
   return f;
